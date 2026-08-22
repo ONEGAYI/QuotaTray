@@ -68,6 +68,24 @@ impl QueryError {
     pub fn is_transient(&self) -> bool {
         matches!(self, Self::Transient { .. })
     }
+
+    /// 错误文案（不含凭据信息，可直接透出给用户）。
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Transient { message } | Self::Deterministic { message } => message,
+        }
+    }
+}
+
+impl std::fmt::Display for QueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = if self.is_transient() {
+            "瞬时"
+        } else {
+            "确定性"
+        };
+        write!(f, "[{kind}] {}", self.message())
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 [package]
 name = "quota-core"
-description = "QuotaTray 业务核心：数据模型、查询引擎、凭据保险库（M0 仅落地数据模型）"
+description = "QuotaTray 业务核心：数据模型、查询引擎、凭据保险库"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,3 +9,11 @@ license.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+aes-gcm = { workspace = true }
+keyring = { workspace = true }
+base64 = { workspace = true }
+dirs = { workspace = true }
+reqwest = { workspace = true }

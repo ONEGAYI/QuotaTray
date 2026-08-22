@@ -33,7 +33,24 @@ QuotaTray/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
-│           └── model.rs       # UsageData / QueryError 双轨分类，附契约单测
+│           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
+│           ├── vault/         # 凭据保险库
+│           │   ├── mod.rs     # Vault 门面：open（取/建主密钥）+ encrypt/decrypt
+│           │   ├── cipher.rs  # AES-256-GCM 与 v1: 密文格式（nonce 随机、AAD 绑定）
+│           │   └── store.rs   # SecretStore trait + KeyringStore（生产）/ InMemoryStore（测试）
+│           ├── config/        # 配置层
+│           │   ├── mod.rs     # AppConfig + ProviderEntry（原子写、密文落盘）
+│           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）
+│           ├── http/          # HTTP 抽象
+│           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型
+│           │   └── reqwest.rs # 生产实现（rustls，超时映射 Network/Timeout）
+│           ├── provider/      # 预置平台
+│           │   ├── mod.rs     # NativeProvider trait + 注册表 + 解析工具 + MockHttp
+│           │   ├── deepseek.rs       # /user/balance
+│           │   ├── siliconflow.rs    # /v1/user/info（CNY）
+│           │   └── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
+│           └── query/
+│               └── mod.rs     # QueryEngine：解密→分派→超时（默认 15s）
 ├── apps/
 │   └── quota-cli/             # CLI 前端（bin 名 quota，M0 骨架）
 │       └── src/
@@ -43,7 +60,7 @@ QuotaTray/
     └── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
 ```
 
-（`apps/quota-desktop/` 为规划目录，M3 建立；core 的 provider/query/template/script/vault/config 模块随 M1+ 建立）
+（`apps/quota-desktop/` 为规划目录，M3 建立；core 的 template（M2）/ script（M4）模块随里程碑建立）
 
 ## 工程规范
 
