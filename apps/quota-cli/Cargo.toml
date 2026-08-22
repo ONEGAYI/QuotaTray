@@ -1,0 +1,14 @@
+[package]
+name = "quota-cli"
+description = "QuotaTray 命令行前端（M0 骨架，子命令于 M2 提供）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "quota"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }

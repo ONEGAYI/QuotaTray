@@ -1,0 +1,15 @@
+# 构建产物
+/target
+
+# 本地运行时数据（密文快照、缓存）
+*.local.json
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# 编辑器/系统
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
