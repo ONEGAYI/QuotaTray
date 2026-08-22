@@ -38,3 +38,17 @@ pub enum ProviderKind {
     Native { provider: String },
     // M2：Template（声明式模板）；M4：Script（QuickJS 沙箱脚本）。
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 安全契约：Debug 输出打码，明文 key 不得出现。
+    #[test]
+    fn debug_masks_api_key() {
+        let creds = Credentials::new("sk-plaintext-secret");
+        let dbg = format!("{creds:?}");
+        assert!(!dbg.contains("sk-plaintext-secret"), "明文泄漏：{dbg}");
+        assert!(dbg.contains("<redacted>"), "应有打码占位：{dbg}");
+    }
+}

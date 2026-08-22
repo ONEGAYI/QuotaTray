@@ -127,4 +127,13 @@ mod tests {
             Some(b"0123456789abcdef0123456789abcdef".to_vec())
         );
     }
+
+    /// 安全契约：Debug 输出不携带主密钥字节。
+    #[test]
+    fn debug_never_exposes_master_key() {
+        let store = InMemoryStore::new();
+        store.set(b"super-secret-key-bytes-32-bytes!!!").unwrap();
+        let dbg = format!("{store:?}");
+        assert_eq!(dbg, "InMemoryStore", "Debug 不得输出内部状态：{dbg}");
+    }
 }

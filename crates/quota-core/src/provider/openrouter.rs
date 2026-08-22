@@ -39,7 +39,12 @@ impl NativeProvider for OpenRouter {
             .ok_or_else(|| parse_error("OpenRouter", "total_credits 数值"))?;
         let used = parse_num(data.get("total_usage"))
             .ok_or_else(|| parse_error("OpenRouter", "total_usage 数值"))?;
+        // 输入侧已拒绝非有限值，但两个有限值相减仍可溢出为 ±inf
+        //（如 1e308 − (−1e308)），inf 会绕过耗尽判断且序列化为 null
         let remaining = total - used;
+        if !remaining.is_finite() {
+            return Err(parse_error("OpenRouter", "remaining 计算溢出"));
+        }
 
         let exhausted = remaining <= 0.0;
         Ok(vec![UsageData {
@@ -114,5 +119,14 @@ mod tests {
         let body = r#"{"data":{"total_credits":"NaN","total_usage":1.0}}"#;
         let err = query_with(MockHttp::ok(body)).await.unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// 相减溢出为 inf（1e308 − (−1e308)）→ 确定性解析失败。
+    #[tokio::test]
+    async fn overflowed_subtraction_rejected() {
+        let body = r#"{"data":{"total_credits":1e308,"total_usage":-1e308}}"#;
+        let err = query_with(MockHttp::ok(body)).await.unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("溢出"), "实际：{err}");
     }
 }
