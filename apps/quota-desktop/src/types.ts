@@ -108,5 +108,6 @@ export interface SnapshotEntry {
   at: number;
 }
 
-/** keep-last-good 展示窗口：瞬时失败后保留旧值的时限（GUI-spec §3）。 */
+/** keep-last-good 展示窗口：瞬时失败后保留旧值的时限（GUI-spec §3）。
+ *  Rust 侧同值定义在 `src-tauri/src/tray.rs` 的 `KEEP_LAST_GOOD_MS`——两端同步修改。 */
 export const KEEP_LAST_GOOD_MS = 10 * 60 * 1000;

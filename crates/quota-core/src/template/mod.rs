@@ -311,6 +311,17 @@ fn extract_var_names(s: &str) -> Vec<String> {
     vars
 }
 
+/// 模板是否引用了 `{{apiKey}}`（容忍空格写法，与 validate/执行期同一解析）。
+///
+/// 供前端（如 GUI 试查前判断 key 是否必填）与 CLI 共用，
+/// 避免各自做字面量扫描后与执行期语义漂移。
+pub fn uses_api_key(config: &TemplateConfig) -> bool {
+    let uses = |s: &str| extract_var_names(s).iter().any(|v| v == "apiKey");
+    uses(&config.request.url)
+        || config.request.headers.values().any(|v| uses(v))
+        || config.request.body.as_deref().is_some_and(uses)
+}
+
 // ---- 错误 ---------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
@@ -330,10 +341,6 @@ pub(crate) async fn execute(
     base_url: Option<&str>,
 ) -> Result<Vec<UsageData>, QueryError> {
     let url = substitute(&config.request.url, api_key, base_url)?;
-    for (name, value) in &config.request.headers {
-        substitute(value, api_key, base_url)?;
-        let _ = name; // 值已校验；实际构造在下方统一进行
-    }
     let headers: Result<Vec<_>, _> = config
         .request
         .headers
@@ -843,5 +850,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(data[0].remaining, Some(42.5), "带空格变量应正常替换执行");
+    }
+
+    /// 契约：uses_api_key 与执行期变量解析同一语义（含带空格写法），
+    /// 供 GUI 试查/CLI 判断 key 是否必填。
+    #[test]
+    fn uses_api_key_matches_variable_semantics() {
+        let no = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(!uses_api_key(&no));
+
+        let in_url = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com?k={{ apiKey }}"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_url), "带空格的 url 引用应识别");
+
+        let in_header = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com","headers":{"Authorization":"Bearer {{apiKey}}"}},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_header), "header 引用应识别");
+
+        let in_body = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com","body":"{{ apiKey }}"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_body), "body 引用应识别");
     }
 }

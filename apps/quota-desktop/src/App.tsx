@@ -17,7 +17,9 @@ function AppInner() {
   const snapshots = useSnapshots();
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
-  const [dialogSeq, setDialogSeq] = useState(0); // 新增对话框每次打开重置表单
+  // 每次打开/关闭都递增：新增与编辑共用，取消后重开不残留上次中间态
+  // （含 key 输入框——残留会导致"只想改名"的保存把放弃的 key 一并写入）
+  const [dialogSeq, setDialogSeq] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const intervalMinutes = settings.data?.refresh_interval_minutes ?? 5;
@@ -72,6 +74,7 @@ function AppInner() {
             snapshot={snapshots.data?.[entry.id]}
             onEdit={(e) => {
               setEditing(e);
+              setDialogSeq((s) => s + 1);
               setEditOpen(true);
             }}
           />
@@ -81,8 +84,11 @@ function AppInner() {
       <EditDialog
         open={editOpen}
         initial={editing}
-        onClose={() => setEditOpen(false)}
-        key={editing?.id ?? `new-${dialogSeq}`}
+        onClose={() => {
+          setEditOpen(false);
+          setDialogSeq((s) => s + 1); // 关闭即作废当前表单态，重开从 initial 重建
+        }}
+        key={`${editing?.id ?? "new"}-${dialogSeq}`}
       />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

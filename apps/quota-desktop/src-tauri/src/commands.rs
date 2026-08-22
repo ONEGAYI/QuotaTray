@@ -57,15 +57,11 @@ pub fn apply_key_policy(
 }
 
 /// 模板是否引用了 `{{apiKey}}`（决定试查时 key 是否必填）。
+///
+/// 委托 core `uses_api_key`——变量解析（含带空格写法）与 validate/执行期
+/// 同一语义，避免本地字面量扫描漂移。
 pub fn template_needs_api_key(config: &TemplateConfig) -> bool {
-    let marker = "{{apiKey}}";
-    config.request.url.contains(marker)
-        || config.request.headers.values().any(|v| v.contains(marker))
-        || config
-            .request
-            .body
-            .as_deref()
-            .is_some_and(|b| b.contains(marker))
+    quota_core::template::uses_api_key(config)
 }
 
 /// 结果表 → 快照（仅保留有成功数据的条目）。
@@ -311,7 +307,8 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// 保存设置。顺序约定：磁盘为权威状态——
 /// 1. 先落盘（失败则内存不动，前端展示错误，三方一致）；
 /// 2. 落盘成功后同步内存；
-/// 3. 自启系统注册失败不影响已保存的其余设置，但明确告知用户。
+/// 3. 托盘按新阈值重建（阈值变更即时反映，不受后续自启失败影响）；
+/// 4. 自启系统注册失败不影响已保存的其余设置，明确指引重试方式。
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,
@@ -326,13 +323,15 @@ pub fn save_settings(
         .save(&state.paths.settings())
         .map_err(|e| format!("设置写入失败：{e}"))?;
     *state.settings.write().unwrap() = settings.clone();
+    tray::rebuild(&app, &state); // 阈值变化影响告警图标
 
     if old_autostart != settings.autostart {
         if let Err(e) = apply_autostart(&app, settings.autostart) {
-            return Err(format!("其余设置已保存，但开机自启未能应用：{e}"));
+            return Err(format!(
+                "其余设置已保存，但开机自启未能应用：{e}（请重新切换一次自启开关以重试）"
+            ));
         }
     }
-    tray::rebuild(&app, &state); // 阈值变化影响告警图标
     Ok(())
 }
 
@@ -436,6 +435,13 @@ mod tests {
         )
         .unwrap();
         assert!(template_needs_api_key(&in_header));
+
+        // 带空格写法与执行期同语义（第 2 轮审查 P2 的回归锁定）
+        let spaced: TemplateConfig = serde_json::from_str(
+            r#"{"request":{"url":"https://a.com","headers":{"Authorization":"Bearer {{ apiKey }}"}},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(template_needs_api_key(&spaced), "带空格写法应识别");
     }
 
     /// 契约：结果表 → 快照只含有成功数据的条目（错误态不进快照）。

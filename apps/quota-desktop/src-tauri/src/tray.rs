@@ -60,6 +60,7 @@ fn percent_text(v: f64) -> String {
 
 /// keep-last-good 窗口（GUI-spec §3）：瞬时失败后保留旧值展示的时限，
 /// 超窗后按网络波动态展示（旧值过旧，不再作为展示依据）。
+/// 前端同值定义在 `src/types.ts` 的 `KEEP_LAST_GOOD_MS`——两端同步修改。
 const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
 
 /// 条目展示行（多窗口一窗口一行）。
@@ -190,8 +191,33 @@ static ALERT_ICON: std::sync::LazyLock<tauri::image::Image<'static>> =
     });
 
 /// 创建托盘（setup 阶段调用一次）。
+///
+/// 首次启动配置文件不存在是正常路径（load 返回空配置，非 Err）；
+/// 真正读盘失败时给诚实提示菜单而非空菜单。
 pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
-    let menu = build_menu(app, state)?;
+    let menu = match snapshot_views(state) {
+        Some((cfg, results, settings)) => build_menu(app, &cfg, &results, &settings)?,
+        None => {
+            let menu = Menu::new(app)?;
+            menu.append(&MenuItem::with_id(
+                app,
+                "info-config-error",
+                "配置读取失败，请检查 config.json",
+                false,
+                None::<&str>,
+            )?)?;
+            menu.append(&PredefinedMenuItem::separator(app)?)?;
+            menu.append(&MenuItem::with_id(
+                app,
+                "show",
+                "打开主窗口",
+                true,
+                None::<&str>,
+            )?)?;
+            menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
+            menu
+        }
+    };
     tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().expect("窗口图标缺失").clone())
         .tooltip("QuotaTray")
@@ -205,12 +231,17 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
 
 /// 重建托盘菜单与图标（每次查询/配置/设置变更后调用）。
 ///
-/// 重建失败不打断业务（托盘停留旧状态），但记录日志便于排查。
+/// 重建失败不打断业务（托盘停留旧状态），但记录日志便于排查；
+/// 配置读盘失败同样保留旧菜单（读盘失败 ≠ 无供应商，清空会误导）。
 pub fn rebuild(app: &AppHandle, state: &AppState) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    let menu = match build_menu(app, state) {
+    let Some((cfg, results, settings)) = snapshot_views(state) else {
+        eprintln!("配置读取失败，托盘保留既有菜单");
+        return;
+    };
+    let menu = match build_menu(app, &cfg, &results, &settings) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("托盘菜单重建失败：{e}");
@@ -220,8 +251,6 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
     if let Err(e) = tray.set_menu(Some(menu)) {
         eprintln!("托盘菜单应用失败：{e}");
     }
-
-    let (cfg, results, settings) = snapshot_views(state);
     let icon = if any_alert(&cfg, &results, &settings) {
         ALERT_ICON.clone()
     } else {
@@ -235,15 +264,22 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
 }
 
 /// 读当前 config / results / settings（重建托盘的一致性视图）。
-fn snapshot_views(state: &AppState) -> (AppConfig, HashMap<String, EntryState>, Settings) {
-    let cfg = AppConfig::load(&state.paths.config()).unwrap_or_default();
+///
+/// 配置读盘失败返回 None——调用方应保留既有菜单而非构建空菜单
+/// （读盘失败 ≠ 无供应商，清空会误导用户）。
+fn snapshot_views(state: &AppState) -> Option<(AppConfig, HashMap<String, EntryState>, Settings)> {
+    let cfg = AppConfig::load(&state.paths.config()).ok()?;
     let results = state.results.read().unwrap().clone();
     let settings = state.settings.read().unwrap().clone();
-    (cfg, results, settings)
+    Some((cfg, results, settings))
 }
 
-fn build_menu(app: &AppHandle, state: &AppState) -> tauri::Result<Menu<Wry>> {
-    let (cfg, results, settings) = snapshot_views(state);
+fn build_menu(
+    app: &AppHandle,
+    cfg: &AppConfig,
+    results: &HashMap<String, EntryState>,
+    settings: &Settings,
+) -> tauri::Result<Menu<Wry>> {
     let now = now_ms();
     let menu = Menu::new(app)?;
     let entries: Vec<_> = cfg.providers.iter().filter(|p| p.enabled).collect();
@@ -451,10 +487,12 @@ mod tests {
     }
 
     /// 契约：瞬时失败超过 keep-last-good 窗口（10 分钟）→ 旧值不再展示，
-    /// 按网络波动态显示（GUI-spec §3 的窗口语义）。
+    /// 按网络波动态显示（GUI-spec §3 的窗口语义）；恰 10 分钟仍在窗口内
+    /// （Rust `>` 与前端 `<=` 的边界对称由本断言锁定）。
     #[test]
     fn transient_error_beyond_window_drops_stale_data() {
         let in_window = NOW - 9 * 60 * 1000;
+        let exactly = NOW - 600_000; // 恰 10 分钟：窗口内
         let beyond = NOW - 11 * 60 * 1000;
         let st = |at: u64| EntryState {
             data: Some(vec![data(Some(88.0), Some("CNY"))]),
@@ -468,6 +506,11 @@ mod tests {
             entry_lines("X", &st(in_window), 80, NOW),
             vec!["X · 剩余 88.00 CNY · 9 分钟前 · ⟳ 暂不可达"],
             "窗口内应保留旧值"
+        );
+        assert_eq!(
+            entry_lines("X", &st(exactly), 80, NOW),
+            vec!["X · 剩余 88.00 CNY · 10 分钟前 · ⟳ 暂不可达"],
+            "恰 10 分钟应在窗口内（前端同语义）"
         );
         assert_eq!(
             entry_lines("X", &st(beyond), 80, NOW),
