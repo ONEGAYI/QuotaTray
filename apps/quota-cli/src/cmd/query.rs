@@ -347,6 +347,10 @@ mod tests {
         let sel = select_entries(&providers, &["b".to_string()]).unwrap();
         assert_eq!(sel[0].id, "b", "指定 id 可选中禁用条目");
 
+        // 重复 id 去重保序：只查一次
+        let sel = select_entries(&providers, &["b".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(sel.len(), 1);
+
         // 部分存在部分缺失 → 整体报错
         let err = select_entries(&providers, &["a".to_string(), "zzz".to_string()]).unwrap_err();
         assert_eq!(err, vec!["zzz".to_string()]);

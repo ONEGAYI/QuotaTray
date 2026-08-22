@@ -1,4 +1,7 @@
 //! `quota vault status`：主密钥健康检查（系统凭据库可读性）。
+//!
+//! 副作用：主密钥不存在时，健康检查内部的 `Vault::open` 会顺带完成
+//! 首次初始化（生成并写入，幂等）——与正常首次运行行为一致。
 
 use quota_core::Vault;
 
@@ -9,7 +12,7 @@ pub fn run(ctx: &Ctx) -> i32 {
 
     match store.get() {
         Ok(Some(_)) => println!("系统凭据库：可读（主密钥已存在）"),
-        Ok(None) => println!("系统凭据库：可读（主密钥尚未初始化，将在首次加密时生成）"),
+        Ok(None) => println!("系统凭据库：可读（主密钥尚未初始化，本次检查将生成新密钥）"),
         Err(e) => {
             eprintln!("系统凭据库读取失败：{e}");
             eprintln!(
