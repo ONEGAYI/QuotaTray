@@ -31,8 +31,9 @@ impl NativeProvider for SiliconFlow {
             .header("Accept", "application/json");
         let body = fetch_json(http, req).await?;
 
-        // code != 20000 为平台业务错误（含 message），重试无意义
-        if let Some(code) = body.get("code").and_then(|v| v.as_i64()) {
+        // code != 20000 为平台业务错误（含 message），重试无意义；
+        // 兼容数字与字符串两种 code 形态（历史版本 API 曾返回字符串）
+        if let Some(code) = body.get("code").and_then(parse_int) {
             if code != 20000 {
                 let message = body
                     .get("message")
@@ -64,6 +65,15 @@ impl NativeProvider for SiliconFlow {
     }
 }
 
+/// 整数字段解析：兼容 JSON number 与字符串数字。
+fn parse_int(v: &serde_json::Value) -> Option<i64> {
+    match v {
+        serde_json::Value::Number(n) => n.as_i64(),
+        serde_json::Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,9 +81,7 @@ mod tests {
     use crate::provider::testing::MockHttp;
 
     fn creds() -> Credentials {
-        Credentials {
-            api_key: "sk-test".into(),
-        }
+        Credentials::new("sk-test")
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
@@ -116,5 +124,25 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// code 为字符串数字时仍走业务错误检查（不退化为结构解析错误）。
+    #[tokio::test]
+    async fn string_code_still_checked() {
+        let body = r#"{"code":"10001","message":"invalid token"}"#;
+        let err = query_with(MockHttp::ok(body)).await.unwrap_err();
+        assert!(!err.is_transient());
+        assert!(
+            err.message().contains("10001") && err.message().contains("invalid token"),
+            "实际：{err}"
+        );
+    }
+
+    /// code 缺失但结构完整 → 放行（宽松兼容，靠结构校验兜底）。
+    #[tokio::test]
+    async fn missing_code_with_valid_structure_succeeds() {
+        let body = r#"{"data":{"totalBalance":"1.25"}}"#;
+        let data = query_with(MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].remaining, Some(1.25));
     }
 }

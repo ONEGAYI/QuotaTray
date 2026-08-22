@@ -31,6 +31,9 @@ pub trait SecretStore: Send + Sync {
 /// 系统凭据库后端（keyring crate）。
 ///
 /// 条目：service `QuotaTray` / user `master-key`，内容为 base64 的主密钥。
+///
+/// 注：无自动化测试——真实系统凭据库无法在 CI 中可靠 mock，
+/// 行为验证依赖手动跑（Windows 凭据管理器可见 QuotaTray 条目）。
 pub struct KeyringStore {
     service: &'static str,
     user: &'static str,
@@ -77,9 +80,18 @@ impl SecretStore for KeyringStore {
 }
 
 /// 单测与 CI 用的内存后端。跨实例共享请克隆（内部 Arc）。
-#[derive(Debug, Clone, Default)]
+///
+/// 仅用于测试：不落盘、随进程消失，生产路径误用会导致重启后密文不可解。
+/// Debug 输出固定字面量——内部持有主密钥字节，不得进任何日志。
+#[derive(Clone, Default)]
 pub struct InMemoryStore {
     inner: Arc<RwLock<Option<Vec<u8>>>>,
+}
+
+impl std::fmt::Debug for InMemoryStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("InMemoryStore")
+    }
 }
 
 impl InMemoryStore {

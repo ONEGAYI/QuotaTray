@@ -52,7 +52,7 @@ impl ProviderEntry {
         let api_key = vault
             .decrypt(enc, &self.id)
             .map_err(|e| QueryError::deterministic(format!("凭据解密失败：{e}")))?;
-        Ok(Credentials { api_key })
+        Ok(Credentials::new(api_key))
     }
 }
 
@@ -92,14 +92,19 @@ impl AppConfig {
     }
 
     /// 原子保存：先写临时文件再重命名，避免写一半损坏配置。
+    ///
+    /// tmp 名含进程 id（多进程并发保存不互踩）；rename 失败时清理 tmp 残留。
     pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(ConfigError::Write)?;
         }
         let text = serde_json::to_string_pretty(self).map_err(ConfigError::Parse)?;
-        let tmp = path.with_extension("json.tmp");
+        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
         std::fs::write(&tmp, text).map_err(ConfigError::Write)?;
-        std::fs::rename(&tmp, path).map_err(ConfigError::Write)?;
+        std::fs::rename(&tmp, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            ConfigError::Write(e)
+        })?;
         Ok(())
     }
 }
@@ -132,6 +137,15 @@ mod tests {
         let path = temp_path("missing");
         let _ = std::fs::remove_file(&path);
         assert_eq!(AppConfig::load(&path).unwrap(), AppConfig::default());
+    }
+
+    /// 契约：损坏的 JSON 文件报 Parse 错误（而非静默当空配置）。
+    #[test]
+    fn corrupted_json_fails_with_parse_error() {
+        let path = temp_path("corrupted");
+        std::fs::write(&path, "{ not valid json").unwrap();
+        assert!(matches!(AppConfig::load(&path), Err(ConfigError::Parse(_))));
+        let _ = std::fs::remove_file(&path);
     }
 
     /// 契约：凭据密文落盘——配置文件中不得出现明文 API key。
@@ -177,7 +191,10 @@ mod tests {
             api_key_enc: None,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
-        assert_eq!(entry.credentials(&vault).unwrap().api_key, "sk-abc");
+        assert_eq!(
+            entry.credentials(&vault).unwrap().api_key.as_str(),
+            "sk-abc"
+        );
     }
 
     /// 契约：未配置凭据 → 确定性失败（不触发重试）。

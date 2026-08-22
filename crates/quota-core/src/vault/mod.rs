@@ -21,20 +21,33 @@ pub use store::{InMemoryStore, KeyringStore, SecretStore, VaultError};
 ///
 /// `aad` 参数绑定密文与其所属条目（如 provider id），
 /// 密文被挪到其他条目时解密失败——防配置内密文字段错位/互换。
-#[derive(Debug, Clone)]
+///
+/// 刻意不实现 Clone：克隆会让主密钥材料在进程内不受控扩散。
+#[derive(Debug)]
 pub struct Vault {
     cipher: AesGcmCipher,
 }
 
 impl Vault {
     /// 打开（或首次创建）保险库：从 `store` 读取主密钥，不存在则随机生成并写入。
+    ///
+    /// 写入后回读校验，检测同机多进程并发首次初始化的覆盖竞态
+    /// （后写者覆盖先写者时，先写者在此报错而非用被覆盖的密钥加密数据）。
     pub fn open(store: &dyn SecretStore) -> Result<Self, VaultError> {
         let key = match store.get()? {
             Some(key) => key,
             None => {
-                let key = cipher::generate_master_key();
+                let key = zeroize::Zeroizing::new(cipher::generate_master_key());
                 store.set(&key)?;
-                key
+                let confirmed = store
+                    .get()?
+                    .ok_or_else(|| VaultError::Store("主密钥写入后读取不到".into()))?;
+                if confirmed.as_slice() != key.as_slice() {
+                    return Err(VaultError::Store(
+                        "主密钥初始化竞态：另一实例已写入不同的主密钥，请重试".into(),
+                    ));
+                }
+                key.to_vec()
             }
         };
         let cipher = AesGcmCipher::new(&key)?;

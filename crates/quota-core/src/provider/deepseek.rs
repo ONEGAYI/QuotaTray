@@ -77,9 +77,7 @@ mod tests {
     }"#;
 
     fn creds() -> Credentials {
-        Credentials {
-            api_key: "sk-test".into(),
-        }
+        Credentials::new("sk-test")
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
@@ -153,5 +151,32 @@ mod tests {
                 .unwrap_err()
                 .is_transient()
         );
+    }
+
+    /// 多条 balance_infos 时取第一条（官方 API 当前仅一条 CNY，防御未来扩展）。
+    #[tokio::test]
+    async fn multiple_balance_infos_takes_first() {
+        let body = r#"{
+            "is_available": true,
+            "balance_infos": [
+                {"currency": "CNY", "total_balance": "110.00"},
+                {"currency": "USD", "total_balance": "9.99"}
+            ]
+        }"#;
+        let data = query_with(MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].remaining, Some(110.0));
+        assert_eq!(data[0].unit.as_deref(), Some("CNY"));
+    }
+
+    /// total_balance 非有限值（"Infinity"）→ 确定性解析失败，不透出污染数据。
+    #[tokio::test]
+    async fn non_finite_balance_rejected() {
+        let body = r#"{
+            "is_available": true,
+            "balance_infos": [{"currency": "CNY", "total_balance": "Infinity"}]
+        }"#;
+        let err = query_with(MockHttp::ok(body)).await.unwrap_err();
+        assert!(!err.is_transient());
     }
 }

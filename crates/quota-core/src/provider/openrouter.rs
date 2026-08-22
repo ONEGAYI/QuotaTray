@@ -62,9 +62,7 @@ mod tests {
     use crate::provider::testing::MockHttp;
 
     fn creds() -> Credentials {
-        Credentials {
-            api_key: "sk-or-test".into(),
-        }
+        Credentials::new("sk-or-test")
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
@@ -98,6 +96,23 @@ mod tests {
         let err = query_with(MockHttp::ok(r#"{"data":{"total_credits":10.0}}"#))
             .await
             .unwrap_err();
+        assert!(!err.is_transient());
+    }
+
+    /// 负 remaining（已用超出总额，如 5 − 10）→ 无效。
+    #[tokio::test]
+    async fn negative_remaining_marks_invalid() {
+        let body = r#"{"data":{"total_credits":5.0,"total_usage":10.0}}"#;
+        let data = query_with(MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].remaining, Some(-5.0));
+        assert_eq!(data[0].is_valid, Some(false));
+    }
+
+    /// 数值为非有限字符串（"NaN"）→ 确定性解析失败，不得绕过 exhausted 判断。
+    #[tokio::test]
+    async fn non_finite_values_rejected() {
+        let body = r#"{"data":{"total_credits":"NaN","total_usage":1.0}}"#;
+        let err = query_with(MockHttp::ok(body)).await.unwrap_err();
         assert!(!err.is_transient());
     }
 }

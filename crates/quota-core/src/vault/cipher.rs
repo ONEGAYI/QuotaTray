@@ -24,6 +24,8 @@ pub enum CipherError {
     InvalidBase64(#[source] base64::DecodeError),
     #[error("密文长度异常（nonce 或认证标签缺失）")]
     MalformedCiphertext,
+    #[error("主密钥长度非法（期望 32 字节）")]
+    InvalidKeyLength,
     #[error("解密失败：密文被篡改、密钥不符或 AAD 不匹配")]
     AuthFailed,
 }
@@ -52,10 +54,10 @@ impl AesGcmCipher {
     pub fn new(master_key: &[u8]) -> Result<Self, CipherError> {
         if master_key.len() != KEY_LEN {
             // 主密钥来自 generate_master_key 或系统凭据库，长度不符意味着存储被破坏
-            return Err(CipherError::MalformedCiphertext);
+            return Err(CipherError::InvalidKeyLength);
         }
         let cipher =
-            Aes256Gcm::new_from_slice(master_key).map_err(|_| CipherError::MalformedCiphertext)?;
+            Aes256Gcm::new_from_slice(master_key).map_err(|_| CipherError::InvalidKeyLength)?;
         Ok(Self { cipher })
     }
 

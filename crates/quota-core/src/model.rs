@@ -88,6 +88,8 @@ impl std::fmt::Display for QueryError {
     }
 }
 
+impl std::error::Error for QueryError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

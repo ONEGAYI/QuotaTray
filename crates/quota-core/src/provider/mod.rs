@@ -10,7 +10,7 @@ pub use deepseek::DeepSeek;
 pub use openrouter::OpenRouter;
 pub use siliconflow::SiliconFlow;
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -40,13 +40,18 @@ pub trait NativeProvider: Send + Sync {
     ) -> Result<Vec<UsageData>, QueryError>;
 }
 
-/// 全部预置平台。
-pub fn all() -> Vec<Arc<dyn NativeProvider>> {
+/// 全部预置平台（进程内固化，避免每次查找重建注册表）。
+static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
     vec![
         Arc::new(DeepSeek),
         Arc::new(SiliconFlow),
         Arc::new(OpenRouter),
     ]
+});
+
+/// 全部预置平台。
+pub fn all() -> Vec<Arc<dyn NativeProvider>> {
+    REGISTRY.clone()
 }
 
 /// 按 id 查找预置平台。
@@ -61,27 +66,36 @@ pub fn metas() -> Vec<NativeMeta> {
 
 // ---- 共用工具 -----------------------------------------------------------
 
-/// 发送请求并解析 JSON。网络层失败 → 瞬时；非 2xx 与解析失败按状态码分类。
+/// 发送请求并解析 JSON。
+///
+/// 错误映射：网络/超时 → 瞬时；请求非法（配置错误）→ 确定性；
+/// 非 2xx 按状态码分类并尽量透出响应体中的错误说明。
 pub(crate) async fn fetch_json(
     http: &dyn HttpClient,
     req: HttpRequest,
 ) -> Result<Value, QueryError> {
-    let resp = http
-        .execute(req)
-        .await
-        .map_err(|e| QueryError::transient(e.to_string()))?;
+    let resp = http.execute(req).await.map_err(|e| match &e {
+        crate::http::HttpError::Timeout | crate::http::HttpError::Network(_) => {
+            QueryError::transient(e.to_string())
+        }
+        crate::http::HttpError::InvalidRequest(_) => QueryError::deterministic(e.to_string()),
+    })?;
     if !resp.is_success() {
-        return Err(status_error(resp.status));
+        return Err(status_error_with_body(resp.status, &resp.body));
     }
     serde_json::from_str(&resp.body).map_err(|_| QueryError::deterministic("响应不是合法 JSON"))
 }
 
 /// HTTP 状态码 → 错误双轨分类：
-/// 401/403/404 与其他 4xx = 确定性（认证失效/端点错误，重试无意义）；
-/// 429 与 5xx = 瞬时（限流/服务端故障，可重试）。
-pub(crate) fn status_error(status: u16) -> QueryError {
-    let transient = status == 429 || (500..600).contains(&status);
-    let message = format!("HTTP {status}");
+/// 408（请求超时）/429（限流）/5xx = 瞬时（可重试）；
+/// 其余 4xx（401/403/404/402 等）= 确定性（认证失效、欠费、端点错误，重试无意义）。
+/// 响应体含 `error.message` 时附加到文案（远端内容不含本地凭据，可透出）。
+pub(crate) fn status_error_with_body(status: u16, body: &str) -> QueryError {
+    let transient = status == 408 || status == 429 || (500..600).contains(&status);
+    let message = match error_detail(body) {
+        Some(detail) => format!("HTTP {status}: {detail}"),
+        None => format!("HTTP {status}"),
+    };
     if transient {
         QueryError::transient(message)
     } else {
@@ -89,11 +103,26 @@ pub(crate) fn status_error(status: u16) -> QueryError {
     }
 }
 
-/// 数值解析：兼容 JSON number 与字符串数字（各平台 API 风格不一）。
+/// 从错误响应体提取说明（OpenRouter/one-api 系惯例为 `error.message`），
+/// 截断到 120 字符；远端返回的内容不含本地凭据，可安全透出。
+fn error_detail(body: &str) -> Option<String> {
+    let parsed: Value = serde_json::from_str(body).ok()?;
+    let msg = parsed.get("error")?.get("message")?.as_str()?;
+    let trimmed: String = msg.chars().take(120).collect();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// 数值解析：兼容 JSON number 与字符串数字（各平台 API 风格不一），
+/// 拒绝非有限值——`"NaN"`/`"Infinity"` 等在 Rust 中可成功 parse，
+/// 会静默绕过比较判断并污染序列化（f64 非有限值序列化为 null）。
 pub(crate) fn parse_num(v: Option<&Value>) -> Option<f64> {
     match v? {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.trim().parse().ok(),
+        Value::Number(n) => n.as_f64().filter(|f| f.is_finite()),
+        Value::String(s) => s.trim().parse::<f64>().ok().filter(|f| f.is_finite()),
         _ => None,
     }
 }
@@ -179,15 +208,37 @@ pub(crate) mod testing {
 mod tests {
     use super::*;
 
-    /// 状态码分类契约：401/404 确定性，429/500/503 瞬时。
+    /// 状态码分类契约：401/402/404 确定性（认证/欠费/端点错误），
+    /// 408/429/5xx 瞬时（请求超时/限流/服务端故障，可重试）。
     #[test]
     fn status_classification() {
-        for code in [401, 403, 404, 400] {
-            assert!(!status_error(code).is_transient(), "{code} 应为确定性");
+        for code in [400, 401, 402, 403, 404, 422] {
+            assert!(
+                !status_error_with_body(code, "").is_transient(),
+                "{code} 应为确定性"
+            );
         }
-        for code in [429, 500, 502, 503] {
-            assert!(status_error(code).is_transient(), "{code} 应为瞬时");
+        for code in [408, 429, 500, 502, 503] {
+            assert!(
+                status_error_with_body(code, "").is_transient(),
+                "{code} 应为瞬时"
+            );
         }
+    }
+
+    /// 状态码错误透出响应体说明（error.message）契约。
+    #[test]
+    fn status_error_includes_body_detail() {
+        let body = r#"{"error":{"message":"Insufficient credits"}}"#;
+        let err = status_error_with_body(402, body);
+        assert!(!err.is_transient());
+        assert!(
+            err.message().contains("Insufficient credits"),
+            "实际：{err}"
+        );
+        // 非 JSON 响应体回退为纯状态码文案
+        let plain = status_error_with_body(404, "<html>Not Found</html>");
+        assert_eq!(plain.message(), "HTTP 404");
     }
 
     /// 数值解析契约：number 与字符串数字均可，其余为 None。
@@ -200,6 +251,19 @@ mod tests {
         assert_eq!(parse_num(Some(&serde_json::json!(true))), None);
         assert_eq!(parse_num(Some(&serde_json::json!("abc"))), None);
         assert_eq!(parse_num(None), None);
+    }
+
+    /// 数值解析契约：拒绝非有限值——Rust 的 f64 parse 接受 "NaN"/"Infinity"
+    /// 等字面量，放行会静默绕过比较判断且序列化为 null 污染快照。
+    #[test]
+    fn number_parsing_rejects_non_finite() {
+        for bad in ["NaN", "nan", "Infinity", "-inf", "1e999"] {
+            assert_eq!(
+                parse_num(Some(&serde_json::json!(bad))),
+                None,
+                "{bad} 应被拒绝"
+            );
+        }
     }
 
     /// 注册表契约：id 唯一且可按 id 找到。

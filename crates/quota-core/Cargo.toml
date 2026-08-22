@@ -17,3 +17,4 @@ keyring = { workspace = true }
 base64 = { workspace = true }
 dirs = { workspace = true }
 reqwest = { workspace = true }
+zeroize = { workspace = true }

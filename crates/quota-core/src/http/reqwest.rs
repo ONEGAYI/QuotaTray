@@ -47,6 +47,9 @@ impl HttpClient for ReqwestHttpClient {
 fn map_reqwest_err(e: reqwest::Error) -> HttpError {
     if e.is_timeout() {
         HttpError::Timeout
+    } else if e.is_builder() || e.is_redirect() {
+        // URL 非法/重定向过多是配置错误，重试无意义（M2 模板自定义 URL 后会实际暴露）
+        HttpError::InvalidRequest(e.to_string())
     } else {
         HttpError::Network(e.to_string())
     }

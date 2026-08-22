@@ -13,7 +13,7 @@ use crate::model::UsageData;
 use crate::provider;
 use crate::vault::Vault;
 
-/// 业务级默认超时（对齐 cc-switch 的 15 秒实践）。
+/// 业务级默认超时（取 cc-switch clamp(2,30) 区间内的 15 秒）。
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct QueryEngine {
@@ -27,6 +27,8 @@ impl QueryEngine {
     }
 
     /// 生产默认构造：reqwest 客户端（rustls）+ 15 秒业务超时。
+    ///
+    /// 引擎应全局复用单个实例——reqwest Client 内部持有连接池与 DNS 缓存。
     pub fn with_default_client() -> Result<Self, crate::http::HttpError> {
         let http = ReqwestHttpClient::new(DEFAULT_TIMEOUT)?;
         Ok(Self::new(Arc::new(http), DEFAULT_TIMEOUT))
@@ -128,5 +130,17 @@ mod tests {
                 .unwrap_err()
                 .is_transient()
         );
+    }
+
+    /// 契约：引擎层透传 provider 的 401 → 确定性失败。
+    #[tokio::test]
+    async fn engine_passes_through_401_as_deterministic() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("openrouter");
+        e.set_api_key(&vault, "sk-bad").unwrap();
+        let engine = QueryEngine::new(Arc::new(MockHttp::status(401)), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &e).await.unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("401"), "实际：{err}");
     }
 }
