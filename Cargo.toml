@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/quota-core", "apps/quota-cli"]
+members = ["crates/quota-core", "apps/quota-cli", "apps/quota-desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

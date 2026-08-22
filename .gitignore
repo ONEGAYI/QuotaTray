@@ -1,6 +1,10 @@
 # 构建产物
 /target
 
+# 前端（apps/quota-desktop）
+node_modules/
+dist/
+
 # 本地运行时数据（密文快照、缓存）
 *.local.json
 
