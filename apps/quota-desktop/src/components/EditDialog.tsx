@@ -274,7 +274,12 @@ function TemplateForm(props: {
         <div className="mt-1 overflow-hidden rounded border border-slate-300">
           <CodeMirror
             value={props.templateJson}
-            onChange={props.setTemplateJson}
+            onChange={(v) => {
+              props.setTemplateJson(v);
+              // 内容已变，旧校验结论作废
+              setValidateOk(false);
+              setValidateMsg(null);
+            }}
             extensions={[json()]}
             height="180px"
             basicSetup={{ foldGutter: false, autocompletion: false }}

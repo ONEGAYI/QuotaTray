@@ -66,12 +66,15 @@ impl Settings {
     }
 
     /// 原子保存（tmp + rename，与 core AppConfig 同一模式）。
+    /// tmp 名含进程内递增序号：同进程并发保存（多查询同时触发收尾）不互踩。
     pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         let text = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), seq));
         std::fs::write(&tmp, text)?;
         std::fs::rename(&tmp, path).inspect_err(|_| {
             let _ = std::fs::remove_file(&tmp);

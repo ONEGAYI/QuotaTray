@@ -84,8 +84,17 @@ fn snapshots_from_results(results: &std::collections::HashMap<String, EntryState
 }
 
 /// 状态变更后的统一收尾：快照落盘 + 托盘重建。
+///
+/// 快照写盘前按当前 config 过滤：删除/编辑条目时在途查询的迟到结果
+/// 不会以孤儿身分落入 cache.json（托盘侧本就按 config 过滤，此处补齐
+/// 存储一致性）；config 读盘失败时跳过过滤（保留现状）。
 fn after_state_change(app: &AppHandle, state: &AppState) {
-    let snaps = snapshots_from_results(&state.results.read().unwrap());
+    let mut snaps = snapshots_from_results(&state.results.read().unwrap());
+    if let Ok(cfg) = AppConfig::load(&state.paths.config()) {
+        let live: std::collections::HashSet<&str> =
+            cfg.providers.iter().map(|p| p.id.as_str()).collect();
+        snaps.entries.retain(|id, _| live.contains(id.as_str()));
+    }
     if let Err(e) = snaps.save(&state.paths.snapshot()) {
         eprintln!("快照写入失败：{e}");
     }
@@ -308,7 +317,8 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// 1. 先落盘（失败则内存不动，前端展示错误，三方一致）；
 /// 2. 落盘成功后同步内存；
 /// 3. 托盘按新阈值重建（阈值变更即时反映，不受后续自启失败影响）；
-/// 4. 自启系统注册失败不影响已保存的其余设置，明确指引重试方式。
+/// 4. 自启系统注册失败：回滚磁盘与内存的 autostart 意图为旧值（保证
+///    重按「保存」会真正重试注册，而非跳过比较后假成功），其余设置保留。
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,
@@ -327,8 +337,14 @@ pub fn save_settings(
 
     if old_autostart != settings.autostart {
         if let Err(e) = apply_autostart(&app, settings.autostart) {
+            // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
+            settings.autostart = old_autostart;
+            if let Err(io) = settings.save(&state.paths.settings()) {
+                eprintln!("自启失败后回滚 settings.json 失败：{io}");
+            }
+            *state.settings.write().unwrap() = settings;
             return Err(format!(
-                "其余设置已保存，但开机自启未能应用：{e}（请重新切换一次自启开关以重试）"
+                "其余设置已保存，但开机自启未能应用：{e}（请重试保存，或重新切换一次自启开关）"
             ));
         }
     }
