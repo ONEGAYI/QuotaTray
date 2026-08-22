@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "QuotaTray",
-  "version": "0.1.0",
   "identifier": "com.quotatray.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -22,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     }
   },
   "bundle": {

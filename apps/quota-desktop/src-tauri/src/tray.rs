@@ -58,13 +58,17 @@ fn percent_text(v: f64) -> String {
     format!("{v:.0}%")
 }
 
+/// keep-last-good 窗口（GUI-spec §3）：瞬时失败后保留旧值展示的时限，
+/// 超窗后按网络波动态展示（旧值过旧，不再作为展示依据）。
+const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
+
 /// 条目展示行（多窗口一窗口一行）。
 ///
 /// 形状（GUI-spec §3）：
 /// - 成功：`名称 · 剩余 62.97 CNY · 3 分钟前` 或 `名称 · 已用 42% · 3 分钟前`；
 /// - 多窗口行带窗口名：`名称 · five_hour 已用 42% · 3 分钟前`；
-/// - 瞬时失败且有旧值：正常行尾追加 `⟳ 暂不可达`（keep-last-good）；
-/// - 瞬时失败无旧值：`名称 · ⟳ 网络波动`；
+/// - 瞬时失败且旧值在 keep-last-good 窗口内：正常行尾追加 `⟳ 暂不可达`；
+/// - 瞬时失败但无旧值或已超窗：`名称 · ⟳ 网络波动`；
 /// - 确定性失败：`名称 · ⚠ 错误摘要`（立即透出，不展示旧值）；
 /// - `is_valid=false`：`名称 · ⚠ 已失效：原因`；
 /// - 已用百分比 ≥ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
@@ -101,6 +105,17 @@ pub fn entry_lines(
         }
     }
 
+    // 瞬时失败超窗：旧值过旧不再作为展示依据，按网络波动态展示
+    if let Some(err) = &state.error {
+        if err.kind == "transient"
+            && state
+                .at
+                .is_none_or(|at| now_ms.saturating_sub(at) > KEEP_LAST_GOOD_MS)
+        {
+            return vec![format!("{name} · ⟳ 网络波动")];
+        }
+    }
+
     let Some(data) = &state.data else {
         // 无旧值：瞬时错误或尚未查询
         return match &state.error {
@@ -109,7 +124,7 @@ pub fn entry_lines(
         };
     };
 
-    // 成功数据（可能带瞬时错误标记 → keep-last-good 附加 ⟳）
+    // 成功数据（瞬时失败但在窗口内 → keep-last-good 附加 ⟳）
     let transient_mark = match &state.error {
         Some(err) if err.kind == "transient" => " · ⟳ 暂不可达",
         _ => "",
@@ -189,15 +204,22 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
 }
 
 /// 重建托盘菜单与图标（每次查询/配置/设置变更后调用）。
+///
+/// 重建失败不打断业务（托盘停留旧状态），但记录日志便于排查。
 pub fn rebuild(app: &AppHandle, state: &AppState) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
     let menu = match build_menu(app, state) {
         Ok(m) => m,
-        Err(_) => return,
+        Err(e) => {
+            eprintln!("托盘菜单重建失败：{e}");
+            return;
+        }
     };
-    let _ = tray.set_menu(Some(menu));
+    if let Err(e) = tray.set_menu(Some(menu)) {
+        eprintln!("托盘菜单应用失败：{e}");
+    }
 
     let (cfg, results, settings) = snapshot_views(state);
     let icon = if any_alert(&cfg, &results, &settings) {
@@ -207,7 +229,9 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
             .cloned()
             .unwrap_or_else(|| ALERT_ICON.clone())
     };
-    let _ = tray.set_icon(Some(icon));
+    if let Err(e) = tray.set_icon(Some(icon)) {
+        eprintln!("托盘图标切换失败：{e}");
+    }
 }
 
 /// 读当前 config / results / settings（重建托盘的一致性视图）。
@@ -424,6 +448,49 @@ mod tests {
             entry_lines("X", &st, 80, NOW),
             vec!["X · 剩余 88.00 CNY · 2 分钟前 · ⟳ 暂不可达"]
         );
+    }
+
+    /// 契约：瞬时失败超过 keep-last-good 窗口（10 分钟）→ 旧值不再展示，
+    /// 按网络波动态显示（GUI-spec §3 的窗口语义）。
+    #[test]
+    fn transient_error_beyond_window_drops_stale_data() {
+        let in_window = NOW - 9 * 60 * 1000;
+        let beyond = NOW - 11 * 60 * 1000;
+        let st = |at: u64| EntryState {
+            data: Some(vec![data(Some(88.0), Some("CNY"))]),
+            at: Some(at),
+            error: Some(crate::state::ErrorInfo {
+                kind: "transient".into(),
+                message: "timeout".into(),
+            }),
+        };
+        assert_eq!(
+            entry_lines("X", &st(in_window), 80, NOW),
+            vec!["X · 剩余 88.00 CNY · 9 分钟前 · ⟳ 暂不可达"],
+            "窗口内应保留旧值"
+        );
+        assert_eq!(
+            entry_lines("X", &st(beyond), 80, NOW),
+            vec!["X · ⟳ 网络波动"],
+            "超窗应丢弃旧值"
+        );
+    }
+
+    /// 契约：错误文案截断到 MESSAGE_LIMIT（托盘菜单行宽有限）。
+    #[test]
+    fn long_error_message_is_truncated() {
+        let long = "错".repeat(200);
+        let st = EntryState {
+            error: Some(crate::state::ErrorInfo {
+                kind: "deterministic".into(),
+                message: long.clone(),
+            }),
+            ..Default::default()
+        };
+        let line = &entry_lines("X", &st, 80, NOW)[0];
+        // X · ⚠ + 60 字符
+        assert!(line.chars().count() < 70, "应截断：{line}");
+        assert!(!line.contains(&"错".repeat(61)), "不得超出截断上限");
     }
 
     /// 契约：瞬时失败无旧值 → ⟳ 网络波动；确定性失败 → ⚠ 立即透出（覆盖旧值）。

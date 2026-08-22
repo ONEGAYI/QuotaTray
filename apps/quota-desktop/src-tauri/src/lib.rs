@@ -27,7 +27,10 @@ fn parse_data_dir() -> Option<std::path::PathBuf> {
 pub fn run() {
     let data_dir = parse_data_dir();
     tauri::Builder::default()
-        // 单实例必须首位注册：第二实例启动即回调后退出
+        // 单实例必须首位注册：第二实例启动即回调后退出。
+        // 取舍：插件 Windows 实现是会话命名空间 mutex（{identifier}-sim），
+        // 非 spec 提及的 Global\ 跨会话形态——同机同用户单 GUI 的目标场景下
+        // 语义等价（官方跨平台实现，D4 决策），跨登录会话双开不在防御范围。
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             tray::show_main(app);
         }))

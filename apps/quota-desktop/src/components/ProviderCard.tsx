@@ -3,12 +3,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { dataSummary, relativeTime, usedPercent } from "../display";
 import { useProviderQuery } from "../queries";
-import { KEEP_LAST_GOOD_MS, type ProviderEntry, type QueryOutcome } from "../types";
+import { KEEP_LAST_GOOD_MS, type ProviderEntry, type QueryOutcome, type SnapshotEntry } from "../types";
 
 interface Props {
   entry: ProviderEntry;
   intervalMinutes: number;
   thresholdPercent: number;
+  /** 启动快照（spec §5：首屏先渲染上次成功结果，消除重启空窗） */
+  snapshot?: SnapshotEntry;
   onEdit: (entry: ProviderEntry) => void;
 }
 
@@ -18,6 +20,8 @@ function cardView(outcome: QueryOutcome | undefined) {
     return { badge: null as string | null, stale: false };
   }
   if (!outcome.ok && outcome.error) {
+    // keep-last-good：瞬时失败且旧值在窗口内 → 保留旧值展示；
+    // 超窗或确定性失败 → 错误立即透出
     const keepGood =
       outcome.error.kind === "transient" &&
       outcome.data != null &&
@@ -32,7 +36,7 @@ function cardView(outcome: QueryOutcome | undefined) {
   return { badge: null, stale: false };
 }
 
-export function ProviderCard({ entry, intervalMinutes, thresholdPercent, onEdit }: Props) {
+export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapshot, onEdit }: Props) {
   const qc = useQueryClient();
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
   const outcome = query.data;
@@ -125,21 +129,25 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, onEdit 
       <div className="mt-2 space-y-1">
         {!entry.enabled ? (
           <p className="text-sm text-slate-400">条目已停用，不参与查询</p>
-        ) : outcome == null ? (
-          <p className="text-sm text-slate-400">{query.isFetching ? "查询中…" : "尚无数据"}</p>
         ) : view.badge === "deterministic" ? (
-          <p className="text-sm text-red-600">{outcome.error?.message}</p>
+          <p className="text-sm text-red-600">{outcome?.error?.message}</p>
+        ) : view.badge === "transient" && !view.stale ? (
+          // 瞬时失败且旧值超窗/无旧值 → 错误立即透出
+          <p className="text-sm text-slate-600">{outcome?.error?.message}</p>
         ) : view.badge === "invalid" ? (
           <p className="text-sm text-red-600">
-            已失效：{outcome.data?.find((d) => d.is_valid === false)?.invalid_message ?? "未说明原因"}
+            已失效：{outcome?.data?.find((d) => d.is_valid === false)?.invalid_message ?? "未说明原因"}
           </p>
+        ) : outcome?.data == null && snapshot == null ? (
+          <p className="text-sm text-slate-400">{query.isFetching ? "查询中…" : "尚无数据"}</p>
         ) : (
-          (view.stale ? outcome.data ?? [] : outcome.data ?? []).map((d, i) => {
+          (outcome?.data ?? snapshot?.data ?? []).map((d, i) => {
+            const rows = outcome?.data ?? snapshot?.data ?? [];
             const pct = usedPercent(d);
             const over = pct != null && pct >= thresholdPercent;
             return (
               <div key={i} className="flex items-baseline gap-2 text-sm">
-                {outcome.data != null && outcome.data.length > 1 && (
+                {rows.length > 1 && (
                   <span className="text-slate-500">{d.plan_name ?? `窗口${i + 1}`}</span>
                 )}
                 <span className={over ? "font-semibold text-red-600" : "text-slate-800"}>
@@ -156,11 +164,13 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, onEdit 
       </div>
 
       <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
-        <span>
-          {configured ? "已配置 key" : "未配置 key"}
-        </span>
+        <span>{configured ? "已配置 key" : "未配置 key"}</span>
         <span>·</span>
-        <span>{relativeTime(outcome?.at)}</span>
+        {/* outcome 为空（首次查询未返回）时回落到启动快照时间 */}
+        <span>{relativeTime(outcome?.at ?? snapshot?.at)}</span>
+        {outcome?.data == null && snapshot != null && !query.isFetching && (
+          <span>上次于 {relativeTime(snapshot.at)}（启动快照）</span>
+        )}
         {query.isFetching && <span className="animate-pulse">刷新中…</span>}
         {view.stale && outcome?.error && <span>· {outcome.error.message}</span>}
       </div>

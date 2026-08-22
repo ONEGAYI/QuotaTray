@@ -94,7 +94,9 @@ export function EditDialog({ open, initial, onClose }: Props) {
         kind,
         enabled: initial?.enabled ?? true,
         api_key_enc: undefined, // 后端忽略；密文由 key 策略维护
-        base_url: tab === "template" && baseUrl.trim() ? baseUrl.trim() : undefined,
+        // template 采表单值；native 条目无表单，保留既有值（native 查询不消费它）
+        base_url:
+          tab === "template" ? (baseUrl.trim() || undefined) : initial?.base_url,
       };
       await api.upsertProvider(entry, apiKey.trim() ? apiKey : null);
     },
@@ -262,6 +264,11 @@ function TemplateForm(props: {
 
   return (
     <div className="space-y-3">
+      {/"allowInsecure"\s*:\s*true/.test(props.templateJson) && (
+        <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          ⚠ 模板启用了 allowInsecure：请求可经明文 http 传输，API key 存在被网络窃听的风险
+        </p>
+      )}
       <label className="block">
         <span className="text-sm text-slate-600">模板 JSON</span>
         <div className="mt-1 overflow-hidden rounded border border-slate-300">

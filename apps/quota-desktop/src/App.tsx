@@ -5,7 +5,7 @@ import { useState } from "react";
 import { EditDialog } from "./components/EditDialog";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { useProviders, useRefreshNow, useSettings } from "./queries";
+import { useProviders, useRefreshNow, useSettings, useSnapshots } from "./queries";
 import type { ProviderEntry } from "./types";
 
 const queryClient = new QueryClient();
@@ -14,8 +14,10 @@ function AppInner() {
   useRefreshNow();
   const providers = useProviders();
   const settings = useSettings();
+  const snapshots = useSnapshots();
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
+  const [dialogSeq, setDialogSeq] = useState(0); // 新增对话框每次打开重置表单
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const intervalMinutes = settings.data?.refresh_interval_minutes ?? 5;
@@ -30,6 +32,7 @@ function AppInner() {
           <button
             onClick={() => {
               setEditing(null);
+              setDialogSeq((s) => s + 1);
               setEditOpen(true);
             }}
             className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500"
@@ -66,6 +69,7 @@ function AppInner() {
             entry={entry}
             intervalMinutes={intervalMinutes}
             thresholdPercent={threshold}
+            snapshot={snapshots.data?.[entry.id]}
             onEdit={(e) => {
               setEditing(e);
               setEditOpen(true);
@@ -78,7 +82,7 @@ function AppInner() {
         open={editOpen}
         initial={editing}
         onClose={() => setEditOpen(false)}
-        key={editing?.id ?? "new"}
+        key={editing?.id ?? `new-${dialogSeq}`}
       />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

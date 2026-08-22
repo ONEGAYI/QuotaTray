@@ -137,15 +137,16 @@ pub fn upsert_provider(
         &state.vault,
     )?;
 
-    // 编辑保位 / 新增追加
+    // 编辑保位 / 新增追加（entry 随后 move 进配置，id 先行拷出）
+    let entry_id = entry.id.clone();
     match cfg.providers.iter_mut().find(|p| p.id == entry.id) {
         Some(slot) => *slot = entry,
         None => cfg.providers.push(entry),
     }
     cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
 
-    // 条目已变，旧查询结果作废
-    state.results.write().unwrap().clear();
+    // 条目已变，作废该条目的旧查询结果（其他条目的 keep-last-good 数据与快照保留）
+    state.results.write().unwrap().remove(&entry_id);
     after_state_change(&app, &state);
     Ok(())
 }
@@ -307,6 +308,10 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.read().unwrap().clone()
 }
 
+/// 保存设置。顺序约定：磁盘为权威状态——
+/// 1. 先落盘（失败则内存不动，前端展示错误，三方一致）；
+/// 2. 落盘成功后同步内存；
+/// 3. 自启系统注册失败不影响已保存的其余设置，但明确告知用户。
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,
@@ -315,18 +320,18 @@ pub fn save_settings(
 ) -> Result<(), String> {
     let mut settings = settings;
     settings.sanitize();
-    let autostart_changed = {
-        let mut cur = state.settings.write().unwrap();
-        let changed = cur.autostart != settings.autostart;
-        *cur = settings.clone();
-        changed
-    };
-    if autostart_changed {
-        apply_autostart(&app, settings.autostart)?;
-    }
+    let old_autostart = state.settings.read().unwrap().autostart;
+
     settings
         .save(&state.paths.settings())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("设置写入失败：{e}"))?;
+    *state.settings.write().unwrap() = settings.clone();
+
+    if old_autostart != settings.autostart {
+        if let Err(e) = apply_autostart(&app, settings.autostart) {
+            return Err(format!("其余设置已保存，但开机自启未能应用：{e}"));
+        }
+    }
     tray::rebuild(&app, &state); // 阈值变化影响告警图标
     Ok(())
 }

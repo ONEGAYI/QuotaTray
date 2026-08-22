@@ -39,12 +39,26 @@ export function useNativeMetas() {
   });
 }
 
+/** 启动快照（spec §5：首屏先渲染上次成功结果，消除重启空窗）。 */
+export function useSnapshots() {
+  return useQuery({
+    queryKey: ["snapshots"],
+    queryFn: api.getSnapshots,
+    // 快照只在重启后有意义；条目变更时由调用方主动失效
+    staleTime: Infinity,
+  });
+}
+
 /** 托盘「立即刷新」/ 悬停触发的事件：全量失效各条目查询。 */
 export function useRefreshNow() {
   const qc = useQueryClient();
   useEffect(() => {
     const unlisten = listen("refresh-now", () => {
       void qc.invalidateQueries({ queryKey: ["provider"] });
+    }).catch((err) => {
+      // capabilities 缺失时 listen 会被 ACL 拒绝——显式暴露而非静默吞掉
+      console.error("refresh-now 事件监听失败：", err);
+      return () => {};
     });
     return () => {
       void unlisten.then((fn) => fn());
