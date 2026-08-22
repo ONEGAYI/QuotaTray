@@ -66,7 +66,7 @@ pub async fn run(key_file: Option<PathBuf>) -> i32 {
         println!("[{platform}] 跳过（key 为空）");
     }
     for platform in &classified.unknown {
-        println!("[{platform}] 跳过（未知平台 id）");
+        println!("[{platform}] 告警：未知平台 id（计为失败，检查拼写或升级版本）");
     }
 
     let vault = match Vault::open(&InMemoryStore::new()) {

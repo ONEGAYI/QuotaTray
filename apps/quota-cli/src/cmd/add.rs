@@ -32,7 +32,8 @@ pub fn run(ctx: &Ctx, json_mode: bool) -> i32 {
             }
         }
     } else {
-        match wizard(ctx) {
+        let existing_ids: Vec<String> = cfg.providers.iter().map(|e| e.id.clone()).collect();
+        match wizard(ctx, &existing_ids) {
             Ok(e) => e,
             Err(msg) => {
                 eprintln!("错误：{msg}");
@@ -61,8 +62,11 @@ pub fn run(ctx: &Ctx, json_mode: bool) -> i32 {
     0
 }
 
-/// 校验新条目：名称非空 + id 唯一（模板合法性已在解析时校验）。
+/// 校验新条目：名称与 id 非空 + id 唯一（模板合法性已在解析时校验）。
 fn check_entry(entry: &ProviderEntry, cfg: &AppConfig) -> Result<(), String> {
+    if entry.id.trim().is_empty() {
+        return Err("id 不能为空（--json 模式需提供非空 id 字段）".into());
+    }
     if entry.name.trim().is_empty() {
         return Err("名称不能为空".into());
     }
@@ -77,8 +81,8 @@ fn check_entry(entry: &ProviderEntry, cfg: &AppConfig) -> Result<(), String> {
 /// 安全红线：输入含非空 `api_key_enc` 直接拒绝——CLI 不经手密文，
 /// 凭据只能经 `set-key`（vault 加密）写入。
 pub fn parse_entry_json(text: &str) -> Result<ProviderEntry, String> {
-    let entry: ProviderEntry =
-        serde_json::from_str(text).map_err(|e| format!("JSON 解析失败：{e}"))?;
+    let entry: ProviderEntry = serde_json::from_str(text)
+        .map_err(|e| format!("JSON 解析失败：{e}（entry.json 需含 id、name、kind 字段）"))?;
     if entry
         .api_key_enc
         .as_deref()
@@ -100,7 +104,8 @@ fn template_err(e: TemplateError) -> String {
 }
 
 /// 交互向导：名称 → 类型 → （模板 JSON + base_url）→ key（可跳过）。
-fn wizard(ctx: &Ctx) -> Result<ProviderEntry, String> {
+/// `existing_ids` 为当前配置中的全部条目 id（新 id 生成需避开）。
+fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
     let theme = ColorfulTheme::default();
 
     let name = Input::<String>::with_theme(&theme)
@@ -158,20 +163,17 @@ fn wizard(ctx: &Ctx) -> Result<ProviderEntry, String> {
         base_url,
     };
 
-    // key 可跳过：回车空值不视为失败（稍后 set-key 补配）
-    if let Ok(key) = io::read_secret("API key（直接回车跳过，稍后用 set-key 配置）") {
-        if !key.trim().is_empty() {
-            let vault = ctx.open_vault()?;
-            entry
-                .set_api_key(&vault, key.trim())
-                .map_err(|e| format!("凭据加密失败：{e}"))?;
-        }
+    // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
+    let key = io::read_secret("API key（直接回车跳过；输入不回显）")
+        .map_err(|e| format!("key 读取失败：{e}"))?;
+    if !key.trim().is_empty() {
+        let vault = ctx.open_vault()?;
+        entry
+            .set_api_key(&vault, key.trim())
+            .map_err(|e| format!("凭据加密失败：{e}"))?;
     }
 
-    let existing: Vec<String> = AppConfig::load(&ctx.config_path)
-        .map(|c| c.providers.into_iter().map(|e| e.id).collect())
-        .unwrap_or_default();
-    entry.id = idgen::unique_id(&existing).map_err(|e| format!("id 生成失败：{e}"))?;
+    entry.id = idgen::unique_id(existing_ids).map_err(|e| format!("id 生成失败：{e}"))?;
     Ok(entry)
 }
 
@@ -276,6 +278,10 @@ mod tests {
         let mut e = cfg.providers[0].clone();
         e.name = " ".into();
         assert!(check_entry(&e, &cfg).unwrap_err().contains("名称"));
+
+        let mut e2 = cfg.providers[0].clone();
+        e2.id = "".into();
+        assert!(check_entry(&e2, &cfg).unwrap_err().contains("id 不能为空"));
 
         let e2 = ProviderEntry {
             id: "dup".into(),

@@ -69,14 +69,19 @@ pub async fn run(
     if watch {
         let term = console::Term::stdout();
         let period = Duration::from_secs(interval_min.unwrap_or(DEFAULT_INTERVAL_MIN) * 60);
+        // ctrl_c 常驻监听（tokio 信号无监听者时被丢弃，须覆盖查询与休眠两阶段）
+        let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
         loop {
-            let outcomes = run_queries(&engine, &vault, &entries).await;
+            let outcomes = tokio::select! {
+                r = run_queries(&engine, &vault, &entries) => r,
+                _ = &mut ctrl_c => break,
+            };
             let _ = term.clear_screen();
             print_once(&outcomes);
             println!("（每 {} 分钟刷新，Ctrl+C 退出）", period.as_secs() / 60);
             tokio::select! {
-                _ = tokio::signal::ctrl_c() => break,
                 _ = tokio::time::sleep(period) => {}
+                _ = &mut ctrl_c => break,
             }
         }
         0
@@ -106,12 +111,15 @@ pub fn select_entries(
     if ids.is_empty() {
         return Ok(providers.iter().filter(|e| e.enabled).cloned().collect());
     }
+    // 重复 id 去重保序（quota query a a 只查一次）
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<&String> = ids.iter().filter(|id| seen.insert(id.as_str())).collect();
     let mut picked = Vec::with_capacity(ids.len());
     let mut missing = Vec::new();
     for id in ids {
-        match providers.iter().find(|e| &e.id == id) {
+        match providers.iter().find(|e| e.id == *id) {
             Some(e) => picked.push(e.clone()),
-            None => missing.push(id.clone()),
+            None => missing.push((*id).clone()),
         }
     }
     if missing.is_empty() {
@@ -302,6 +310,26 @@ mod tests {
         let entries = vec![entry("d1", "deepseek")];
         let outcomes = run_queries(&engine, &vault, &entries).await;
         assert_eq!(exit_code(&flatten(&outcomes)), 1);
+    }
+
+    /// 契约：query 指定不存在的 id → 退出 1（select_entries 拦截，不触网络/凭据库）。
+    #[tokio::test]
+    async fn query_missing_id_exits_one() {
+        let ctx = Ctx::with_store(
+            std::path::PathBuf::from("nonexistent.json"),
+            std::sync::Arc::new(quota_core::InMemoryStore::new()),
+        );
+        assert_eq!(run(&ctx, vec!["zzz".into()], false, false, None).await, 1);
+    }
+
+    /// 契约：无任何 enabled 条目 → 提示并退出 0（首次使用场景）。
+    #[tokio::test]
+    async fn query_empty_config_exits_zero() {
+        let ctx = Ctx::with_store(
+            std::path::PathBuf::from("nonexistent.json"),
+            std::sync::Arc::new(quota_core::InMemoryStore::new()),
+        );
+        assert_eq!(run(&ctx, vec![], false, false, None).await, 0);
     }
 
     /// 契约：条目筛选——默认 enabled 全集；指定 id 精确匹配；缺失 id 报告。

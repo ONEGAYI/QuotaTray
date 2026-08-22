@@ -30,6 +30,11 @@ impl Ctx {
         Self { config_path, store }
     }
 
+    /// 主密钥后端（vault status 健康检查用；测试注入内存后端即可测）。
+    pub fn store(&self) -> &dyn SecretStore {
+        self.store.as_ref()
+    }
+
     /// 打开凭据保险库（幂等：同一 store 恒得同一主密钥，可重复调用）。
     pub fn open_vault(&self) -> Result<Vault, String> {
         Vault::open(self.store.as_ref()).map_err(|e| format!("凭据保险库打开失败：{e}"))

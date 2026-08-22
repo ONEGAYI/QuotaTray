@@ -21,7 +21,7 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
         return 1;
     };
 
-    let key = match io::read_secret("输入新的 API key") {
+    let key = match io::read_secret("输入新的 API key（输入不回显）") {
         Ok(k) => k,
         Err(e) => {
             eprintln!("错误：key 读取失败：{e}");
@@ -52,4 +52,22 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
     }
     println!("已更新 key：{name}（{id}）");
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ctx::Ctx;
+    use quota_core::InMemoryStore;
+    use std::sync::Arc;
+
+    /// 契约：set-key 不存在的 id → 退出 1（在读取 stdin 之前拦截，测试无需喂 key）。
+    #[test]
+    fn setkey_missing_id_fails_before_input() {
+        let dir = std::env::temp_dir().join(format!("quota-cli-sk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = Ctx::with_store(dir.join("config.json"), Arc::new(InMemoryStore::new()));
+        assert_eq!(run(&ctx, "zzz".into()), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

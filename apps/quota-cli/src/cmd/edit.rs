@@ -251,3 +251,58 @@ mod tests {
         assert!(parse_replacement_template(good).is_ok());
     }
 }
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+    use crate::ctx::Ctx;
+    use quota_core::InMemoryStore;
+    use std::sync::Arc;
+
+    fn test_ctx(tag: &str) -> Ctx {
+        let dir = std::env::temp_dir().join(format!("quota-cli-edit-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let _ = std::fs::remove_file(&path);
+        Ctx::with_store(path, Arc::new(InMemoryStore::new()))
+    }
+
+    fn disabled_entry(id: &str) -> ProviderEntry {
+        ProviderEntry {
+            id: id.into(),
+            name: "n".into(),
+            kind: ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: false,
+            api_key_enc: None,
+            base_url: None,
+        }
+    }
+
+    /// 契约：--enable 非交互路径落盘（disabled → enabled）。
+    #[test]
+    fn enable_flag_persists() {
+        let ctx = test_ctx("a");
+        let cfg = AppConfig {
+            providers: vec![disabled_entry("e1")],
+        };
+        cfg.save(&ctx.config_path).unwrap();
+
+        assert_eq!(run(&ctx, "e1".into(), true, false), 0);
+        assert!(AppConfig::load(&ctx.config_path).unwrap().providers[0].enabled);
+
+        // 再禁用回去
+        assert_eq!(run(&ctx, "e1".into(), false, true), 0);
+        assert!(!AppConfig::load(&ctx.config_path).unwrap().providers[0].enabled);
+        let _ = std::fs::remove_dir_all(ctx.config_path.parent().unwrap());
+    }
+
+    /// 契约：编辑不存在的 id → 退出 1。
+    #[test]
+    fn edit_missing_fails() {
+        let ctx = test_ctx("b");
+        assert_eq!(run(&ctx, "zzz".into(), false, false), 1);
+        let _ = std::fs::remove_dir_all(ctx.config_path.parent().unwrap());
+    }
+}

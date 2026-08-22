@@ -25,3 +25,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: 测试
         run: cargo test --workspace
+      - name: Release 编译检查
+        run: cargo check --release --workspace
+        # dev-smoke 子命令仅 debug 构建存在（cfg(debug_assertions)），
+        # release 编译通过 = 双面 cfg 无残留引用的自动验证

@@ -34,7 +34,7 @@ struct Cli {
 enum Command {
     /// 列出全部供应商条目及状态
     List {
-        /// 输出 providers 的 JSON（AppConfig 的数组字段）
+        /// 输出 providers 的 JSON（含凭据密文字段 api_key_enc，非明文）
         #[arg(long)]
         json: bool,
     },
@@ -48,8 +48,8 @@ enum Command {
         /// 轮询模式，每轮重绘表格，Ctrl+C 退出
         #[arg(long)]
         watch: bool,
-        /// 轮询间隔（分钟），默认 5
-        #[arg(long, value_name = "MINUTES", value_parser = clap::value_parser!(u64).range(1..))]
+        /// 轮询间隔（分钟），默认 5（仅在 --watch 下有效）
+        #[arg(long, value_name = "MINUTES", requires = "watch", value_parser = clap::value_parser!(u64).range(1..))]
         interval: Option<u64>,
     },
     /// 添加供应商（交互向导，或 --json 从 stdin 读入）
@@ -231,8 +231,10 @@ mod tests {
         let e = Cli::try_parse_from(["quota", "query", "--watch", "--interval", "0"]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::ValueValidation);
 
-        // interval 无 watch 也合法（参数只是不起作用），不构成错误
-        assert!(Cli::try_parse_from(["quota", "query", "--interval", "3"]).is_ok());
+        // --interval 仅在 --watch 下有效
+        let e = Cli::try_parse_from(["quota", "query", "--interval", "3"]).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::MissingRequiredArgument);
+        assert!(Cli::try_parse_from(["quota", "query", "--watch", "--interval", "3"]).is_ok());
     }
 
     /// 契约：dev-smoke 仅 debug 构建存在。

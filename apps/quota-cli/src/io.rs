@@ -7,7 +7,7 @@ use std::io::{BufRead, Write};
 
 use zeroize::Zeroizing;
 
-/// 隐藏回显读取一行密钥。
+/// 隐藏回显读取一行密钥。`prompt` 完整文案由调用方给出（含"输入不回显"提示）。
 ///
 /// stdin 为终端时经 rpassword 关闭回显；管道/重定向场景
 /// （`echo $KEY | quota set-key id`，spec §3）直接读一行——
@@ -18,7 +18,7 @@ pub fn read_secret(prompt: &str) -> std::io::Result<Zeroizing<String>> {
     use std::io::IsTerminal;
 
     let mut err = std::io::stderr();
-    writeln!(err, "{prompt}（输入不回显）").ok();
+    writeln!(err, "{prompt}").ok();
     err.flush().ok();
 
     let line = if std::io::stdin().is_terminal() {
@@ -36,10 +36,9 @@ pub fn read_secret(prompt: &str) -> std::io::Result<Zeroizing<String>> {
 /// 两种用法等价：交互粘贴（空行结束）、`< file` 重定向（EOF 结束）。
 /// 返回累积的原始文本（不含结束空行）。
 pub fn read_multiline_json(prompt: &str) -> std::io::Result<String> {
-    let mut out = std::io::stdout();
-    println!("{prompt}");
-    println!("（粘贴多行 JSON，输入单独空行结束；或 Ctrl+Z / Ctrl+D 结束输入）");
-    out.flush().ok();
+    // 提示走 stderr：数据流（stdout）保持纯净，管道/重定向场景不被污染
+    eprintln!("{prompt}");
+    eprintln!("（粘贴多行 JSON，输入单独空行结束；或 Ctrl+Z / Ctrl+D 结束输入）");
 
     let mut buf = String::new();
     let stdin = std::io::stdin();
