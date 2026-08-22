@@ -26,10 +26,10 @@ QuotaTray/
 ├── CLAUDE.md                  # @AGENTS.md 导入 + Claude 专属补充
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
-├── .gitignore                 # 含 .DevApiKey.json（本地开发密钥，不入库）
+├── .gitignore                 # 含 .DevApiKey.json / 前端与 gen/schemas 生成物
 ├── .DevApiKey.json.example    # 本地密钥文件模板（真实文件被 ignore）
 ├── .github/workflows/
-│   └── ci.yml                 # CI：Windows/Ubuntu 双矩阵 fmt + clippy + test
+│   └── ci.yml                 # CI：双矩阵 fmt+clippy+test（Ubuntu 含 Tauri 依赖）+ 前端 lint/build
 ├── crates/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
 │       └── src/
@@ -44,38 +44,70 @@ QuotaTray/
 │           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
-│           │   └── reqwest.rs # 生产实现（rustls，超时映射 Network/Timeout/InvalidRequest）
+│           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
 │           │   ├── mod.rs     # NativeProvider trait + 注册表 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance
 │           │   ├── siliconflow.rs    # /v1/user/info（CNY）
 │           │   └── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
 │           ├── template/      # 声明式模板 DSL（M2a）
-│           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、多窗口）
+│           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
+│           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
 │           │   └── path.rs    # JSONPath 子集（$.a.b[0]，拒绝过滤器/通配符）
 │           └── query/
 │               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 ├── apps/
-│   └── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成）
-│       └── src/
-│           ├── main.rs        # clap 定义 10 子命令 + dispatch（dev-smoke 仅 debug）
-│           ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入（生产 keyring / 测试内存）
-│           ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
-│           ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
-│           ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
-│           ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测）
-│           └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx）
-│               ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
-│               ├── list.rs    # 条目列表（表格 / --json providers 数组）
-│               ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
-│               ├── add.rs     # 交互向导 / --json stdin（拒收 api_key_enc）
-│               ├── edit.rs    # 向导（回车保持）+ --enable/--disable 快捷路径
-│               ├── remove.rs  # 确认删除（--yes 跳过）
-│               ├── setkey.rs  # 隐藏读 key → vault 加密写配置
-│               ├── natives.rs # 预置平台表
-│               ├── template.rs# template test：静态校验 + 真实试查
-│               ├── vault.rs   # vault status：主密钥健康检查
-│               └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
+│   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成）
+│   │   └── src/
+│   │       ├── main.rs        # clap 定义 10 子命令 + dispatch（dev-smoke 仅 debug）
+│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入（生产 keyring / 测试内存）
+│   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
+│   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
+│   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
+│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测）
+│   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx）
+│   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
+│   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
+│   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
+│   │           ├── add.rs     # 交互向导 / --json stdin（拒收 api_key_enc）
+│   │           ├── edit.rs    # 向导（回车保持）+ --enable/--disable 快捷路径
+│   │           ├── remove.rs  # 确认删除（--yes 跳过）
+│   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
+│   │           ├── natives.rs # 预置平台表
+│   │           ├── template.rs# template test：静态校验 + 真实试查
+│   │           ├── vault.rs   # vault status：主密钥健康检查
+│   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
+│   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
+│       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror
+│       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
+│       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
+│       ├── tsconfig.json / eslint.config.js / index.html
+│       ├── src/               # React 前端（中文 UI）
+│       │   ├── main.tsx / App.tsx        # 入口与主布局（列表+添加+设置）
+│       │   ├── types.ts        # core serde 形状的 TS 镜像（含 KEEP_LAST_GOOD_MS）
+│       │   ├── api.ts          # invoke 封装 + 短 id 生成
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now 事件
+│       │   ├── display.ts      # 相对时间/已用百分比/数据文案（与 tray.rs 语义一致）
+│       │   └── components/
+│       │       ├── ProviderCard.tsx    # 卡片：数据/错误徽标（灰瞬时红确定）/阈值告警/快照首屏
+│       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
+│       │       └── SettingsDialog.tsx  # 间隔/阈值/自启/语言占位
+│       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
+│           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；NSIS 目标（M4 打包）
+│           ├── capabilities/default.json # 事件 ACL（托盘刷新链路依赖）
+│           ├── icons/          # 占位图标（蓝 Q 常态/红 ! 警示，tauri icon 生成）
+│           ├── examples/
+│           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
+│           └── src/
+│               ├── main.rs     # 薄壳（release 隐藏控制台）
+│               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/命令注册
+│               ├── state.rs    # AppState：引擎+保险库+结果表+--data-dir 覆盖+ErrorInfo
+│               ├── commands.rs # IPC 10 命令：key 写入策略（空=保持不变）、
+│               │               #   试查经引擎、快照落盘过滤、设置顺序（磁盘权威）
+│               ├── tray.rs     # 托盘：菜单文本/阈值告警/相对时间纯函数（契约测试）
+│               │               #   左键开窗、悬停 10s 节流、图标切换、keep-last-good 窗口
+│               ├── settings.rs # settings.json 读写（原子写、损坏回退默认）
+│               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
@@ -84,21 +116,30 @@ QuotaTray/
         └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
 ```
 
-（`apps/quota-desktop/` 为规划目录，M3 建立；core 的 script 模块（M4）随里程碑建立）
+（core 的 script 模块（M4）与打包分发（NSIS/updater，M4）随里程碑建立；
+`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
-CLI（M2b）与 GUI（M3）可双工作树并行开发，共享文件仅 workspace
-`Cargo.toml` 与本文件树——先合的 PR 为准，后合的 rebase 更新文件树即可。
+CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
+`Cargo.toml`、CI 与本文件树——先合的 PR 为准，后合的 rebase 更新文件树即可。
 core 若需变更公开 API，先单独提 PR 合入再同步两端。
+M3 期间 core 的 template/http 曾随桌面端 PR 做错误文案安全修复
+（只增 `uses_api_key` 公开函数与测试，不改既有签名）。
 
 ## 工程规范
 
 - 通用行为准则、提交规范（中文、`类型: 简述` + 正文）、发布规范遵循用户全局 AGENTS.md，此处不重复。
 - **TDD**：实现功能、修复 BUG 前先添加契约测试；网络相关测试一律 mock（不依赖真实平台 API）。
-- **构建与测试**（代码骨架建立后生效）：
-  - 全量构建：`cargo build --workspace`
+- **构建与测试**：
+  - 全量构建检查：`cargo build --workspace`（仅编译校验）
   - 测试：`cargo test --workspace`
-  - 桌面端开发：`cargo tauri dev`（于 `apps/desktop`）
+  - 前端：`pnpm lint` / `pnpm build`（于 `apps/quota-desktop`，build 含 tsc 检查）
+  - 桌面端开发：`pnpm tauri dev`（于 `apps/quota-desktop`）
+  - 桌面端产物：`pnpm tauri build --no-bundle`（出裸 exe；完整打包 M4）
+  - ⚠️ 裸 `cargo build`（含 --release）的桌面端产物指向 devUrl（1420），
+    无 vite dev server 时窗口空白——运行/分发一律走 tauri CLI
+  - GUI 冒烟：`cargo run -p quota-desktop --example smoke_setup -- --data-dir <沙箱>
+    --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
 - 文档用中文编写。
 
 ## 安全红线（凭据处理）
