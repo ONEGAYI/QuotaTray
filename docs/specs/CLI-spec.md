@@ -1,0 +1,115 @@
+# quota-cli 规格（M2b）
+
+> 状态：待开发（并行窗口已开放，见 [AGENTS.md](../../AGENTS.md) 并行开发约定）
+> 依赖：仅使用 quota-core 已冻结的公开 API；本 spec 是 CLI 端的唯一需求来源
+
+## 1. 定位与边界
+
+`quota` 是 QuotaTray 的命令行前端，与 GUI 完全平级。业务逻辑（查询、加解密、模板解析）全部在 core，CLI 只做参数解析、结果呈现与配置管理入口。
+
+**不做**：托盘、常驻进程、图表。纯命令进出。
+
+## 2. 命令总览
+
+| 命令 | 用途 |
+|---|---|
+| `quota list` | 列出全部供应商条目及状态 |
+| `quota query [<id>...]` | 查询全部或指定条目 |
+| `quota add` | 添加供应商（交互式或 `--json` 传入） |
+| `quota edit <id>` | 编辑条目（名称/base_url/模板/启用） |
+| `quota remove <id>` | 删除条目 |
+| `quota set-key <id>` | 写入/更新 API key（隐藏输入） |
+| `quota natives` | 列出预置平台（来自 core 注册表） |
+| `quota template test` | 对模板执行静态校验 + 试查询 |
+| `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
+| `quota dev-smoke` | 真机冒烟（仅 debug 构建） |
+
+## 3. 子命令规格
+
+### quota list
+
+- 输出表格：`id / 名称 / 类型（native id 或 template）/ 启用 / 凭据已配?`
+- M2b 阶段无历史缓存，不展示余额；`--json` 输出 `AppConfig` 的 providers 数组。
+
+### quota query
+
+```
+quota query [<id>...] [--json] [--watch] [--interval <分钟>]
+```
+
+- 默认查询全部 `enabled` 条目，按配置文件顺序并行发起（`tokio::join_all`）。
+- 表格输出：`名称 / 套餐 / 已用 / 剩余 / 单位 / 状态（OK、失效原因、错误）`。
+  多窗口条目（如 5h + 周）输出多行。
+- `--watch`：轮询模式，间隔默认取条目配置（M2b 固定 5 分钟，`--interval` 覆盖），
+  每轮重绘表格；Ctrl+C 退出。
+- `--json`：输出
+  `[{ "id", "name", "ok": bool, "data": UsageData[] | null, "error": { "kind": "transient|deterministic", "message" } | null }]`，
+  供脚本消费。
+
+### quota add / edit / remove / set-key
+
+- `quota add`：向导式依次询问——名称、类型（`natives` 列表选择 / 输入 `template`）、
+  native id 或模板 JSON（粘贴多行，Ctrl+Z/空行结束）、base_url（模板条目）、
+  API key（隐藏输入，直接回车跳过）。
+- 高级用法：`quota add --json < entry.json`（entry.json 为 ProviderEntry 的
+  JSON，api_key_enc/base_url 由后续 set-key/edit 维护，密文不经手）。
+- `quota set-key <id>`：隐藏输入读取 key（终端回显关闭），经 vault 加密后写配置。
+  不接受命令行参数形式的 key（避免进入 shell history）；管道 stdin 允许
+  （`echo $KEY | quota set-key id` 场景）。
+- `quota remove`：确认提示（`--yes` 跳过）。
+- id 冲突：`add` 生成短随机 id（如 6 位 base32），`edit/remove` 精确匹配。
+
+### quota template test
+
+```
+quota template test [--base-url <url>] [--entry <id> | --json < template.json]
+```
+
+- 流程：core `template::validate` 静态校验 → 通过后真实试查一次 → 打印
+  静态错误（带字段定位）或 UsageData 结果。
+- `--entry` 复用已存条目的 key（vault 解密）；`--json` 模式配合
+  `set-key` 前的调试，key 从 stdin 读取。
+
+### quota dev-smoke（仅 debug 构建）
+
+```
+quota dev-smoke [--key-file <path>]
+```
+
+- `#[cfg(debug_assertions)]` 包住整个子命令定义，release 构建不存在。
+- 默认读仓库根 `.DevApiKey.json`（格式见 `.DevApiKey.json.example`），
+  空值跳过、未知平台告警；逐平台走 core 完整链路（加密→解密→真实 HTTP→解析）。
+- 已有参考实现：`crates/quota-core/examples/dev_smoke.rs`（M2b 将其逻辑
+  迁入子命令，example 可保留或删除，二选一不留重复）。
+
+## 4. 退出码约定
+
+| 码 | 含义 |
+|---|---|
+| 0 | 全部成功 |
+| 1 | 存在至少一个确定性失败（认证/解析/配置——需人工介入） |
+| 2 | 仅存在瞬时失败（网络/限流/超时——可重试） |
+
+确定性失败优先于瞬时失败（同时存在时报 1）。
+
+## 5. 安全约定（红线映射）
+
+- key 输入一律隐藏回显或 stdin，不提供明文参数。
+- 错误信息、`--json` 输出不得包含明文 key（core 已保证 Debug/错误脱敏，CLI 层不新造泄漏面）。
+- dev-smoke 与 key 文件只在 debug 构建与本地存在，CI 不执行。
+
+## 6. 工程约束
+
+- clap 4 derive；全部业务经 quota-core；CLI 自身不引入 HTTP/加密依赖。
+- TDD：配置读写、退出码、输出格式的判定逻辑用单元测试锁（命令解析用
+  `assert_cmd` 或 clap try_parse 测试）；真网交互只存在于 dev-smoke。
+- 遵循 [AGENTS.md](../../AGENTS.md)：提交规范、文件树同步、并行开发约定。
+
+## 7. 验收标准
+
+- [ ] 全部子命令按本规格工作（人工核验清单逐项过）
+- [ ] `quota query` 对 3 个 native 平台 + 1 个 template 条目输出正确
+- [ ] 退出码三分约定有测试锁定
+- [ ] `quota dev-smoke` 在 debug 构建可跑、release 构建不出现（有编译验证或文档说明）
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` 与 `cargo test --workspace` 全绿
+- [ ] key 全程不出现在终端回显、日志与 `--json` 输出中

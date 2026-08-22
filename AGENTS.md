@@ -26,11 +26,14 @@ QuotaTray/
 ├── CLAUDE.md                  # @AGENTS.md 导入 + Claude 专属补充
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
-├── .gitignore
+├── .gitignore                 # 含 .DevApiKey.json（本地开发密钥，不入库）
+├── .DevApiKey.json.example    # 本地密钥文件模板（真实文件被 ignore）
 ├── .github/workflows/
 │   └── ci.yml                 # CI：Windows/Ubuntu 双矩阵 fmt + clippy + test
 ├── crates/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
+│       ├── examples/
+│       │   └── dev_smoke.rs   # 真机冒烟：读 .DevApiKey.json 走完整链路（手动跑）
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
 │           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
@@ -42,8 +45,8 @@ QuotaTray/
 │           │   ├── mod.rs     # AppConfig + ProviderEntry（原子写、密文落盘）
 │           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）
 │           ├── http/          # HTTP 抽象
-│           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型
-│           │   └── reqwest.rs # 生产实现（rustls，超时映射 Network/Timeout）
+│           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
+│           │   └── reqwest.rs # 生产实现（rustls，超时映射 Network/Timeout/InvalidRequest）
 │           ├── provider/      # 预置平台
 │           │   ├── mod.rs     # NativeProvider trait + 注册表 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance
@@ -55,12 +58,15 @@ QuotaTray/
 │           └── query/
 │               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 ├── apps/
-│   └── quota-cli/             # CLI 前端（bin 名 quota，M0 骨架）
+│   └── quota-cli/             # CLI 前端（bin 名 quota，M0 骨架，M2b 按规格开发）
 │       └── src/
 │           └── main.rs        # clap 空壳：--version + 占位输出
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
-    └── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
+    ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
+    └── specs/
+        ├── CLI-spec.md        # quota-cli 规格（M2b）：子命令/退出码/dev-smoke
+        └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
 ```
 
 （`apps/quota-desktop/` 为规划目录，M3 建立；core 的 script 模块（M4）随里程碑建立）
