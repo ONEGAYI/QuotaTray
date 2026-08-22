@@ -15,14 +15,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: 安装 Linux 系统依赖
+        # keyring 的 sync-secret-service 依赖 dbus 开发库；桌面端（Tauri）依赖 webkit 全家（M3 起）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: 安装 Linux 系统依赖
-        # keyring 的 sync-secret-service 在 Linux 依赖 dbus 开发库（ubuntu runner 未预装）
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - name: 格式检查
         run: cargo fmt --all --check
       - name: Clippy
@@ -33,3 +35,25 @@ jobs:
         run: cargo check --release --workspace
         # dev-smoke 子命令仅 debug 构建存在（cfg(debug_assertions)），
         # release 编译通过 = 双面 cfg 无残留引用的自动验证
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/quota-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/quota-desktop/pnpm-lock.yaml
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: 构建（tsc + vite）
+        run: pnpm build
