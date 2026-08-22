@@ -1,6 +1,6 @@
 [package]
 name = "quota-cli"
-description = "QuotaTray 命令行前端（M0 骨架，子命令于 M2 提供）"
+description = "QuotaTray 命令行前端"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,4 +11,16 @@ name = "quota"
 path = "src/main.rs"
 
 [dependencies]
+quota-core = { path = "../../crates/quota-core" }
 clap = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zeroize = { workspace = true }
+dialoguer = { workspace = true }
+console = { workspace = true }
+rpassword = { workspace = true }
+comfy-table = { workspace = true }
+getrandom = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
