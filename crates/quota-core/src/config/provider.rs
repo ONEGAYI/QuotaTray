@@ -36,7 +36,10 @@ impl std::fmt::Debug for Credentials {
 pub enum ProviderKind {
     /// 预置原生实现，`provider` 指向 native 注册表 id（如 "deepseek"）。
     Native { provider: String },
-    // M2：Template（声明式模板）；M4：Script（QuickJS 沙箱脚本）。
+    /// 声明式模板（M2）：零代码接入任意平台。Box 收窄枚举尺寸
+    /// （模板配置约 384 字节，远大于 Native 的 24 字节）。
+    Template(Box<crate::template::TemplateConfig>),
+    // M4：Script（QuickJS 沙箱脚本）。
 }
 
 #[cfg(test)]

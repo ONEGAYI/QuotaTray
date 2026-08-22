@@ -32,12 +32,13 @@ pub struct HttpRequest {
     pub body: Option<String>,
 }
 
-// 手写 Debug：敏感头打码，防止请求日志（未来的排障手段）泄漏凭据。
+// 手写 Debug：敏感头与 URL query 打码，防止请求日志泄漏凭据
+//（M2 模板支持自定义 URL 后，用户可能把 key 写进 query string）。
 impl std::fmt::Debug for HttpRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpRequest")
             .field("method", &self.method)
-            .field("url", &self.url)
+            .field("url", &mask_url_query(&self.url))
             .field(
                 "headers",
                 &self
@@ -57,6 +58,14 @@ impl std::fmt::Debug for HttpRequest {
             )
             .field("body", &self.body)
             .finish()
+    }
+}
+
+/// URL 的 query 部分整体打码（参数名也不保留——key 本身可能出现在参数名中）。
+fn mask_url_query(url: &str) -> String {
+    match url.split_once('?') {
+        None => url.to_string(),
+        Some((base, _)) => format!("{base}?***"),
     }
 }
 
@@ -123,21 +132,22 @@ pub trait HttpClient: Send + Sync {
 mod tests {
     use super::*;
 
-    /// 安全契约：Debug 输出对敏感头打码，明文 token 不得出现。
+    /// 安全契约：Debug 输出对敏感头与 URL query 打码，明文 token 不得出现。
     #[test]
     fn debug_masks_sensitive_headers() {
-        let req = HttpRequest::get("https://example.com/api")
+        let req = HttpRequest::get("https://example.com/api?token=sk-plaintext-secret")
             .bearer("sk-plaintext-secret")
             .header("Accept", "application/json")
             .header("x-api-key", "another-secret");
         let dbg = format!("{req:?}");
-        assert!(
-            !dbg.contains("sk-plaintext-secret"),
-            "Authorization 泄漏：{dbg}"
-        );
+        assert!(!dbg.contains("sk-plaintext-secret"), "凭据泄漏：{dbg}");
         assert!(!dbg.contains("another-secret"), "x-api-key 泄漏：{dbg}");
+        assert!(!dbg.contains("token="), "URL query 泄漏：{dbg}");
         assert!(dbg.contains("***"), "应有打码占位：{dbg}");
         // 普通头不受影响
         assert!(dbg.contains("application/json"), "{dbg}");
+        // 无 query 的 URL 原样输出
+        let plain = format!("{:?}", HttpRequest::get("https://example.com/api"));
+        assert!(plain.contains("https://example.com/api"), "{plain}");
     }
 }

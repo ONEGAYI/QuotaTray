@@ -46,14 +46,30 @@ impl QueryEngine {
                 let native = provider::find(id)
                     .ok_or_else(|| QueryError::deterministic(format!("未知的预置平台 id：{id}")))?;
                 let fut = native.query(&creds, self.http.as_ref());
-                match tokio::time::timeout(self.timeout, fut).await {
-                    Ok(result) => result,
-                    Err(_elapsed) => Err(QueryError::transient(format!(
-                        "查询超时（{} 秒）",
-                        self.timeout.as_secs()
-                    ))),
-                }
+                self.with_timeout(fut).await
             }
+            ProviderKind::Template(config) => {
+                let fut = crate::template::execute(
+                    self.http.as_ref(),
+                    config,
+                    creds.api_key.as_str(),
+                    entry.base_url.as_deref(),
+                );
+                self.with_timeout(fut).await
+            }
+        }
+    }
+
+    async fn with_timeout<F>(&self, fut: F) -> Result<Vec<UsageData>, QueryError>
+    where
+        F: std::future::Future<Output = Result<Vec<UsageData>, QueryError>>,
+    {
+        match tokio::time::timeout(self.timeout, fut).await {
+            Ok(result) => result,
+            Err(_elapsed) => Err(QueryError::transient(format!(
+                "查询超时（{} 秒）",
+                self.timeout.as_secs()
+            ))),
         }
     }
 }
@@ -74,6 +90,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            base_url: None,
         }
     }
 
@@ -142,5 +159,32 @@ mod tests {
         let err = engine.query(&vault, &e).await.unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("401"), "实际：{err}");
+    }
+
+    /// 契约：Template 条目经引擎全链执行（解密→模板→mock HTTP→UsageData）。
+    #[tokio::test]
+    async fn engine_executes_template_entry() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let template: crate::TemplateConfig = serde_json::from_value(serde_json::json!({
+            "request": { "url": "{{baseUrl}}/user/balance" },
+            "extract": { "remaining": "$.balance" }
+        }))
+        .unwrap();
+        let mut e = ProviderEntry {
+            id: "tpl1".into(),
+            name: "模板测试".into(),
+            kind: ProviderKind::Template(Box::new(template)),
+            enabled: true,
+            api_key_enc: None,
+            base_url: Some("https://api.demo.com".into()),
+        };
+        e.set_api_key(&vault, "sk-tpl").unwrap();
+
+        let engine = QueryEngine::new(
+            Arc::new(MockHttp::ok(r#"{"balance":"7.5"}"#)),
+            DEFAULT_TIMEOUT,
+        );
+        let data = engine.query(&vault, &e).await.unwrap();
+        assert_eq!(data[0].remaining, Some(7.5));
     }
 }

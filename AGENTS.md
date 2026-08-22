@@ -49,8 +49,11 @@ QuotaTray/
 │           │   ├── deepseek.rs       # /user/balance
 │           │   ├── siliconflow.rs    # /v1/user/info（CNY）
 │           │   └── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
+│           ├── template/      # 声明式模板 DSL（M2a）
+│           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、多窗口）
+│           │   └── path.rs    # JSONPath 子集（$.a.b[0]，拒绝过滤器/通配符）
 │           └── query/
-│               └── mod.rs     # QueryEngine：解密→分派→超时（默认 15s）
+│               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 ├── apps/
 │   └── quota-cli/             # CLI 前端（bin 名 quota，M0 骨架）
 │       └── src/
@@ -60,7 +63,12 @@ QuotaTray/
     └── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
 ```
 
-（`apps/quota-desktop/` 为规划目录，M3 建立；core 的 template（M2）/ script（M4）模块随里程碑建立）
+（`apps/quota-desktop/` 为规划目录，M3 建立；core 的 script 模块（M4）随里程碑建立）
+
+**并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
+CLI（M2b）与 GUI（M3）可双工作树并行开发，共享文件仅 workspace
+`Cargo.toml` 与本文件树——先合的 PR 为准，后合的 rebase 更新文件树即可。
+core 若需变更公开 API，先单独提 PR 合入再同步两端。
 
 ## 工程规范
 
