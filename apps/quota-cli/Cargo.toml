@@ -21,6 +21,7 @@ dialoguer = { workspace = true }
 console = { workspace = true }
 arboard = { workspace = true }
 comfy-table = { workspace = true }
+chrono = { workspace = true }
 getrandom = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }

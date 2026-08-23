@@ -3,8 +3,10 @@
 //! 渲染函数均为纯函数（`&[T] → String`），语言经参数传入，
 //! 输出字符串由单元测试按双语锁定。
 
+use chrono::TimeZone;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
 use quota_core::model::{QueryError, UsageData};
+use quota_core::pricing::{PeakWindow, PriceTier, Weekday};
 use quota_core::provider::NativeMeta;
 use quota_core::{ProviderEntry, ProviderKind};
 use serde::Serialize;
@@ -168,13 +170,191 @@ pub fn list_table(entries: &[ProviderEntry], lang: Lang) -> String {
     table.to_string()
 }
 
-/// `quota natives` 表格：id / 名称。
+/// `quota natives` 表格：id / 名称 / 峰谷预置。
 pub fn natives_table(metas: &[NativeMeta], lang: Lang) -> String {
-    let mut table = new_table(&["id", t(lang, T::ColName)]);
+    let mut table = new_table(&["id", t(lang, T::ColName), t(lang, T::ColPricing)]);
     for m in metas {
-        table.add_row(vec![Cell::new(m.id), Cell::new(m.name)]);
+        table.add_row(vec![
+            Cell::new(m.id),
+            Cell::new(m.name),
+            Cell::new(if quota_core::pricing::preset(m.id).is_some() {
+                "✓"
+            } else {
+                "-"
+            })
+            .set_alignment(CellAlignment::Center),
+        ]);
     }
     table.to_string()
+}
+
+// ---- pricing 渲染 ----------------------------------------------------------
+
+/// `quota pricing show` 价格对照表：项目 / 高峰 / 空闲。
+/// 档缺失或单值缺失显示 "-"；价格经 `format_price` 去尾零。
+pub fn pricing_table(peak: Option<&PriceTier>, off_peak: Option<&PriceTier>, lang: Lang) -> String {
+    fn cell(tier: Option<&PriceTier>, pick: fn(&PriceTier) -> Option<f64>) -> Cell {
+        Cell::new(
+            tier.and_then(pick)
+                .map_or_else(|| "-".into(), quota_core::pricing::format_price),
+        )
+        .set_alignment(CellAlignment::Right)
+    }
+    let pick_hit = |t: &PriceTier| t.cache_hit_input;
+    let pick_miss = |t: &PriceTier| t.cache_miss_input;
+    let pick_out = |t: &PriceTier| t.output;
+    let mut table = new_table(&[
+        t(lang, T::ColPriceItem),
+        t(lang, T::ColPeak),
+        t(lang, T::ColOffPeak),
+    ]);
+    for (label, pick) in [
+        (T::PriceCacheHit, pick_hit as fn(&PriceTier) -> Option<f64>),
+        (
+            T::PriceCacheMiss,
+            pick_miss as fn(&PriceTier) -> Option<f64>,
+        ),
+        (T::PriceOutput, pick_out as fn(&PriceTier) -> Option<f64>),
+    ] {
+        table.add_row(vec![
+            Cell::new(t(lang, label)),
+            cell(peak, pick),
+            cell(off_peak, pick),
+        ]);
+    }
+    table.to_string()
+}
+
+/// 星期序号（Mon=0…Sun=6，聚合排序用）。
+fn weekday_idx(d: Weekday) -> u8 {
+    match d {
+        Weekday::Mon => 0,
+        Weekday::Tue => 1,
+        Weekday::Wed => 2,
+        Weekday::Thu => 3,
+        Weekday::Fri => 4,
+        Weekday::Sat => 5,
+        Weekday::Sun => 6,
+    }
+}
+
+/// 序号反取星期（聚合段端点用）。
+fn weekday_from_idx(i: u8) -> Weekday {
+    match i {
+        0 => Weekday::Mon,
+        1 => Weekday::Tue,
+        2 => Weekday::Wed,
+        3 => Weekday::Thu,
+        4 => Weekday::Fri,
+        5 => Weekday::Sat,
+        _ => Weekday::Sun,
+    }
+}
+
+/// 星期名（zh 周一… / en Mon…）。
+fn weekday_name(lang: Lang, d: Weekday) -> &'static str {
+    match lang {
+        Lang::En => match d {
+            Weekday::Mon => "Mon",
+            Weekday::Tue => "Tue",
+            Weekday::Wed => "Wed",
+            Weekday::Thu => "Thu",
+            Weekday::Fri => "Fri",
+            Weekday::Sat => "Sat",
+            Weekday::Sun => "Sun",
+        },
+        _ => match d {
+            Weekday::Mon => "周一",
+            Weekday::Tue => "周二",
+            Weekday::Wed => "周三",
+            Weekday::Thu => "周四",
+            Weekday::Fri => "周五",
+            Weekday::Sat => "周六",
+            Weekday::Sun => "周日",
+        },
+    }
+}
+
+/// 单窗口的星期聚合描述：排序去重 → 连续段合并
+/// （`周一至周五` / `Mon–Fri`；孤立日枚举 `周六、周日` / `Sat, Sun`）。
+fn window_days_desc(lang: Lang, days: &[Weekday]) -> String {
+    let mut idx: Vec<u8> = days.iter().map(|d| weekday_idx(*d)).collect();
+    idx.sort_unstable();
+    idx.dedup();
+    let sep_day = match lang {
+        Lang::En => ", ",
+        _ => "、",
+    };
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < idx.len() {
+        let mut j = i;
+        while j + 1 < idx.len() && idx[j + 1] == idx[j] + 1 {
+            j += 1;
+        }
+        let start = weekday_from_idx(idx[i]);
+        let end = weekday_from_idx(idx[j]);
+        if i == j {
+            parts.push(weekday_name(lang, start).to_string());
+        } else {
+            match lang {
+                Lang::En => parts.push(format!(
+                    "{}–{}",
+                    weekday_name(lang, start),
+                    weekday_name(lang, end)
+                )),
+                _ => parts.push(format!(
+                    "{}至{}",
+                    weekday_name(lang, start),
+                    weekday_name(lang, end)
+                )),
+            }
+        }
+        i = j + 1;
+    }
+    parts.join(sep_day)
+}
+
+/// 窗口集合的人类可读描述：`周一至周五 09:00–12:00、14:00–18:00`
+/// （窗口间 zh 顿号 / en 逗号；起止 en dash）。
+pub fn windows_desc(windows: &[PeakWindow], lang: Lang) -> String {
+    let sep_win = match lang {
+        Lang::En => ", ",
+        _ => "、",
+    };
+    windows
+        .iter()
+        .map(|w| format!("{} {}–{}", window_days_desc(lang, &w.days), w.start, w.end))
+        .collect::<Vec<_>>()
+        .join(sep_win)
+}
+
+/// UTC 偏移描述：Some(480) → `UTC+08:00`；None → 「本地时区」。
+pub fn tz_desc(lang: Lang, timezone_offset_minutes: Option<i32>) -> String {
+    match timezone_offset_minutes {
+        None => t(lang, T::PricingLocalTz).into(),
+        Some(m) => {
+            let sign = if m < 0 { '-' } else { '+' };
+            let m = m.abs();
+            format!("UTC{sign}{:02}:{:02}", m / 60, m % 60)
+        }
+    }
+}
+
+/// 按峰谷判定时区格式化时刻（`08-19 12:00`；非法偏移回退本地）。
+pub fn fmt_datetime_in_tz(ms: u64, timezone_offset_minutes: Option<i32>) -> String {
+    let formatted = timezone_offset_minutes
+        .and_then(|m| m.checked_mul(60))
+        .and_then(chrono::FixedOffset::east_opt)
+        .and_then(|tz| tz.timestamp_millis_opt(ms as i64).single())
+        .map(|dt| dt.format("%m-%d %H:%M").to_string())
+        .or_else(|| {
+            chrono::Local
+                .timestamp_millis_opt(ms as i64)
+                .single()
+                .map(|dt| dt.format("%m-%d %H:%M").to_string())
+        });
+    formatted.unwrap_or_else(|| chrono::Local::now().format("%m-%d %H:%M").to_string())
 }
 
 #[cfg(test)]

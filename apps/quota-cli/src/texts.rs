@@ -181,6 +181,42 @@ pub enum T {
     UpdateSaveFail,
     UpdateRunHint,
     UpdateClientFail,
+
+    // ---- pricing ----
+    /// 「⚡高峰」标签。
+    PeakLabel,
+    /// 「空闲」标签。
+    OffPeakLabel,
+    /// pricing 表「项目」列头。
+    ColPriceItem,
+    /// pricing 表「高峰」列头。
+    ColPeak,
+    /// pricing 表「空闲」列头。
+    ColOffPeak,
+    /// natives 表「峰谷预置」列头。
+    ColPricing,
+    /// 「输入（缓存命中）」行名。
+    PriceCacheHit,
+    /// 「输入（缓存未命中）」行名。
+    PriceCacheMiss,
+    /// 「输出」行名。
+    PriceOutput,
+    /// 条目无峰谷定价（无预置且未自定义）。
+    PricingNotConfigured,
+    /// 「本地时区」。
+    PricingLocalTz,
+    /// 未设高峰窗口（恒按空闲价）。
+    PricingNoWindows,
+    /// 「峰谷定价校验失败：」前缀。
+    PricingValidateFail,
+    HelpPricing,
+    HelpPricingShow,
+    HelpPricingShowId,
+    HelpPricingShowJson,
+    HelpPricingSet,
+    HelpPricingSetId,
+    HelpPricingClear,
+    HelpPricingClearId,
     HelpDevSmoke,
     HelpDevSmokeKeyFile,
 }
@@ -339,6 +375,29 @@ fn zh(key: T) -> &'static str {
         T::UpdateSaveFail => "安装包写入失败：",
         T::UpdateRunHint => "下载完成，请手动运行安装包完成更新",
         T::UpdateClientFail => "无法构造 HTTP 客户端",
+        T::PeakLabel => "⚡高峰",
+        T::OffPeakLabel => "空闲",
+        T::ColPriceItem => "项目",
+        T::ColPeak => "高峰",
+        T::ColOffPeak => "空闲",
+        T::ColPricing => "峰谷",
+        T::PriceCacheHit => "输入（缓存命中）",
+        T::PriceCacheMiss => "输入（缓存未命中）",
+        T::PriceOutput => "输出",
+        T::PricingNotConfigured => {
+            "该条目未配置峰谷定价，且其平台无预置（可用 quota pricing set 自定义）"
+        }
+        T::PricingLocalTz => "本地时区",
+        T::PricingNoWindows => "未设高峰时段（恒按空闲价）",
+        T::PricingValidateFail => "峰谷定价校验失败：",
+        T::HelpPricing => "峰谷定价：查看 / 自定义 / 清除",
+        T::HelpPricingShow => "查看条目生效峰谷定价（当前判定 + 价格对照 + 时段）",
+        T::HelpPricingShowId => "条目 id",
+        T::HelpPricingShowJson => "输出 JSON（供脚本消费）",
+        T::HelpPricingSet => "从 stdin 读 PricingConfig JSON 设为自定义（字段级覆盖预置）",
+        T::HelpPricingSetId => "条目 id",
+        T::HelpPricingClear => "清除自定义峰谷定价（回退预置）",
+        T::HelpPricingClearId => "条目 id",
         T::HelpDevSmoke => "真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）",
         T::HelpDevSmokeKeyFile => "key 文件路径（默认当前目录 .DevApiKey.json）",
     }
@@ -512,6 +571,33 @@ fn en(key: T) -> &'static str {
         T::UpdateSaveFail => "failed to write the installer: ",
         T::UpdateRunHint => "Download complete; run the installer manually to update",
         T::UpdateClientFail => "failed to build an HTTP client",
+        T::PeakLabel => "Peak",
+        T::OffPeakLabel => "Off-peak",
+        T::ColPriceItem => "Item",
+        T::ColPeak => "Peak",
+        T::ColOffPeak => "Off-peak",
+        T::ColPricing => "Pricing",
+        T::PriceCacheHit => "Input (cache hit)",
+        T::PriceCacheMiss => "Input (cache miss)",
+        T::PriceOutput => "Output",
+        T::PricingNotConfigured => {
+            "no peak pricing configured for this entry (and no preset for its provider); define one with quota pricing set"
+        }
+        T::PricingLocalTz => "local timezone",
+        T::PricingNoWindows => "no peak windows (always billed at off-peak rates)",
+        T::PricingValidateFail => "peak pricing validation failed: ",
+        T::HelpPricing => "Peak/off-peak pricing: show / set / clear",
+        T::HelpPricingShow => {
+            "Show the effective peak pricing (current kind, price table, windows)"
+        }
+        T::HelpPricingShowId => "Entry id",
+        T::HelpPricingShowJson => "Output JSON (for scripts)",
+        T::HelpPricingSet => {
+            "Read a PricingConfig JSON from stdin as the custom override (field-level fallback to presets)"
+        }
+        T::HelpPricingSetId => "Entry id",
+        T::HelpPricingClear => "Clear the custom peak pricing (fall back to presets)",
+        T::HelpPricingClearId => "Entry id",
         T::HelpDevSmoke => {
             "Live smoke test (debug builds only; runs the full pipeline via .DevApiKey.json)"
         }
@@ -659,6 +745,70 @@ pub fn smoke_total_fail(lang: Lang, n: usize) -> String {
     }
 }
 
+// ---- pricing（带参：头部行/来源/时段/下次切换/结果） ------------------------
+
+/// `quota pricing show` 头部行：名称（id）· 峰谷标签 [· 模型] [· 币种/MTokens]。
+pub fn pricing_header(
+    lang: Lang,
+    name: &str,
+    id: &str,
+    kind_label: &str,
+    model_label: Option<&str>,
+    unit: Option<&str>,
+) -> String {
+    let mut parts = vec![kind_label.to_string()];
+    parts.extend(model_label.map(str::to_string));
+    parts.extend(unit.map(str::to_string));
+    match lang {
+        Lang::En => format!("{name} ({id}) · {}", parts.join(" · ")),
+        _ => format!("{name}（{id}）· {}", parts.join(" · ")),
+    }
+}
+
+/// 定价来源行：预置（native · 模型 id）或自定义。
+pub fn pricing_source(lang: Lang, preset: Option<(&str, &str)>) -> String {
+    match (lang, preset) {
+        (Lang::En, Some((native, model))) => {
+            format!("Pricing source: preset ({native} · {model})")
+        }
+        (Lang::En, None) => "Pricing source: custom".into(),
+        (_, Some((native, model))) => format!("定价来源：预置（{native} · {model}）"),
+        (_, None) => "定价来源：自定义".into(),
+    }
+}
+
+/// 时段行：`高峰时段（UTC+08:00）：周一至周五 09:00–12:00、14:00–18:00`。
+pub fn pricing_windows_line(lang: Lang, tz_desc: &str, windows_desc: &str) -> String {
+    match lang {
+        Lang::En => format!("Peak windows ({tz_desc}): {windows_desc}"),
+        _ => format!("高峰时段（{tz_desc}）：{windows_desc}"),
+    }
+}
+
+/// 下次切换行：`下次切换：08-19 12:00 → 空闲`。
+pub fn pricing_next_change(lang: Lang, datetime: &str, kind_label: &str) -> String {
+    match lang {
+        Lang::En => format!("Next change: {datetime} → {kind_label}"),
+        _ => format!("下次切换：{datetime} → {kind_label}"),
+    }
+}
+
+/// pricing set 成功。
+pub fn pricing_saved(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::En => format!("peak pricing saved ({id})"),
+        _ => format!("峰谷定价已保存（{id}）"),
+    }
+}
+
+/// pricing clear 成功。
+pub fn pricing_cleared(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::En => format!("custom peak pricing cleared ({id}; presets apply again)"),
+        _ => format!("峰谷定价自定义已清除（{id}，预置重新生效）"),
+    }
+}
+
 // ---- update（检测/下载/启动提示） ------------------------------------------
 
 /// 已是最新（含当前版本号）。
@@ -766,6 +916,22 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
         .mut_subcommand("vault", |c| {
             c.about(tr(T::HelpVault))
                 .mut_subcommand("status", |c| c.about(tr(T::HelpVaultStatus)))
+        })
+        .mut_subcommand("pricing", |c| {
+            c.about(tr(T::HelpPricing))
+                .mut_subcommand("show", |c| {
+                    c.about(tr(T::HelpPricingShow))
+                        .mut_arg("id", |a| a.help(tr(T::HelpPricingShowId)))
+                        .mut_arg("json", |a| a.help(tr(T::HelpPricingShowJson)))
+                })
+                .mut_subcommand("set", |c| {
+                    c.about(tr(T::HelpPricingSet))
+                        .mut_arg("id", |a| a.help(tr(T::HelpPricingSetId)))
+                })
+                .mut_subcommand("clear", |c| {
+                    c.about(tr(T::HelpPricingClear))
+                        .mut_arg("id", |a| a.help(tr(T::HelpPricingClearId)))
+                })
         })
         .mut_subcommand("update", |c| {
             c.about(tr(T::HelpUpdate))

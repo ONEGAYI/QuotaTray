@@ -7,7 +7,8 @@
 
 use std::collections::HashMap;
 
-use quota_core::{AppConfig, UsageData};
+use quota_core::pricing::{self, PeakKind};
+use quota_core::{AppConfig, ProviderEntry, UsageData};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -175,6 +176,39 @@ pub fn entry_lines(
         lines.push(format!("{name} · {}", t.no_data));
     }
     lines
+}
+
+/// 条目的峰谷信息行（最多两行，挂在「当前展示条目」名下）：
+/// - 行 1：`⚡ 高峰 · V4 Flash`（当前判定 + 模型标签）；
+/// - 行 2：当前档三价 `命中 0.3 · 未命中 9 · 输出 27 CNY/Mtok`
+///   （缺价字段跳过；当前档整体缺失只显示行 1）。
+///
+/// 未配置峰谷定价（无预置且未自定义）返回空——不追加任何行。
+pub fn pricing_lines(entry: &ProviderEntry, now_ms: u64, lang: Lang) -> Vec<String> {
+    let Some(resolved) = pricing::resolve(entry) else {
+        return vec![];
+    };
+    let kind = resolved.kind(now_ms);
+    let line1 = lang.peak_status_line(kind == PeakKind::Peak, resolved.model_label.as_deref());
+    let tier = match kind {
+        PeakKind::Peak => resolved.peak.as_ref(),
+        PeakKind::OffPeak => resolved.off_peak.as_ref(),
+    };
+    let Some(tier) = tier else {
+        return vec![line1];
+    };
+    let fmt = |v: &Option<f64>| v.map(pricing::format_price);
+    let line2 = lang.peak_prices_line(
+        fmt(&tier.cache_hit_input).as_deref(),
+        fmt(&tier.cache_miss_input).as_deref(),
+        fmt(&tier.output).as_deref(),
+        resolved.currency.as_deref(),
+    );
+    if line2.is_empty() {
+        vec![line1]
+    } else {
+        vec![line1, line2]
+    }
 }
 
 /// 条目的旧值是否仍可作为展示依据（keep-last-good 门控，菜单行/圆环/红点
@@ -345,6 +379,25 @@ fn snapshot_views(state: &AppState) -> Option<(AppConfig, HashMap<String, EntryS
     Some((cfg, results, settings))
 }
 
+/// 每分钟调度调用：图标条目的峰谷状态与上次重建时不一致（含首次）→
+/// 重建托盘。峰谷标签在菜单重建时判定，轮询间隔长时靠本检测兜底刷新；
+/// 读盘失败静默保留缓存（下次再比）。
+pub fn rebuild_on_peak_flip(app: &AppHandle, state: &AppState) {
+    let Some((cfg, _, settings)) = snapshot_views(state) else {
+        return;
+    };
+    let now = now_ms();
+    let current = ring::icon_entry(&cfg, &settings)
+        .and_then(|entry| pricing::resolve(entry).map(|r| (entry.id.clone(), r.kind(now))));
+    let mut last = state.last_peak.write().unwrap();
+    if *last == current {
+        return;
+    }
+    *last = current;
+    drop(last);
+    rebuild(app, state);
+}
+
 fn build_menu(
     app: &AppHandle,
     cfg: &AppConfig,
@@ -357,6 +410,8 @@ fn build_menu(
     let now = now_ms();
     let menu = Menu::new(app)?;
     let entries: Vec<_> = cfg.providers.iter().filter(|p| p.enabled).collect();
+    // 峰谷信息行只挂在「当前展示条目」（圆环数据源）名下
+    let icon_entry_id = ring::icon_entry(cfg, settings).map(|e| e.id.as_str());
     if entries.is_empty() {
         menu.append(&MenuItem::with_id(
             app,
@@ -385,6 +440,18 @@ fn build_menu(
                 false,
                 None::<&str>,
             )?)?;
+        }
+        // 峰谷行（disabled，id 独立前缀避免与数据行混同）
+        if icon_entry_id == Some(entry.id.as_str()) {
+            for (i, line) in pricing_lines(entry, now, lang).iter().enumerate() {
+                menu.append(&MenuItem::with_id(
+                    app,
+                    format!("info-pricing-{i}"),
+                    line,
+                    false,
+                    None::<&str>,
+                )?)?;
+            }
         }
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -609,6 +676,106 @@ mod tests {
             &st,
             vec!["DeepSeek · 剩余 62.97 CNY · 3 分钟前"],
             vec!["DeepSeek · Left 62.97 CNY · 3m ago"],
+        );
+    }
+
+    // ---- 峰谷信息行（与 core pricing 测试同款时间锚点） ----
+
+    /// 北京时间 2026-08-19（周三）09:30（DeepSeek 高峰内）。
+    const PEAK_NOW: u64 = 1_787_103_000_000;
+    /// 北京时间 2026-08-19（周三）04:30（夜间空闲）。
+    const OFF_NOW: u64 = 1_787_085_000_000;
+
+    fn entry_with(pricing: Option<quota_core::PricingConfig>) -> ProviderEntry {
+        ProviderEntry {
+            id: "p1".into(),
+            name: "DeepSeek".into(),
+            kind: quota_core::ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            base_url: None,
+            pricing,
+        }
+    }
+
+    /// 契约：预置 DeepSeek——峰内两行（类型+模型 / 当前档三价），双语。
+    #[test]
+    fn pricing_lines_preset_peak() {
+        let e = entry_with(None);
+        assert_eq!(
+            pricing_lines(&e, PEAK_NOW, Lang::Zh),
+            vec![
+                "⚡ 高峰 · V4 Flash",
+                "命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok"
+            ]
+        );
+        assert_eq!(
+            pricing_lines(&e, PEAK_NOW, Lang::En),
+            vec!["⚡ Peak · V4 Flash", "Hit 0.1 · Miss 3 · Out 9 CNY/Mtok"]
+        );
+    }
+
+    /// 契约：谷内显示空闲档价（空闲 = 高峰一半）。
+    #[test]
+    fn pricing_lines_preset_off_peak() {
+        let e = entry_with(None);
+        assert_eq!(
+            pricing_lines(&e, OFF_NOW, Lang::Zh),
+            vec![
+                "空闲 · V4 Flash",
+                "命中 0.05 · 未命中 1.5 · 输出 4.5 CNY/Mtok"
+            ]
+        );
+    }
+
+    /// 契约：model 选择切换价格档（预置 pro）。
+    #[test]
+    fn pricing_lines_model_selection() {
+        let e = entry_with(Some(quota_core::PricingConfig {
+            model: Some("pro".into()),
+            ..Default::default()
+        }));
+        assert_eq!(
+            pricing_lines(&e, PEAK_NOW, Lang::Zh),
+            vec!["⚡ 高峰 · V4 Pro", "命中 0.3 · 未命中 9 · 输出 27 CNY/Mtok"]
+        );
+    }
+
+    /// 契约：无峰谷配置的条目不追加任何行。
+    #[test]
+    fn pricing_lines_absent_without_config() {
+        let mut e = entry_with(None);
+        e.kind = quota_core::ProviderKind::Native {
+            provider: "siliconflow".into(),
+        };
+        assert_eq!(pricing_lines(&e, PEAK_NOW, Lang::Zh), Vec::<String>::new());
+        assert_eq!(pricing_lines(&e, PEAK_NOW, Lang::En), Vec::<String>::new());
+    }
+
+    /// 契约：当前档价格全缺时只显示类型行；部分缺价跳过该字段。
+    #[test]
+    fn pricing_lines_partial_tier() {
+        let e = entry_with(Some(quota_core::PricingConfig {
+            model: Some("pro".into()),
+            peak: Some(quota_core::PriceTier {
+                cache_hit_input: Some(0.3),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }));
+        // 峰内且自定义 peak 只给命中价 → 只显示命中；谷价回退预置 pro 全档
+        assert_eq!(
+            pricing_lines(&e, PEAK_NOW, Lang::Zh),
+            vec!["⚡ 高峰 · V4 Pro", "命中 0.3 CNY/Mtok"]
+        );
+        assert_eq!(
+            pricing_lines(&e, OFF_NOW, Lang::Zh),
+            vec![
+                "空闲 · V4 Pro",
+                "命中 0.15 · 未命中 4.5 · 输出 13.5 CNY/Mtok"
+            ]
         );
     }
 

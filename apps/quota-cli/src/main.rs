@@ -97,6 +97,9 @@ enum Command {
     },
     /// 列出预置平台
     Natives,
+    /// 峰谷定价：查看 / 自定义 / 清除
+    #[command(subcommand)]
+    Pricing(PricingCmd),
     /// 模板工具
     #[command(subcommand)]
     Template(TemplateCmd),
@@ -121,6 +124,28 @@ enum Command {
         /// key 文件路径（默认当前目录 .DevApiKey.json）
         #[arg(long, value_name = "PATH")]
         key_file: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum PricingCmd {
+    /// 查看条目生效峰谷定价（当前判定 + 价格对照 + 时段）
+    Show {
+        /// 条目 id
+        id: String,
+        /// 输出 JSON（供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 从 stdin 读 PricingConfig JSON 设为自定义（字段级覆盖预置）
+    Set {
+        /// 条目 id
+        id: String,
+    },
+    /// 清除自定义峰谷定价（回退预置）
+    Clear {
+        /// 条目 id
+        id: String,
     },
 }
 
@@ -220,6 +245,9 @@ async fn run(cli: Cli) -> i32 {
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
         Command::SetKey { id } => cmd::setkey::run(&ctx, id),
         Command::Natives => cmd::natives::run(ctx.lang),
+        Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
+        Command::Pricing(PricingCmd::Set { id }) => cmd::pricing::run_set(&ctx, &id),
+        Command::Pricing(PricingCmd::Clear { id }) => cmd::pricing::run_clear(&ctx, &id),
         Command::Template(TemplateCmd::Test {
             entry,
             json,
@@ -303,6 +331,10 @@ mod tests {
             vec!["quota", "remove", "x1", "--yes"],
             vec!["quota", "set-key", "x1"],
             vec!["quota", "natives"],
+            vec!["quota", "pricing", "show", "x1"],
+            vec!["quota", "pricing", "show", "x1", "--json"],
+            vec!["quota", "pricing", "set", "x1"],
+            vec!["quota", "pricing", "clear", "x1"],
             vec!["quota", "template", "test"],
             vec!["quota", "template", "test", "--entry", "x1"],
             vec!["quota", "template", "test", "--json"],

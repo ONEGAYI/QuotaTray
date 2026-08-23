@@ -69,6 +69,55 @@ export interface ProviderEntry {
   enabled: boolean;
   api_key_enc?: string;
   base_url?: string;
+  /** 峰谷定价自定义（缺省 = 回退预置，见 core pricing::resolve） */
+  pricing?: PricingConfig;
+}
+
+// ---- 峰谷定价（core pricing 模块镜像，snake_case 与宿主一致） ----
+
+export type Weekday = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+
+/** 一档价格（单位：每 MTokens；字段可部分缺失）。 */
+export interface PriceTier {
+  cache_hit_input?: number;
+  cache_miss_input?: number;
+  output?: number;
+}
+
+/** 高峰窗口：days 上每天的 [start, end)（左闭右开，同日不跨日）。 */
+export interface PeakWindow {
+  days: Weekday[];
+  start: string;
+  end: string;
+}
+
+/** 峰谷定价自定义（全部字段可缺省：缺省即回退预置）。 */
+export interface PricingConfig {
+  model?: string;
+  /** UTC 偏移（分钟，东八区 = 480）；缺省 = 本地时区 */
+  timezone_offset_minutes?: number;
+  /** null = 回退预置；[] = 恒空闲 */
+  windows?: PeakWindow[] | null;
+  peak?: PriceTier;
+  off_peak?: PriceTier;
+  currency?: string;
+}
+
+/** 预置单模型价格档（IPC 形状，来自 list_native_metas）。 */
+export interface PresetModel {
+  id: string;
+  display: string;
+  peak: PriceTier;
+  off_peak: PriceTier;
+}
+
+/** 峰谷定价预置（IPC 形状）。 */
+export interface PresetPricing {
+  currency: string;
+  timezone_offset_minutes: number;
+  windows: PeakWindow[];
+  default_model: string;
+  models: PresetModel[];
 }
 
 /** 桌面端设置（settings.json，字段与 Rust 侧 Settings 一一对应）。 */
@@ -128,6 +177,8 @@ export interface QueryOutcome {
 export interface NativeMeta {
   id: string;
   name: string;
+  /** 峰谷定价预置（平台无预置则 null） */
+  pricing: PresetPricing | null;
 }
 
 export interface TemplateErrorDto {

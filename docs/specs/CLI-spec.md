@@ -19,7 +19,8 @@
 | `quota edit <id>` | 编辑条目（名称/base_url/模板/启用） |
 | `quota remove <id>` | 删除条目 |
 | `quota set-key <id>` | 写入/更新 API key（隐藏输入） |
-| `quota natives` | 列出预置平台（来自 core 注册表） |
+| `quota natives` | 列出预置平台（来自 core 注册表，标注峰谷预置有无） |
+| `quota pricing show/set/clear` | 峰谷定价查看 / 自定义 / 清除 |
 | `quota template test` | 对模板执行静态校验 + 试查询 |
 | `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
 | `quota dev-smoke` | 真机冒烟（仅 debug 构建） |
@@ -58,6 +59,24 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
   （`echo $KEY | quota set-key id` 场景）。
 - `quota remove`：确认提示（`--yes` 跳过）。
 - id 冲突：`add` 生成短随机 id（如 6 位 base32），`edit/remove` 精确匹配。
+
+### quota pricing
+
+```
+quota pricing show <id> [--json]
+quota pricing set <id>      # stdin 读 PricingConfig JSON
+quota pricing clear <id>    # 清除自定义，回退预置
+```
+
+- `show`：条目生效峰谷定价——当前峰/谷判定、来源（预置 native·模型 /
+  自定义）、三档价格对照表（高峰/空闲两列，单位每 MTokens）、
+  时段人类可读聚合（连续星期合并，如「周一至周五 09:00–12:00」）与
+  UTC 偏移、下次翻转时刻；`--json` 输出结构化形状（kind/source/preset/
+  windows/peak/off_peak/next_change）。
+- 条目无定价（无预置且未自定义）→ 提示语 + 退出码 0（查看类非错误）。
+- `set`：stdin JSON 经 core `pricing::validate`（字段定位错误）后写入
+  `entry.pricing`；字段级回退——只写 `{"model":"pro"}` 即可切换预置模型档。
+- `clear`：置空 `entry.pricing`（预置重新生效）。
 
 ### quota template test
 

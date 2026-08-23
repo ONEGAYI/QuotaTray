@@ -235,6 +235,61 @@ impl Lang {
         }
     }
 
+    // ---- 峰谷定价（托盘信息行 + IPC 错误） ---------------------------------
+
+    /// 托盘峰谷行 1：类型 + 模型标签（`⚡ 高峰 · V4 Flash`）。
+    /// 入参保持 i18n 层纯净（不引 core 类型）：is_peak + 已格式化标签。
+    pub fn peak_status_line(&self, is_peak: bool, model_label: Option<&str>) -> String {
+        let kind = match (self, is_peak) {
+            (Self::Zh, true) => "⚡ 高峰",
+            (Self::Zh, false) => "空闲",
+            (Self::En, true) => "⚡ Peak",
+            (Self::En, false) => "Off-peak",
+        };
+        match model_label {
+            Some(m) => format!("{kind} · {m}"),
+            None => kind.into(),
+        }
+    }
+
+    /// 托盘峰谷行 2：当前档三价 `命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok`。
+    /// 缺价字段由调用方过滤后传 None；全 None 由调用方决定不显示本行。
+    pub fn peak_prices_line(
+        &self,
+        hit: Option<&str>,
+        miss: Option<&str>,
+        out: Option<&str>,
+        currency: Option<&str>,
+    ) -> String {
+        let label = |zh: &str, en: &str, v: &str| match self {
+            Self::Zh => format!("{zh} {v}"),
+            Self::En => format!("{en} {v}"),
+        };
+        let mut parts = Vec::new();
+        if let Some(v) = hit {
+            parts.push(label("命中", "Hit", v));
+        }
+        if let Some(v) = miss {
+            parts.push(label("未命中", "Miss", v));
+        }
+        if let Some(v) = out {
+            parts.push(label("输出", "Out", v));
+        }
+        let mut line = parts.join(" · ");
+        if let Some(c) = currency {
+            line.push_str(&format!(" {c}/Mtok"));
+        }
+        line
+    }
+
+    /// upsert 的峰谷配置校验错误。
+    pub fn err_pricing_invalid(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("峰谷定价配置无效：{e}"),
+            Self::En => format!("Invalid peak pricing: {e}"),
+        }
+    }
+
     // ---- 更新检测（M4-b） ----------------------------------------------------
 
     /// 托盘菜单「新版本可用」信息行（disabled 项，⟳ 前缀）。
@@ -340,6 +395,34 @@ mod tests {
         assert_eq!(Lang::En.used_text("42%"), "Used 42%");
         assert_eq!(Lang::Zh.window_name(2), "窗口2");
         assert_eq!(Lang::En.window_name(2), "Window 2");
+    }
+
+    /// 契约：峰谷行双语（类型/标签/三价与单位；缺价字段跳过）。
+    #[test]
+    fn peak_lines_both_langs() {
+        assert_eq!(
+            Lang::Zh.peak_status_line(true, Some("V4 Pro")),
+            "⚡ 高峰 · V4 Pro"
+        );
+        assert_eq!(
+            Lang::En.peak_status_line(false, Some("V4 Pro")),
+            "Off-peak · V4 Pro"
+        );
+        assert_eq!(Lang::Zh.peak_status_line(false, None), "空闲");
+        assert_eq!(Lang::En.peak_status_line(true, None), "⚡ Peak");
+        assert_eq!(
+            Lang::Zh.peak_prices_line(Some("0.3"), Some("9"), Some("27"), Some("CNY")),
+            "命中 0.3 · 未命中 9 · 输出 27 CNY/Mtok"
+        );
+        assert_eq!(
+            Lang::En.peak_prices_line(Some("0.3"), Some("9"), Some("27"), Some("CNY")),
+            "Hit 0.3 · Miss 9 · Out 27 CNY/Mtok"
+        );
+        // 缺价字段跳过、无币种不加后缀
+        assert_eq!(
+            Lang::Zh.peak_prices_line(None, Some("9"), None, None),
+            "未命中 9"
+        );
     }
 
     /// 契约：中英文案表均非空且互不相等（防一侧漏配后回落到另一语言）。

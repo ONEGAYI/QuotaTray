@@ -32,6 +32,47 @@ pub struct TemplateErrorDto {
 pub struct NativeMetaDto {
     pub id: String,
     pub name: String,
+    /// 峰谷定价预置（平台无预置则 None；前端用于展示与一键填充）。
+    pub pricing: Option<PresetPricingDto>,
+}
+
+/// 峰谷定价预置的 IPC 形状（core `PresetProvider` 的可序列化镜像）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PresetPricingDto {
+    pub currency: String,
+    pub timezone_offset_minutes: i32,
+    pub windows: Vec<quota_core::PeakWindow>,
+    pub default_model: String,
+    pub models: Vec<PresetModelDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PresetModelDto {
+    pub id: String,
+    pub display: String,
+    pub peak: quota_core::PriceTier,
+    pub off_peak: quota_core::PriceTier,
+}
+
+impl PresetPricingDto {
+    fn from_preset(p: &quota_core::pricing::PresetProvider) -> Self {
+        Self {
+            currency: p.currency.into(),
+            timezone_offset_minutes: p.timezone_offset_minutes,
+            windows: p.windows.clone(),
+            default_model: p.default_model.into(),
+            models: p
+                .models
+                .iter()
+                .map(|m| PresetModelDto {
+                    id: m.id.into(),
+                    display: m.display.into(),
+                    peak: m.peak.clone(),
+                    off_peak: m.off_peak.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 // ---- 纯逻辑（可单测） -----------------------------------------------------
@@ -108,6 +149,28 @@ fn after_state_change(app: &AppHandle, state: &AppState) {
     tray::rebuild(app, state);
 }
 
+/// 保存前统一校验（upsert 用，纯函数可测）：id/name 非空、模板静态校验、
+/// native id 存在性、峰谷定价配置校验（core validate，带字段定位）。
+pub fn validate_entry(entry: &ProviderEntry, lang: Lang) -> Result<(), String> {
+    if entry.id.trim().is_empty() || entry.name.trim().is_empty() {
+        return Err(lang.err_id_name_empty());
+    }
+    match &entry.kind {
+        ProviderKind::Template(t) => {
+            quota_core::template::validate(t).map_err(|e| e.to_string())?;
+        }
+        ProviderKind::Native { provider } => {
+            if quota_core::provider::find(provider).is_none() {
+                return Err(lang.err_unknown_native(provider));
+            }
+        }
+    }
+    if let Some(p) = &entry.pricing {
+        quota_core::pricing::validate(p).map_err(|e| lang.err_pricing_invalid(&e))?;
+    }
+    Ok(())
+}
+
 // ---- 命令 -----------------------------------------------------------------
 
 #[tauri::command]
@@ -125,21 +188,7 @@ pub fn upsert_provider(
     new_api_key: Option<String>,
 ) -> Result<(), String> {
     let lang = lang_of(&state);
-    if entry.id.trim().is_empty() || entry.name.trim().is_empty() {
-        return Err(lang.err_id_name_empty());
-    }
-    // 保存前校验：模板静态校验（带字段定位）、native id 存在性
-    match &entry.kind {
-        ProviderKind::Template(t) => {
-            quota_core::template::validate(t).map_err(|e| e.to_string())?;
-        }
-        ProviderKind::Native { provider } => {
-            if quota_core::provider::find(provider).is_none() {
-                return Err(lang.err_unknown_native(provider));
-            }
-        }
-    }
-
+    validate_entry(&entry, lang)?;
     let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     let existing = cfg.providers.iter().find(|p| p.id == entry.id).cloned();
     let mut entry = entry;
@@ -188,9 +237,14 @@ pub fn remove_provider(
 pub fn list_native_metas() -> Vec<NativeMetaDto> {
     quota_core::provider::metas()
         .into_iter()
-        .map(|m| NativeMetaDto {
-            id: m.id.into(),
-            name: m.name.into(),
+        .map(|m| {
+            let pricing =
+                quota_core::pricing::preset(m.id).map(|p| PresetPricingDto::from_preset(&p));
+            NativeMetaDto {
+                id: m.id.into(),
+                name: m.name.into(),
+                pricing,
+            }
         })
         .collect()
 }
@@ -508,6 +562,69 @@ mod tests {
         e.api_key_enc = Some("v1:forged".into());
         apply_key_policy(&mut e, None, Some(""), &vault, Lang::Zh).unwrap();
         assert!(e.api_key_enc.is_none());
+    }
+
+    /// 契约：validate_entry——合法条目通过；未知 native、非法峰谷逐一拦截（双语前缀）。
+    #[test]
+    fn validate_entry_checks_native_and_pricing() {
+        assert!(validate_entry(&entry("p1"), Lang::Zh).is_ok());
+
+        let mut unknown = entry("p1");
+        unknown.kind = ProviderKind::Native {
+            provider: "nope".into(),
+        };
+        let err = validate_entry(&unknown, Lang::Zh).unwrap_err();
+        assert!(err.contains("未知的预置平台"), "{err}");
+
+        // 跨日窗口被拒，错误文案带峰谷前缀与字段定位
+        let mut bad_pricing = entry("p1");
+        bad_pricing.pricing = Some(quota_core::PricingConfig {
+            windows: Some(vec![quota_core::PeakWindow {
+                days: vec![quota_core::pricing::Weekday::Mon],
+                start: "22:00".into(),
+                end: "06:00".into(),
+            }]),
+            ..Default::default()
+        });
+        for lang in [Lang::Zh, Lang::En] {
+            let err = validate_entry(&bad_pricing, lang).unwrap_err();
+            let prefix = match lang {
+                Lang::Zh => "峰谷定价配置无效",
+                Lang::En => "Invalid peak pricing",
+            };
+            assert!(err.starts_with(prefix), "{lang:?}: {err}");
+            assert!(err.contains("windows[0].start/end"), "{lang:?}: {err}");
+        }
+
+        // 合法峰谷配置通过（起止改为同日 09:00–12:00）
+        let mut ok_pricing = bad_pricing;
+        if let Some(w) = ok_pricing.pricing.as_mut().unwrap().windows.as_mut() {
+            w[0].start = "09:00".into();
+            w[0].end = "12:00".into();
+        }
+        assert!(validate_entry(&ok_pricing, Lang::Zh).is_ok());
+    }
+
+    /// 契约：list_native_metas 携带峰谷预置——deepseek 有（三模型/默认 flash/
+    /// UTC+8 双窗口），其余平台 None。
+    #[test]
+    fn native_metas_carry_pricing_preset() {
+        let metas = list_native_metas();
+        let ds = metas.iter().find(|m| m.id == "deepseek").unwrap();
+        let p = ds.pricing.as_ref().expect("deepseek 应有峰谷预置");
+        assert_eq!(p.currency, "CNY");
+        assert_eq!(p.timezone_offset_minutes, 480);
+        assert_eq!(p.default_model, "flash");
+        assert_eq!(p.models.len(), 3);
+        assert_eq!(p.windows.len(), 2);
+        // 序列化形状（前端 types.ts 镜像的依据）
+        let j = serde_json::to_value(p).unwrap();
+        assert_eq!(j["models"][0]["id"], "flash");
+        assert_eq!(j["models"][0]["peak"]["cache_hit_input"], 0.1);
+
+        for other in metas.iter().filter(|m| m.id != "deepseek") {
+            assert!(other.pricing.is_none(), "{} 不应有预置", other.id);
+        }
     }
 
     /// 契约：{{apiKey}} 出现在 url/headers/body 任一处即需要 key。
