@@ -68,6 +68,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         }
     }
 

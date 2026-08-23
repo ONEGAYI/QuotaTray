@@ -5,11 +5,13 @@
 //! - `vault` / `config` / `http` / `provider` / `query`：核心业务（M1）
 //! - `template`：声明式模板 DSL（M2a，core 的 M2 API 面就此冻结）
 //! - `update`：GitHub release 检测更新与安装包下载（M4-b）
+//! - `pricing`：峰谷定价（时段判定、预置平台定价、自定义合并）
 //! - `script`（M4）随里程碑建立，不留空壳模块。
 
 pub mod config;
 pub mod http;
 pub mod model;
+pub mod pricing;
 pub mod provider;
 pub mod query;
 pub mod template;
@@ -18,6 +20,10 @@ pub mod vault;
 
 pub use config::{AppConfig, Credentials, ProviderEntry, ProviderKind};
 pub use model::{QueryError, UsageData};
+pub use pricing::{
+    PeakKind, PeakWindow, PriceTier, PricingConfig, PricingError, PricingSource, ResolvedPricing,
+    format_price, next_change, preset, resolve, validate,
+};
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use template::{TemplateConfig, TemplateError};
 pub use update::{AssetDownloader, ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION};

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::model::QueryError;
+use crate::pricing::PricingConfig;
 use crate::vault::Vault;
 
 mod provider;
@@ -30,6 +31,9 @@ pub struct ProviderEntry {
     /// 模板供应商的 {{baseUrl}} 变量来源（明文，非敏感，如 `https://api.xxx.com`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// 峰谷定价自定义（None/字段缺省 = 回退预置；见 `pricing::resolve`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<PricingConfig>,
 }
 
 fn default_true() -> bool {
@@ -165,6 +169,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
@@ -194,6 +199,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
         assert_eq!(
@@ -215,6 +221,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         let err = entry.credentials(&vault).unwrap_err();
         assert!(!err.is_transient());
@@ -233,6 +240,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         a.set_api_key(&vault, "sk-abc").unwrap();
         let mut b = a.clone();

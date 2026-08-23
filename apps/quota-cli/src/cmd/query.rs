@@ -204,6 +204,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         }
     }
 
@@ -220,6 +221,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: Some("https://tpl.demo.com".into()),
+            pricing: None,
         }
     }
 

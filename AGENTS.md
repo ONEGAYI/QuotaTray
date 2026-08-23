@@ -35,6 +35,10 @@ QuotaTray/
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
 │           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
+│           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
+│           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
+│           │                  #   每 MTokens）、DeepSeek 预置（V4 三模型，官网快照测试）、
+│           │                  #   自定义校验与预置字段级合并（resolve/classify/validate）
 │           ├── vault/         # 凭据保险库
 │           │   ├── mod.rs     # Vault 门面：open（取/建主密钥）+ encrypt/decrypt
 │           │   ├── cipher.rs  # AES-256-GCM 与 v1: 密文格式（nonce 随机、AAD 绑定）

@@ -843,6 +843,7 @@ mod tests {
             enabled,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         let cfg = AppConfig {
             providers: vec![entry("a", true), entry("b", false)],
@@ -890,6 +891,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         let cfg = AppConfig {
             providers: vec![entry("a")],

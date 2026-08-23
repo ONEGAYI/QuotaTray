@@ -100,6 +100,7 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         if let Err(e) = entry.set_api_key(&vault, key) {
             eprintln!("[{platform}] {}{e}", t(lang, T::SmokeEncryptFail));

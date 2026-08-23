@@ -276,6 +276,7 @@ mod tests {
             enabled: true,
             api_key_enc: Some("v1:xxx".into()),
             base_url: None,
+            pricing: None,
         }];
         for lang in [Lang::Zh, Lang::En] {
             let table = list_table(&entries, lang);
