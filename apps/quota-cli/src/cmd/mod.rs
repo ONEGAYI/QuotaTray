@@ -7,6 +7,7 @@ pub mod edit;
 pub mod list;
 pub mod natives;
 pub mod pricing;
+pub mod pricing_models;
 pub mod query;
 pub mod remove;
 pub mod setkey;

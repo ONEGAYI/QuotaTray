@@ -60,7 +60,7 @@ impl QueryOutcome {
 
 // ---- 基础表格 ------------------------------------------------------------
 
-fn new_table(header: &[&str]) -> Table {
+pub(crate) fn new_table(header: &[&str]) -> Table {
     let mut t = Table::new();
     t.load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic);

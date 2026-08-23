@@ -66,17 +66,32 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
 quota pricing show <id> [--json]
 quota pricing set <id>      # stdin 读 PricingConfig JSON
 quota pricing clear <id>    # 清除自定义，回退预置
+quota pricing model list <provider> [--json]   # 预置 + 自定义模型价格对照
+quota pricing model add <provider>             # stdin 读 CustomModelDef JSON（同 id 覆盖）
+quota pricing model remove <provider> <id>     # 删除自定义模型
 ```
 
 - `show`：条目生效峰谷定价——当前峰/谷判定、来源（预置 native·模型 /
   自定义）、三档价格对照表（高峰/空闲两列，单位每 MTokens）、
   时段人类可读聚合（连续星期合并，如「周一至周五 09:00–12:00」）与
-  UTC 偏移、下次翻转时刻；`--json` 输出结构化形状（kind/source/preset/
-  windows/peak/off_peak/next_change）。
+  UTC 偏移、下次翻转时刻；`--json` 输出结构化形状（kind/plan/source/
+  preset/windows/peak/off_peak/next_change）。
+- `show` 的两条生效链：自定义模型库（`config.json` 的 `custom_models`，
+  条目 `model` 撞名时自定义优先）；条目 `pricing.currency` 作为币种
+  hint——DeepSeek 单站双币时数字与标签一起切 USD 预置套。
+- 订阅项（如智谱 Coding Plan）：三档价格为空（表格显示 —）、附加
+  「订阅积分制」说明行，JSON 的 `plan` 字段为 `subscription`。
 - 条目无定价（无预置且未自定义）→ 提示语 + 退出码 0（查看类非错误）。
 - `set`：stdin JSON 经 core `pricing::validate`（字段定位错误）后写入
   `entry.pricing`；字段级回退——只写 `{"model":"pro"}` 即可切换预置模型档。
 - `clear`：置空 `entry.pricing`（预置重新生效）。
+- `model list`：未知平台 id → 1；预置在前自定义在后，表格列
+  模型/id/来源/模式/峰价/闲价（命中/输入/输出紧凑串），`--json` 输出
+  `{provider, currency, default_model, models[]}`。
+- `model add`：stdin `CustomModelDef` JSON 经 core `validate_custom_model`
+  （id/display 非空 + 窗口/时区/价格语义复用 validate）；同 id
+  大小写不敏感覆盖（= 更新）。
+- `model remove`：大小写不敏感；删空后配置文件移除平台键；不存在 → 1。
 
 ### quota template test
 

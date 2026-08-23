@@ -59,8 +59,8 @@ impl PriceTier {
         }
     }
 
-    /// 全字段缺失——视为"未提供"，resolve 时回退预置。
-    fn is_empty(&self) -> bool {
+    /// 全字段缺失——视为「未提供」（resolve 回退判定与 CLI 列表占位共用）。
+    pub fn is_empty(&self) -> bool {
         self.cache_hit_input.is_none() && self.cache_miss_input.is_none() && self.output.is_none()
     }
 }
@@ -295,6 +295,31 @@ pub fn validate(cfg: &PricingConfig) -> Result<(), PricingError> {
         }
     }
     Ok(())
+}
+
+/// 校验自定义模型定义：id/display 非空白；窗口/时区/价格档语义复用
+/// [`validate`]（空 windows 数组 = 恒空闲，合法）；currency 自由字符串不校验。
+pub fn validate_custom_model(m: &CustomModelDef) -> Result<(), PricingError> {
+    if m.id.trim().is_empty() {
+        return Err(PricingError::Validation {
+            field: "id".into(),
+            reason: "模型 id 不能为空".into(),
+        });
+    }
+    if m.display.trim().is_empty() {
+        return Err(PricingError::Validation {
+            field: "display".into(),
+            reason: "展示名不能为空".into(),
+        });
+    }
+    validate(&PricingConfig {
+        model: None,
+        timezone_offset_minutes: m.timezone_offset_minutes,
+        windows: m.windows.clone(),
+        peak: m.peak.clone(),
+        off_peak: m.off_peak.clone(),
+        currency: None,
+    })
 }
 
 // ---- 预置（官方定价，随版本内置；数据以官网为准） ---------------------------
@@ -629,11 +654,35 @@ pub fn resolve_with(
     entry: &ProviderEntry,
     custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
 ) -> Option<ResolvedPricing> {
+    resolve_impl(entry, custom_models, None)
+}
+
+/// [`resolve_with`] 的带币种形态：`currency_hint` 参与**预置选套**——
+/// DeepSeek 单站双币时按 hint（如余额 API 返回的 `currency` 或条目
+/// `pricing.currency`）取 CNY/USD 套，其余平台忽略（唯一套）。
+/// None = 平台默认套（同 [`resolve_with`]）。生效 `currency` 标签仍走
+/// 「条目自定义 > 模型 > 预置套」链，不受 hint 强制。
+pub fn resolve_in_currency(
+    entry: &ProviderEntry,
+    custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
+    currency_hint: Option<&str>,
+) -> Option<ResolvedPricing> {
+    resolve_impl(entry, custom_models, currency_hint)
+}
+
+fn resolve_impl(
+    entry: &ProviderEntry,
+    custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
+    currency_hint: Option<&str>,
+) -> Option<ResolvedPricing> {
     let native_id = match &entry.kind {
         ProviderKind::Native { provider } => Some(provider.as_str()),
         _ => None,
     };
-    let preset = native_id.and_then(preset);
+    let preset = native_id.and_then(|id| {
+        let currency = currency_hint.unwrap_or_else(|| default_currency(id));
+        preset_with_currency(id, currency)
+    });
     let lib = native_id.and_then(|id| custom_models.get(id));
     let custom = entry.pricing.as_ref();
     // 无预置平台的「有内容」判定是条目级：条目自定义非空，或条目 model
@@ -1544,6 +1593,101 @@ mod tests {
             None,
             "未引用库的条目不应凭库存在而获得定价"
         );
+    }
+
+    /// 契约：带币种 resolve——hint 选 DeepSeek USD 套（数字与标签一起切），
+    /// None 同默认套，非双币平台忽略 hint；自定义 currency 标签仍最高优先。
+    #[test]
+    fn resolve_in_currency_selects_preset_variant() {
+        let entry = deepseek_entry(None);
+        // 默认（无 hint）：CNY 套
+        let r = resolve_in_currency(&entry, &Default::default(), None).unwrap();
+        assert_eq!(r.currency.as_deref(), Some("CNY"));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.1));
+        // USD hint：数字与标签同时切到 USD 套
+        let r = resolve_in_currency(&entry, &Default::default(), Some("USD")).unwrap();
+        assert_eq!(r.currency.as_deref(), Some("USD"));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.014));
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(1.32));
+        // 非双币平台忽略 hint（zhipu 唯一 CNY 套）
+        let zhipu = native_entry("zhipu");
+        let r = resolve_in_currency(&zhipu, &Default::default(), Some("USD")).unwrap();
+        assert_eq!(r.currency.as_deref(), Some("CNY"));
+        // 条目显式 currency 优先于 hint 选套的标签（用户强制声明）
+        let entry = deepseek_entry(Some(PricingConfig {
+            currency: Some("CNY".into()),
+            ..Default::default()
+        }));
+        let r = resolve_in_currency(&entry, &Default::default(), Some("USD")).unwrap();
+        assert_eq!(
+            r.currency.as_deref(),
+            Some("CNY"),
+            "条目 currency 标签优先（hint 只选套不强制标签）"
+        );
+    }
+
+    /// 契约：自定义模型校验——id/display 空白拦截；窗口/时区/价格语义
+    /// 复用 validate（跨日窗口、负价格拦截）；合法定义通过。
+    #[test]
+    fn validate_custom_model_contract() {
+        let ok = CustomModelDef {
+            id: "glm-5.5".into(),
+            display: "GLM-5.5".into(),
+            windows: Some(vec![peak_window_workday("09:00", "12:00")]),
+            peak: Some(PriceTier::full(1.0, 2.0, 3.0)),
+            ..Default::default()
+        };
+        assert!(validate_custom_model(&ok).is_ok());
+        // 空 windows 数组 = 恒空闲，合法
+        let flat = CustomModelDef {
+            windows: Some(vec![]),
+            ..ok.clone()
+        };
+        assert!(validate_custom_model(&flat).is_ok());
+
+        for (bad, field) in [
+            (
+                CustomModelDef {
+                    id: "  ".into(),
+                    ..ok.clone()
+                },
+                "id",
+            ),
+            (
+                CustomModelDef {
+                    display: String::new(),
+                    ..ok.clone()
+                },
+                "display",
+            ),
+            (
+                CustomModelDef {
+                    windows: Some(vec![PeakWindow {
+                        days: vec![Weekday::Mon],
+                        start: "22:00".into(),
+                        end: "06:00".into(),
+                    }]),
+                    ..ok.clone()
+                },
+                "windows[0].start/end",
+            ),
+            (
+                CustomModelDef {
+                    peak: Some(PriceTier {
+                        cache_miss_input: Some(-1.0),
+                        ..Default::default()
+                    }),
+                    ..ok
+                },
+                "peak.cache_miss_input",
+            ),
+        ] {
+            let err = validate_custom_model(&bad).unwrap_err();
+            assert!(
+                err.to_string().contains(field),
+                "{field} 应被点名，实际：{err}"
+            );
+        }
     }
 
     fn deepseek_entry(pricing: Option<PricingConfig>) -> ProviderEntry {

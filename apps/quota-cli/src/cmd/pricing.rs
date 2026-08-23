@@ -31,6 +31,8 @@ pub struct PricingShowJson {
     pub name: String,
     /// "peak" | "off_peak"
     pub kind: &'static str,
+    /// "pay_as_you_go" | "subscription"（订阅项价格档为 null）。
+    pub plan: &'static str,
     /// "preset" | "custom"
     pub source: &'static str,
     /// source=preset 时的来源定位。
@@ -65,6 +67,13 @@ fn kind_str(kind: PeakKind) -> &'static str {
     }
 }
 
+fn plan_str(plan: quota_core::PlanKind) -> &'static str {
+    match plan {
+        quota_core::PlanKind::PayAsYouGo => "pay_as_you_go",
+        quota_core::PlanKind::Subscription => "subscription",
+    }
+}
+
 /// 组装 JSON 输出（纯函数）。
 pub fn show_json(id: &str, name: &str, resolved: &ResolvedPricing, now_ms: u64) -> PricingShowJson {
     let (source, preset) = match &resolved.source {
@@ -81,6 +90,7 @@ pub fn show_json(id: &str, name: &str, resolved: &ResolvedPricing, now_ms: u64) 
         id: id.into(),
         name: name.into(),
         kind: kind_str(resolved.kind(now_ms)),
+        plan: plan_str(resolved.plan),
         source,
         preset,
         model_label: resolved.model_label.clone(),
@@ -135,6 +145,9 @@ pub fn render_show(
         )
     };
     let mut lines = vec![header, source_line, table, windows_line];
+    if resolved.plan == quota_core::PlanKind::Subscription {
+        lines.push(t(lang, T::PricingPlanNote).to_string());
+    }
     if let Some((at, next_kind)) =
         pricing::next_change(&resolved.windows, resolved.timezone_offset_minutes, now_ms)
     {
@@ -148,6 +161,8 @@ pub fn render_show(
 }
 
 /// `pricing show`：条目不存在 → 1；无定价 → 提示后 0（查看类，非错误）。
+/// 预置选套带币种 hint：条目 `pricing.currency`（DeepSeek 单站双币时
+/// 数字与标签一起切到 USD 套）；自定义模型库同链生效。
 pub fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
     let lang = ctx.lang;
     let cfg = match AppConfig::load(&ctx.config_path) {
@@ -161,7 +176,8 @@ pub fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
         eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, id));
         return 1;
     };
-    let Some(resolved) = pricing::resolve(entry) else {
+    let hint = entry.pricing.as_ref().and_then(|p| p.currency.as_deref());
+    let Some(resolved) = pricing::resolve_in_currency(entry, &cfg.custom_models, hint) else {
         println!("{}", t(lang, T::PricingNotConfigured));
         return 0;
     };
@@ -480,6 +496,99 @@ mod tests {
         assert!(zh.contains("周一、周六至周日 00:00–08:00"), "{zh}");
         assert!(zh.contains("USD/MTokens"), "{zh}");
         assert!(zh.contains("1"), "{zh}");
+    }
+
+    /// 契约：show 接线——自定义模型库生效（手编 config 即可用）、
+    /// 条目 currency 作为币种 hint 切 DeepSeek USD 数字套、
+    /// JSON 透出 plan 字段。
+    #[test]
+    fn show_wires_library_and_currency() {
+        use quota_core::pricing::CustomModelDef;
+        use std::sync::Arc;
+
+        let path = std::env::temp_dir().join(format!(
+            "quotatray-pricing-wire-{}.json",
+            std::process::id()
+        ));
+        let mut cfg = AppConfig {
+            custom_models: {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(
+                    "deepseek".into(),
+                    vec![CustomModelDef {
+                        id: "flash".into(),
+                        display: "V4 Flash（自算）".into(),
+                        peak: Some(PriceTier::full(0.11, 3.1, 9.1)),
+                        ..Default::default()
+                    }],
+                );
+                m
+            },
+            providers: vec![deepseek_entry()],
+        };
+        // 条目选库模型 + currency USD：峰价应同时来自库（0.11）与 USD 套无关
+        cfg.providers[0].pricing = Some(PricingConfig {
+            model: Some("flash".into()),
+            ..Default::default()
+        });
+        cfg.save(&path).unwrap();
+        let ctx = Ctx::with_store(path.clone(), Arc::new(quota_core::InMemoryStore::new()));
+        let loaded = AppConfig::load(&ctx.config_path).unwrap();
+        let entry = &loaded.providers[0];
+        let hint = entry.pricing.as_ref().and_then(|p| p.currency.as_deref());
+        let resolved = pricing::resolve_in_currency(entry, &loaded.custom_models, hint).unwrap();
+        let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
+            .unwrap();
+        assert_eq!(j["model_label"], "V4 Flash（自算）");
+        assert_eq!(j["peak"]["cache_hit_input"], 0.11, "库模型价格生效");
+        assert_eq!(j["plan"], "pay_as_you_go");
+
+        // USD hint（条目仅设 currency）：数字与标签一起切 USD 套
+        let mut cfg2 = AppConfig {
+            custom_models: Default::default(),
+            providers: vec![deepseek_entry()],
+        };
+        cfg2.providers[0].pricing = Some(PricingConfig {
+            currency: Some("USD".into()),
+            ..Default::default()
+        });
+        let resolved =
+            pricing::resolve_in_currency(&cfg2.providers[0], &Default::default(), Some("USD"))
+                .unwrap();
+        assert_eq!(resolved.currency.as_deref(), Some("USD"));
+        assert_eq!(resolved.peak.as_ref().unwrap().cache_hit_input, Some(0.014));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 契约：订阅项展示——JSON plan=subscription、价格档 null、
+    /// 表格输出订阅说明行。
+    #[test]
+    fn show_renders_subscription_plan() {
+        let mut entry = ProviderEntry {
+            id: "z1".into(),
+            name: "智谱".into(),
+            kind: ProviderKind::Native {
+                provider: "zhipu".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            base_url: None,
+            pricing: Some(PricingConfig {
+                model: Some("coding-plan".into()),
+                ..Default::default()
+            }),
+        };
+        entry.pricing = Some(PricingConfig {
+            model: Some("coding-plan".into()),
+            ..Default::default()
+        });
+        let resolved = pricing::resolve(&entry).unwrap();
+        let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
+            .unwrap();
+        assert_eq!(j["plan"], "subscription");
+        assert!(j["peak"].is_null() && j["off_peak"].is_null());
+        let zh = render_show(&entry.id, &entry.name, &resolved, PEAK_NOW_MS, Lang::Zh);
+        assert!(zh.contains("订阅积分制"), "{zh}");
     }
 
     /// 契约：show 对无定价条目（无预置 native）返回 0 并走未配置提示。
