@@ -44,13 +44,57 @@ impl HttpClient for ReqwestHttpClient {
     }
 }
 
+/// reqwest 错误 → HttpError。
+///
+/// 安全：reqwest 的 `Error::Display` 尾部附带完整 URL（可能含 query string 里的
+/// 明文凭据），统一经 [`reqwest::Error::without_url`] 剥离后再转为文案——
+/// 错误信息红线见 `model.rs`（不含凭据材料，可直接透出）。
 fn map_reqwest_err(e: reqwest::Error) -> HttpError {
-    if e.is_timeout() {
-        HttpError::Timeout
-    } else if e.is_builder() || e.is_redirect() {
-        // URL 非法/重定向过多是配置错误，重试无意义（M2 模板自定义 URL 后会实际暴露）
-        HttpError::InvalidRequest(e.to_string())
+    // 先借用判定分类，再按需消耗 e 剥离 URL（其 None 分支拿不回原错误）
+    let is_timeout = e.is_timeout();
+    let is_cfg_error = e.is_builder() || e.is_redirect();
+    let text = if e.url().is_some() {
+        e.without_url().to_string()
     } else {
-        HttpError::Network(e.to_string())
+        e.to_string()
+    };
+    if is_timeout {
+        HttpError::Timeout
+    } else if is_cfg_error {
+        // URL 非法/重定向过多是配置错误，重试无意义（M2 模板自定义 URL 后会实际暴露）
+        HttpError::InvalidRequest(text)
+    } else {
+        HttpError::Network(text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 安全契约：网络错误文案不含请求 URL（key 可能写在 query string 中）。
+    #[test]
+    fn network_error_message_contains_no_url() {
+        // 无网络环境下对内网保留地址发起请求，制造确定的连接错误
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let client = ReqwestHttpClient::new(Duration::from_secs(5)).unwrap();
+        let secret = "sk-leaked-secret";
+        let err = rt.block_on(async {
+            client
+                .execute(HttpRequest {
+                    method: super::super::Method::Get,
+                    url: format!("https://192.0.2.1:1/x?token={secret}"), // TEST-NET-1，必失败
+                    headers: vec![],
+                    body: None,
+                })
+                .await
+                .expect_err("TEST-NET-1 请求必须失败")
+        });
+        let msg = err.to_string();
+        assert!(!msg.contains(secret), "错误文案泄漏明文凭据：{msg}");
+        assert!(!msg.contains("192.0.2.1"), "错误文案泄漏请求 URL：{msg}");
     }
 }

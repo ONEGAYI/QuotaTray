@@ -311,6 +311,17 @@ fn extract_var_names(s: &str) -> Vec<String> {
     vars
 }
 
+/// 模板是否引用了 `{{apiKey}}`（容忍空格写法，与 validate/执行期同一解析）。
+///
+/// 供前端（如 GUI 试查前判断 key 是否必填）与 CLI 共用，
+/// 避免各自做字面量扫描后与执行期语义漂移。
+pub fn uses_api_key(config: &TemplateConfig) -> bool {
+    let uses = |s: &str| extract_var_names(s).iter().any(|v| v == "apiKey");
+    uses(&config.request.url)
+        || config.request.headers.values().any(|v| uses(v))
+        || config.request.body.as_deref().is_some_and(uses)
+}
+
 // ---- 错误 ---------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
@@ -330,10 +341,6 @@ pub(crate) async fn execute(
     base_url: Option<&str>,
 ) -> Result<Vec<UsageData>, QueryError> {
     let url = substitute(&config.request.url, api_key, base_url)?;
-    for (name, value) in &config.request.headers {
-        substitute(value, api_key, base_url)?;
-        let _ = name; // 值已校验；实际构造在下方统一进行
-    }
     let headers: Result<Vec<_>, _> = config
         .request
         .headers
@@ -392,22 +399,52 @@ fn bad_path(e: String) -> QueryError {
     QueryError::deterministic(format!("模板路径语法错误：{e}"))
 }
 
-/// 字符串变量替换；替换后不得残留 `{{`（未定义变量运行期兜底）。
+/// 字符串变量替换：扫描 `{{ var }}` 占位（容忍内部空白，与 [`validate`] 的
+/// 变量名解析一致），按表替换。
+///
+/// 安全：替换后的文本可能含明文凭据（如 URL query 中的 key），未知或未提供的
+/// 变量报错时只指出变量名，绝不让替换结果进入错误信息。
 fn substitute(s: &str, api_key: &str, base_url: Option<&str>) -> Result<String, QueryError> {
-    let mut out = s.to_string();
-    if let Some(base) = base_url {
-        out = out.replace("{{baseUrl}}", base);
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find("{{") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        match after.find("}}") {
+            Some(end) => {
+                let var = after[..end].trim();
+                match var {
+                    "apiKey" => out.push_str(api_key),
+                    "baseUrl" => match base_url {
+                        Some(base) => out.push_str(base),
+                        None => {
+                            return Err(QueryError::deterministic(
+                                "模板变量 {{baseUrl}} 未提供（baseUrl 需在条目配置中填写）",
+                            ));
+                        }
+                    },
+                    other => {
+                        return Err(QueryError::deterministic(format!(
+                            "未知模板变量 {{{{{other}}}}}（支持 apiKey / baseUrl）"
+                        )));
+                    }
+                }
+                rest = &after[end + 2..];
+            }
+            None => {
+                // 无闭合 }}：非变量占位，原样保留
+                out.push_str("{{");
+                rest = &rest[start + 2..];
+            }
+        }
     }
-    out = out.replace("{{apiKey}}", api_key);
-    if out.contains("{{") {
-        return Err(QueryError::deterministic(format!(
-            "替换后仍残留变量占位：{out:?}"
-        )));
-    }
+    out.push_str(rest);
     Ok(out)
 }
 
 /// URL 安全：默认仅允许 https 与 loopback；`allow_insecure` 显式放开。
+///
+/// 安全：拒绝文案不带 URL 全文（key 可能已被替换进 query string）。
 fn check_url_safety(url: &str, allow_insecure: bool) -> Result<(), QueryError> {
     let parsed = url::Url::parse(url)
         .map_err(|e| QueryError::deterministic(format!("URL 无法解析：{e}")))?;
@@ -421,9 +458,9 @@ fn check_url_safety(url: &str, allow_insecure: bool) -> Result<(), QueryError> {
     if allow_insecure {
         Ok(())
     } else {
-        Err(QueryError::deterministic(format!(
-            "URL {url} 不是 https 也非 loopback；如确需使用请在模板中显式设置 allowInsecure: true"
-        )))
+        Err(QueryError::deterministic(
+            "URL 不是 https 也非 loopback；如确需使用请在模板中显式设置 allowInsecure: true",
+        ))
     }
 }
 
@@ -724,15 +761,15 @@ mod tests {
         assert!(execute(&MockHttp::ok(RESP), &t, "k", None).await.is_ok());
     }
 
-    /// 契约：运行期变量残留 / 路径缺失 / 非数字值 → 确定性失败。
+    /// 契约：运行期变量缺失 / 路径缺失 / 非数字值 → 确定性失败。
     #[tokio::test]
     async fn runtime_errors_are_deterministic() {
-        // baseUrl 变量但调用未提供 base_url → 残留占位
+        // baseUrl 变量但调用未提供 base_url → 指名报错（不带替换后全文）
         let t = simple_template();
         let err = execute(&MockHttp::ok(RESP), &t, "k", None)
             .await
             .unwrap_err();
-        assert!(!err.is_transient() && err.message().contains("残留"));
+        assert!(!err.is_transient() && err.message().contains("baseUrl"));
 
         // 路径缺失
         let mut t = simple_template();
@@ -767,5 +804,80 @@ mod tests {
                 .unwrap_err()
                 .is_transient()
         );
+    }
+
+    /// 安全契约：任何执行错误文案不得携带明文 key——
+    /// key 可能被替换进 URL query 或已进入待替换串，错误只报变量名/原因。
+    #[tokio::test]
+    async fn error_messages_never_leak_api_key() {
+        let key = "sk-plaintext-leak";
+
+        // 场景 1：key 已替换进 URL query，http 非 loopback 被安全检查拒绝
+        let mut t = simple_template();
+        t.request.url = format!("http://api.demo.com/v1?token={key}");
+        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+            .await
+            .unwrap_err();
+        assert!(!err.message().contains(key), "泄漏：{err}");
+
+        // 场景 2：未知变量出现在 key 变量之后（key 已替换进缓冲）
+        let mut t = simple_template();
+        t.request.url = "{{apiKey}}-{{nope}}".to_string();
+        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+            .await
+            .unwrap_err();
+        assert!(!err.message().contains(key), "泄漏：{err}");
+        assert!(err.message().contains("nope"), "应指名未知变量：{err}");
+
+        // 场景 3：未知变量在前、带空格写法（validate 接受的形态执行期同样报错而非静默）
+        let mut t = simple_template();
+        t.request.url = "{{ oops }}{{apiKey}}".into();
+        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+            .await
+            .unwrap_err();
+        assert!(!err.message().contains(key), "泄漏：{err}");
+    }
+
+    /// 契约：带空格的 `{{ apiKey }}` 写法与无空格等价（validate 与执行期一致）。
+    #[tokio::test]
+    async fn spaced_variable_syntax_is_equivalent() {
+        let mut t = simple_template();
+        t.request.url = "{{ baseUrl }}/x?k={{ apiKey }}".into();
+        t.request
+            .headers
+            .insert("Authorization".into(), "Bearer {{ apiKey }}".into());
+        let data = execute(&MockHttp::ok(RESP), &t, "sk-key", Some("https://a.com"))
+            .await
+            .unwrap();
+        assert_eq!(data[0].remaining, Some(42.5), "带空格变量应正常替换执行");
+    }
+
+    /// 契约：uses_api_key 与执行期变量解析同一语义（含带空格写法），
+    /// 供 GUI 试查/CLI 判断 key 是否必填。
+    #[test]
+    fn uses_api_key_matches_variable_semantics() {
+        let no = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(!uses_api_key(&no));
+
+        let in_url = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com?k={{ apiKey }}"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_url), "带空格的 url 引用应识别");
+
+        let in_header = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com","headers":{"Authorization":"Bearer {{apiKey}}"}},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_header), "header 引用应识别");
+
+        let in_body = serde_json::from_str::<TemplateConfig>(
+            r#"{"request":{"url":"https://a.com","body":"{{ apiKey }}"},"extract":{"remaining":"$.a"}}"#,
+        )
+        .unwrap();
+        assert!(uses_api_key(&in_body), "body 引用应识别");
     }
 }
