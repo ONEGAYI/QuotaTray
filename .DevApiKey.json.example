@@ -6,6 +6,8 @@
   "kimi_global": "sk-你的-kimi-密钥（国际站计量版）",
   "kimi_code_cn": "你的-Kimi-Code-密钥（kimi.com/code）",
   "kimi_code_global": "你的-Kimi-Code-密钥（kimi.ai/code）",
+  "zhipu_api": "你的-智谱-bigmodel-通用 API 密钥（Bearer，按量计费）",
+  "zai_api": "你的-Z.ai-通用 API 密钥（Bearer，按量计费）",
   "zhipu": "你的-智谱-bigmodel-密钥（GLM Coding Plan，裸 key 无前缀）",
   "zai": "你的-Z.ai-密钥（国际站 GLM Coding Plan，裸 key 无前缀）"
 }

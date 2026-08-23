@@ -66,9 +66,10 @@ quota update --check           # check for new releases
 | OpenRouter | — | remaining = credits − usage |
 | Kimi Open Platform | CN / Global | balance split into voucher / cash |
 | Kimi Code | kimi.com/code / kimi.ai/code | 5-hour + weekly quota windows with RFC3339 reset times |
-| Zhipu / Z.ai | dual site | GLM Coding Plan usage (multi-window), raw key |
+| Zhipu / Z.ai General API | CN / Global | pay-as-you-go balance, Bearer API key |
+| Zhipu / Z.ai Coding Plan | CN / Global | plan usage (multi-window), raw key |
 
-Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; Zhipu / Z.ai use undocumented endpoints, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
+Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai balance and Coding Plan query endpoints are not in their public API references, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
 
 ## Custom Queries: Declarative Templates
 

@@ -369,7 +369,8 @@ pub struct PresetProvider {
 /// OpenRouter 虽无峰谷预置但按量计价为 USD，一并给出以防误兜底。
 pub fn default_currency(native_id: &str) -> &'static str {
     match native_id {
-        "kimi_global" | "kimi_code_global" | "zai" | "siliconflow_global" | "openrouter" => "USD",
+        "kimi_global" | "kimi_code_global" | "zai" | "zai_api" | "siliconflow_global"
+        | "openrouter" => "USD",
         _ => "CNY",
     }
 }
@@ -419,6 +420,15 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
         )),
         "kimi_code_cn" => Some(kimi_code_preset("kimi_code_cn", "CNY")),
         "kimi_code_global" => Some(kimi_code_preset("kimi_code_global", "USD")),
+        "zhipu_api" => Some(zhipu_payg_preset(
+            "zhipu_api",
+            "CNY",
+            &[
+                ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
+                ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
+                ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
+            ],
+        )),
         "zhipu" => Some(zhipu_preset(
             "zhipu",
             "CNY",
@@ -426,6 +436,15 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
                 ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
                 ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
                 ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
+            ],
+        )),
+        "zai_api" => Some(zhipu_payg_preset(
+            "zai_api",
+            "USD",
+            &[
+                ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
+                ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
+                ("glm-5-turbo", "GLM-5-Turbo", 0.24, 1.2, 4.0),
             ],
         )),
         "zai" => Some(zhipu_preset(
@@ -522,19 +541,8 @@ fn zhipu_preset(
     currency: &'static str,
     models: &[(&'static str, &'static str, f64, f64, f64)],
 ) -> PresetProvider {
-    debug_assert!(!models.is_empty(), "按量模型列表为空则无默认模型");
-    let mut preset_models: Vec<PresetModel> = models
-        .iter()
-        .map(|&(id, display, cache_hit, miss, output)| {
-            payg_model(
-                id,
-                display,
-                (cache_hit, miss, output),
-                (cache_hit, miss, output),
-            )
-        })
-        .collect();
-    preset_models.push(PresetModel {
+    let mut preset = zhipu_payg_preset(native_id, currency, models);
+    preset.models.push(PresetModel {
         id: "coding-plan",
         display: "GLM Coding Plan（订阅积分）",
         plan: PlanKind::Subscription,
@@ -543,12 +551,32 @@ fn zhipu_preset(
         peak: PriceTier::default(),
         off_peak: PriceTier::default(),
     });
+    preset
+}
+
+/// 智谱/Z.ai 通用 API：只包含按量模型，不混入 Coding Plan 订阅项。
+fn zhipu_payg_preset(
+    native_id: &'static str,
+    currency: &'static str,
+    models: &[(&'static str, &'static str, f64, f64, f64)],
+) -> PresetProvider {
+    debug_assert!(!models.is_empty(), "按量模型列表为空则无默认模型");
     PresetProvider {
         native_id,
         currency,
         timezone_offset_minutes: 480,
         windows: vec![],
-        models: preset_models,
+        models: models
+            .iter()
+            .map(|&(id, display, cache_hit, miss, output)| {
+                payg_model(
+                    id,
+                    display,
+                    (cache_hit, miss, output),
+                    (cache_hit, miss, output),
+                )
+            })
+            .collect(),
         default_model: models[0].0,
     }
 }
@@ -1377,6 +1405,25 @@ mod tests {
         }
     }
 
+    /// 契约：智谱/Z.ai 通用 API Provider 只提供按量模型，不混入
+    /// Coding Plan 订阅项；两站分别使用 CNY/USD。
+    #[test]
+    fn zhipu_metered_presets_only_contain_payg_models() {
+        for (id, currency) in [("zhipu_api", "CNY"), ("zai_api", "USD")] {
+            let p = preset(id).unwrap();
+            assert_eq!(p.native_id, id);
+            assert_eq!(p.currency, currency);
+            assert_eq!(p.default_model, "glm-5.3");
+            assert_eq!(p.models.len(), 3);
+            assert!(
+                p.models
+                    .iter()
+                    .all(|model| model.plan == PlanKind::PayAsYouGo)
+            );
+            assert!(p.models.iter().all(|model| model.windows.is_none()));
+        }
+    }
+
     /// 契约：DeepSeek 单站双币——余额 API 的 currency 决定取哪套预置；
     /// USD 套同样满足「空闲 = 高峰减半」。
     #[test]
@@ -1448,6 +1495,8 @@ mod tests {
             ("kimi_global", "USD"),
             ("kimi_code_cn", "CNY"),
             ("kimi_code_global", "USD"),
+            ("zhipu_api", "CNY"),
+            ("zai_api", "USD"),
             ("zhipu", "CNY"),
             ("zai", "USD"),
         ] {
@@ -1462,6 +1511,8 @@ mod tests {
             "kimi_global",
             "kimi_code_cn",
             "kimi_code_global",
+            "zhipu_api",
+            "zai_api",
             "zhipu",
             "zai",
         ]

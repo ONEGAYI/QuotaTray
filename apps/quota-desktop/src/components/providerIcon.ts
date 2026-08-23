@@ -15,7 +15,9 @@ const PROVIDER_ICON_URLS: Readonly<Record<string, string>> = {
   kimi_code_cn: kimiUrl,
   kimi_code_global: kimiUrl,
   zhipu: zhipuUrl,
+  zhipu_api: zhipuUrl,
   zai: zaiUrl,
+  zai_api: zaiUrl,
 };
 
 /** 返回预置 Provider 的官方品牌图；未知 native 由调用方回退为首字母。 */
