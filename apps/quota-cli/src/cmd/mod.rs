@@ -10,4 +10,5 @@ pub mod query;
 pub mod remove;
 pub mod setkey;
 pub mod template;
+pub mod update;
 pub mod vault;

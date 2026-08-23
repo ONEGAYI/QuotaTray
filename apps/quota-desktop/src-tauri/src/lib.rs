@@ -12,6 +12,7 @@ mod settings;
 mod snapshot;
 mod state;
 mod tray;
+mod update_ctl;
 
 use tauri::Manager;
 
@@ -43,6 +44,8 @@ pub fn run() {
             // 托盘首屏即渲染快照（消除重启空窗）
             let state = app.state::<state::AppState>();
             tray::create(app.handle(), &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
+            // 更新检测调度：启动后一分钟的首次 wake 即覆盖「启动时检测」
+            update_ctl::spawn_scheduler(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -64,6 +67,9 @@ pub fn run() {
             commands::save_settings,
             commands::set_resolved_theme,
             commands::get_snapshots,
+            commands::get_update_state,
+            commands::check_update_now,
+            commands::download_update,
         ])
         .run(tauri::generate_context!())
         .expect("QuotaTray 启动失败");

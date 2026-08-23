@@ -221,10 +221,24 @@ pub fn any_alert(
 /// 首次启动配置文件不存在是正常路径（load 返回空配置，非 Err）；
 /// 真正读盘失败时给诚实提示菜单而非空菜单。
 pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
+    let update_version = state
+        .update_ctl
+        .read()
+        .unwrap()
+        .info
+        .as_ref()
+        .map(|i| i.version.clone());
     let menu = match snapshot_views(state) {
         Some((cfg, results, settings)) => {
             let lang = Lang::parse(&settings.language);
-            build_menu(app, &cfg, &results, &settings, lang)?
+            build_menu(
+                app,
+                &cfg,
+                &results,
+                &settings,
+                lang,
+                update_version.as_deref(),
+            )?
         }
         None => {
             // 配置读盘失败，但设置仍可读（语言跟随用户选择）
@@ -288,7 +302,21 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
         return;
     };
     let lang = Lang::parse(&settings.language);
-    let menu = match build_menu(app, &cfg, &results, &settings, lang) {
+    let update_version = state
+        .update_ctl
+        .read()
+        .unwrap()
+        .info
+        .as_ref()
+        .map(|i| i.version.clone());
+    let menu = match build_menu(
+        app,
+        &cfg,
+        &results,
+        &settings,
+        lang,
+        update_version.as_deref(),
+    ) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("托盘菜单重建失败：{e}");
@@ -323,6 +351,7 @@ fn build_menu(
     results: &HashMap<String, EntryState>,
     settings: &Settings,
     lang: Lang,
+    update_version: Option<&str>,
 ) -> tauri::Result<Menu<Wry>> {
     let t = lang.texts();
     let now = now_ms();
@@ -359,6 +388,17 @@ fn build_menu(
         }
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    // 新版本信息行（disabled：操作入口在设置页「更新」分页）
+    if let Some(v) = update_version {
+        menu.append(&MenuItem::with_id(
+            app,
+            "info-update",
+            lang.update_available(v),
+            false,
+            None::<&str>,
+        )?)?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
     menu.append(&MenuItem::with_id(
         app,
         "refresh",

@@ -6,6 +6,7 @@ import type {
   QueryOutcome,
   Settings,
   SnapshotEntry,
+  UpdateStateDto,
 } from "./types";
 
 export const api = {
@@ -35,6 +36,10 @@ export const api = {
   setResolvedTheme: (theme: "light" | "dark"): Promise<void> =>
     invoke("set_resolved_theme", { theme }),
   getSnapshots: (): Promise<Record<string, SnapshotEntry>> => invoke("get_snapshots"),
+  getUpdateState: (): Promise<UpdateStateDto> => invoke("get_update_state"),
+  checkUpdateNow: (): Promise<UpdateStateDto> => invoke("check_update_now"),
+  /** 下载安装包到系统下载目录，返回完整路径。 */
+  downloadUpdate: (): Promise<string> => invoke("download_update"),
 };
 
 /** 生成 6 位 base32 短 id（新增条目用，CLI 同款约定）。 */

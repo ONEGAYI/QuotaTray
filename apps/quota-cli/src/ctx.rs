@@ -44,6 +44,13 @@ impl Ctx {
         }
     }
 
+    /// 测试链式设置语言（store 私有，跨模块无法用结构体更新语法）。
+    #[cfg(test)]
+    pub fn with_lang(mut self, lang: Lang) -> Self {
+        self.lang = lang;
+        self
+    }
+
     /// 主密钥后端（vault status 健康检查用；测试注入内存后端即可测）。
     pub fn store(&self) -> &dyn SecretStore {
         self.store.as_ref()

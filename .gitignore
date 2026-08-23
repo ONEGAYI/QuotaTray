@@ -23,3 +23,4 @@ apps/quota-desktop/src-tauri/gen/schemas/
 .vscode/
 Thumbs.db
 .DS_Store
+.zcode/

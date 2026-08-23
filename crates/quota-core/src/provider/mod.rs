@@ -141,12 +141,26 @@ pub(crate) mod testing {
 
     use crate::http::{HttpClient, HttpError, HttpRequest, HttpResponse};
 
-    #[derive(Clone)]
     pub struct MockHttp {
         pub status: u16,
         pub body: String,
         pub network_fail: bool,
         pub delay: Option<Duration>,
+        /// 收到的请求记录（update 模块用它断言 User-Agent/Accept 等头契约）。
+        /// Mutex 无 Clone，手动实现（克隆快照进新 Mutex）。
+        captured: std::sync::Mutex<Vec<HttpRequest>>,
+    }
+
+    impl Clone for MockHttp {
+        fn clone(&self) -> Self {
+            Self {
+                status: self.status,
+                body: self.body.clone(),
+                network_fail: self.network_fail,
+                delay: self.delay,
+                captured: std::sync::Mutex::new(self.captured_requests()),
+            }
+        }
     }
 
     impl MockHttp {
@@ -156,6 +170,7 @@ pub(crate) mod testing {
                 body: body.into(),
                 network_fail: false,
                 delay: None,
+                captured: std::sync::Mutex::new(Vec::new()),
             }
         }
 
@@ -165,6 +180,7 @@ pub(crate) mod testing {
                 body: String::new(),
                 network_fail: false,
                 delay: None,
+                captured: std::sync::Mutex::new(Vec::new()),
             }
         }
 
@@ -174,6 +190,7 @@ pub(crate) mod testing {
                 body: String::new(),
                 network_fail: true,
                 delay: None,
+                captured: std::sync::Mutex::new(Vec::new()),
             }
         }
 
@@ -183,13 +200,20 @@ pub(crate) mod testing {
                 body: "{}".into(),
                 network_fail: false,
                 delay: Some(delay),
+                captured: std::sync::Mutex::new(Vec::new()),
             }
+        }
+
+        /// 已捕获的请求快照。
+        pub fn captured_requests(&self) -> Vec<HttpRequest> {
+            self.captured.lock().unwrap().clone()
         }
     }
 
     #[async_trait]
     impl HttpClient for MockHttp {
-        async fn execute(&self, _req: HttpRequest) -> Result<HttpResponse, HttpError> {
+        async fn execute(&self, req: HttpRequest) -> Result<HttpResponse, HttpError> {
+            self.captured.lock().unwrap().push(req);
             if let Some(d) = self.delay {
                 tokio::time::sleep(d).await;
             }

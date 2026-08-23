@@ -54,19 +54,25 @@ QuotaTray/
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
 │           │   └── path.rs    # JSONPath 子集（$.a.b[0]，拒绝过滤器/通配符）
-│           └── query/
-│               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
+│           ├── query/
+│           │   └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
+│           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
+│                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
+│                              #   独立下载通道（10min 超时 + 256MB 上限）、字节原子落盘
 ├── apps/
-│   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态）
+│   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
-│   │       ├── main.rs        # clap 定义 10 子命令 + dispatch + --lang 全局参数
-│   │       │                  #   （两阶段解析：预扫描语言后翻译命令面再匹配）
+│   │       ├── main.rs        # clap 定义 11 子命令 + dispatch + --lang 全局参数
+│   │       │                  #   （两阶段解析）+ 启动更新提示钩子（stderr、节流、
+│   │       │                  #   --json 与 update 子命令自身豁免）
 │   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
 │   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
 │   │       ├── lang.rs        # Lang 三态（zh/en/system）+ sys-locale 检测 +
 │   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
+│   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct）+
+│   │       │                  #   last_check 写回（Value 读改写保留未知字段 + 原子写）
 │   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
@@ -80,6 +86,8 @@ QuotaTray/
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表
 │   │           ├── template.rs# template test：静态校验 + 真实试查
+│   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
+│   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
@@ -90,8 +98,8 @@ QuotaTray/
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口与主布局（TitleBar + 列表 + 添加/设置）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（含 KEEP_LAST_GOOD_MS）
-│       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now 事件
+│       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态
 │       │   ├── display.ts      # 相对时间/已用百分比/数据文案（双语，与 tray.rs 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
@@ -103,7 +111,8 @@ QuotaTray/
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── ProviderCard.tsx    # 卡片：数据/错误徽标（灰瞬时红确定）/阈值告警/快照首屏
 │       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
-│       │       └── SettingsDialog.tsx  # 间隔/阈值/自启/每圈单位（语言与主题在标题栏）
+│       │       └── SettingsDialog.tsx  # 聚类分页：常规（间隔/阈值/自启/每圈单位）+
+│       │                               #   更新（自动检测开关/每日时刻/版本/检查/下载）
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
 │           ├── capabilities/default.json # 事件/主题/无装饰窗口控制 ACL（最小必要）
@@ -112,17 +121,22 @@ QuotaTray/
 │           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
 │           └── src/
 │               ├── main.rs     # 薄壳（release 隐藏控制台）
-│               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/命令注册
-│               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+--data-dir 覆盖+ErrorInfo
-│               ├── commands.rs # IPC 11 命令：key 写入策略（空=保持不变）、试查经引擎、
-│               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme
+│               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/更新调度/命令注册
+│               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
+│               │               #   +--data-dir 覆盖+ErrorInfo
+│               ├── commands.rs # IPC 14 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
+│               │               #   更新三命令（状态/立即检查/下载安装包）
 │               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
 │               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
-│               │               #   「图标显示」子菜单、any_alert 红点）/keep-last-good 窗口
+│               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
+│               │               #   /keep-last-good 窗口
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
-│               │               #   每圈单位、图标数据源字段）
+│               │               #   每圈单位、图标数据源、更新检测三字段）
+│               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
+│               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）

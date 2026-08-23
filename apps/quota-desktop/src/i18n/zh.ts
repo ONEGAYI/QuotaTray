@@ -82,8 +82,10 @@ export const zh = {
   "titlebar.restore": "还原",
   "titlebar.close": "关闭",
 
-  // ---- 设置对话框 ----
+  // ---- 设置对话框（分页：常规 / 更新） ----
   "settings.title": "设置",
+  "settings.tabGeneral": "常规",
+  "settings.tabUpdate": "更新",
   "settings.interval": "自动刷新间隔（分钟）",
   "settings.threshold": "低额度提醒阈值（已用 %）",
   "settings.autostart": "开机自启",
@@ -94,6 +96,21 @@ export const zh = {
   "settings.themeDark": "暗色",
   "settings.themeSystem": "跟随系统",
   "settings.ringUnits": "托盘圆环每圈单位",
+  "settings.updateEnabled": "自动检测更新（启动时 + 每日定时）",
+  "settings.updateTime": "每日检测时刻",
+  "settings.currentVersion": "当前版本",
+  "settings.latestVersion": "最新版本",
+  "settings.lastCheck": "上次检测：{time}",
+  "settings.neverChecked": "尚未检测",
+  "settings.checkNow": "立即检查",
+  "settings.checking": "检测中…",
+  "settings.upToDate": "已是最新",
+  "settings.updateError": "检测失败：{msg}",
+  "settings.download": "下载安装包",
+  "settings.downloading": "下载中…",
+  "settings.downloaded": "已保存至：{path}",
+  "settings.runInstaller": "请手动运行安装包完成更新",
+  "settings.manualUrl": "该版本没有安装包，发布页：{url}",
 } as const;
 
 export type TextKey = keyof typeof zh;
