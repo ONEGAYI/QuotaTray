@@ -74,9 +74,9 @@ QuotaTray/
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
-│   │       ├── main.rs        # clap 定义 12 子命令 + dispatch + --lang 全局参数
-│   │       │                  #   （两阶段解析）+ 启动更新提示钩子（stderr、节流、
-│   │       │                  #   --json 与 update 子命令自身豁免）
+│   │       ├── main.rs        # clap 定义子命令（含 pricing model 子命令组）+ dispatch
+│   │       │                  #   + --lang 全局参数（两阶段解析）+ 启动更新提示钩子
+│   │       │                  #   （stderr、节流、--json 与 update 子命令自身豁免）
 │   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
@@ -99,8 +99,12 @@ QuotaTray/
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
 │   │           ├── pricing.rs  # pricing show/set/clear：生效定价展示（判定/
-│   │           │              #   价格对照表/时段聚合/下次翻转，now 注入纯函数）、
+│   │           │              #   价格对照表/时段聚合/下次翻转，now 注入纯函数；
+│   │           │              #   show 接线自定义模型库 + 条目 currency 币种
+│   │           │              #   hint 选 DeepSeek 双币套 + plan 透出/订阅说明行）、
 │   │           │              #   stdin JSON 校验写入、清除回退预置
+│   │           ├── pricing_models.rs # pricing model list/add/remove：自定义模型库
+│   │           │              #   管理（表格价格对照/同 id 覆盖/删空移键，纯函数可测）
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）

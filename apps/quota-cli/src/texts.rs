@@ -209,6 +209,28 @@ pub enum T {
     PricingNoWindows,
     /// 「峰谷定价校验失败：」前缀。
     PricingValidateFail,
+    /// 订阅积分制说明行（价格档不适用）。
+    PricingPlanNote,
+    /// model list 表「模型」列头。
+    ColModel,
+    /// model list 表「来源」列头。
+    ColSource,
+    /// model list 表「模式」列头。
+    ColPlanKind,
+    /// 计费模式：按量。
+    ColPlanPayg,
+    /// 计费模式：订阅积分。
+    ColPlanSubscription,
+    /// model list 表「峰价（命中/输入/输出）」列头。
+    ColPeakPrice,
+    /// model list 表「闲价（命中/输入/输出）」列头。
+    ColOffPeakPrice,
+    /// model list 来源：预置。
+    PricingModelSourcePreset,
+    /// model list 来源：自定义。
+    PricingModelSourceCustom,
+    /// 平台无预置与自定义模型。
+    PricingModelListEmpty,
     HelpPricing,
     HelpPricingShow,
     HelpPricingShowId,
@@ -217,6 +239,15 @@ pub enum T {
     HelpPricingSetId,
     HelpPricingClear,
     HelpPricingClearId,
+    HelpPricingModel,
+    HelpPricingModelList,
+    HelpPricingModelListProvider,
+    HelpPricingModelListJson,
+    HelpPricingModelAdd,
+    HelpPricingModelAddProvider,
+    HelpPricingModelRemove,
+    HelpPricingModelRemoveProvider,
+    HelpPricingModelRemoveId,
     HelpDevSmoke,
     HelpDevSmokeKeyFile,
 }
@@ -390,6 +421,17 @@ fn zh(key: T) -> &'static str {
         T::PricingLocalTz => "本地时区",
         T::PricingNoWindows => "未设高峰时段（恒按空闲价）",
         T::PricingValidateFail => "峰谷定价校验失败：",
+        T::PricingPlanNote => "订阅积分制：价格档不适用，峰谷行表达折扣时段",
+        T::ColModel => "模型",
+        T::ColSource => "来源",
+        T::ColPlanKind => "模式",
+        T::ColPlanPayg => "按量",
+        T::ColPlanSubscription => "订阅积分",
+        T::ColPeakPrice => "峰价（命中/输入/输出）",
+        T::ColOffPeakPrice => "闲价（命中/输入/输出）",
+        T::PricingModelSourcePreset => "预置",
+        T::PricingModelSourceCustom => "自定义",
+        T::PricingModelListEmpty => "（该平台无预置与自定义模型）",
         T::HelpPricing => "峰谷定价：查看 / 自定义 / 清除",
         T::HelpPricingShow => "查看条目生效峰谷定价（当前判定 + 价格对照 + 时段）",
         T::HelpPricingShowId => "条目 id",
@@ -398,6 +440,15 @@ fn zh(key: T) -> &'static str {
         T::HelpPricingSetId => "条目 id",
         T::HelpPricingClear => "清除自定义峰谷定价（回退预置）",
         T::HelpPricingClearId => "条目 id",
+        T::HelpPricingModel => "自定义模型库管理（按平台聚类，条目 pricing.model 可选用）",
+        T::HelpPricingModelList => "列出平台预置与自定义模型（价格对照）",
+        T::HelpPricingModelListProvider => "native 平台 id（见 quota natives）",
+        T::HelpPricingModelListJson => "输出 JSON（供脚本消费）",
+        T::HelpPricingModelAdd => "从 stdin 读 CustomModelDef JSON 添加/覆盖（同 id 覆盖 = 更新）",
+        T::HelpPricingModelAddProvider => "native 平台 id（见 quota natives）",
+        T::HelpPricingModelRemove => "删除自定义模型",
+        T::HelpPricingModelRemoveProvider => "native 平台 id（见 quota natives）",
+        T::HelpPricingModelRemoveId => "模型 id",
         T::HelpDevSmoke => "真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）",
         T::HelpDevSmokeKeyFile => "key 文件路径（默认当前目录 .DevApiKey.json）",
     }
@@ -586,6 +637,19 @@ fn en(key: T) -> &'static str {
         T::PricingLocalTz => "local timezone",
         T::PricingNoWindows => "no peak windows (always billed at off-peak rates)",
         T::PricingValidateFail => "peak pricing validation failed: ",
+        T::PricingPlanNote => {
+            "Subscription credits: price tiers N/A, peak windows mark discount hours"
+        }
+        T::ColModel => "Model",
+        T::ColSource => "Source",
+        T::ColPlanKind => "Plan",
+        T::ColPlanPayg => "Pay-as-you-go",
+        T::ColPlanSubscription => "Subscription",
+        T::ColPeakPrice => "Peak (hit/in/out)",
+        T::ColOffPeakPrice => "Off-peak (hit/in/out)",
+        T::PricingModelSourcePreset => "preset",
+        T::PricingModelSourceCustom => "custom",
+        T::PricingModelListEmpty => "(no preset or custom models for this provider)",
         T::HelpPricing => "Peak/off-peak pricing: show / set / clear",
         T::HelpPricingShow => {
             "Show the effective peak pricing (current kind, price table, windows)"
@@ -598,6 +662,19 @@ fn en(key: T) -> &'static str {
         T::HelpPricingSetId => "Entry id",
         T::HelpPricingClear => "Clear the custom peak pricing (fall back to presets)",
         T::HelpPricingClearId => "Entry id",
+        T::HelpPricingModel => {
+            "Custom model library (per provider; entry pricing.model can select)"
+        }
+        T::HelpPricingModelList => "List preset and custom models of a provider (price comparison)",
+        T::HelpPricingModelListProvider => "native provider id (see quota natives)",
+        T::HelpPricingModelListJson => "Output JSON (for scripts)",
+        T::HelpPricingModelAdd => {
+            "Add/overwrite a custom model from CustomModelDef JSON on stdin (same id = update)"
+        }
+        T::HelpPricingModelAddProvider => "native provider id (see quota natives)",
+        T::HelpPricingModelRemove => "Remove a custom model",
+        T::HelpPricingModelRemoveProvider => "native provider id (see quota natives)",
+        T::HelpPricingModelRemoveId => "model id",
         T::HelpDevSmoke => {
             "Live smoke test (debug builds only; runs the full pipeline via .DevApiKey.json)"
         }
@@ -809,6 +886,38 @@ pub fn pricing_cleared(lang: Lang, id: &str) -> String {
     }
 }
 
+/// pricing model：未知平台 id。
+pub fn pricing_model_provider_unknown(lang: Lang, provider: &str) -> String {
+    match lang {
+        Lang::En => format!("unknown provider: {provider} (run `quota natives` for available ids)"),
+        _ => format!("未知平台：{provider}（运行 quota natives 查看可用 id）"),
+    }
+}
+
+/// pricing model add 成功。
+pub fn pricing_model_saved(lang: Lang, provider: &str, id: &str) -> String {
+    match lang {
+        Lang::En => format!("custom model saved: {provider} / {id}"),
+        _ => format!("自定义模型已保存：{provider} / {id}"),
+    }
+}
+
+/// pricing model remove 成功。
+pub fn pricing_model_removed(lang: Lang, provider: &str, id: &str) -> String {
+    match lang {
+        Lang::En => format!("custom model removed: {provider} / {id}"),
+        _ => format!("自定义模型已删除：{provider} / {id}"),
+    }
+}
+
+/// pricing model remove：模型不存在。
+pub fn pricing_model_not_found(lang: Lang, provider: &str, id: &str) -> String {
+    match lang {
+        Lang::En => format!("custom model not found: {provider} / {id}"),
+        _ => format!("自定义模型不存在：{provider} / {id}"),
+    }
+}
+
 // ---- update（检测/下载/启动提示） ------------------------------------------
 
 /// 已是最新（含当前版本号）。
@@ -931,6 +1040,27 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
                 .mut_subcommand("clear", |c| {
                     c.about(tr(T::HelpPricingClear))
                         .mut_arg("id", |a| a.help(tr(T::HelpPricingClearId)))
+                })
+                .mut_subcommand("model", |c| {
+                    c.about(tr(T::HelpPricingModel))
+                        .mut_subcommand("list", |c| {
+                            c.about(tr(T::HelpPricingModelList))
+                                .mut_arg("provider", |a| {
+                                    a.help(tr(T::HelpPricingModelListProvider))
+                                })
+                                .mut_arg("json", |a| a.help(tr(T::HelpPricingModelListJson)))
+                        })
+                        .mut_subcommand("add", |c| {
+                            c.about(tr(T::HelpPricingModelAdd))
+                                .mut_arg("provider", |a| a.help(tr(T::HelpPricingModelAddProvider)))
+                        })
+                        .mut_subcommand("remove", |c| {
+                            c.about(tr(T::HelpPricingModelRemove))
+                                .mut_arg("provider", |a| {
+                                    a.help(tr(T::HelpPricingModelRemoveProvider))
+                                })
+                                .mut_arg("id", |a| a.help(tr(T::HelpPricingModelRemoveId)))
+                        })
                 })
         })
         .mut_subcommand("update", |c| {

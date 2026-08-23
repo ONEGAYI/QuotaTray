@@ -147,6 +147,33 @@ enum PricingCmd {
         /// 条目 id
         id: String,
     },
+    /// 自定义模型库管理（按平台聚类，条目 pricing.model 可选用）
+    #[command(subcommand)]
+    Model(ModelCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum ModelCmd {
+    /// 列出平台预置与自定义模型（价格对照）
+    List {
+        /// native 平台 id（见 quota natives）
+        provider: String,
+        /// 输出 JSON（供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 从 stdin 读 CustomModelDef JSON 添加/覆盖（同 id 覆盖 = 更新）
+    Add {
+        /// native 平台 id（见 quota natives）
+        provider: String,
+    },
+    /// 删除自定义模型
+    Remove {
+        /// native 平台 id（见 quota natives）
+        provider: String,
+        /// 模型 id
+        id: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -248,6 +275,15 @@ async fn run(cli: Cli) -> i32 {
         Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
         Command::Pricing(PricingCmd::Set { id }) => cmd::pricing::run_set(&ctx, &id),
         Command::Pricing(PricingCmd::Clear { id }) => cmd::pricing::run_clear(&ctx, &id),
+        Command::Pricing(PricingCmd::Model(ModelCmd::List { provider, json })) => {
+            cmd::pricing_models::run_list(&ctx, &provider, json)
+        }
+        Command::Pricing(PricingCmd::Model(ModelCmd::Add { provider })) => {
+            cmd::pricing_models::run_add(&ctx, &provider)
+        }
+        Command::Pricing(PricingCmd::Model(ModelCmd::Remove { provider, id })) => {
+            cmd::pricing_models::run_remove(&ctx, &provider, &id)
+        }
         Command::Template(TemplateCmd::Test {
             entry,
             json,

@@ -23,7 +23,8 @@ pub use model::{QueryError, UsageData};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
     PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,
-    preset_with_currency, resolve, resolve_with, validate,
+    preset_with_currency, resolve, resolve_in_currency, resolve_with, validate,
+    validate_custom_model,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use template::{TemplateConfig, TemplateError};
