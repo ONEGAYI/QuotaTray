@@ -151,7 +151,8 @@ QuotaTray/
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
 │       │       │                       #   短时反馈、启停/编辑/删除确认
 │       │       ├── HoverPanel.tsx       # 托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +
-│       │       │                       #   圆环数据源账户与计价模型即时切换
+│       │       │                       #   圆环数据源账户与计价模型即时切换、
+│       │       │                       #   头部刷新/关闭按钮
 │       │       ├── hoverPanelView.ts / hoverPanelView.test.ts
 │       │       │                       # 悬停条目回退与前端圆环镜像纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
@@ -196,8 +197,8 @@ QuotaTray/
 │               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
 │               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令；
 │               │               #   隐藏托盘兜底：rect 是任务栏 chevron 不可信时改以
-│               │               #   光标锚定（面板贴光标侧方、不覆盖鼠标点），show 后
-│               │               #   SetWindowPos 重插 topmost 压过 flyout（不激活）。
+│               │               #   光标锚定（面板出现在图标上方、不覆盖鼠标点），
+│               │               #   show 后 SetWindowPos 重插 topmost 压过 flyout（不激活）。
 │               │               #   架构备忘：悬停自动刷新链依赖主窗「关闭=隐藏不销毁」
 │               │               #   （refresh-now 由主窗响应查询后经 provider-state-changed
 │               │               #   回流面板）——若未来改主窗为销毁式，需改为后端直查

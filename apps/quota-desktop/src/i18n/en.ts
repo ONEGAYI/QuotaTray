@@ -70,6 +70,7 @@ export const en: Record<TextKey, string> = {
   "hover.availableBalance": "Available balance",
   "hover.usedQuota": "Quota used",
   "hover.openMain": "Open main window",
+  "hover.close": "Close panel",
   "hover.noEnabled": "No enabled accounts",
 
   // ---- 添加/编辑对话框 ----

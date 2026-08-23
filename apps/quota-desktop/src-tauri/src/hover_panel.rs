@@ -113,13 +113,13 @@ fn rect_is_trusted(tray: PhysicalBox, cursor: PhysicalPosition<i32>) -> bool {
         && y <= tray.y + tray.height as i32 + TRUST_SLACK
 }
 
-/// rect 不可信（隐藏托盘场景）的兜底定位：面板贴光标侧方，
-/// 垂直以光标为中心并 clamp 进工作区。
+/// rect 不可信（隐藏托盘场景）的兜底定位：面板出现在光标（即 flyout 内
+/// 图标）**上方**，水平以光标为中心；光标上方空间不足时回退到下方。
 ///
 /// 硬约束：面板不得覆盖光标点——覆盖会顶掉托盘图标区的鼠标命中，
-/// 触发 Leave/Enter 连锁闪烁。水平方向选空间充足的一侧：右侧放得下
-/// 面板宽 + gap 就放右，否则放左（两侧都放不下时 clamp 兜底，
-/// 光标远离工作区边缘的实际场景不会发生）。
+/// 触发 Leave/Enter 连锁闪烁。上方放得下面板高 + gap 就放上方
+/// （y = 光标 − 面板高 − gap，底边与光标留 gap），否则放下方
+/// （y = 光标 + gap）；水平垂直均 clamp 进工作区兜底。
 fn cursor_anchored_position(
     cursor: PhysicalPosition<i32>,
     work_area: PhysicalBox,
@@ -132,12 +132,12 @@ fn cursor_anchored_position(
     let panel_width = panel_width as i32;
     let panel_height = panel_height as i32;
 
-    let x = if work_right - cursor.x >= panel_width + gap {
-        cursor.x + gap
+    let x = cursor.x - panel_width / 2;
+    let y = if cursor.y - work_area.y >= panel_height + gap {
+        cursor.y - panel_height - gap
     } else {
-        cursor.x - panel_width - gap
+        cursor.y + gap
     };
-    let y = cursor.y - panel_height / 2;
     let max_x = (work_right - panel_width).max(work_area.x);
     let max_y = (work_bottom - panel_height).max(work_area.y);
     PhysicalPosition::new(
@@ -211,7 +211,8 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
         .map(|p| PhysicalPosition::new(p.x as i32, p.y as i32));
     if let (Some(work_area), Ok(panel_size)) = (work_area_box(app, tray), window.outer_size()) {
         let position = match cursor {
-            // 隐藏托盘：rect 是任务栏 chevron，改以光标（flyout 内图标上）锚定
+            // 隐藏托盘：rect 是任务栏 chevron，改以光标（flyout 内图标上）
+            // 锚定——面板出现在图标上方
             Some(c) if !rect_is_trusted(tray, c) => cursor_anchored_position(
                 c,
                 work_area,
@@ -415,10 +416,11 @@ mod tests {
         assert!(!rect_is_trusted(tray, PhysicalPosition::new(1820, 990))); // flyout 内图标
     }
 
-    /// 契约：光标锚点兜底定位——面板贴光标侧方（右侧空间不足放左）、
-    /// 垂直以光标为中心 clamp 进工作区，且面板矩形不覆盖光标点。
+    /// 契约：光标锚点兜底定位——面板出现在光标（图标）上方、水平以光标
+    /// 为中心（clamp 进工作区）；光标上方空间不足回退到下方；且面板
+    /// 矩形不覆盖光标点。
     #[test]
-    fn cursor_anchor_places_panel_beside_cursor_without_covering_it() {
+    fn cursor_anchor_places_panel_above_cursor_without_covering_it() {
         let work = PhysicalBox {
             x: 0,
             y: 0,
@@ -426,24 +428,27 @@ mod tests {
             height: 1040,
         };
 
-        // 典型隐藏托盘：光标在屏幕右下的 flyout 图标上（右侧空间 120 < 374+8）
+        // 典型隐藏托盘：光标在屏幕右下的 flyout 图标上（上方空间 900 ≥ 528），
+        // 水平 clamp 到工作区（1800-187=1613 > 1546）
         let cursor = PhysicalPosition::new(1800, 900);
         let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
-        assert_eq!(pos, PhysicalPosition::new(1800 - 374 - 8, 1040 - 520));
+        assert_eq!(pos, PhysicalPosition::new(1546, 900 - 520 - 8));
 
-        // 右侧空间充足（1720 ≥ 382）：放光标右侧
-        let cursor = PhysicalPosition::new(200, 900);
+        // 上方空间不足（400 < 528）：回退到光标下方
+        let cursor = PhysicalPosition::new(960, 400);
         let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
-        assert_eq!(pos, PhysicalPosition::new(208, 1040 - 520));
+        assert_eq!(pos, PhysicalPosition::new(960 - 374 / 2, 400 + 8));
 
-        // 垂直居中无需 clamp；且各场景面板矩形均不包含光标点
-        let cursor = PhysicalPosition::new(1800, 780);
+        // 上方恰好放得下（边界 == 面板高 + gap）：贴工作区顶部
+        let cursor = PhysicalPosition::new(960, 528);
         let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
-        assert_eq!(pos, PhysicalPosition::new(1800 - 374 - 8, 780 - 520 / 2));
+        assert_eq!(pos, PhysicalPosition::new(960 - 374 / 2, 0));
+
+        // 各场景面板矩形均不包含光标点
         for (cursor, pos) in [
-            (PhysicalPosition::new(1800, 900), PhysicalPosition::new(1418, 520)),
-            (PhysicalPosition::new(200, 900), PhysicalPosition::new(208, 520)),
-            (PhysicalPosition::new(1800, 780), PhysicalPosition::new(1418, 520)),
+            (PhysicalPosition::new(1800, 900), PhysicalPosition::new(1546, 372)),
+            (PhysicalPosition::new(960, 400), PhysicalPosition::new(773, 408)),
+            (PhysicalPosition::new(960, 528), PhysicalPosition::new(773, 0)),
         ] {
             let covers_x = pos.x <= cursor.x && cursor.x < pos.x + 374;
             let covers_y = pos.y <= cursor.y && cursor.y < pos.y + 520;

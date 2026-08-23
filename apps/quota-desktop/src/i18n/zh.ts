@@ -73,6 +73,7 @@ export const zh = {
   "hover.availableBalance": "可用余额",
   "hover.usedQuota": "已用额度",
   "hover.openMain": "打开主窗口",
+  "hover.close": "关闭面板",
   "hover.noEnabled": "没有已启用的账户",
 
   // ---- 添加/编辑对话框 ----

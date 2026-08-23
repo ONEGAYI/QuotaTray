@@ -267,6 +267,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
   box-shadow: inset 0 1px color-mix(in srgb, var(--qt-surface-hover) 78%, transparent);
 }
 .qt-hover-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 13px 9px; }
+.qt-hover-actions { display: flex; flex: none; align-items: center; gap: 4px; }
 .qt-hover-brand { display: flex; min-width: 0; align-items: center; gap: 10px; }
 .qt-hover-mark { display: block; width: 32px; height: 32px; flex: none; object-fit: contain; }
 .qt-hover-brand > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }

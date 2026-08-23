@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { amountText, dataSummary, relativeTime, usedPercent } from "../display";
@@ -200,15 +200,25 @@ function HoverPanelInner() {
             <small><i />{view.at ? relativeTime(view.at, lang) : t("card.neverSucceeded")}</small>
           </div>
         </div>
-        <button
-          type="button"
-          className={`qt-hover-icon-btn ${query.isFetching || refreshProvider.isPending ? "is-spinning" : ""}`}
-          aria-label={t("card.refresh")}
-          disabled={!entry || query.isFetching || refreshProvider.isPending}
-          onClick={refresh}
-        >
-          <RefreshCw size={16} />
-        </button>
+        <div className="qt-hover-actions">
+          <button
+            type="button"
+            className={`qt-hover-icon-btn ${query.isFetching || refreshProvider.isPending ? "is-spinning" : ""}`}
+            aria-label={t("card.refresh")}
+            disabled={!entry || query.isFetching || refreshProvider.isPending}
+            onClick={refresh}
+          >
+            <RefreshCw size={16} />
+          </button>
+          <button
+            type="button"
+            className="qt-hover-icon-btn"
+            aria-label={t("hover.close")}
+            onClick={() => void api.hideHoverPanel()}
+          >
+            <X size={16} />
+          </button>
+        </div>
       </header>
 
       {entry ? (
