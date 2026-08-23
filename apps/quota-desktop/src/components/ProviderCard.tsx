@@ -232,7 +232,10 @@ export function ProviderCard({
               {statusBadge}
             </div>
             <div className="qt-provider-route">
-              <span className="qt-provider-route-label">
+              <span
+                className="qt-provider-route-label"
+                title={pricingView?.modelLabel ? `${platformName} · ${pricingView.modelLabel}` : platformName}
+              >
                 {platformName}
                 {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
               </span>
