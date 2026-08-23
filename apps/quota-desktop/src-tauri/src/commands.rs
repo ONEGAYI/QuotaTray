@@ -186,6 +186,54 @@ pub fn validate_entry(entry: &ProviderEntry, lang: Lang) -> Result<(), String> {
 
 // ---- 命令 -----------------------------------------------------------------
 
+fn export_configuration_at(
+    config_path: &std::path::Path,
+    export_path: &std::path::Path,
+    vault: &Vault,
+) -> Result<(), String> {
+    let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
+    quota_core::export_config_to_path(&config, vault, export_path).map_err(|e| e.to_string())
+}
+
+fn import_configuration_at(
+    export_path: &std::path::Path,
+    config_path: &std::path::Path,
+    vault: &Vault,
+) -> Result<AppConfig, String> {
+    quota_core::import_config_to_path(export_path, vault, config_path).map_err(|e| e.to_string())
+}
+
+/// 导出完整配置到用户通过系统对话框选定的路径。
+#[tauri::command]
+pub fn export_configuration(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    export_configuration_at(
+        &state.paths.config(),
+        std::path::Path::new(&path),
+        &state.vault,
+    )
+}
+
+/// 从迁移包整体替换配置，清除旧查询快照并通知所有窗口刷新。
+#[tauri::command]
+pub fn import_configuration(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<usize, String> {
+    let config = import_configuration_at(
+        std::path::Path::new(&path),
+        &state.paths.config(),
+        &state.vault,
+    )?;
+    state.results.write().unwrap().clear();
+    after_state_change(&app, &state);
+    let provider_count = config.providers.len();
+    if let Err(e) = app.emit("configuration-imported", provider_count) {
+        eprintln!("配置导入事件发送失败：{e}");
+    }
+    Ok(provider_count)
+}
+
 #[tauri::command]
 pub fn list_providers(state: State<'_, AppState>) -> Result<Vec<ProviderEntry>, String> {
     AppConfig::load(&state.paths.config())
@@ -595,6 +643,65 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
         }
+    }
+
+    fn transfer_path(tag: &str, name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "quota-desktop-transfer-{tag}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    #[test]
+    fn transfer_helpers_rewrap_credentials_for_destination_vault() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let source_path = transfer_path("roundtrip", "source.json");
+        let target_path = transfer_path("roundtrip", "target.json");
+        let bundle = transfer_path("roundtrip", "backup.qtray-export");
+        let mut source_entry = entry("p1");
+        source_entry
+            .set_api_key(&source_vault, "sk-desktop-transfer")
+            .unwrap();
+        AppConfig {
+            providers: vec![source_entry],
+            custom_models: Default::default(),
+        }
+        .save(&source_path)
+        .unwrap();
+
+        export_configuration_at(&source_path, &bundle, &source_vault).unwrap();
+        let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
+        assert_eq!(imported.providers.len(), 1);
+        assert_eq!(
+            imported.providers[0]
+                .credentials(&target_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            "sk-desktop-transfer"
+        );
+        assert_eq!(AppConfig::load(&target_path).unwrap(), imported);
+        let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
+    }
+
+    #[test]
+    fn transfer_helper_failure_preserves_existing_configuration() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config_path = transfer_path("failure", "config.json");
+        let bundle = transfer_path("failure", "bad.qtray-export");
+        let existing = AppConfig {
+            providers: vec![entry("keep")],
+            custom_models: Default::default(),
+        };
+        existing.save(&config_path).unwrap();
+        std::fs::write(&bundle, b"not a transfer package").unwrap();
+
+        assert!(import_configuration_at(&bundle, &config_path, &vault).is_err());
+        assert_eq!(AppConfig::load(&config_path).unwrap(), existing);
+        let _ = std::fs::remove_dir_all(config_path.parent().unwrap());
     }
 
     /// 契约：新 key 加密写入；密文非明文且以 v1: 开头。

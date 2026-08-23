@@ -1,6 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Check, ExternalLink, PackageCheck, SlidersHorizontal } from "lucide-react";
+import {
+  confirm as confirmDialog,
+  open as openDialog,
+  save as saveDialog,
+} from "@tauri-apps/plugin-dialog";
+import {
+  AlertTriangle,
+  ArchiveRestore,
+  Check,
+  ExternalLink,
+  FileDown,
+  FileUp,
+  PackageCheck,
+  SlidersHorizontal,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
@@ -13,6 +27,11 @@ import {
   resolveUpdateError,
   resolveUpdateStatus,
 } from "./settingsView";
+import {
+  defaultTransferFileName,
+  ensureTransferExtension,
+  transferErrorMessage,
+} from "./configTransferView";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -20,7 +39,8 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "general" | "update";
+type Tab = "general" | "update" | "transfer";
+type TransferFeedback = { kind: "success" | "error"; text: string };
 
 export function SettingsDialog({ open, onClose }: Props) {
   const qc = useQueryClient();
@@ -31,6 +51,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
 
   useEffect(() => {
     if (open && settings.data) setDraft({ ...settings.data });
@@ -68,6 +89,74 @@ export function SettingsDialog({ open, onClose }: Props) {
     onSuccess: (path) => setDownloadedPath(path),
   });
 
+  const exportConfiguration = useMutation({
+    mutationFn: api.exportConfiguration,
+    onSuccess: (_, path) => {
+      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path }) });
+    },
+    onError: (error) => {
+      setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
+    },
+  });
+
+  const importConfiguration = useMutation({
+    mutationFn: api.importConfiguration,
+    onSuccess: (count) => {
+      setTransferFeedback({
+        kind: "success",
+        text: t("settings.importSuccess", { count: String(count) }),
+      });
+      void qc.invalidateQueries({ queryKey: ["providers"] });
+      void qc.invalidateQueries({ queryKey: ["provider"] });
+      void qc.invalidateQueries({ queryKey: ["snapshots"] });
+      void qc.invalidateQueries({ queryKey: ["native-metas"] });
+    },
+    onError: (error) => {
+      setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
+    },
+  });
+
+  const beginExport = async () => {
+    setTransferFeedback(null);
+    const confirmed = await confirmDialog(t("settings.exportConfirm"), {
+      title: t("settings.transferTitle"),
+      kind: "warning",
+      okLabel: t("settings.exportConfirmButton"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) return;
+    const path = await saveDialog({
+      title: t("settings.exportDialogTitle"),
+      defaultPath: defaultTransferFileName(new Date()),
+      filters: [{
+        name: t("settings.transferDialogFilter"),
+        extensions: ["qtray-export"],
+      }],
+    });
+    if (path) exportConfiguration.mutate(ensureTransferExtension(path));
+  };
+
+  const beginImport = async () => {
+    setTransferFeedback(null);
+    const path = await openDialog({
+      title: t("settings.importDialogTitle"),
+      multiple: false,
+      directory: false,
+      filters: [{
+        name: t("settings.transferDialogFilter"),
+        extensions: ["qtray-export"],
+      }],
+    });
+    if (!path) return;
+    const confirmed = await confirmDialog(t("settings.importConfirm"), {
+      title: t("settings.transferTitle"),
+      kind: "warning",
+      okLabel: t("settings.importConfirmButton"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (confirmed) importConfiguration.mutate(path);
+  };
+
   if (!open || !draft) return null;
   const update = updateState.data;
   const available = update?.available ?? null;
@@ -93,12 +182,16 @@ export function SettingsDialog({ open, onClose }: Props) {
       closeLabel={t("titlebar.close")}
       size="md"
       footer={
-        <>
-          <Button onClick={onClose}>{t("common.cancel")}</Button>
-          <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
-            {save.isPending ? t("common.saving") : t("settings.save")}
-          </Button>
-        </>
+        tab === "transfer" ? (
+          <Button onClick={onClose}>{t("titlebar.close")}</Button>
+        ) : (
+          <>
+            <Button onClick={onClose}>{t("common.cancel")}</Button>
+            <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+              {save.isPending ? t("common.saving") : t("settings.save")}
+            </Button>
+          </>
+        )
       }
     >
       <div className="qt-settings-layout">
@@ -118,6 +211,14 @@ export function SettingsDialog({ open, onClose }: Props) {
           >
             <PackageCheck size={16} aria-hidden="true" />
             {t("settings.tabUpdate")}
+          </button>
+          <button
+            type="button"
+            aria-selected={tab === "transfer"}
+            onClick={() => setTab("transfer")}
+          >
+            <ArchiveRestore size={16} aria-hidden="true" />
+            {t("settings.tabTransfer")}
           </button>
         </nav>
 
@@ -176,7 +277,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                 />
               </SettingRow>
             </>
-          ) : (
+          ) : tab === "update" ? (
             <>
               <div className={`qt-update-status ${
                 updateStatus === "error"
@@ -279,6 +380,57 @@ export function SettingsDialog({ open, onClose }: Props) {
               )}
               {downloadedPath && <p className="qt-settings-success">{t("settings.downloaded", { path: downloadedPath })}</p>}
               {operationError && <p className="qt-inline-error">{operationError}</p>}
+            </>
+          ) : (
+            <>
+              <div className="qt-transfer-intro">
+                <span className="qt-transfer-intro-icon">
+                  <AlertTriangle size={18} aria-hidden="true" />
+                </span>
+                <div>
+                  <h3>{t("settings.transferTitle")}</h3>
+                  <p>{t("settings.transferDescription")}</p>
+                  <p>{t("settings.transferWarning")}</p>
+                </div>
+              </div>
+              <SettingRow
+                title={t("settings.exportTitle")}
+                description={t("settings.exportHint")}
+              >
+                <Button
+                  disabled={exportConfiguration.isPending || importConfiguration.isPending}
+                  onClick={() => void beginExport()}
+                >
+                  <FileDown size={15} aria-hidden="true" />
+                  {exportConfiguration.isPending
+                    ? t("settings.exporting")
+                    : t("settings.exportButton")}
+                </Button>
+              </SettingRow>
+              <SettingRow
+                title={t("settings.importTitle")}
+                description={t("settings.importHint")}
+              >
+                <Button
+                  variant="danger"
+                  disabled={exportConfiguration.isPending || importConfiguration.isPending}
+                  onClick={() => void beginImport()}
+                >
+                  <FileUp size={15} aria-hidden="true" />
+                  {importConfiguration.isPending
+                    ? t("settings.importing")
+                    : t("settings.importButton")}
+                </Button>
+              </SettingRow>
+              {transferFeedback && (
+                <p className={
+                  transferFeedback.kind === "success"
+                    ? "qt-settings-success"
+                    : "qt-inline-error"
+                }>
+                  {transferFeedback.text}
+                </p>
+              )}
             </>
           )}
           {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}

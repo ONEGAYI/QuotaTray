@@ -23,6 +23,7 @@
 | `quota pricing show/set/clear` | 峰谷定价查看 / 自定义 / 清除 |
 | `quota template test` | 对模板执行静态校验 + 试查询 |
 | `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
+| `quota config export/import` | 完整配置跨机器导出 / 整体导入 |
 | `quota dev-smoke` | 真机冒烟（仅 debug 构建） |
 
 ## 3. 子命令规格
@@ -59,6 +60,20 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
   （`echo $KEY | quota set-key id` 场景）。
 - `quota remove`：确认提示（`--yes` 跳过）。
 - id 冲突：`add` 生成短随机 id（如 6 位 base32），`edit/remove` 精确匹配。
+
+### quota config export / import
+
+```text
+quota config export <路径> [--yes]
+quota config import <路径> [--yes]
+```
+
+- `export` 导出完整 `AppConfig`（供应商、凭据、定价、自定义模型库）到
+  `.qtray-export` 私有认证容器；默认提示该文件等同明文凭据，`--yes` 表示调用方
+  已确认风险。
+- `import` 整体替换当前配置；包内凭据先用一次性迁移密钥解密，再以目标机器
+  主密钥重加密。任一条目或格式校验失败时不覆盖原配置。
+- 两个命令成功返回 0，文件/格式/Vault 错误返回 1；取消交互返回 0 且不写文件。
 
 ### quota pricing
 

@@ -11,6 +11,9 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-is-maximized",
     "core:window:allow-close",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://github.com/ONEGAYI/QuotaTray" }]

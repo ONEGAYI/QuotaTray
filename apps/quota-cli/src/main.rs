@@ -106,6 +106,9 @@ enum Command {
     /// 凭据保险库
     #[command(subcommand)]
     Vault(VaultCmd),
+    /// 完整配置跨机器迁移
+    #[command(subcommand)]
+    Config(ConfigCmd),
     /// 检测 GitHub release 新版本，可选下载安装包
     Update {
         /// 只检测不下载
@@ -196,6 +199,28 @@ enum TemplateCmd {
 enum VaultCmd {
     /// 主密钥健康检查（系统凭据库可读性）
     Status,
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigCmd {
+    /// 导出完整配置与凭据到私有迁移包
+    Export {
+        /// 迁移包输出路径
+        #[arg(value_name = "PATH")]
+        output: PathBuf,
+        /// 跳过敏感文件确认
+        #[arg(long)]
+        yes: bool,
+    },
+    /// 从迁移包整体替换当前配置
+    Import {
+        /// 迁移包输入路径
+        #[arg(value_name = "PATH")]
+        input: PathBuf,
+        /// 跳过整体替换确认
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -290,6 +315,12 @@ async fn run(cli: Cli) -> i32 {
             base_url,
         }) => cmd::template::run(&ctx, entry, json, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
+        Command::Config(ConfigCmd::Export { output, yes }) => {
+            cmd::config::run_export(&ctx, output, yes)
+        }
+        Command::Config(ConfigCmd::Import { input, yes }) => {
+            cmd::config::run_import(&ctx, input, yes)
+        }
         Command::Update { check, yes, output } => {
             cmd::update::run(
                 &ctx,
@@ -384,6 +415,10 @@ mod tests {
                 "https://a.com",
             ],
             vec!["quota", "vault", "status"],
+            vec!["quota", "config", "export", "backup.qtray-export"],
+            vec!["quota", "config", "export", "backup.qtray-export", "--yes"],
+            vec!["quota", "config", "import", "backup.qtray-export"],
+            vec!["quota", "config", "import", "backup.qtray-export", "--yes"],
             vec!["quota", "--config", "c.json", "list"],
             // --lang 三值（全局参数，可置于子命令前后）
             vec!["quota", "--lang", "zh", "list"],

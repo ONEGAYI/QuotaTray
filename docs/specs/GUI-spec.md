@@ -36,8 +36,9 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
    - template：模板 JSON 编辑器（CodeMirror 或等价）+ base_url + key +
      「校验」按钮（调 validate）与「试查」按钮（调 template test）
    - script（M4 预留 tab，禁用态）
-3. **设置**：自动刷新间隔（分钟，默认 5）、低额度提醒阈值（已用百分比，默认 80%）、
-   开机自启开关、语言（zh/en，后续）。
+3. **设置**：常规页含自动刷新间隔、低额度提醒阈值、开机自启；更新页管理
+   自动检测与下载安装包；数据迁移页通过系统文件选择器导出/导入完整配置，
+   写文件或整体替换前必须显示高敏感风险确认。
 
 ### 托盘
 
@@ -78,6 +79,8 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | `test_template` | `TemplateConfig + key输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
 | `get_settings / save_settings` | 设置对象 ↔ | desktop 自有存储 |
+| `export_configuration` | `path` → () | `export_config_to_path` |
+| `import_configuration` | `path` → `provider_count` | `import_config_to_path`；清空旧结果/快照并广播刷新 |
 
 **红线 3 落实**：key 写入走「空值 = 保持不变」约定，前端永不回显明文、
 永不接收明文（编辑表单的 key 框初始为空，占位符显示"已配置"/"未配置"）。
@@ -107,4 +110,5 @@ core 冻结期内由本端实现：查询成功后把 `{ id: { data, at } }` 写
 - [ ] key 在 UI 任何位置不回显明文；`--json` 类调试输出亦无泄漏
 - [ ] 单实例：第二个实例启动只激活已有窗口
 - [ ] 低额度提醒按阈值生效
+- [ ] 数据迁移可通过系统文件对话框完成；导入后账户、托盘与悬停窗同步刷新，旧快照清空
 - [ ] `cargo clippy/test --workspace` 全绿；前端构建无错误

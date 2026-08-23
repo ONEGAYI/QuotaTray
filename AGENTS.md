@@ -99,7 +99,7 @@ QuotaTray/
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
-│   │       ├── main.rs        # clap 定义子命令（含 pricing model 子命令组）+ dispatch
+│   │       ├── main.rs        # clap 定义子命令（含 pricing model / config 迁移组）+ dispatch
 │   │       │                  #   + --lang 全局参数（两阶段解析）+ 启动更新提示钩子
 │   │       │                  #   （stderr、节流、--json 与 update 子命令自身豁免）
 │   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
@@ -121,6 +121,8 @@ QuotaTray/
 │   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
 │   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体）/ --json stdin
 │   │           │              #   （拒收 api_key_enc）
+│   │           ├── config.rs  # config export/import：高敏感确认、完整配置迁移、
+│   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改）+ --enable/--disable 快捷路径
 │   │           ├── remove.rs  # 确认删除（--yes 跳过）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
@@ -141,7 +143,7 @@ QuotaTray/
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
-│       │                      #   Lucide 图标/Vitest/opener（外链浏览器打开）
+│       │                      #   Lucide/Vitest/opener + dialog（系统文件选择器）
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
@@ -158,9 +160,9 @@ QuotaTray/
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
-│       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
+│       │   ├── api.ts          # invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
-│       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
+│       │   │                    #   配置导入跨窗口失效 + CLI 可改 native/custom model 短缓存
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
 │       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）
@@ -206,15 +208,17 @@ QuotaTray/
 │       │       ├── pricingDraft.ts / pricingDraft.test.ts
 │       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
 │       │       │                       #   完整自定义判定纯逻辑
-│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡（有更新
-│       │       │                       #   时原位下载）+ 实时进度/速率
-│       │       └── settingsView.ts / settingsView.test.ts
-│       │                               # 更新错误优先级、状态结论、进度格式化纯逻辑
+│       │       ├── SettingsDialog.tsx  # 常规/更新/数据迁移导航：更新下载进度 +
+│       │       │                       #   系统文件选择器导入导出与双重风险确认
+│       │       ├── settingsView.ts / settingsView.test.ts
+│       │       │                       # 更新错误优先级、状态结论、进度格式化纯逻辑
+│       │       └── configTransferView.ts / configTransferView.test.ts
+│       │                               # 迁移默认文件名、扩展名与错误归一化纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本经 crate 继承 workspace；CSP 基线；decorations:false；NSIS 安装包
 │           ├── capabilities/
-│           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 + opener
-│           │   │                       #   打开仓库主页（scope 锁定 URL）ACL
+│           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 + opener +
+│           │   │                       #   dialog 打开/保存/确认 ACL
 │           │   └── hover-panel.json    # 悬停窗口事件与主题最小 ACL
 │           ├── icons/          # 品牌主图导出的 PNG/ICO/ICNS/Windows 尺寸集 + manifest；
 │           │                   #   运行时托盘圆环仍由 ring.rs 动态渲染
@@ -222,14 +226,14 @@ QuotaTray/
 │           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
 │           └── src/
 │               ├── main.rs     # 薄壳（release 隐藏控制台）
-│               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/更新调度/命令注册
+│               ├── lib.rs      # Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
-│               ├── commands.rs # 主业务 IPC 15 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               ├── commands.rs # 主业务 IPC 17 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
 │               │               #   消除悬停面板等只读视图的无数据空窗）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
-│               │               #   更新三命令（状态/立即检查/下载安装包）；
+│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
 │               │               #   list_native_metas 携带模型级 plan/windows 与
 │               │               #   supports_plan_variant、DeepSeek

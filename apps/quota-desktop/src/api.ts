@@ -34,6 +34,12 @@ export const api = {
   getProviderState: (id: string): Promise<QueryOutcome> => invoke("get_provider_state", { id }),
   getSettings: (): Promise<Settings> => invoke("get_settings"),
   saveSettings: (settings: Settings): Promise<void> => invoke("save_settings", { settings }),
+  /** 将完整配置导出到系统保存对话框选定的路径。 */
+  exportConfiguration: (path: string): Promise<void> =>
+    invoke("export_configuration", { path }),
+  /** 从迁移包整体替换配置，返回导入的供应商数量。 */
+  importConfiguration: (path: string): Promise<number> =>
+    invoke("import_configuration", { path }),
   /** 推送解析后的实际主题（ThemeProvider 调用，托盘圆环图标配色取用）。 */
   setResolvedTheme: (theme: "light" | "dark"): Promise<void> =>
     invoke("set_resolved_theme", { theme }),

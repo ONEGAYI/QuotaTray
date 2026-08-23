@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 quota-core = { path = "../../../crates/quota-core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2.7.2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2" # 标题栏 GitHub 按钮：外部浏览器打开仓库主页
 serde = { workspace = true }
