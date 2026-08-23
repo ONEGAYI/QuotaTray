@@ -119,6 +119,23 @@ pnpm tauri build
 cargo build -p quota-cli --release
 ```
 
+### Clean the development workspace
+
+Run `clean` from the repository root on Windows. Omitting the level opens an
+interactive selector:
+
+```powershell
+.\clean 1              # Light: incremental/Vite caches and generated output
+.\clean 2              # Standard: also remove target/debug; keep release output
+.\clean 3              # Deep: full target + node_modules + generated output
+.\clean 3 -WhatIf      # Preview targets without deleting anything
+```
+
+The cleaner only touches a fixed allowlist of paths inside the repository. It
+never removes source files, `.git`, development keys, `.zcode`, or uncommitted
+files. After Level 3, run `pnpm install` again under `apps/quota-desktop`; Rust
+dependencies will also be rebuilt on the next build.
+
 ## Security Design
 
 The key hierarchy:

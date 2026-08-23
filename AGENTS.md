@@ -29,6 +29,10 @@ QuotaTray/
 ├── README.en.md               # 英文版自述，与中文版结构对齐，顶部互链
 ├── CHANGELOG.md               # 版本变更记录（Keep a CHANGELOG，按 PR 归纳）
 ├── LICENSE                    # MIT 许可证全文（参考项目 cc-switch 同为 MIT）
+├── clean.cmd                  # Windows 开发目录清理入口：交互或 Level 1/2/3
+├── scripts/
+│   ├── clean.ps1             # 固定白名单分级清理器（仓库边界校验 + WhatIf）
+│   └── clean.tests.ps1       # 隔离沙箱契约测试：三级目标/预览/受保护文件
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
 ├── .gitignore                 # 含 .DevApiKey.json / 前端与 gen/schemas 生成物
@@ -285,6 +289,8 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
     无 vite dev server 时窗口空白——运行/分发一律走 tauri CLI
   - GUI 冒烟：`cargo run -p quota-desktop --example smoke_setup -- --data-dir <沙箱>
     --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
+  - 开发目录清理：仓库根执行 `.\clean 1|2|3`；先预览用 `.\clean 3 -WhatIf`
+  - 清理器契约测试：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean.tests.ps1`
 - 文档用中文编写。
 
 ## 安全红线（凭据处理）

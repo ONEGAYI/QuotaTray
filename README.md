@@ -119,6 +119,21 @@ pnpm tauri build
 cargo build -p quota-cli --release
 ```
 
+### 清理开发目录
+
+Windows 在仓库根目录运行 `clean`，不传级别时可交互选择：
+
+```powershell
+.\clean 1              # 轻量：增量/Vite 缓存与生成物
+.\clean 2              # 标准：再清理完整 target/debug，保留 release
+.\clean 3              # 深度：完整 target + node_modules + 生成物
+.\clean 3 -WhatIf      # 只预览目标，不删除
+```
+
+清理器只操作仓库内的固定白名单路径，不会删除源码、`.git`、开发密钥、
+`.zcode` 或未提交文件。Level 3 后需在 `apps/quota-desktop` 重新执行
+`pnpm install`，Rust 依赖也会在下次构建时完整重编译。
+
 ## 安全设计
 
 密钥分层如下：
