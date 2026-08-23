@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口基础权限：事件监听（托盘「立即刷新」与悬停刷新链路）+ 主题设置（三态主题联动原生 titlebar）",
+  "description": "主窗口基础权限：事件监听（托盘「立即刷新」与悬停刷新链路）+ 主题设置（三态主题联动）+ 无装饰窗口的自定义标题栏控制（拖动/最小化/最大化还原/关闭）",
   "windows": ["main"],
-  "permissions": ["core:event:default", "core:window:allow-set-theme"]
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close"
+  ]
 }

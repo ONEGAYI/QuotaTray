@@ -1,5 +1,6 @@
-// 设置对话框：刷新间隔 / 低额度阈值 / 开机自启 / 语言（三态）/ 主题（三态）/
-// 托盘圆环每圈单位。保存走既有 save_settings 链路（磁盘权威）。
+// 设置对话框：刷新间隔 / 低额度阈值 / 开机自启 / 托盘圆环每圈单位。
+// 语言与主题三态设置在自定义标题栏的快捷菜单中（TitleBar.tsx），不在本对话框。
+// 保存走既有 save_settings 链路（磁盘权威）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -14,8 +15,6 @@ interface Props {
 
 const inputCls =
   "w-24 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const selectCls =
-  "w-36 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
 const labelCls = "text-sm text-slate-600 dark:text-slate-300";
 
 export function SettingsDialog({ open, onClose }: Props) {
@@ -89,32 +88,6 @@ export function SettingsDialog({ open, onClose }: Props) {
               onChange={(e) => setDraft({ ...draft, autostart: e.target.checked })}
               className="h-4 w-4"
             />
-          </label>
-
-          <label className="flex items-center justify-between gap-4">
-            <span className={labelCls}>{t("settings.language")}</span>
-            <select
-              value={draft.language}
-              onChange={(e) => setDraft({ ...draft, language: e.target.value })}
-              className={selectCls}
-            >
-              <option value="zh">{t("settings.langZh")}</option>
-              <option value="en">{t("settings.langEn")}</option>
-              <option value="system">{t("settings.langSystem")}</option>
-            </select>
-          </label>
-
-          <label className="flex items-center justify-between gap-4">
-            <span className={labelCls}>{t("settings.theme")}</span>
-            <select
-              value={draft.theme}
-              onChange={(e) => setDraft({ ...draft, theme: e.target.value })}
-              className={selectCls}
-            >
-              <option value="light">{t("settings.themeLight")}</option>
-              <option value="dark">{t("settings.themeDark")}</option>
-              <option value="system">{t("settings.themeSystem")}</option>
-            </select>
           </label>
 
           <label className="flex items-center justify-between gap-4">

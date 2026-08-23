@@ -6,6 +6,8 @@ import { en } from "./en";
 import { zh, type TextKey, type UiLang } from "./zh";
 import { useSettings } from "../queries";
 
+export type { TextKey, UiLang } from "./zh";
+
 /** system 时按系统语言检测（zh 前缀 → 中文，其余含检测失败 → 英文）。 */
 export function resolveUiLang(setting: string | undefined): UiLang {
   if (setting === "zh" || setting === "en") return setting;

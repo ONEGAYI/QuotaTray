@@ -5,6 +5,7 @@ import { useState } from "react";
 import { EditDialog } from "./components/EditDialog";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { TitleBar } from "./components/TitleBar";
 import { LangProvider, useLang } from "./i18n";
 import { ThemeProvider } from "./theme";
 import { useProviders, useRefreshNow, useSettings, useSnapshots } from "./queries";
@@ -30,27 +31,25 @@ function AppInner() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-      <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-3 dark:border-slate-700 dark:bg-slate-800">
-        <h1 className="text-base font-semibold">QuotaTray</h1>
-        <span className="text-xs text-slate-400 dark:text-slate-500">{t("app.subtitle")}</span>
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={() => {
-              setEditing(null);
-              setDialogSeq((s) => s + 1);
-              setEditOpen(true);
-            }}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-          >
-            {t("app.add")}
-          </button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            {t("app.settings")}
-          </button>
-        </div>
+      {/* 无装饰窗口：自定义标题栏承载应用标识、语言/主题快捷切换与窗口控制 */}
+      <TitleBar />
+      <header className="flex items-center justify-end gap-2 border-b border-slate-200 bg-white px-5 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+        <button
+          onClick={() => {
+            setEditing(null);
+            setDialogSeq((s) => s + 1);
+            setEditOpen(true);
+          }}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+        >
+          {t("app.add")}
+        </button>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+        >
+          {t("app.settings")}
+        </button>
       </header>
 
       <main className="mx-auto max-w-2xl space-y-3 p-5">

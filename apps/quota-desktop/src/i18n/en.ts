@@ -71,16 +71,22 @@ export const en: Record<TextKey, string> = {
   "edit.keyConfigured": "Configured (leave blank to keep)",
   "edit.keyMissing": "Not configured",
 
+  // ---- 自定义标题栏 ----
+  "titlebar.language": "Switch language",
+  "titlebar.theme": "Switch theme",
+  "titlebar.minimize": "Minimize",
+  "titlebar.maximize": "Maximize",
+  "titlebar.restore": "Restore",
+  "titlebar.close": "Close",
+
   // ---- 设置对话框 ----
   "settings.title": "Settings",
   "settings.interval": "Refresh interval (min)",
   "settings.threshold": "Low-balance alert threshold (used %)",
   "settings.autostart": "Launch at startup",
-  "settings.language": "Language",
   "settings.langZh": "中文",
   "settings.langEn": "English",
   "settings.langSystem": "Follow system",
-  "settings.theme": "Theme",
   "settings.themeLight": "Light",
   "settings.themeDark": "Dark",
   "settings.themeSystem": "Follow system",

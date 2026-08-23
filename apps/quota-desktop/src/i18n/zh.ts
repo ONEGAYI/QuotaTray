@@ -74,16 +74,22 @@ export const zh = {
   "edit.keyConfigured": "已配置（留空保持不变）",
   "edit.keyMissing": "未配置",
 
+  // ---- 自定义标题栏 ----
+  "titlebar.language": "切换语言",
+  "titlebar.theme": "切换主题",
+  "titlebar.minimize": "最小化",
+  "titlebar.maximize": "最大化",
+  "titlebar.restore": "还原",
+  "titlebar.close": "关闭",
+
   // ---- 设置对话框 ----
   "settings.title": "设置",
   "settings.interval": "自动刷新间隔（分钟）",
   "settings.threshold": "低额度提醒阈值（已用 %）",
   "settings.autostart": "开机自启",
-  "settings.language": "语言",
   "settings.langZh": "中文",
   "settings.langEn": "English",
   "settings.langSystem": "跟随系统",
-  "settings.theme": "主题",
   "settings.themeLight": "明亮",
   "settings.themeDark": "暗色",
   "settings.themeSystem": "跟随系统",
