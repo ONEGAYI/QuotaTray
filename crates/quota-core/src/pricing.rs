@@ -213,7 +213,10 @@ pub fn format_price(v: f64) -> String {
     if !v.is_finite() {
         return "—".into();
     }
-    let s = if v != 0.0 && v.abs() < 0.05 {
+    if v == 0.0 {
+        return "0".into(); // IEEE 相等覆盖 ±0（-0.0 不显示成 "-0"）
+    }
+    let s = if v.abs() < 0.05 {
         format!("{v:.4}")
     } else {
         format!("{v:.2}")
@@ -521,7 +524,7 @@ mod tests {
     const WED_0930_BJ_MS: u64 = 1_787_103_000_000;
     /// 北京时间 2026-08-19（周三）04:30 = UTC 前一日（周二）20:30。
     const WED_0430_BJ_MS: u64 = 1_787_085_000_000;
-    /// 北京时间 2026-08-22（周六）10:00 = UTC 02:00。
+    /// 北京时间 2026-08-22（周六）08:40 = UTC 00:40。
     const SAT_1000_BJ_MS: u64 = 1_787_359_200_000;
 
     /// UTC+8 偏移。
@@ -664,9 +667,12 @@ mod tests {
             classify(&w, Some(local_offset), now),
             "非法偏移应按入参时刻的本地时区判定"
         );
-        // 非法偏移下 next_change 仍能找到翻转（而非静默 None）
+        // 非法偏移下 next_change 仍能找到翻转（而非静默 None）。
+        // 翻转方向动态推导（与当前态相反）——不依赖运行机器时区：
+        // 入参时刻的本地判定在 UTC 机器上是谷，固定断言 OffPeak 会红 CI。
+        let cur = classify(&w, Some(i32::MAX), now);
         let (t, kind) = next_change(&w, Some(i32::MAX), now).expect("应找到翻转");
-        assert_eq!(kind, PeakKind::OffPeak);
+        assert_ne!(kind, cur);
         assert!(t > now);
     }
 
@@ -725,6 +731,11 @@ mod tests {
         assert_eq!(format_price(1.5), "1.5");
         assert_eq!(format_price(0.05), "0.05");
         assert_eq!(format_price(0.0), "0");
+        assert_eq!(
+            format_price(-0.0),
+            "0",
+            "负零不显示成 -0（validate 放行 -0.0）"
+        );
         assert_eq!(format_price(f64::NAN), "—");
         assert_eq!(format_price(f64::INFINITY), "—");
     }
@@ -1035,9 +1046,14 @@ mod tests {
         );
         assert_eq!(r.windows.len(), 1);
         assert_eq!(r.currency, None);
-        // 判定走本地时区：窗口覆盖周日全天，周日必为峰
+        // 判定用固定偏移 0（tz=None 走本地时区，UTC+12+ 的高偏移时区
+        // 会把 UTC 周日正午翻到周一导致断言不可移植）
         let sunday = parts_ms(chrono::Weekday::Sun, 12, 0);
-        assert_eq!(r.kind(sunday), PeakKind::Peak);
+        assert_eq!(
+            classify(&r.windows, Some(0), sunday),
+            PeakKind::Peak,
+            "窗口覆盖周日全天，UTC 周日正午必为峰"
+        );
     }
 
     /// 契约：空对象 `"pricing": {}`（= 全字段缺省）视同未配置 → None
