@@ -1,0 +1,22 @@
+{
+  "request": {
+    "url": "http://127.0.0.1:8931/usage",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}"
+    }
+  },
+  "windowsFrom": "$.windows",
+  "windows": [
+    {
+      "name": "配额窗口",
+      "extract": {
+        "used": "$.used",
+        "total": "$.limit",
+        "unit": "$.unit"
+      },
+      "transforms": [
+        { "op": "round", "field": "used", "digits": 2 }
+      ]
+    }
+  ]
+}

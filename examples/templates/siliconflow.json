@@ -1,0 +1,16 @@
+{
+  "request": {
+    "url": "{{baseUrl}}/v1/user/info",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}"
+    }
+  },
+  "extract": {
+    "planName": { "const": "SiliconFlow" },
+    "remaining": "$.data.totalBalance",
+    "unit": { "const": "CNY" }
+  },
+  "transforms": [
+    { "op": "round", "field": "remaining", "digits": 2 }
+  ]
+}

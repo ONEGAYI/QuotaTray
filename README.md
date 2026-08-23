@@ -4,7 +4,7 @@
 
 托盘常驻的多平台 AI 账户余额监视器：预置官方平台查询，声明式模板自助接入其余平台，凭据全程密文、不落明文。
 
-![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-TBD-gray)
+![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## 为什么需要 QuotaTray
 
@@ -94,6 +94,8 @@ quota update --check           # 检测新版本
 - `windows` 支持多套餐展开（如 Kimi 的 5 小时窗 + 周窗）
 - 保存时静态校验；URL 仅允许 HTTPS 且须与 `{{baseUrl}}` 同源（loopback 除外）
 
+可运行示例见 [examples/templates/](examples/templates/)：覆盖单对象取数（字符串数字）、双站 `{{baseUrl}}`、总额/已用展示、多窗口展开等形态，均可用 `quota template test` 试查验证。
+
 更复杂的平台（多请求聚合、特殊签名）计划由 QuickJS 沙箱脚本兜底，见[路线图](#路线图)。
 
 ## 安装
@@ -144,4 +146,8 @@ cargo build -p quota-cli --release
 
 ## 致谢
 
-余额查询的统一结果模型与错误双轨分类参考了 [cc-switch](https://github.com/farion1231/cc-switch) 的实践，感谢其开源。
+余额查询的统一结果模型与错误双轨分类参考了 [cc-switch](https://github.com/farion1231/cc-switch)（MIT 许可）的实践，感谢其开源。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 ONEGAYI

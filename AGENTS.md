@@ -28,6 +28,7 @@ QuotaTray/
 │                              #   模板示例/安全设计/构建安装，顶部链英文版
 ├── README.en.md               # 英文版自述，与中文版结构对齐，顶部互链
 ├── CHANGELOG.md               # 版本变更记录（Keep a CHANGELOG，按 PR 归纳）
+├── LICENSE                    # MIT 许可证全文（参考项目 cc-switch 同为 MIT）
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
 ├── .gitignore                 # 含 .DevApiKey.json / 前端与 gen/schemas 生成物
@@ -191,6 +192,10 @@ QuotaTray/
 │               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效；
 │               │               #   同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
+├── examples/
+│   └── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
+│                              #   双站 baseUrl/总额已用/多窗口，含 README 使用
+│                              #   说明与已知边界，均经 quota template test 实测）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑

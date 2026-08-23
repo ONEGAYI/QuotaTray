@@ -4,7 +4,7 @@ English | **[中文](README.md)**
 
 A tray-resident multi-platform AI account balance monitor: built-in queries for official platforms, a declarative template system for everything else — with credentials always encrypted, never stored in plaintext.
 
-![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-TBD-gray)
+![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Why QuotaTray
 
@@ -94,6 +94,8 @@ Most balance APIs are "one GET + auth header + field mapping ± arithmetic". A J
 - `windows` unfolds multi-plan results (e.g. Kimi's 5-hour + weekly windows)
 - Templates are statically validated on save; URLs must be HTTPS and same-origin with `{{baseUrl}}` (loopback excepted)
 
+Runnable examples live in [examples/templates/](examples/templates/): single-object extraction (string numbers), dual-site `{{baseUrl}}`, total/usage display, and multi-window unfolding — each verifiable with `quota template test`.
+
 More complex platforms (multi-request aggregation, special signing) are planned to be covered by a QuickJS sandbox — see the [roadmap](#roadmap).
 
 ## Install
@@ -144,4 +146,8 @@ Known boundaries: reading the OS credential vault from another process of the sa
 
 ## Acknowledgements
 
-The unified result model and the dual-track error classification borrow from the practice of [cc-switch](https://github.com/farion1231/cc-switch). Thanks for open-sourcing it.
+The unified result model and the dual-track error classification borrow from the practice of [cc-switch](https://github.com/farion1231/cc-switch) (MIT licensed). Thanks for open-sourcing it.
+
+## License
+
+[MIT](LICENSE) © 2026 ONEGAYI

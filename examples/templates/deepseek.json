@@ -1,0 +1,14 @@
+{
+  "request": {
+    "url": "https://api.deepseek.com/user/balance",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}"
+    }
+  },
+  "extract": {
+    "planName": { "const": "DeepSeek" },
+    "remaining": "$.balance_infos[0].total_balance",
+    "unit": "$.balance_infos[0].currency",
+    "isValid": "$.is_available"
+  }
+}
