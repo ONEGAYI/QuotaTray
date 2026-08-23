@@ -142,6 +142,8 @@
     <li><b>每圈单位</b>：全局设置，默认 100，设置页可调</li>
     <li><b>多 provider</b>：托盘单图标默认显示第一个启用条目；右键托盘菜单「图标显示」子菜单可切换，选择持久化</li>
     <li><b>中心文字</b>：≤4 字符（45% / 180 / 1.2k / 311k）；16px 实际尺寸下偏小，文字以 32px 渲染尽力保证，悬停 tooltip 兜底</li>
+    <li><b>空槽颜色</b>：分主题两套——dark <code>rgba(128,140,160,0.28)</code>、light <code>rgba(100,116,139,0.35)</code>（浅背景略加深以保证空环可见）</li>
+    <li><b>告警红点</b>：any_alert（任一启用条目超低额度阈值）时在环右上角叠加直径 5px 红点（<code>#ef4444</code>，32px 画布上圆心 (26.5, 5.5)、半径 2.5），部分压环为 badge 惯例</li>
   </ol>
 </div>
 
@@ -200,7 +202,11 @@ function centerText(value, type) {
 }
 
 // ============ SVG 绘制（单环叠弧） ============
-function drawStack(size, layers, colors, text, overflow) {
+// 空槽色分主题两套（定案）：dark rgba(128,140,160,0.28)；light 加深为
+// rgba(100,116,139,0.35)——浅背景上略加深以保证空环可见（与 Rust 实现一致）
+const SLOT_DARK = "rgba(128,140,160,0.28)";
+const SLOT_LIGHT = "rgba(100,116,139,0.35)";
+function drawStack(size, layers, colors, text, overflow, slotColor) {
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("width", size); svg.setAttribute("height", size);
@@ -223,7 +229,7 @@ function drawStack(size, layers, colors, text, overflow) {
   const slot = document.createElementNS(svgNS, "circle");
   slot.setAttribute("cx", cx); slot.setAttribute("cy", cy); slot.setAttribute("r", r);
   slot.setAttribute("fill", "none");
-  slot.setAttribute("stroke", "rgba(128,140,160,0.28)");
+  slot.setAttribute("stroke", slotColor);
   slot.setAttribute("stroke-width", strokeW);
   svg.appendChild(slot);
 
@@ -253,20 +259,22 @@ function drawStack(size, layers, colors, text, overflow) {
 // ============ 渲染入口 ============
 const state = { type: "balance", value: 180, perRing: 100 };
 
-function renderIcon(size, value, type, perRing) {
+function renderIcon(size, value, type, perRing, slotColor) {
   const maxLayers = 4;
   const { layers, overflow } = layerize(value, perRing, maxLayers);
   const colors = layerColors(layers);
   const text = centerText(value, type);
-  return drawStack(size, layers, colors, text, overflow);
+  return drawStack(size, layers, colors, text, overflow, slotColor);
 }
 
 function refresh() {
   document.querySelectorAll("#preview-matrix .slot").forEach(slot => {
     const size = +slot.dataset.size;
+    const isDark = Boolean(slot.closest(".dark"));
     slot.innerHTML = "";
-    slot.style.color = slot.closest(".dark") ? "#e6eaf2" : "#1e293b";
-    slot.appendChild(renderIcon(size, state.value, state.type, state.perRing));
+    slot.style.color = isDark ? "#e6eaf2" : "#1e293b";
+    slot.appendChild(renderIcon(size, state.value, state.type, state.perRing,
+      isDark ? SLOT_DARK : SLOT_LIGHT));
   });
 }
 
@@ -293,7 +301,7 @@ function makeCard(galleryId, title, subtitle, value, type, perRing, highlight) {
     const holder = document.createElement("span");
     holder.style.color = "#e6eaf2";
     holder.style.display = "inline-flex";
-    holder.appendChild(renderIcon(size, value, type, perRing));
+    holder.appendChild(renderIcon(size, value, type, perRing, SLOT_DARK));
     wrap.appendChild(holder);
   });
   const cap = document.createElement("div");

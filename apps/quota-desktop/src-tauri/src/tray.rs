@@ -25,8 +25,10 @@ const HOVER_THROTTLE_MS: u64 = 10_000;
 /// 错误文案截断长度（托盘菜单行宽有限）。
 const MESSAGE_LIMIT: usize = 60;
 
-/// 「图标显示」子菜单项 id 前缀（后接条目 id；`-auto` 为自动项）。
-const ICON_SRC_PREFIX: &str = "icon-src-";
+/// 「图标显示」子菜单项 id：自动项固定值与条目项前缀分立，
+/// 避免条目 id 恰为 "auto" 时与自动项混同。
+const ICON_SRC_AUTO_ID: &str = "icon-src-auto";
+const ICON_SRC_ENTRY_PREFIX: &str = "icon-src-e-";
 
 // ---- 展示纯函数 -----------------------------------------------------------
 
@@ -175,16 +177,34 @@ pub fn entry_lines(
     lines
 }
 
+/// 条目的旧值是否仍可作为展示依据（keep-last-good 门控，菜单行/圆环/红点
+/// 三方共用同一谓词）：确定性失败立即透出错误、瞬时失败超窗后旧值被否定，
+/// 两种状态都不得再驱动任何展示结论。
+pub(crate) fn state_is_displayable(st: &EntryState, now: u64) -> bool {
+    match st.error.as_ref().map(|e| e.kind.as_str()) {
+        Some("deterministic") => false,
+        Some("transient") => st
+            .at
+            .is_some_and(|at| now.saturating_sub(at) <= KEEP_LAST_GOOD_MS),
+        _ => true,
+    }
+}
+
 /// 是否有条目超过低额度阈值（圆环右上角红点的依据）。
+///
+/// 门控与圆环/菜单行一致（`state_is_displayable`）：确定性失败或超窗瞬时
+/// 失败的条目，其旧值不再作为告警依据。
 pub fn any_alert(
     cfg: &AppConfig,
     results: &HashMap<String, EntryState>,
     settings: &Settings,
+    now: u64,
 ) -> bool {
     cfg.providers
         .iter()
         .filter(|p| p.enabled)
         .filter_map(|p| results.get(&p.id))
+        .filter(|st| state_is_displayable(st, now))
         .filter_map(|st| st.data.as_ref())
         .any(|data| {
             data.iter().filter(|d| d.is_valid != Some(false)).any(|d| {
@@ -233,7 +253,7 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
     let dark = *state.resolved_theme.read().unwrap();
     let icon = match snapshot_views(state) {
         Some((cfg, results, settings)) => {
-            let alert = any_alert(&cfg, &results, &settings);
+            let alert = any_alert(&cfg, &results, &settings, now_ms());
             ring::icon_image(&cfg, &results, &settings, dark, alert)
         }
         None => ring::icon_image(
@@ -279,7 +299,7 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
         eprintln!("托盘菜单应用失败：{e}");
     }
     let dark = *state.resolved_theme.read().unwrap();
-    let alert = any_alert(&cfg, &results, &settings);
+    let alert = any_alert(&cfg, &results, &settings, now_ms());
     let icon = ring::icon_image(&cfg, &results, &settings, dark, alert);
     if let Err(e) = tray.set_icon(Some(icon)) {
         eprintln!("托盘图标切换失败：{e}");
@@ -383,7 +403,7 @@ fn build_icon_source_submenu(
     };
     submenu.append(&CheckMenuItem::with_id(
         app,
-        format!("{ICON_SRC_PREFIX}auto"),
+        ICON_SRC_AUTO_ID,
         t.icon_source_auto,
         true,
         auto_checked,
@@ -396,7 +416,7 @@ fn build_icon_source_submenu(
             let checked = effective.as_deref() == Some(entry.id.as_str());
             submenu.append(&CheckMenuItem::with_id(
                 app,
-                format!("{ICON_SRC_PREFIX}{}", entry.id),
+                format!("{ICON_SRC_ENTRY_PREFIX}{}", entry.id),
                 entry.name.clone(),
                 true,
                 checked,
@@ -407,17 +427,18 @@ fn build_icon_source_submenu(
     Ok(submenu)
 }
 
-/// 切换图标数据源：写 settings（磁盘权威）后重建托盘。
+/// 切换图标数据源：先落盘成功再写回内存并重建托盘（磁盘权威，
+/// 与 `commands::save_settings` 同一顺序——落盘失败时内存不动，
+/// 磁盘/内存/UI 三方不分裂）。
 fn set_icon_entry(app: &AppHandle, id: Option<String>) {
     let state = app.state::<AppState>();
-    {
-        let mut settings = state.settings.write().unwrap();
-        settings.tray_icon_entry_id = id;
-        if let Err(e) = settings.save(&state.paths.settings()) {
-            eprintln!("图标显示设置写入失败：{e}");
-            return;
-        }
-    } // 写锁在此释放——rebuild 内部要读 settings，避免同线程死锁
+    let mut updated = state.settings.read().unwrap().clone();
+    updated.tray_icon_entry_id = id;
+    if let Err(e) = updated.save(&state.paths.settings()) {
+        eprintln!("图标显示设置写入失败：{e}");
+        return;
+    }
+    *state.settings.write().unwrap() = updated; // 写锁即取即释，rebuild 内部读不冲突
     rebuild(app, &state);
 }
 
@@ -432,10 +453,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             app.exit(0);
         }
         _ => {
-            if let Some(entry) = id.strip_prefix(ICON_SRC_PREFIX) {
-                if entry == "auto" {
-                    set_icon_entry(app, None);
-                } else if !entry.is_empty() {
+            if id == ICON_SRC_AUTO_ID {
+                set_icon_entry(app, None);
+            } else if let Some(entry) = id.strip_prefix(ICON_SRC_ENTRY_PREFIX) {
+                if !entry.is_empty() {
                     set_icon_entry(app, Some(entry.to_string()));
                 }
             }
@@ -792,13 +813,13 @@ mod tests {
         results.insert("a".into(), ok_state(vec![percent_data(Some(85.0))], NOW));
         results.insert("b".into(), ok_state(vec![percent_data(Some(95.0))], NOW));
         assert!(
-            any_alert(&cfg, &results, &settings),
+            any_alert(&cfg, &results, &settings, NOW),
             "enabled 条目超阈值应告警"
         );
 
         results.insert("a".into(), ok_state(vec![percent_data(Some(50.0))], NOW));
         assert!(
-            !any_alert(&cfg, &results, &settings),
+            !any_alert(&cfg, &results, &settings, NOW),
             "disabled 条目超阈值不告警"
         );
 
@@ -810,8 +831,66 @@ mod tests {
         };
         results.insert("a".into(), ok_state(vec![invalid], NOW));
         assert!(
-            !any_alert(&cfg, &results, &settings),
+            !any_alert(&cfg, &results, &settings, NOW),
             "失效条目不触发额度告警"
+        );
+    }
+
+    /// 契约：any_alert 与菜单行/圆环同一 keep-last-good 门控——
+    /// 确定性失败、超窗瞬时失败的旧值不再驱动红点；窗口内瞬时仍触发。
+    #[test]
+    fn any_alert_respects_keep_last_good_gating() {
+        use quota_core::{ProviderEntry, ProviderKind};
+        let entry = |id: &str| ProviderEntry {
+            id: id.into(),
+            name: id.into(),
+            kind: ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            base_url: None,
+        };
+        let cfg = AppConfig {
+            providers: vec![entry("a")],
+        };
+        let settings = Settings::default(); // 阈值 80
+
+        let over = ok_state(vec![percent_data(Some(85.0))], NOW);
+        let mut results = HashMap::new();
+
+        // 确定性失败：错误立即覆盖旧值展示语义，旧值不得再驱动红点
+        let mut deterministic = over.clone();
+        deterministic.error = Some(crate::state::ErrorInfo {
+            kind: "deterministic".into(),
+            message: "401".into(),
+        });
+        results.insert("a".into(), deterministic);
+        assert!(
+            !any_alert(&cfg, &results, &settings, NOW),
+            "确定性失败条目不应触发红点"
+        );
+
+        // 瞬时失败：窗口内（含恰 10 分钟）旧值仍是展示依据 → 红点保留
+        let mut transient = over.clone();
+        transient.error = Some(crate::state::ErrorInfo {
+            kind: "transient".into(),
+            message: "timeout".into(),
+        });
+        transient.at = Some(NOW - 600_000); // 恰 10 分钟：窗口内
+        results.insert("a".into(), transient.clone());
+        assert!(
+            any_alert(&cfg, &results, &settings, NOW),
+            "窗口内瞬时失败的旧值仍应驱动红点"
+        );
+
+        // 超窗（>10 分钟）：旧值被否定 → 红点不触发
+        let mut stale = transient;
+        stale.at = Some(NOW - 601_000);
+        results.insert("a".into(), stale);
+        assert!(
+            !any_alert(&cfg, &results, &settings, NOW),
+            "超窗瞬时失败的旧值不应再驱动红点"
         );
     }
 }

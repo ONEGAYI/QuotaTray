@@ -64,8 +64,9 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
     },
   });
 
+  // native 徽标保留技术标识原文；template 徽标走字典（en 下同为 "template"）
   const kindBadge =
-    entry.kind.type === "native" ? `native · ${entry.kind.provider}` : "template";
+    entry.kind.type === "native" ? `native · ${entry.kind.provider}` : t("card.templateKind");
 
   const badgeEl = (() => {
     if (!entry.enabled) {

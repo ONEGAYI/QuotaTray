@@ -43,6 +43,7 @@ export const zh = {
   "card.keyMissing": "未配置 key",
   "card.snapshotAt": "上次于 {time}（启动快照）",
   "card.refreshing": "刷新中…",
+  "card.templateKind": "模板",
 
   // ---- 添加/编辑对话框 ----
   "edit.titleEdit": "编辑供应商",
@@ -59,6 +60,8 @@ export const zh = {
   "edit.templateJson": "模板 JSON",
   "edit.baseUrl": "baseUrl（{{baseUrl}} 变量来源）",
   "edit.jsonError": "JSON 解析失败：{msg}",
+  "edit.fieldError": "{field}：{reason}",
+  "edit.platformOption": "{name}（{id}）",
   "edit.templateJsonError": "模板 JSON 解析失败",
   "edit.insecureWarn":
     "⚠ 模板启用了 allowInsecure：请求可经明文 http 传输，API key 存在被网络窃听的风险",

@@ -60,16 +60,10 @@ pub fn data_ring_input(data: &[UsageData]) -> RingInput {
         .unwrap_or(RingInput::Empty)
 }
 
-/// 条目状态 → 圆环输入。展示语义与菜单行（`tray::entry_lines`）对齐：
-/// 确定性失败立即透出错误（不展示旧值）；瞬时失败超 keep-last-good 窗口
-/// 后旧值同样不再作为展示依据。
+/// 条目状态 → 圆环输入。展示门控与菜单行/红点共用
+/// `tray::state_is_displayable`（确定性失败或超窗瞬时失败不展示旧值）。
 pub fn entry_ring_input(st: &EntryState, now: u64) -> RingInput {
-    let deterministic = st.error.as_ref().is_some_and(|e| e.kind == "deterministic");
-    let stale_transient = st.error.as_ref().is_some_and(|e| e.kind == "transient")
-        && st
-            .at
-            .is_none_or(|at| now.saturating_sub(at) > crate::tray::KEEP_LAST_GOOD_MS);
-    if deterministic || stale_transient {
+    if !crate::tray::state_is_displayable(st, now) {
         return RingInput::Empty;
     }
     st.data
@@ -275,7 +269,8 @@ fn glyph(ch: char) -> Option<&'static [u8; 6]> {
 pub fn render_rgba(spec: &RingSpec, dark: bool, alert: bool) -> Vec<u8> {
     let mut pm = tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).expect("32x32 画布分配失败");
 
-    // 1. 环底槽（未填充部分）：dark 同 demo；light 稍加深保证浅背景可见
+    // 1. 环底槽（未填充部分）：分主题两套（已回写 demo「已定案」清单）——
+    //    light 略加深以保证浅背景上的空环可见
     let slot = if dark {
         tiny_skia::Color::from_rgba8(128, 140, 160, 71) // ≈0.28 alpha
     } else {

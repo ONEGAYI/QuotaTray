@@ -40,6 +40,7 @@ export const en: Record<TextKey, string> = {
   "card.keyMissing": "No API key",
   "card.snapshotAt": "Last at {time} (startup snapshot)",
   "card.refreshing": "Refreshing…",
+  "card.templateKind": "template",
 
   // ---- 添加/编辑对话框 ----
   "edit.titleEdit": "Edit provider",
@@ -56,6 +57,8 @@ export const en: Record<TextKey, string> = {
   "edit.templateJson": "Template JSON",
   "edit.baseUrl": "baseUrl (source of the {{baseUrl}} variable)",
   "edit.jsonError": "JSON parse error: {msg}",
+  "edit.fieldError": "{field}: {reason}",
+  "edit.platformOption": "{name} ({id})",
   "edit.templateJsonError": "Failed to parse template JSON",
   "edit.insecureWarn":
     "⚠ allowInsecure is enabled: requests may go over plaintext http and the API key could be intercepted",

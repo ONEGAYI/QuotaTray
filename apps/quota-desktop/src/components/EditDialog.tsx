@@ -87,7 +87,7 @@ export function EditDialog({ open, initial, onClose }: Props) {
             dto
               ? dto.field === "(json)"
                 ? t("edit.jsonError", { msg: dto.reason })
-                : `${dto.field}：${dto.reason}`
+                : t("edit.fieldError", { field: dto.field, reason: dto.reason })
               : String(e),
           );
         }
@@ -176,7 +176,7 @@ export function EditDialog({ open, initial, onClose }: Props) {
                 <option value="">{t("edit.platformPlaceholder")}</option>
                 {(natives.data ?? []).map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name}（{m.id}）
+                    {t("edit.platformOption", { name: m.name, id: m.id })}
                   </option>
                 ))}
               </select>
@@ -261,7 +261,7 @@ function TemplateForm(props: {
         dto
           ? dto.field === "(json)"
             ? t("edit.jsonError", { msg: dto.reason })
-            : `${dto.field}：${dto.reason}`
+            : t("edit.fieldError", { field: dto.field, reason: dto.reason })
           : String(e),
       );
     },
