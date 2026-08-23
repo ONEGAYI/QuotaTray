@@ -100,6 +100,11 @@ pub struct AppState {
     pub results: RwLock<HashMap<String, EntryState>>,
     /// 托盘悬停刷新的上次触发时刻（epoch 毫秒），节流用。
     pub last_hover_refresh_ms: AtomicU64,
+    /// 解析后的实际主题（true = dark）。前端 theme context 解析三态后推送
+    /// （system 跟随 matchMedia 变化时同样推送），托盘圆环图标配色取用。
+    /// 初始 false：跨平台无轻量取系统主题的 Rust API，前端首帧即推送
+    /// 真实值，托盘首建的一帧浅色误差可接受（详见 commands::set_resolved_theme）。
+    pub resolved_theme: RwLock<bool>,
 }
 
 /// 当前 epoch 毫秒。
@@ -137,6 +142,7 @@ impl AppState {
             results: RwLock::new(results),
             paths,
             last_hover_refresh_ms: AtomicU64::new(0),
+            resolved_theme: RwLock::new(false),
         })
     }
 }

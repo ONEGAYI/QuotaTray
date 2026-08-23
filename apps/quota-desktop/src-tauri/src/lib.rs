@@ -6,6 +6,8 @@
 //! - 窗口关闭 = 隐藏收托盘，退出只走托盘菜单（退出时清理托盘图标）。
 
 mod commands;
+mod i18n;
+mod ring;
 mod settings;
 mod snapshot;
 mod state;
@@ -60,6 +62,7 @@ pub fn run() {
             commands::query_provider,
             commands::get_settings,
             commands::save_settings,
+            commands::set_resolved_theme,
             commands::get_snapshots,
         ])
         .run(tauri::generate_context!())

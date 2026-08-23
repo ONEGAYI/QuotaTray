@@ -1,0 +1,332 @@
+//! GUI Rust 侧 i18n：语言解析 + 中英文案表。
+//!
+//! 覆盖范围：托盘菜单/条目行/相对时间，以及 IPC 命令的错误串。
+//! 与前端 `src/i18n/zh.ts` / `en.ts` 是平行双实现（成对约定），
+//! 两端文案语义保持一致——修改任一侧须同步另一侧。
+//!
+//! 组织方式：静态文案集中在 [`Texts`]（每语言一个 const 实例），
+//! 带参数的文案（相对时间、拼接错误等）作为 [`Lang`] 的方法。
+
+/// 界面语言（`system` 在解析时折叠为具体语言）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Zh,
+    En,
+}
+
+/// 静态文案表（无参数部分）。
+pub struct Texts {
+    /// 托盘：暂无启用的供应商
+    pub no_enabled_providers: &'static str,
+    /// 托盘：立即刷新
+    pub refresh_now: &'static str,
+    /// 托盘：打开主窗口
+    pub open_main: &'static str,
+    /// 托盘：退出
+    pub quit: &'static str,
+    /// 托盘：尚无数据
+    pub no_data: &'static str,
+    /// 托盘：配置读取失败提示
+    pub config_error: &'static str,
+    /// is_valid=false 且平台未给原因时的兜底
+    pub no_invalid_reason: &'static str,
+    /// 托盘子菜单标题：图标显示
+    pub icon_source: &'static str,
+    /// 图标显示子菜单的「自动」项
+    pub icon_source_auto: &'static str,
+    /// 瞬时失败且无新鲜旧值时的行尾文案（⟳ 前缀由调用方加）
+    pub network_fluctuation: &'static str,
+    /// keep-last-good 行尾附加（⟳ 前缀由调用方加）
+    pub unreachable: &'static str,
+    /// 已失效行前缀（⚠ 前缀由调用方加），后接冒号与原因
+    pub invalid_prefix: &'static str,
+    /// 数据既无百分比也无余额时的兜底行
+    pub fetched: &'static str,
+}
+
+const ZH: Texts = Texts {
+    no_enabled_providers: "暂无启用的供应商",
+    refresh_now: "立即刷新",
+    open_main: "打开主窗口",
+    quit: "退出",
+    no_data: "尚无数据",
+    config_error: "配置读取失败，请检查 config.json",
+    no_invalid_reason: "未说明原因",
+    icon_source: "图标显示",
+    icon_source_auto: "自动（第一个启用条目）",
+    network_fluctuation: "网络波动",
+    unreachable: "暂不可达",
+    invalid_prefix: "已失效：",
+    fetched: "已获取",
+};
+
+const EN: Texts = Texts {
+    no_enabled_providers: "No enabled providers",
+    refresh_now: "Refresh now",
+    open_main: "Open main window",
+    quit: "Quit",
+    no_data: "No data yet",
+    config_error: "Failed to read config.json",
+    no_invalid_reason: "No reason given",
+    icon_source: "Icon shows",
+    icon_source_auto: "Auto (first enabled entry)",
+    network_fluctuation: "Network issue",
+    unreachable: "Unreachable",
+    invalid_prefix: "Invalid: ",
+    fetched: "Fetched",
+};
+
+impl Lang {
+    /// 解析 settings.language：`zh`/`en` 直取；`system` 或未知值按系统 locale
+    /// 检测（zh 前缀 → Zh，其余含检测失败 → En）。
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "zh" => Self::Zh,
+            "en" => Self::En,
+            _ => Self::from_system(),
+        }
+    }
+
+    /// 系统语言检测：locale 以 zh 开头 → 中文；否则（含检测失败）→ 英文。
+    pub fn from_system() -> Self {
+        match sys_locale::get_locale().as_deref() {
+            Some(l) if l.to_ascii_lowercase().starts_with("zh") => Self::Zh,
+            _ => Self::En,
+        }
+    }
+
+    pub fn texts(&self) -> &'static Texts {
+        match self {
+            Self::Zh => &ZH,
+            Self::En => &EN,
+        }
+    }
+
+    /// 相对时间文案：`刚刚` / `N 秒前` / `N 分钟前` / `N 小时前` / `N 天前`。
+    /// 与前端 `src/display.ts` 的 `relativeTime` 语义成对（分档边界一致）。
+    pub fn relative_time(&self, secs: u64) -> String {
+        match secs {
+            0..=9 => match self {
+                Self::Zh => "刚刚".into(),
+                Self::En => "just now".into(),
+            },
+            10..=59 => match self {
+                Self::Zh => format!("{secs} 秒前"),
+                Self::En => format!("{secs}s ago"),
+            },
+            60..=3599 => match self {
+                Self::Zh => format!("{} 分钟前", secs / 60),
+                Self::En => format!("{}m ago", secs / 60),
+            },
+            3600..=86_399 => match self {
+                Self::Zh => format!("{} 小时前", secs / 3600),
+                Self::En => format!("{}h ago", secs / 3600),
+            },
+            _ => match self {
+                Self::Zh => format!("{} 天前", secs / 86_400),
+                Self::En => format!("{}d ago", secs / 86_400),
+            },
+        }
+    }
+
+    /// 多窗口行缺省窗口名：`窗口2` / `Window 2`。
+    pub fn window_name(&self, n: usize) -> String {
+        match self {
+            Self::Zh => format!("窗口{n}"),
+            Self::En => format!("Window {n}"),
+        }
+    }
+
+    /// 剩余余额文案：`剩余 62.97 CNY` / `Left 62.97 CNY`。
+    pub fn remaining_text(&self, amount: &str, unit: Option<&str>) -> String {
+        let core = match unit {
+            Some(u) => format!("{amount} {u}"),
+            None => amount.to_string(),
+        };
+        match self {
+            Self::Zh => format!("剩余 {core}"),
+            Self::En => format!("Left {core}"),
+        }
+    }
+
+    /// 已用百分比文案：`已用 42%` / `Used 42%`。
+    pub fn used_text(&self, percent: &str) -> String {
+        match self {
+            Self::Zh => format!("已用 {percent}"),
+            Self::En => format!("Used {percent}"),
+        }
+    }
+
+    // ---- IPC 命令错误串（带参数） ----------------------------------------
+
+    pub fn err_id_name_empty(&self) -> String {
+        match self {
+            Self::Zh => "id 与名称不能为空".into(),
+            Self::En => "id and name must not be empty".into(),
+        }
+    }
+
+    pub fn err_unknown_native(&self, provider: &str) -> String {
+        match self {
+            Self::Zh => format!("未知的预置平台 id：{provider}"),
+            Self::En => format!("Unknown native provider id: {provider}"),
+        }
+    }
+
+    pub fn err_entry_not_found(&self, id: &str) -> String {
+        match self {
+            Self::Zh => format!("条目 {id} 不存在"),
+            Self::En => format!("Entry {id} does not exist"),
+        }
+    }
+
+    pub fn err_entry_not_enabled(&self, id: &str) -> String {
+        match self {
+            Self::Zh => format!("条目 {id} 不存在或未启用"),
+            Self::En => format!("Entry {id} does not exist or is disabled"),
+        }
+    }
+
+    pub fn err_encrypt_failed(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("凭据加密失败：{e}"),
+            Self::En => format!("Credential encryption failed: {e}"),
+        }
+    }
+
+    pub fn err_template_json(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("模板 JSON 解析失败：{e}"),
+            Self::En => format!("Failed to parse template JSON: {e}"),
+        }
+    }
+
+    pub fn err_template_needs_key(&self) -> String {
+        match self {
+            Self::Zh => "模板引用了 {{apiKey}}，试查前请填写 API key".into(),
+            Self::En => "Template references {{apiKey}}; fill in the API key first".into(),
+        }
+    }
+
+    pub fn err_settings_save(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("设置写入失败：{e}"),
+            Self::En => format!("Failed to write settings: {e}"),
+        }
+    }
+
+    pub fn err_autostart_apply(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!(
+                "其余设置已保存，但开机自启未能应用：{e}（请重试保存，或重新切换一次自启开关）"
+            ),
+            Self::En => format!(
+                "Other settings saved, but autostart could not be applied: {e} \
+                 (retry saving, or toggle autostart once more)"
+            ),
+        }
+    }
+
+    pub fn err_autostart_toggle(&self, enable: bool, e: &dyn std::fmt::Display) -> String {
+        match (self, enable) {
+            (Self::Zh, true) => format!("开启开机自启失败：{e}"),
+            (Self::Zh, false) => format!("关闭开机自启失败：{e}"),
+            (Self::En, true) => format!("Failed to enable autostart: {e}"),
+            (Self::En, false) => format!("Failed to disable autostart: {e}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 契约：显式 zh/en 直取；system/未知值回系统检测（返回两个合法变体之一）。
+    #[test]
+    fn parse_known_and_system_fallback() {
+        assert_eq!(Lang::parse("zh"), Lang::Zh);
+        assert_eq!(Lang::parse("en"), Lang::En);
+        assert!(matches!(Lang::parse("system"), Lang::Zh | Lang::En));
+        assert!(matches!(Lang::parse("fr"), Lang::Zh | Lang::En));
+    }
+
+    /// 契约：相对时间分档双语（边界与前端 display.ts 成对：0-9 刚刚、
+    /// 10-59 秒、60-3599 分、3600-86399 时、其余天）。
+    #[test]
+    fn relative_time_buckets_both_langs() {
+        let cases = [
+            (5u64, "刚刚", "just now"),
+            (30, "30 秒前", "30s ago"),
+            (59, "59 秒前", "59s ago"),
+            (60, "1 分钟前", "1m ago"),
+            (180, "3 分钟前", "3m ago"),
+            (3599, "59 分钟前", "59m ago"),
+            (3600, "1 小时前", "1h ago"),
+            (7200, "2 小时前", "2h ago"),
+            (86_399, "23 小时前", "23h ago"),
+            (86_400, "1 天前", "1d ago"),
+            (172_800, "2 天前", "2d ago"),
+        ];
+        for (secs, zh, en) in cases {
+            assert_eq!(Lang::Zh.relative_time(secs), zh, "zh @{secs}");
+            assert_eq!(Lang::En.relative_time(secs), en, "en @{secs}");
+        }
+    }
+
+    /// 契约：行内格式化双语（剩余/已用/窗口名）。
+    #[test]
+    fn line_formats_both_langs() {
+        assert_eq!(
+            Lang::Zh.remaining_text("62.97", Some("CNY")),
+            "剩余 62.97 CNY"
+        );
+        assert_eq!(
+            Lang::En.remaining_text("62.97", Some("CNY")),
+            "Left 62.97 CNY"
+        );
+        assert_eq!(Lang::Zh.remaining_text("5.00", None), "剩余 5.00");
+        assert_eq!(Lang::Zh.used_text("42%"), "已用 42%");
+        assert_eq!(Lang::En.used_text("42%"), "Used 42%");
+        assert_eq!(Lang::Zh.window_name(2), "窗口2");
+        assert_eq!(Lang::En.window_name(2), "Window 2");
+    }
+
+    /// 契约：中英文案表均非空且互不相等（防一侧漏配后回落到另一语言）。
+    #[test]
+    fn texts_nonempty_and_distinct() {
+        let zh = Lang::Zh.texts();
+        let en = Lang::En.texts();
+        let fields: [(&'static str, &'static str, &'static str); 13] = [
+            (
+                "no_enabled_providers",
+                zh.no_enabled_providers,
+                en.no_enabled_providers,
+            ),
+            ("refresh_now", zh.refresh_now, en.refresh_now),
+            ("open_main", zh.open_main, en.open_main),
+            ("quit", zh.quit, en.quit),
+            ("no_data", zh.no_data, en.no_data),
+            ("config_error", zh.config_error, en.config_error),
+            (
+                "no_invalid_reason",
+                zh.no_invalid_reason,
+                en.no_invalid_reason,
+            ),
+            ("icon_source", zh.icon_source, en.icon_source),
+            ("icon_source_auto", zh.icon_source_auto, en.icon_source_auto),
+            (
+                "network_fluctuation",
+                zh.network_fluctuation,
+                en.network_fluctuation,
+            ),
+            ("unreachable", zh.unreachable, en.unreachable),
+            ("invalid_prefix", zh.invalid_prefix, en.invalid_prefix),
+            ("fetched", zh.fetched, en.fetched),
+        ];
+        for (name, z, e) in fields {
+            assert!(!z.is_empty(), "{name} zh 不应为空");
+            assert!(!e.is_empty(), "{name} en 不应为空");
+            assert_ne!(z, e, "{name} 双语不应相同");
+        }
+    }
+}

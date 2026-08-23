@@ -57,15 +57,20 @@ QuotaTray/
 │           └── query/
 │               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 ├── apps/
-│   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成）
+│   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态）
 │   │   └── src/
-│   │       ├── main.rs        # clap 定义 10 子命令 + dispatch（dev-smoke 仅 debug）
-│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入（生产 keyring / 测试内存）
+│   │       ├── main.rs        # clap 定义 10 子命令 + dispatch + --lang 全局参数
+│   │       │                  #   （两阶段解析：预扫描语言后翻译命令面再匹配）
+│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
 │   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
-│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测）
-│   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx）
+│   │       ├── lang.rs        # Lang 三态（zh/en/system）+ sys-locale 检测 +
+│   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
+│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）
+│   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
+│   │       │                  #   带参文案函数 + clap about/help 运行时翻译
+│   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）
 │   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
 │   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
@@ -82,35 +87,48 @@ QuotaTray/
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
-│       ├── src/               # React 前端（中文 UI）
-│       │   ├── main.tsx / App.tsx        # 入口与主布局（列表+添加+设置）
+│       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
+│       │   ├── main.tsx / App.tsx        # 入口与主布局（TitleBar + 列表 + 添加/设置）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（含 KEEP_LAST_GOOD_MS）
-│       │   ├── api.ts          # invoke 封装 + 短 id 生成
+│       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now 事件
-│       │   ├── display.ts      # 相对时间/已用百分比/数据文案（与 tray.rs 语义一致）
+│       │   ├── display.ts      # 相对时间/已用百分比/数据文案（双语，与 tray.rs 成对）
+│       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
+│       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
+│       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
+│       │   │   ├── zh.ts       # 中文字典（as const 类型基准）
+│       │   │   └── en.ts       # 英文字典（Record<TextKey,string> 编译期锁键完整）
 │       │   └── components/
+│       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、语言与主题
+│       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── ProviderCard.tsx    # 卡片：数据/错误徽标（灰瞬时红确定）/阈值告警/快照首屏
 │       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
-│       │       └── SettingsDialog.tsx  # 间隔/阈值/自启/语言占位
+│       │       └── SettingsDialog.tsx  # 间隔/阈值/自启/每圈单位（语言与主题在标题栏）
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
-│           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；NSIS 目标（M4 打包）
-│           ├── capabilities/default.json # 事件 ACL（托盘刷新链路依赖）
-│           ├── icons/          # 占位图标（蓝 Q 常态/红 ! 警示，tauri icon 生成）
+│           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
+│           ├── capabilities/default.json # 事件/主题/无装饰窗口控制 ACL（最小必要）
+│           ├── icons/          # 应用图标（托盘圆环为运行时动态渲染，无静态托盘资源）
 │           ├── examples/
 │           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
 │           └── src/
 │               ├── main.rs     # 薄壳（release 隐藏控制台）
 │               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/命令注册
-│               ├── state.rs    # AppState：引擎+保险库+结果表+--data-dir 覆盖+ErrorInfo
-│               ├── commands.rs # IPC 10 命令：key 写入策略（空=保持不变）、
-│               │               #   试查经引擎、快照落盘过滤、设置顺序（磁盘权威）
-│               ├── tray.rs     # 托盘：菜单文本/阈值告警/相对时间纯函数（契约测试）
-│               │               #   左键开窗、悬停 10s 节流、图标切换、keep-last-good 窗口
-│               ├── settings.rs # settings.json 读写（原子写、损坏回退默认）
+│               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+--data-dir 覆盖+ErrorInfo
+│               ├── commands.rs # IPC 11 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme
+│               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts）
+│               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
+│               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
+│               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
+│               │               #   「图标显示」子菜单、any_alert 红点）/keep-last-good 窗口
+│               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
+│               │               #   每圈单位、图标数据源字段）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
+    ├── design/
+    │   └── tray-ring-demo.html # 托盘圆环视觉规格（层结构/颜色/溢出/红点定案）
     └── specs/
         ├── CLI-spec.md        # quota-cli 规格（M2b）：子命令/退出码/dev-smoke
         └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
@@ -125,6 +143,8 @@ CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
 core 若需变更公开 API，先单独提 PR 合入再同步两端。
 M3 期间 core 的 template/http 曾随桌面端 PR 做错误文案安全修复
 （只增 `uses_api_key` 公开函数与测试，不改既有签名）。
+M4-a（CLI i18n #4 / GUI 主题+圆环+i18n+标题栏 #5）沿用此约定：
+CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实现（core 不动）。
 
 ## 工程规范
 

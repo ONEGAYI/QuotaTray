@@ -1,11 +1,13 @@
 // 添加/编辑对话框：native / template / script(M4 预留) 三形态。
 // 红线 3：key 框初始为空（占位符「已配置/未配置」），空 = 保持不变，永不回显明文。
+// CodeMirror 编辑器为第三方亮色主题，dark 模式下仅调整容器边框（后续版本可换主题）。
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { api, newEntryId } from "../api";
 import { dataSummary } from "../display";
+import { useLang } from "../i18n";
 import { useNativeMetas } from "../queries";
 import type { ProviderEntry, ProviderKind, QueryOutcome, TemplateErrorDto } from "../types";
 
@@ -36,8 +38,13 @@ function toTemplateError(e: unknown): TemplateErrorDto | null {
   return null;
 }
 
+const inputCls =
+  "mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
+const labelCls = "text-sm text-slate-600 dark:text-slate-300";
+
 export function EditDialog({ open, initial, onClose }: Props) {
   const qc = useQueryClient();
+  const { t } = useLang();
   const natives = useNativeMetas();
   const [tab, setTab] = useState<Tab>(initial?.kind.type === "template" ? "template" : "native");
   const [name, setName] = useState(initial?.name ?? "");
@@ -65,10 +72,10 @@ export function EditDialog({ open, initial, onClose }: Props) {
     mutationFn: async () => {
       setError(null);
       const trimmedName = name.trim();
-      if (!trimmedName) throw new Error("名称不能为空");
+      if (!trimmedName) throw new Error(t("edit.nameRequired"));
       let kind: ProviderKind;
       if (tab === "native") {
-        if (!nativeProvider) throw new Error("请选择预置平台");
+        if (!nativeProvider) throw new Error(t("edit.nativeRequired"));
         kind = { type: "native", provider: nativeProvider };
       } else {
         // 保存前先静态校验（结构 + 规则），错误带字段定位
@@ -77,14 +84,18 @@ export function EditDialog({ open, initial, onClose }: Props) {
         } catch (e) {
           const dto = toTemplateError(e);
           throw new Error(
-            dto ? (dto.field === "(json)" ? `模板 JSON 解析失败：${dto.reason}` : `${dto.field}：${dto.reason}`) : String(e),
+            dto
+              ? dto.field === "(json)"
+                ? t("edit.jsonError", { msg: dto.reason })
+                : t("edit.fieldError", { field: dto.field, reason: dto.reason })
+              : String(e),
           );
         }
         let parsed: unknown;
         try {
           parsed = JSON.parse(templateJson);
         } catch {
-          throw new Error("模板 JSON 解析失败");
+          throw new Error(t("edit.templateJsonError"));
         }
         kind = { type: "template", ...(parsed as object) } as ProviderKind;
       }
@@ -111,22 +122,28 @@ export function EditDialog({ open, initial, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/30 p-4">
-      <div className="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-lg bg-white shadow-xl">
-        <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="font-medium">{initial ? "编辑供应商" : "添加供应商"}</h2>
+      <div className="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-800">
+        <div className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+          <h2 className="font-medium">{initial ? t("edit.titleEdit") : t("edit.titleAdd")}</h2>
         </div>
 
-        <div className="flex gap-1 border-b border-slate-200 px-5 pt-2">
-          {(["native", "template", "script"] as Tab[]).map((t) => (
+        <div className="flex gap-1 border-b border-slate-200 px-5 pt-2 dark:border-slate-700">
+          {(["native", "template", "script"] as Tab[]).map((tabId) => (
             <button
-              key={t}
-              disabled={t === "script"}
-              onClick={() => setTab(t)}
+              key={tabId}
+              disabled={tabId === "script"}
+              onClick={() => setTab(tabId)}
               className={`rounded-t px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
-                tab === t ? "border border-b-white border-slate-200 bg-white font-medium" : "text-slate-500 hover:bg-slate-50"
+                tab === tabId
+                  ? "border border-b-white border-slate-200 bg-white font-medium dark:border-slate-700 dark:border-b-slate-800 dark:bg-slate-800"
+                  : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700/60"
               }`}
             >
-              {t === "native" ? "预置平台" : t === "template" ? "模板" : "脚本（M4）"}
+              {tabId === "native"
+                ? t("edit.tabNative")
+                : tabId === "template"
+                  ? t("edit.tabTemplate")
+                  : t("edit.tabScript")}
             </button>
           ))}
         </div>
@@ -139,27 +156,27 @@ export function EditDialog({ open, initial, onClose }: Props) {
           }}
         >
           <label className="block">
-            <span className="text-sm text-slate-600">名称</span>
+            <span className={labelCls}>{t("edit.name")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="如 DeepSeek 主号"
-              className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              placeholder={t("edit.namePlaceholder")}
+              className={inputCls}
             />
           </label>
 
           {tab === "native" && (
             <label className="block">
-              <span className="text-sm text-slate-600">平台</span>
+              <span className={labelCls}>{t("edit.platform")}</span>
               <select
                 value={nativeProvider}
                 onChange={(e) => setNativeProvider(e.target.value)}
-                className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+                className={inputCls}
               >
-                <option value="">请选择…</option>
+                <option value="">{t("edit.platformPlaceholder")}</option>
                 {(natives.data ?? []).map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name}（{m.id}）
+                    {t("edit.platformOption", { name: m.name, id: m.id })}
                   </option>
                 ))}
               </select>
@@ -178,32 +195,37 @@ export function EditDialog({ open, initial, onClose }: Props) {
           )}
 
           <label className="block">
-            <span className="text-sm text-slate-600">API key</span>
+            <span className={labelCls}>{t("edit.apiKey")}</span>
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               autoComplete="new-password"
-              placeholder={configured ? "已配置（留空保持不变）" : "未配置"}
-              className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
+              className={inputCls}
             />
           </label>
 
           {error && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+              {error}
+            </p>
           )}
         </form>
 
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-          <button onClick={onClose} className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
-            取消
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-700">
+          <button
+            onClick={onClose}
+            className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            {t("common.cancel")}
           </button>
           <button
             onClick={() => save.mutate()}
             disabled={save.isPending}
-            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
-            {save.isPending ? "保存中…" : "保存"}
+            {save.isPending ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </div>
@@ -220,6 +242,7 @@ function TemplateForm(props: {
   apiKey: string;
   setApiKey: (v: string) => void;
 }) {
+  const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
@@ -235,7 +258,11 @@ function TemplateForm(props: {
       const dto = toTemplateError(e);
       setValidateOk(false);
       setValidateMsg(
-        dto ? (dto.field === "(json)" ? `JSON 解析失败：${dto.reason}` : `${dto.field}：${dto.reason}`) : String(e),
+        dto
+          ? dto.field === "(json)"
+            ? t("edit.jsonError", { msg: dto.reason })
+            : t("edit.fieldError", { field: dto.field, reason: dto.reason })
+          : String(e),
       );
     },
   });
@@ -265,13 +292,13 @@ function TemplateForm(props: {
   return (
     <div className="space-y-3">
       {/"allowInsecure"\s*:\s*true/.test(props.templateJson) && (
-        <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          ⚠ 模板启用了 allowInsecure：请求可经明文 http 传输，API key 存在被网络窃听的风险
+        <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          {t("edit.insecureWarn")}
         </p>
       )}
       <label className="block">
-        <span className="text-sm text-slate-600">模板 JSON</span>
-        <div className="mt-1 overflow-hidden rounded border border-slate-300">
+        <span className={labelCls}>{t("edit.templateJson")}</span>
+        <div className="mt-1 overflow-hidden rounded border border-slate-300 dark:border-slate-600">
           <CodeMirror
             value={props.templateJson}
             onChange={(v) => {
@@ -288,12 +315,12 @@ function TemplateForm(props: {
       </label>
 
       <label className="block">
-        <span className="text-sm text-slate-600">baseUrl（模板 {'{{baseUrl}}'} 变量来源）</span>
+        <span className={labelCls}>{t("edit.baseUrl")}</span>
         <input
           value={props.baseUrl}
           onChange={(e) => props.setBaseUrl(e.target.value)}
           placeholder="https://api.example.com"
-          className="mt-1 w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+          className={inputCls}
         />
       </label>
 
@@ -302,39 +329,49 @@ function TemplateForm(props: {
           type="button"
           onClick={() => validate.mutate()}
           disabled={validate.isPending}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
         >
-          校验
+          {t("edit.validate")}
         </button>
         <button
           type="button"
           onClick={() => void test()}
           disabled={testing}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50"
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
         >
-          {testing ? "试查中…" : "试查"}
+          {testing ? t("edit.testing") : t("edit.test")}
         </button>
-        {validateOk && !validateMsg && <span className="text-xs text-green-600">校验通过</span>}
+        {validateOk && !validateMsg && (
+          <span className="text-xs text-green-600 dark:text-green-400">{t("edit.validated")}</span>
+        )}
       </div>
 
       {validateMsg && (
-        <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600">{validateMsg}</p>
+        <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+          {validateMsg}
+        </p>
       )}
 
       {testResult && (
-        <div className="rounded bg-slate-50 p-3 text-sm">
+        <div className="rounded bg-slate-50 p-3 text-sm dark:bg-slate-900/60 dark:text-slate-200">
           {testResult.ok ? (
             <div>
-              <p className="mb-1 text-xs text-green-600">试查成功</p>
+              <p className="mb-1 text-xs text-green-600 dark:text-green-400">{t("edit.testOk")}</p>
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
-                  {dataSummary(d)}
+                  {dataSummary(d, lang)}
                 </p>
               ))}
             </div>
           ) : (
-            <p className={testResult.error?.kind === "transient" ? "text-slate-600" : "text-red-600"}>
+            <p
+              className={
+                testResult.error?.kind === "transient"
+                  ? "text-slate-600 dark:text-slate-300"
+                  : "text-red-600 dark:text-red-400"
+              }
+            >
               {testResult.error?.kind === "transient" ? "⟳" : "⚠"} {testResult.error?.message}
             </p>
           )}

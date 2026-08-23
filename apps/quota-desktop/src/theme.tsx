@@ -1,0 +1,68 @@
+// 主题上下文：settings.theme 三态（light/dark/system）解析为实际主题。
+// - system 时监听 prefers-color-scheme 实时跟随；
+// - 解析结果挂/摘根 <html> 的 .dark class（Tailwind 4 custom variant，见 index.css）；
+// - 联动原生 titlebar：getCurrentWindow().setTheme('light'|'dark')，
+//   system 传 null 跟随系统（Tauri 2 API 契约，需 capability 放行）；
+// - 同步推送后端 set_resolved_theme——托盘圆环图标配色随解析后主题刷新
+//   （选前端推送而非 Rust 监听 WindowEvent::ThemeChanged 的理由见
+//   src-tauri/src/commands.rs 的 set_resolved_theme 注释）。
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { api } from "./api";
+import { useSettings } from "./queries";
+
+export type ResolvedTheme = "light" | "dark";
+
+function systemTheme(): ResolvedTheme {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+/** 三态解析：显式 light/dark 直取，system（及未知值）跟随系统。 */
+function resolveSetting(setting: string): ResolvedTheme {
+  if (setting === "light" || setting === "dark") return setting;
+  return systemTheme();
+}
+
+const ThemeContext = createContext<ResolvedTheme>("light");
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const settings = useSettings();
+  const setting = settings.data?.theme ?? "system";
+  const [resolved, setResolved] = useState<ResolvedTheme>(systemTheme);
+
+  // 三态解析；system 时跟随系统变化（mq change）
+  useEffect(() => {
+    const apply = () => setResolved(resolveSetting(setting));
+    apply();
+    if (setting !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [setting]);
+
+  // 根 class + 原生 titlebar + 托盘图标主题推送（缺失通知不阻断 UI）
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", resolved === "dark");
+    const win = getCurrentWindow();
+    void win
+      .setTheme(setting === "system" ? null : resolved)
+      .catch((e) => console.error("setTheme 调用失败：", e));
+    void api.setResolvedTheme(resolved).catch((e) =>
+      console.error("托盘主题推送失败：", e),
+    );
+  }, [resolved, setting]);
+
+  const value = useMemo(() => resolved, [resolved]);
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}
+
+export function useTheme(): ResolvedTheme {
+  return useContext(ThemeContext);
+}

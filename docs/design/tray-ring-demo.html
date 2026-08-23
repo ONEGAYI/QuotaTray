@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>托盘圆环图标 · 样式对齐演示（最终规则）</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.6; padding: 32px 40px; max-width: 1200px; margin: 0 auto;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  h2 { font-size: 17px; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h2 .tag { font-size: 12px; font-weight: normal; color: var(--muted); margin-left: 8px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+
+  .lab { display: flex; gap: 24px; flex-wrap: wrap; }
+  .controls { flex: 0 0 280px; display: flex; flex-direction: column; gap: 14px; }
+  .controls label { font-size: 13px; display: block; margin-bottom: 4px; color: var(--muted); }
+  .controls select, .controls input[type="number"] {
+    width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;
+  }
+  .mode-switch { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .mode-switch button {
+    flex: 1; padding: 8px 0; border: none; background: #fff; cursor: pointer; font-size: 13px;
+  }
+  .mode-switch button.active { background: var(--accent); color: #fff; }
+  .hint { font-size: 12px; color: var(--muted); }
+
+  .preview-matrix { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .cell { border-radius: 10px; padding: 18px; display: flex; align-items: center; gap: 18px; }
+  .cell.dark { background: #1b1f27; border: 1px solid #2a3040; }
+  .cell.light { background: #eef1f6; border: 1px solid #dde3ec; }
+  .cell .size-label { font-size: 11px; color: #8892a6; width: 52px; }
+  .cell.dark .size-label { color: #6b7488; }
+
+  .gallery { display: flex; flex-wrap: wrap; gap: 14px; }
+  .card {
+    background: #1b1f27; border: 1px solid #2a3040; border-radius: 10px;
+    padding: 16px; text-align: center; min-width: 130px;
+  }
+  .card .icon-wrap { display: flex; justify-content: center; gap: 12px; align-items: flex-end; margin-bottom: 10px; }
+  .card .caption { font-size: 12px; color: #aab3c5; }
+  .card .caption b { color: #e2e8f0; display: block; font-size: 13px; margin-bottom: 2px; }
+  .card.example-user { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+  th { background: #f1f5f9; }
+
+  .qa { list-style: none; }
+  .qa li { padding: 10px 0 10px 34px; position: relative; border-bottom: 1px dashed var(--border); font-size: 14px; }
+  .qa li:last-child { border-bottom: none; }
+  .qa li::before { content: "✓"; position: absolute; left: 4px; top: 10px; color: #059669; font-weight: bold; }
+  .qa b { color: #0f172a; }
+</style>
+</head>
+<body>
+
+<h1>托盘圆环图标 · 最终规则演示</h1>
+<p class="subtitle">颜色规则已定案：<b>多层时全部弧层走预设色循环（绿→蓝→紫→青→粉→靛）；只有余额消耗到最后一圈（&lt; 每圈单位）时，唯一弧才用绿→黄→红阈值色</b>。本页即实现规格。</p>
+
+<!-- ============ 实验台 ============ -->
+<h2>实验台<span class="tag">实时预览：改数值看效果</span></h2>
+<div class="panel lab">
+  <div class="controls">
+    <div>
+      <label>类型</label>
+      <select id="type-select">
+        <option value="balance">不定额余额（货币）</option>
+        <option value="percent">百分比类型</option>
+      </select>
+    </div>
+    <div>
+      <label>余额数值</label>
+      <input type="number" id="value-input" value="180" min="0" step="1">
+    </div>
+    <div>
+      <label>一圈代表（单位货币）</label>
+      <input type="number" id="perring-input" value="100" min="1" step="1">
+    </div>
+    <p class="hint">
+      规则速查：<br>
+      · 余额 &lt; 一圈 → 单弧 = 阈值色（填充比例）<br>
+      · 余额 ≥ 一圈 → 多层叠弧，全部预设色循环（层数即颜色编码）<br>
+      · 层数 &gt; 4 → 溢出：满环（第 4 层循环色）+ 中心缩写<br>
+      · 百分比类型 → 永远单弧阈值色
+    </p>
+  </div>
+  <div class="preview-matrix" id="preview-matrix">
+    <div class="cell dark"><span class="size-label">16px 托盘</span><span class="slot" data-size="16"></span></div>
+    <div class="cell light"><span class="size-label">16px 托盘</span><span class="slot" data-size="16"></span></div>
+    <div class="cell dark"><span class="size-label">24px</span><span class="slot" data-size="24"></span></div>
+    <div class="cell light"><span class="size-label">24px</span><span class="slot" data-size="24"></span></div>
+    <div class="cell dark"><span class="size-label">32px</span><span class="slot" data-size="32"></span></div>
+    <div class="cell light"><span class="size-label">32px</span><span class="slot" data-size="32"></span></div>
+    <div class="cell dark"><span class="size-label">64px 放大</span><span class="slot" data-size="64"></span></div>
+    <div class="cell light"><span class="size-label">64px 放大</span><span class="slot" data-size="64"></span></div>
+  </div>
+</div>
+
+<!-- ============ 示例画廊 ============ -->
+<h2>示例画廊<span class="tag">不定额余额（每圈 = 100）</span></h2>
+<div class="gallery" id="gallery-balance"></div>
+
+<h2>示例画廊<span class="tag">百分比类型（永远单弧 + 阈值色）</span></h2>
+<div class="gallery" id="gallery-percent"></div>
+
+<h2>关键示例说明</h2>
+<div class="panel">
+  <table>
+    <tr><th>示例</th><th>分层与颜色</th></tr>
+    <tr><td><b>¥60 · 最后一圈</b></td><td>60 &lt; 100 → 单层 60% 弧，<b>阈值色</b>（60% → 绿）。余额越少弧越短、色向黄红过渡</td></tr>
+    <tr><td><b>¥80 · 最后一圈</b></td><td>单层 80% 弧，阈值色（80% → 绿）。与 ¥60 同为绿但填充更长</td></tr>
+    <tr><td><b>¥180（您的例子）</b></td><td>底层绿<b>满圈</b>（第 1 层预设色）+ 上层蓝 80% 弧（第 2 层预设色）→ 视觉 80% 蓝 + 尾部 20% 绿</td></tr>
+    <tr><td><b>¥380 · 4 层上限</b></td><td>绿满 + 蓝满 + 紫满 + 青 80%。满圈叠满圈，只露最上层——<b>最上层颜色即层数编码</b>（青 = 至少 3 圈满）</td></tr>
+    <tr><td><b>¥1,250 · 溢出</b></td><td>需 13 层 &gt; 上限 4 → 溢出样式：满环取第 4 层循环色（青）+ 中心缩写 <b>1.2k</b></td></tr>
+    <tr><td><b>¥311,000 · 溢出</b></td><td>同上，满环 + 中心 <b>311k</b>。余额远超告警区，环只表达「充足」；可在设置调大每圈单位避免频繁溢出</td></tr>
+    <tr><td><b>百分比 45%</b></td><td>单弧 45% = 阈值色黄。百分比类型永远单弧（一圈 = 100%）</td></tr>
+  </table>
+</div>
+
+<!-- ============ 已定案 ============ -->
+<h2>已定案的对齐点</h2>
+<div class="panel">
+  <ol class="qa">
+    <li><b>层结构</b>：方案A 单环叠弧——同一根环，满圈弧层层向上叠，16px 下可读性最好，层数再多环不挤细</li>
+    <li><b>颜色规则</b>：多层时<b>全部弧层</b>用预设色循环（绿→蓝→紫→青→粉→靛，绿开头即您的 ¥180 例子）；只有<b>消耗到最后一圈</b>（余额 &lt; 每圈单位）时唯一弧用阈值色</li>
+    <li><b>阈值色输入</b>：填充比例，连续渐变（≥60% 绿、30~60% 黄过渡、&lt;30% 红）</li>
+    <li><b>溢出样式</b>：层数 &gt; 4 → 满环（第 4 层循环色）+ 中心缩写文字</li>
+    <li><b>每圈单位</b>：全局设置，默认 100，设置页可调</li>
+    <li><b>多 provider</b>：托盘单图标默认显示第一个启用条目；右键托盘菜单「图标显示」子菜单可切换，选择持久化</li>
+    <li><b>中心文字</b>：≤4 字符（45% / 180 / 1.2k / 311k）；16px 实际尺寸下偏小，文字以 32px 渲染尽力保证，悬停 tooltip 兜底</li>
+    <li><b>空槽颜色</b>：分主题两套——dark <code>rgba(128,140,160,0.28)</code>、light <code>rgba(100,116,139,0.35)</code>（浅背景略加深以保证空环可见）</li>
+    <li><b>告警红点</b>：any_alert（任一启用条目超低额度阈值）时在环右上角叠加直径 5px 红点（<code>#ef4444</code>，32px 画布上圆心 (26.5, 5.5)、半径 2.5），部分压环为 badge 惯例</li>
+  </ol>
+</div>
+
+<script>
+// ============ 配色（最终规则） ============
+// 阈值色：p ∈ [0,1] 连续渐变 绿(120°)→黄(60°)→红(0°)
+function thresholdColor(p) {
+  const hue = Math.max(0, Math.min(1, p)) * 120;
+  return `hsl(${hue}, 78%, 48%)`;
+}
+// 预设色循环（第 n 层取 PRESET[(n-1) % 6]）：绿、蓝、紫、青、粉、靛
+const PRESET = ["#22c55e", "#3b82f6", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1"];
+
+// ============ 分层逻辑 ============
+// 返回层数组（底→顶），每层 { fill: 0~1, complete: bool }
+// maxLayers: 层数上限；超出返回 { overflow: true }
+function layerize(value, perRing, maxLayers) {
+  if (value <= 0) return { layers: [{ fill: 0, complete: false }] };
+  const full = Math.floor(value / perRing);
+  const frac = (value % perRing) / perRing;
+  const totalLayers = full + (frac > 0 ? 1 : 0);
+  if (totalLayers > maxLayers) return { overflow: true, layers: [] };
+  const layers = [];
+  for (let i = 0; i < full; i++) layers.push({ fill: 1, complete: true });
+  if (frac > 0) layers.push({ fill: frac, complete: false });
+  if (layers.length === 0) layers.push({ fill: 1, complete: true }); // 恰好整除
+  return { layers, overflow: false };
+}
+
+// ============ 层颜色（最终规则） ============
+// 单层（最后一圈 / 百分比型）→ 阈值色（按该层填充比例）
+// 多层 → 全部层预设色循环（绿→蓝→紫→…，层数即颜色编码）
+function layerColors(layers) {
+  if (layers.length === 1) return [thresholdColor(layers[0].fill)];
+  return layers.map((_, i) => PRESET[i % PRESET.length]);
+}
+
+// ============ 中心文字：单位+数字 ≤ 4 字符 ============
+function centerText(value, type) {
+  if (type === "percent") {
+    const p = Math.round(value);
+    return p >= 100 ? "100%" : p + "%";
+  }
+  const v = Math.round(value);
+  if (v < 10000) return String(v);
+  if (v < 1e6) {
+    const k = v / 1000;
+    return k >= 10 ? Math.round(k) + "k" : (Math.floor(k * 10) / 10) + "k"; // 12k / 1.2k
+  }
+  if (v < 1e9) {
+    const m = v / 1e6;
+    return m >= 10 ? Math.round(m) + "M" : (Math.floor(m * 10) / 10) + "M"; // 1.2M
+  }
+  const b = v / 1e9;
+  return b >= 10 ? Math.round(b) + "B" : (Math.floor(b * 10) / 10) + "B";
+}
+
+// ============ SVG 绘制（单环叠弧） ============
+// 空槽色分主题两套（定案）：dark rgba(128,140,160,0.28)；light 加深为
+// rgba(100,116,139,0.35)——浅背景上略加深以保证空环可见（与 Rust 实现一致）
+const SLOT_DARK = "rgba(128,140,160,0.28)";
+const SLOT_LIGHT = "rgba(100,116,139,0.35)";
+function drawStack(size, layers, colors, text, overflow, slotColor) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 64 64");
+  const strokeW = 14, r = (64 - strokeW) / 2, C = 2 * Math.PI * r;
+  const cx = 32, cy = 32;
+
+  function arc(frac, color) {
+    const c = document.createElementNS(svgNS, "circle");
+    c.setAttribute("cx", cx); c.setAttribute("cy", cy); c.setAttribute("r", r);
+    c.setAttribute("fill", "none");
+    c.setAttribute("stroke", color);
+    c.setAttribute("stroke-width", strokeW);
+    c.setAttribute("stroke-dasharray", `${C * frac} ${C}`);
+    c.setAttribute("transform", `rotate(-90 ${cx} ${cy})`);
+    return c;
+  }
+
+  // 环底槽（浅灰，未填充部分）
+  const slot = document.createElementNS(svgNS, "circle");
+  slot.setAttribute("cx", cx); slot.setAttribute("cy", cy); slot.setAttribute("r", r);
+  slot.setAttribute("fill", "none");
+  slot.setAttribute("stroke", slotColor);
+  slot.setAttribute("stroke-width", strokeW);
+  svg.appendChild(slot);
+
+  if (overflow) {
+    // 溢出：层数超上限 → 满环取最上层循环色（第 4 层）
+    svg.appendChild(arc(1, PRESET[3]));
+  } else {
+    // 底→顶依次叠弧，从 12 点顺时针
+    layers.forEach((l, i) => svg.appendChild(arc(l.fill, colors[i])));
+  }
+
+  // 中心文字
+  if (text) {
+    const t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", cx); t.setAttribute("y", cy);
+    t.setAttribute("text-anchor", "middle"); t.setAttribute("dominant-baseline", "central");
+    t.setAttribute("font-family", "Segoe UI, Arial, sans-serif");
+    t.setAttribute("font-weight", "700");
+    t.setAttribute("fill", "currentColor");
+    t.setAttribute("font-size", text.length >= 4 ? 17 : 20);
+    t.textContent = text;
+    svg.appendChild(t);
+  }
+  return svg;
+}
+
+// ============ 渲染入口 ============
+const state = { type: "balance", value: 180, perRing: 100 };
+
+function renderIcon(size, value, type, perRing, slotColor) {
+  const maxLayers = 4;
+  const { layers, overflow } = layerize(value, perRing, maxLayers);
+  const colors = layerColors(layers);
+  const text = centerText(value, type);
+  return drawStack(size, layers, colors, text, overflow, slotColor);
+}
+
+function refresh() {
+  document.querySelectorAll("#preview-matrix .slot").forEach(slot => {
+    const size = +slot.dataset.size;
+    const isDark = Boolean(slot.closest(".dark"));
+    slot.innerHTML = "";
+    slot.style.color = isDark ? "#e6eaf2" : "#1e293b";
+    slot.appendChild(renderIcon(size, state.value, state.type, state.perRing,
+      isDark ? SLOT_DARK : SLOT_LIGHT));
+  });
+}
+
+document.getElementById("type-select").addEventListener("change", e => {
+  state.type = e.target.value;
+  if (state.type === "percent") { state.value = 45; document.getElementById("value-input").value = 45; }
+  else { state.value = 180; document.getElementById("value-input").value = 180; }
+  refresh();
+});
+document.getElementById("value-input").addEventListener("input", e => {
+  state.value = Math.max(0, +e.target.value || 0); refresh();
+});
+document.getElementById("perring-input").addEventListener("input", e => {
+  state.perRing = Math.max(1, +e.target.value || 1); refresh();
+});
+
+// ============ 示例画廊 ============
+function makeCard(galleryId, title, subtitle, value, type, perRing, highlight) {
+  const card = document.createElement("div");
+  card.className = "card" + (highlight ? " example-user" : "");
+  const wrap = document.createElement("div");
+  wrap.className = "icon-wrap";
+  [24, 48].forEach(size => {
+    const holder = document.createElement("span");
+    holder.style.color = "#e6eaf2";
+    holder.style.display = "inline-flex";
+    holder.appendChild(renderIcon(size, value, type, perRing, SLOT_DARK));
+    wrap.appendChild(holder);
+  });
+  const cap = document.createElement("div");
+  cap.className = "caption";
+  cap.innerHTML = `<b>${title}</b>${subtitle}`;
+  card.appendChild(wrap); card.appendChild(cap);
+  document.getElementById(galleryId).appendChild(card);
+}
+
+function buildGalleries() {
+  // 不定额余额（每圈=100）：从最后一圈 → 多层 → 溢出
+  makeCard("gallery-balance", "¥60 · 最后一圈", "单弧 60% = 阈值色绿<br>（消耗到最后一圈才用阈值色）", 60, "balance", 100);
+  makeCard("gallery-balance", "¥30 · 最后一圈", "单弧 30% = 阈值色黄偏红", 30, "balance", 100);
+  makeCard("gallery-balance", "¥80 · 最后一圈", "单弧 80% = 阈值色绿", 80, "balance", 100);
+  makeCard("gallery-balance", "¥180（您的例子）", "绿满圈（层1）+ 蓝 80%（层2）<br>全部预设色循环", 180, "balance", 100, true);
+  makeCard("gallery-balance", "¥250", "绿满 + 蓝满 + 紫 50%<br>最上层颜色 = 层数编码", 250, "balance", 100);
+  makeCard("gallery-balance", "¥380 · 4 层上限", "绿满+蓝满+紫满+青 80%", 380, "balance", 100);
+  makeCard("gallery-balance", "¥1,250 · 溢出", "13 层 &gt; 上限 4 → 满环青 + 1.2k", 1250, "balance", 100);
+  makeCard("gallery-balance", "¥311,000 · 溢出", "满环青 + 311k", 311000, "balance", 100);
+  makeCard("gallery-balance", "¥250 · 每圈=500", "每圈单位可设置：<br>250/500 → 单弧 50% = 阈值黄", 250, "balance", 500);
+
+  makeCard("gallery-percent", "百分比 85%", "单弧 85% = 绿", 85, "percent", 100);
+  makeCard("gallery-percent", "百分比 45%", "单弧 45% = 黄", 45, "percent", 100);
+  makeCard("gallery-percent", "百分比 12%", "单弧 12% = 红", 12, "percent", 100);
+}
+
+buildGalleries();
+refresh();
+</script>
+</body>
+</html>
