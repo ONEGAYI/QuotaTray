@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 
-use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
+use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
 use crate::config::Credentials;
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
@@ -85,15 +85,6 @@ impl NativeProvider for SiliconFlow {
             invalid_message: None,
             extra: None,
         }])
-    }
-}
-
-/// 整数字段解析：兼容 JSON number 与字符串数字。
-fn parse_int(v: &serde_json::Value) -> Option<i64> {
-    match v {
-        serde_json::Value::Number(n) => n.as_i64(),
-        serde_json::Value::String(s) => s.trim().parse().ok(),
-        _ => None,
     }
 }
 

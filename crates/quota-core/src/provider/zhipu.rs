@@ -61,17 +61,27 @@ impl NativeProvider for ZhipuApi {
             .and_then(|l| l.as_array())
             .ok_or_else(|| parse_error(self.name, "data.limits 数组"))?;
 
-        // percentage 已是已用百分比：空数组/无一项含数值都视为结构异常
+        // percentage 已是已用百分比：空数组/无一项含数值都视为结构异常。
+        // 多窗口（如 5 小时/周限额）各产一行，窗口标识（item.name 字符串，
+        // 若有）拼进 plan_name 便于区分；used 钳到 [0,100] 防远端异常值
+        // 把 remaining 顶出 total。
         let mut rows = Vec::new();
         for item in limits {
-            let Some(used) = parse_num(item.get("percentage")) else {
+            let Some(raw) = parse_num(item.get("percentage")) else {
                 continue;
             };
+            let used = raw.clamp(0.0, 100.0);
+            let plan_name = match item.get("name").and_then(|v| v.as_str()) {
+                Some(name) if !name.trim().is_empty() => {
+                    format!("GLM Coding Plan（{name}）")
+                }
+                _ => "GLM Coding Plan".into(),
+            };
             rows.push(UsageData {
-                plan_name: Some("GLM Coding Plan".into()),
+                plan_name: Some(plan_name),
                 total: Some(100.0),
                 used: Some(used),
-                remaining: Some((100.0 - used).max(0.0)),
+                remaining: Some(100.0 - used),
                 unit: Some("%".into()),
                 is_valid: None,
                 invalid_message: None,
@@ -102,15 +112,58 @@ mod tests {
             .unwrap()
     }
 
-    /// 正常响应：每个 limits 项 → 一条已用百分比 UsageData。
+    /// 正常响应：每个 limits 项 → 一条已用百分比 UsageData；
+    /// 窗口标识拼进 plan_name，原始 item 透传进 extra。
     #[tokio::test]
     async fn parses_percentage_windows() {
         let body = r#"{"data":{"limits":[{"percentage":42.5,"name":"5h"},{"percentage":7.0,"name":"week"}]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].used, Some(42.5));
-        assert_eq!(data[0].unit.as_deref(), Some("%"));
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
+        assert_eq!(
+            data[1].plan_name.as_deref(),
+            Some("GLM Coding Plan（week）")
+        );
         assert_eq!(data[1].remaining, Some(93.0));
+        assert_eq!(
+            data[0].extra.as_ref().unwrap()["name"],
+            serde_json::json!("5h"),
+            "原始窗口项透传 extra"
+        );
+    }
+
+    /// 无 name 字段的窗口：plan_name 回退为不带标识，不 panic。
+    #[tokio::test]
+    async fn nameless_window_falls_back_to_plain_plan_name() {
+        let body = r#"{"data":{"limits":[{"percentage":10.0}]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan"));
+    }
+
+    /// 边界契约：used 钳到 [0,100]——超界值不得把 remaining 顶出 total。
+    #[tokio::test]
+    async fn percentage_is_clamped_to_unit_range() {
+        let body = r#"{"data":{"limits":[{"percentage":120.0},{"percentage":-5.0}]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].used, Some(100.0));
+        assert_eq!(data[0].remaining, Some(0.0));
+        assert_eq!(data[1].used, Some(0.0));
+        assert_eq!(data[1].remaining, Some(100.0));
+    }
+
+    /// 错误分类：非 JSON 响应与网络故障均为确定性/瞬时（复用共用
+    /// fetch_json 分类，此处锁端到端行为）。
+    #[tokio::test]
+    async fn error_classification() {
+        let err = ZHIPU
+            .query(&creds(), &MockHttp::ok("<html>Not Found</html>"))
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient(), "非 JSON 应为确定性");
+
+        let err = ZHIPU.query(&creds(), &MockHttp::fail()).await.unwrap_err();
+        assert!(err.is_transient(), "网络故障应为瞬时");
     }
 
     /// 请求头契约：Authorization 为裸 key（无 Bearer 前缀），域名按站点。

@@ -136,6 +136,16 @@ pub(crate) fn parse_num(v: Option<&Value>) -> Option<f64> {
     }
 }
 
+/// 整数字段解析：兼容 JSON number 与字符串数字（Kimi/SiliconFlow 的
+/// 业务码字段历史上两种形态都出现过）。
+pub(crate) fn parse_int(v: &Value) -> Option<i64> {
+    match v {
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 /// 响应结构不符合预期 → 确定性失败（带上平台名便于定位）。
 pub(crate) fn parse_error(provider: &str, expected: &str) -> QueryError {
     QueryError::deterministic(format!("{provider} 响应缺少字段或格式异常：{expected}"))

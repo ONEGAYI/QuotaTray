@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 
-use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
+use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
 use crate::config::Credentials;
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
@@ -88,15 +88,6 @@ impl NativeProvider for Kimi {
     }
 }
 
-/// 整数字段解析：兼容 JSON number 与字符串数字。
-fn parse_int(v: &serde_json::Value) -> Option<i64> {
-    match v {
-        serde_json::Value::Number(n) => n.as_i64(),
-        serde_json::Value::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,7 +105,8 @@ mod tests {
             .unwrap()
     }
 
-    /// 正常响应：available_balance → remaining，unit 按站点币种。
+    /// 正常响应：available_balance → remaining，unit 按站点币种；
+    /// 代金券/现金拆分完整透传 extra。
     #[tokio::test]
     async fn parses_balance_cn_and_global() {
         let body = r#"{"code":0,"data":{"available_balance":49.58894,"voucher_balance":46.58893,"cash_balance":3.00001}}"#;
@@ -122,10 +114,9 @@ mod tests {
             let data = provider.query(&creds(), &MockHttp::ok(body)).await.unwrap();
             assert_eq!(data[0].remaining, Some(49.58894), "{unit}");
             assert_eq!(data[0].unit.as_deref(), Some(unit));
-            assert_eq!(
-                data[0].extra.as_ref().unwrap()["voucher_balance"],
-                serde_json::json!(46.58893)
-            );
+            let extra = data[0].extra.as_ref().unwrap();
+            assert_eq!(extra["voucher_balance"], serde_json::json!(46.58893));
+            assert_eq!(extra["cash_balance"], serde_json::json!(3.00001));
         }
     }
 
@@ -160,6 +151,37 @@ mod tests {
             .unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("invalid api key"));
+    }
+
+    /// code 为字符串数字时仍走业务错误检查（与 SiliconFlow 同语义）。
+    #[tokio::test]
+    async fn string_code_still_checked() {
+        let body = r#"{"code":"401","message":"invalid api key"}"#;
+        let err = KIMI_CN
+            .query(&creds(), &MockHttp::ok(body))
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(
+            err.message().contains("401") && err.message().contains("invalid api key"),
+            "实际：{err}"
+        );
+    }
+
+    /// 错误分类：非 JSON 响应确定性；网络故障瞬时。
+    #[tokio::test]
+    async fn error_classification() {
+        let err = KIMI_CN
+            .query(&creds(), &MockHttp::ok("<html>Bad Gateway</html>"))
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient(), "非 JSON 应为确定性");
+
+        let err = KIMI_CN
+            .query(&creds(), &MockHttp::fail())
+            .await
+            .unwrap_err();
+        assert!(err.is_transient(), "网络故障应为瞬时");
     }
 
     /// available_balance 缺失 → 确定性失败。
