@@ -64,6 +64,8 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
             id: m.id.clone(),
             display: m.display.clone(),
             source: "custom",
+            // CustomModelDef 暂无 plan 字段（core from_lib_model 同口径硬编码
+            // payg，放开时两处同步）
             plan: plan_str(PlanKind::PayAsYouGo),
             windows: m.windows.clone(),
             peak: m.peak.clone().unwrap_or_default(),
@@ -202,8 +204,14 @@ pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
         .get(provider_id)
         .cloned()
         .unwrap_or_default();
+    // ensure_provider 已拦截未注册 id，此处 None 仅剩注册表竞争修改的
+    // 理论路径，防御回退到与入口同一双语文案
     let Some(list) = models_json(provider_id, &custom) else {
-        eprintln!("{}provider-not-found", t(lang, T::Err));
+        eprintln!(
+            "{}{}",
+            t(lang, T::Err),
+            texts::pricing_model_provider_unknown(lang, provider_id)
+        );
         return 1;
     };
     if json {
@@ -222,6 +230,15 @@ pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
     0
 }
 
+/// 解析 `pricing model add` 的 stdin JSON 并校验（纯函数，错误路径可测）。
+pub fn parse_add_input(text: &str, lang: Lang) -> Result<CustomModelDef, String> {
+    let model: CustomModelDef =
+        serde_json::from_str(text).map_err(|e| format!("{}{e}", t(lang, T::JsonParseFail)))?;
+    pricing::validate_custom_model(&model)
+        .map_err(|e| format!("{}{e}", t(lang, T::PricingValidateFail)))?;
+    Ok(model)
+}
+
 /// `pricing model add`：stdin 读 CustomModelDef JSON → 校验 → 添加/覆盖。
 pub fn run_add(ctx: &Ctx, provider_id: &str) -> i32 {
     let lang = ctx.lang;
@@ -233,19 +250,13 @@ pub fn run_add(ctx: &Ctx, provider_id: &str) -> i32 {
         eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::StdinReadFail));
         return 1;
     }
-    let model: CustomModelDef = match serde_json::from_str(&text)
-        .map_err(|e| format!("{}{e}", t(lang, T::JsonParseFail)))
-    {
+    let model = match parse_add_input(&text, lang) {
         Ok(m) => m,
         Err(msg) => {
             eprintln!("{}{msg}", t(lang, T::Err));
             return 1;
         }
     };
-    if let Err(e) = pricing::validate_custom_model(&model) {
-        eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::PricingValidateFail));
-        return 1;
-    }
     let mut cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
         Err(e) => {
@@ -399,6 +410,39 @@ mod tests {
         assert_eq!(run_list(&ctx, "no-such", false), 1);
         assert_eq!(run_remove(&ctx, "no-such", "x"), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// 契约：add 的 stdin 解析错误链——非法 JSON、serde 缺必填字段、
+    /// 校验失败（跨日窗口/空白 id）三类路径全拦截（双语前缀）。
+    #[test]
+    fn parse_add_input_error_paths() {
+        let ok = parse_add_input(
+            r#"{"id":"glm-5.5","display":"GLM-5.5","peak":{"cache_miss_input":2,"output":6}}"#,
+            Lang::Zh,
+        );
+        assert!(ok.is_ok());
+
+        let bad_json = parse_add_input("{ not json", Lang::Zh).unwrap_err();
+        assert!(bad_json.contains("JSON 解析失败"), "{bad_json}");
+
+        let missing_id = parse_add_input(r#"{"display":"缺 id"}"#, Lang::En).unwrap_err();
+        assert!(
+            missing_id.contains("JSON parse failed") && missing_id.contains("id"),
+            "{missing_id}"
+        );
+
+        let cross_day = parse_add_input(
+            r#"{"id":"x","display":"X","windows":[{"days":["mon"],"start":"22:00","end":"06:00"}]}"#,
+            Lang::En,
+        )
+        .unwrap_err();
+        assert!(
+            cross_day.contains("validation failed") && cross_day.contains("windows[0].start/end"),
+            "{cross_day}"
+        );
+
+        let blank_id = parse_add_input(r#"{"id":"  ","display":"X"}"#, Lang::En).unwrap_err();
+        assert!(blank_id.contains("id"), "{blank_id}");
     }
 
     /// 契约：自定义模型含窗口时入库校验口径与 core 一致（合法窗口通过）。

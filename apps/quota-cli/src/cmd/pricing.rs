@@ -564,7 +564,7 @@ mod tests {
     /// 表格输出订阅说明行。
     #[test]
     fn show_renders_subscription_plan() {
-        let mut entry = ProviderEntry {
+        let entry = ProviderEntry {
             id: "z1".into(),
             name: "智谱".into(),
             kind: ProviderKind::Native {
@@ -578,10 +578,6 @@ mod tests {
                 ..Default::default()
             }),
         };
-        entry.pricing = Some(PricingConfig {
-            model: Some("coding-plan".into()),
-            ..Default::default()
-        });
         let resolved = pricing::resolve(&entry).unwrap();
         let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
             .unwrap();
