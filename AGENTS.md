@@ -117,12 +117,14 @@ QuotaTray/
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
-│       │   ├── main.tsx / App.tsx        # 入口与 Calm Native 主布局（标题栏/账户摘要/列表）
+│       │   ├── main.tsx / App.tsx        # 入口与 Calm Native 主布局（标题栏/账户摘要/列表）+
+│       │   │                              #   编辑时传递账户查询币种选择对应预置套
 │       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、可滚动主区、共享控件与响应式视觉系统
-│       │   ├── types.ts        # core serde 形状的 TS 镜像（含峰谷定价六类型与预置 DTO
-│       │   │                    #   （模型级 plan/windows）、KEEP_LAST_GOOD_MS）
+│       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
+│       │   │                    #   自定义模型库/按币种预置 DTO、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
+│       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
@@ -135,18 +137,21 @@ QuotaTray/
 │       │       │                       #   （Dialog 含 Escape、焦点圈定与关闭后焦点恢复）
 │       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
-│       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、峰谷三价、模型即时切换
-│       │       │                       #   + 多窗口阈值告警、短时反馈、启停/编辑/删除确认
+│       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
+│       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
+│       │       │                       #   短时反馈、启停/编辑/删除确认
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       ├── providerPricing.ts / providerPricing.test.ts
-│       │       │                       # 前端定价解析、峰谷判定与模型切换草稿纯逻辑
+│       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
+│       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
 │       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
 │       │       │                       #   分组表单、独立凭据区与固定页脚
-│       │       ├── PricingSection.tsx  # 峰谷区块：预置模型、窗口/时区、带说明的三档价格编辑
-│       │       │                       #   （空字段回退预置）
+│       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
+│       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
 │       │       ├── pricingDraft.ts / pricingDraft.test.ts
-│       │       │                       # 编辑草稿转换与完整自定义判定纯逻辑
+│       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
+│       │       │                       #   完整自定义判定纯逻辑
 │       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡与检查/下载
 │       │       └── settingsView.ts / settingsView.test.ts
 │       │                               # 更新错误优先级与状态结论纯逻辑
@@ -165,7 +170,8 @@ QuotaTray/
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新三命令（状态/立即检查/下载安装包）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
-│               │               #   list_native_metas 携带峰谷预置 DTO
+│               │               #   list_native_metas 携带模型级 plan/windows、DeepSeek
+│               │               #   CNY/USD 预置套与按 native id 聚类的自定义模型 DTO
 │               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts，
 │               │               #   含峰谷行/定价错误带参方法）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/

@@ -1,6 +1,8 @@
 import type {
+  CustomModelDef,
   NativeMeta,
   PeakWindow,
+  PlanKind,
   PresetPricing,
   PriceTier,
   PricingConfig,
@@ -14,6 +16,15 @@ export interface ProviderPricingView {
   period: "peak" | "off_peak";
   tier: PriceTier | null;
   currency?: string;
+  plan: PlanKind;
+}
+
+export interface PricingModelChoice {
+  value: string;
+  modelId: string | null;
+  label: string;
+  plan: PlanKind;
+  source: "preset" | "custom";
 }
 
 const DAY_BY_INDEX: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -34,6 +45,51 @@ function pricingNotEmpty(pricing: PricingConfig): boolean {
     tierNotEmpty(pricing.off_peak) ||
     pricing.currency != null
   );
+}
+
+function presetForCurrency(nativeMeta: NativeMeta | undefined, currency: string | undefined) {
+  const normalized = currency?.trim().toUpperCase();
+  return (normalized ? nativeMeta?.pricing_by_currency?.[normalized] : undefined)
+    ?? nativeMeta?.pricing
+    ?? null;
+}
+
+export function pricingModelChoices(
+  preset: PresetPricing | null,
+  customModels: CustomModelDef[],
+): PricingModelChoice[] {
+  const choices: PricingModelChoice[] = [];
+  const defaultModel = preset?.models.find((model) => model.id === preset.default_model);
+  if (defaultModel) {
+    choices.push({
+      value: "default",
+      modelId: null,
+      label: defaultModel.display,
+      plan: defaultModel.plan,
+      source: "preset",
+    });
+  }
+  for (const model of customModels) {
+    choices.push({
+      value: `model:${model.id}`,
+      modelId: model.id,
+      label: model.display,
+      plan: "pay_as_you_go",
+      source: "custom",
+    });
+  }
+  const customIds = new Set(customModels.map((model) => model.id.toLowerCase()));
+  for (const model of preset?.models ?? []) {
+    if (model.id === preset?.default_model || customIds.has(model.id.toLowerCase())) continue;
+    choices.push({
+      value: `model:${model.id}`,
+      modelId: model.id,
+      label: model.display,
+      plan: model.plan,
+      source: "preset",
+    });
+  }
+  return choices;
 }
 
 function parseMinutes(value: string): number | null {
@@ -84,43 +140,56 @@ export function resolveProviderPricingView(
   entry: ProviderEntry,
   nativeMeta: NativeMeta | undefined,
   nowMs = Date.now(),
+  usageCurrency?: string,
 ): ProviderPricingView | null {
-  const preset = nativeMeta?.pricing ?? null;
+  const preset = presetForCurrency(nativeMeta, usageCurrency);
+  const library = nativeMeta?.custom_models ?? [];
   const custom = entry.pricing;
   if (!preset && (!custom || !pricingNotEmpty(custom))) return null;
 
   const requestedModel = custom?.model;
-  const matchedModel = requestedModel
+  const libraryModel = requestedModel
+    ? library.find((model) => model.id.toLowerCase() === requestedModel.toLowerCase())
+    : undefined;
+  const presetModel = requestedModel
     ? preset?.models.find((model) => model.id.toLowerCase() === requestedModel.toLowerCase())
     : undefined;
   const defaultModel = preset?.models.find((model) => model.id === preset.default_model);
-  const model = matchedModel ?? defaultModel;
-  const modelLabel = matchedModel?.display ?? requestedModel ?? defaultModel?.display;
-  const windows = custom?.windows ?? preset?.windows ?? [];
+  const model = libraryModel ?? presetModel ?? defaultModel;
+  const modelLabel = (libraryModel ?? presetModel)?.display ?? requestedModel ?? defaultModel?.display;
+  const modelWindows = model?.windows ?? undefined;
+  const windows = custom?.windows ?? modelWindows ?? preset?.windows ?? [];
   const timezoneOffsetMinutes =
-    custom?.timezone_offset_minutes ?? preset?.timezone_offset_minutes;
+    custom?.timezone_offset_minutes
+    ?? (libraryModel ? libraryModel.timezone_offset_minutes : undefined)
+    ?? preset?.timezone_offset_minutes;
   const period = isPeakAt(windows, timezoneOffsetMinutes, nowMs) ? "peak" : "off_peak";
   const customTier = period === "peak" ? custom?.peak : custom?.off_peak;
-  const presetTier = period === "peak" ? model?.peak : model?.off_peak;
-  const tier = tierNotEmpty(customTier) ? customTier : (presetTier ?? null);
+  const modelTier = period === "peak" ? model?.peak : model?.off_peak;
+  const tier = tierNotEmpty(customTier)
+    ? customTier
+    : tierNotEmpty(modelTier) ? modelTier : null;
+  const plan = libraryModel
+    ? "pay_as_you_go"
+    : (presetModel ?? defaultModel)?.plan ?? "pay_as_you_go";
 
   return {
     modelId: model?.id,
     modelLabel,
     period,
     tier,
-    currency: custom?.currency ?? preset?.currency,
+    currency: custom?.currency ?? libraryModel?.currency ?? preset?.currency,
+    plan,
   };
 }
 
 /** 模型即时切换：默认模型省略字段，且空 pricing 不落盘。 */
 export function withProviderModel(
   entry: ProviderEntry,
-  preset: PresetPricing,
-  modelId: string,
+  modelId: string | null,
 ): ProviderEntry {
   const pricing: PricingConfig = { ...(entry.pricing ?? {}) };
-  if (modelId.toLowerCase() === preset.default_model.toLowerCase()) {
+  if (modelId == null) {
     delete pricing.model;
   } else {
     pricing.model = modelId;

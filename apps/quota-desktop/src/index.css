@@ -134,6 +134,7 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-prices div { min-width: 0; }
 .qt-provider-prices dt { overflow: hidden; color: var(--qt-text-soft); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .qt-provider-prices dd { margin: 3px 0 0; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.qt-subscription-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; color: var(--qt-text-soft); font-size: 12px; }
 .qt-provider-windows { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; color: var(--qt-text-soft); font-size: 12px; }
 .qt-provider-windows > span { display: inline-flex; align-items: center; gap: 4px; }
 .qt-provider-windows > span.is-alert { color: var(--qt-danger); font-weight: 650; }
@@ -282,6 +283,10 @@ button:disabled { cursor: not-allowed; }
 .qt-preview-tier dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 7px 0 0; }
 .qt-preview-tier dt { overflow: hidden; color: var(--qt-text-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .qt-preview-tier dd { margin: 3px 0 0; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.qt-preview-subscription { display: flex; grid-column: 1 / -1; align-items: flex-start; gap: 10px; }
+.qt-preview-subscription p { margin: 0; font-size: 13px; font-weight: 650; }
+.qt-preview-subscription span:last-child { display: block; margin-top: 3px; color: var(--qt-text-soft); font-size: 11px; }
+.qt-subscription-editor-note { display: flex; align-items: center; gap: 9px; margin-top: 14px; border-radius: 9px; padding: 11px; background: var(--qt-accent-soft); color: var(--qt-accent-strong); font-size: 12px; }
 .qt-input-compact { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
 
 @media (max-width: 620px) {

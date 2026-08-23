@@ -24,6 +24,7 @@ function AppInner() {
   const nativeMetas = useNativeMetas();
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
+  const [editingCurrency, setEditingCurrency] = useState<string | undefined>();
   // 每次打开/关闭都递增：新增与编辑共用，取消后重开不残留上次中间态
   // （含 key 输入框——残留会导致"只想改名"的保存把放弃的 key 一并写入）
   const [dialogSeq, setDialogSeq] = useState(0);
@@ -54,6 +55,7 @@ function AppInner() {
               icon={Plus}
               onClick={() => {
                 setEditing(null);
+                setEditingCurrency(undefined);
                 setDialogSeq((sequence) => sequence + 1);
                 setEditOpen(true);
               }}
@@ -93,8 +95,9 @@ function AppInner() {
                     ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
                     : undefined
                 }
-                onEdit={(provider) => {
+                onEdit={(provider, usageCurrency) => {
                   setEditing(provider);
+                  setEditingCurrency(usageCurrency);
                   setDialogSeq((sequence) => sequence + 1);
                   setEditOpen(true);
                 }}
@@ -107,6 +110,7 @@ function AppInner() {
       <EditDialog
         open={editOpen}
         initial={editing}
+        usageCurrency={editingCurrency}
         onClose={() => {
           setEditOpen(false);
           setDialogSeq((s) => s + 1); // 关闭即作废当前表单态，重开从 initial 重建

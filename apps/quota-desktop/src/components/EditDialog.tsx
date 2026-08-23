@@ -22,6 +22,7 @@ import { Button, DialogShell } from "./ui";
 interface Props {
   open: boolean;
   initial: ProviderEntry | null; // null = 新增
+  usageCurrency?: string;
   onClose: () => void;
 }
 
@@ -49,7 +50,7 @@ function toTemplateError(e: unknown): TemplateErrorDto | null {
 const inputCls = "qt-input";
 const labelCls = "qt-field-label";
 
-export function EditDialog({ open, initial, onClose }: Props) {
+export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
   const qc = useQueryClient();
   const { t } = useLang();
   const natives = useNativeMetas();
@@ -73,10 +74,15 @@ export function EditDialog({ open, initial, onClose }: Props) {
   // 峰谷定价：ref 收集（PricingSection 内聚草稿态，mount/变更时上报）
   const pricingRef = useRef<PricingConfig | undefined>(undefined);
   const initialTab = initial?.kind.type === "template" ? "template" : "native";
-  const selectedPreset = useMemo(() => {
+  const selectedNativeMeta = useMemo(() => {
     if (tab !== "native") return null;
-    return natives.data?.find((m) => m.id === nativeProvider)?.pricing ?? null;
+    return natives.data?.find((m) => m.id === nativeProvider) ?? null;
   }, [tab, nativeProvider, natives.data]);
+  const selectedPreset = (
+    usageCurrency
+      ? selectedNativeMeta?.pricing_by_currency?.[usageCurrency.trim().toUpperCase()]
+      : undefined
+  ) ?? selectedNativeMeta?.pricing ?? null;
 
   const invalidateAll = () => {
     void qc.invalidateQueries({ queryKey: ["providers"] });
@@ -227,6 +233,7 @@ export function EditDialog({ open, initial, onClose }: Props) {
         <PricingSection
           key={`${tab}:${nativeProvider}`}
           preset={selectedPreset}
+          customModels={selectedNativeMeta?.custom_models ?? []}
           initial={tab === initialTab ? initial?.pricing : undefined}
           onChange={(pricing) => {
             pricingRef.current = pricing;

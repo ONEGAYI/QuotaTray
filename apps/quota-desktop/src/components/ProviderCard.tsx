@@ -21,7 +21,11 @@ import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { deriveProviderCardState } from "./providerCardView";
-import { resolveProviderPricingView, withProviderModel } from "./providerPricing";
+import {
+  pricingModelChoices,
+  resolveProviderPricingView,
+  withProviderModel,
+} from "./providerPricing";
 import { formatPrice } from "./pricingDraft";
 import { Badge, Button, ConfirmDialog, DropdownMenu, IconButton, MenuItem, Tooltip } from "./ui";
 
@@ -31,7 +35,7 @@ interface Props {
   thresholdPercent: number;
   snapshot?: SnapshotEntry;
   nativeMeta?: NativeMeta;
-  onEdit: (entry: ProviderEntry) => void;
+  onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
 }
 
 function primaryValue(data: UsageData | undefined, lang: "zh" | "en") {
@@ -92,16 +96,23 @@ export function ProviderCard({
   const configured = Boolean(entry.api_key_enc);
   const mainData = view.data[0];
   const primary = primaryValue(mainData, lang);
-  const pricingView = resolveProviderPricingView(entry, nativeMeta);
+  const pricingView = resolveProviderPricingView(entry, nativeMeta, Date.now(), mainData?.unit);
+  const modelChoices = pricingModelChoices(
+    nativeMeta?.pricing ?? null,
+    nativeMeta?.custom_models ?? [],
+  );
   const platformName =
     entry.kind.type === "native" ? (nativeMeta?.name ?? entry.kind.provider) : t("card.templateKind");
-  const modelSelectValue =
-    entry.pricing?.model &&
-    nativeMeta?.pricing?.models.some(
-      (model) => model.id.toLowerCase() === entry.pricing?.model?.toLowerCase(),
-    )
-      ? entry.pricing.model
-      : nativeMeta?.pricing?.default_model;
+  const explicitModelChoice = entry.pricing?.model
+    ? modelChoices.find(
+        (choice) => choice.modelId?.toLowerCase() === entry.pricing?.model?.toLowerCase(),
+      )
+    : undefined;
+  const modelSelectValue = entry.pricing?.model
+    ? explicitModelChoice?.value ?? `model:${entry.pricing.model}`
+    : "default";
+  const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
+  const showModelSelect = modelChoices.length > (hasImplicitDefaultChoice ? 1 : 0);
   const thresholdStates = view.data.map(
     (data) => (usedPercent(data) ?? -1) >= thresholdPercent,
   );
@@ -123,15 +134,18 @@ export function ProviderCard({
   });
 
   const switchModel = useMutation({
-    mutationFn: (modelId: string) => {
-      if (!nativeMeta?.pricing) throw new Error("pricing preset missing");
-      return api.upsertProvider(withProviderModel(entry, nativeMeta.pricing, modelId), null);
+    mutationFn: (choiceValue: string) => {
+      const choice = modelChoices.find((item) => item.value === choiceValue);
+      const modelId = choiceValue === "default"
+        ? null
+        : choice?.modelId ?? choiceValue.replace(/^model:/, "");
+      return api.upsertProvider(withProviderModel(entry, modelId), null);
     },
-    onSuccess: (_, modelId) => {
+    onSuccess: (_, choiceValue) => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
       void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
-      const model = nativeMeta?.pricing?.models.find((item) => item.id === modelId);
-      setFeedback(t("card.modelChanged", { model: model?.display ?? modelId }));
+      const choice = modelChoices.find((item) => item.value === choiceValue);
+      setFeedback(t("card.modelChanged", { model: choice?.label ?? choiceValue }));
     },
     onError: (error) => setFeedback(t("card.modelChangeError", { msg: String(error) })),
   });
@@ -200,7 +214,7 @@ export function ProviderCard({
                 {platformName}
                 {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
               </span>
-              {nativeMeta?.pricing && nativeMeta.pricing.models.length > 1 && (
+              {showModelSelect && (
                 <select
                   aria-label={t("card.switchModel")}
                   value={modelSelectValue}
@@ -211,9 +225,18 @@ export function ProviderCard({
                   }}
                   className="qt-select qt-provider-model-select"
                 >
-                  {nativeMeta.pricing.models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {platformName} · {model.display}
+                  {!explicitModelChoice && entry.pricing?.model && (
+                    <option value={`model:${entry.pricing.model}`}>{entry.pricing.model}</option>
+                  )}
+                  {!hasImplicitDefaultChoice && (
+                    <option value="default">{t("pricing.noModel")}</option>
+                  )}
+                  {modelChoices.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {platformName} · {choice.label}
+                      {choice.value === "default" ? t("pricing.presetDefault") : ""}
+                      {choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : ""}
+                      {choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : ""}
                     </option>
                   ))}
                 </select>
@@ -266,12 +289,23 @@ export function ProviderCard({
             <>
               <div className="qt-pricing-context">
                 <span className={`qt-period-dot ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`} />
-                {pricingView.period === "peak" ? t("card.periodPeak") : t("card.periodOffPeak")}
-                {pricingView.currency && (
+                {pricingView.plan === "subscription"
+                  ? pricingView.period === "peak"
+                    ? t("card.subscriptionPeak")
+                    : t("card.subscriptionOffPeak")
+                  : pricingView.period === "peak"
+                    ? t("card.periodPeak")
+                    : t("card.periodOffPeak")}
+                {pricingView.plan === "pay_as_you_go" && pricingView.currency && (
                   <span>· {pricingView.currency} / {t("pricing.unitShort")}</span>
                 )}
               </div>
-              {pricingView.tier && (
+              {pricingView.plan === "subscription" ? (
+                <div className="qt-subscription-note">
+                  <Badge tone="accent">{t("pricing.subscriptionShort")}</Badge>
+                  <span>{t("pricing.subscriptionHint")}</span>
+                </div>
+              ) : pricingView.tier && (
                 <dl className="qt-provider-prices">
                   <div><dt>{t("pricing.hit")}</dt><dd>{formatPrice(pricingView.tier.cache_hit_input)}</dd></div>
                   <div><dt>{t("pricing.miss")}</dt><dd>{formatPrice(pricingView.tier.cache_miss_input)}</dd></div>
@@ -331,7 +365,7 @@ export function ProviderCard({
           >
             {entry.enabled ? t("card.disable") : t("card.enable")}
           </Button>
-          <Button variant="ghost" icon={Pencil} onClick={() => onEdit(entry)}>
+          <Button variant="ghost" icon={Pencil} onClick={() => onEdit(entry, mainData?.unit)}>
             {t("card.edit")}
           </Button>
           <div className="qt-provider-menu-anchor">

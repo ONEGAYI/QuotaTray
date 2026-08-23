@@ -34,6 +34,10 @@ pub struct NativeMetaDto {
     pub name: String,
     /// 峰谷定价预置（平台无预置则 None；前端用于展示与一键填充）。
     pub pricing: Option<PresetPricingDto>,
+    /// 按余额币种选择的预置套（当前仅 DeepSeek 同时提供 CNY/USD）。
+    pub pricing_by_currency: BTreeMap<String, PresetPricingDto>,
+    /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
+    pub custom_models: Vec<quota_core::CustomModelDef>,
 }
 
 /// 峰谷定价预置的 IPC 形状（core `PresetProvider` 的可序列化镜像）。
@@ -239,20 +243,39 @@ pub fn remove_provider(
     Ok(())
 }
 
-#[tauri::command]
-pub fn list_native_metas() -> Vec<NativeMetaDto> {
+fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
     quota_core::provider::metas()
         .into_iter()
         .map(|m| {
             let pricing =
                 quota_core::pricing::preset(m.id).map(|p| PresetPricingDto::from_preset(&p));
+            let pricing_by_currency = if m.id == "deepseek" {
+                ["CNY", "USD"]
+                    .into_iter()
+                    .filter_map(|currency| {
+                        quota_core::pricing::preset_with_currency(m.id, currency)
+                            .map(|preset| (currency.into(), PresetPricingDto::from_preset(&preset)))
+                    })
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
             NativeMetaDto {
                 id: m.id.into(),
                 name: m.name.into(),
                 pricing,
+                pricing_by_currency,
+                custom_models: cfg.custom_models.get(m.id).cloned().unwrap_or_default(),
             }
         })
         .collect()
+}
+
+#[tauri::command]
+pub fn list_native_metas(state: State<'_, AppState>) -> Result<Vec<NativeMetaDto>, String> {
+    AppConfig::load(&state.paths.config())
+        .map(|cfg| native_meta_dtos(&cfg))
+        .map_err(|e| e.to_string())
 }
 
 /// 静态校验模板 JSON 文本（结构错误与校验错误统一为字段定位 Dto）。
@@ -616,7 +639,20 @@ mod tests {
     /// 订阅项 DTO 带 plan/windows 字段（前端类型镜像依据）。
     #[test]
     fn native_metas_carry_pricing_preset() {
-        let metas = list_native_metas();
+        let mut cfg = AppConfig::default();
+        cfg.custom_models.insert(
+            "deepseek".into(),
+            vec![quota_core::CustomModelDef {
+                id: "flash".into(),
+                display: "V4 Flash（自算）".into(),
+                peak: Some(quota_core::PriceTier {
+                    output: Some(9.1),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        );
+        let metas = native_meta_dtos(&cfg);
         let ds = metas.iter().find(|m| m.id == "deepseek").unwrap();
         let p = ds.pricing.as_ref().expect("deepseek 应有峰谷预置");
         assert_eq!(p.currency, "CNY");
@@ -629,6 +665,10 @@ mod tests {
         assert_eq!(j["models"][0]["id"], "flash");
         assert_eq!(j["models"][0]["peak"]["cache_hit_input"], 0.1);
         assert_eq!(j["models"][0]["plan"], "pay_as_you_go");
+        assert_eq!(ds.pricing_by_currency["CNY"].currency, "CNY");
+        assert_eq!(ds.pricing_by_currency["USD"].currency, "USD");
+        assert_eq!(ds.custom_models.len(), 1);
+        assert_eq!(ds.custom_models[0].display, "V4 Flash（自算）");
 
         // 有预置的平台（新批次）
         for id in ["kimi_cn", "kimi_global", "zhipu", "zai"] {
