@@ -570,9 +570,9 @@ pub async fn check_update_now(
 /// 下载安装包到系统下载目录，返回完整路径（前端展示路径文本，
 /// 用户自行运行安装包；打开文件夹属后续增强，暂不引 opener 插件）。
 #[tauri::command]
-pub async fn download_update(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let lang = lang_of(&state);
-    crate::update_ctl::download_installer(&state, lang).await
+    crate::update_ctl::download_installer(&app, &state, lang).await
 }
 
 // ---- 契约测试 -------------------------------------------------------------

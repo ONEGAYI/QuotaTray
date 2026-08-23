@@ -7,9 +7,12 @@
 use std::time::Duration;
 
 use quota_core::http::{HttpClient, ReqwestHttpClient};
-use quota_core::update::{self, AssetDownloader, ReqwestAssetDownloader, UpdateStatus, VERSION};
+use quota_core::update::{
+    self, AssetDownloader, DownloadProgress, DownloadProgressReporter, ReqwestAssetDownloader,
+    UpdateStatus, VERSION,
+};
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::i18n::Lang;
 use crate::state::{AppState, now_ms};
@@ -55,6 +58,22 @@ pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
+    }
+}
+
+/// 前端监听的安装包下载进度事件。
+pub const DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
+/// 自动调度完成检测后推送完整状态，已打开的设置页可立即刷新。
+pub const UPDATE_STATE_EVENT: &str = "update-state-changed";
+
+struct TauriProgressReporter<'a> {
+    app: &'a AppHandle,
+}
+
+impl DownloadProgressReporter for TauriProgressReporter<'_> {
+    fn report(&self, progress: DownloadProgress) {
+        // 窗口未打开或退出途中没有监听者都不应中断下载。
+        let _ = self.app.emit(DOWNLOAD_PROGRESS_EVENT, progress);
     }
 }
 
@@ -111,7 +130,11 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
 
 /// 下载安装包到系统下载目录（原子写），返回完整路径。
 /// 前提：状态表里已有「可下载的新版本」（先检测后下载）。
-pub async fn download_installer(state: &AppState, lang: Lang) -> Result<String, String> {
+pub async fn download_installer(
+    app: &AppHandle,
+    state: &AppState,
+    lang: Lang,
+) -> Result<String, String> {
     let info = state.update_ctl.read().unwrap().info.clone();
     let Some(info) = info else {
         return Err(lang.err_update_not_checked());
@@ -119,8 +142,9 @@ pub async fn download_installer(state: &AppState, lang: Lang) -> Result<String, 
     let Some(url) = info.asset_url else {
         return Err(lang.err_update_no_asset());
     };
+    let reporter = TauriProgressReporter { app };
     let bytes = ReqwestAssetDownloader::new()
-        .download(&url)
+        .download_with_progress(&url, &reporter)
         .await
         .map_err(|e| lang.err_update_download(&e))?;
     let name = info
@@ -152,7 +176,8 @@ pub fn spawn_scheduler(app: AppHandle) {
                 };
                 if quota_core::update::due_check(enabled, last, &time, now_ms()) {
                     if let Ok(http) = ReqwestHttpClient::new(Duration::from_secs(10)) {
-                        run_check(&state, &http).await;
+                        let inner = run_check(&state, &http).await;
+                        let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner));
                         tray::rebuild(&app, &state);
                     }
                 }

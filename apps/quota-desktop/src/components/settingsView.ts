@@ -1,4 +1,27 @@
+import type { DownloadProgress } from "../types";
+
 export type UpdateViewStatus = "checking" | "available" | "error" | "current";
+
+export function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"] as const;
+  const exponent = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  const scaled = value / 1024 ** exponent;
+  return exponent === 0 ? `${Math.round(scaled)} B` : `${scaled.toFixed(1)} ${units[exponent]}`;
+}
+
+export function downloadPercent(progress: DownloadProgress): number | null {
+  if (progress.total_bytes == null || progress.total_bytes <= 0) return null;
+  return Math.min(100, Math.round((progress.downloaded_bytes / progress.total_bytes) * 100));
+}
+
+export function formatDownloadProgress(progress: DownloadProgress): string {
+  const received = formatBytes(progress.downloaded_bytes);
+  const speed = `${formatBytes(progress.bytes_per_second)}/s`;
+  const percent = downloadPercent(progress);
+  if (progress.total_bytes == null || percent == null) return `${received} · ${speed}`;
+  return `${received} / ${formatBytes(progress.total_bytes)} · ${speed} · ${percent}%`;
+}
 
 export function resolveUpdateError({
   checkError,

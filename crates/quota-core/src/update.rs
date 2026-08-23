@@ -15,6 +15,7 @@
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{Datelike, TimeZone, Timelike};
@@ -174,10 +175,40 @@ fn pick_asset(assets: &[ReleaseAsset]) -> Option<ReleaseAsset> {
 
 // ---- 下载 -----------------------------------------------------------------
 
+/// 安装包下载进度。`total_bytes=None` 表示服务器未返回 Content-Length，
+/// 此时调用方应展示不定总量进度；速率为从本次下载开始计算的平均字节/秒。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct DownloadProgress {
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub bytes_per_second: u64,
+}
+
+/// 下载进度接收端。同步回调应快速返回；GUI 可在此转发事件，CLI 可刷新终端行。
+pub trait DownloadProgressReporter: Send + Sync {
+    fn report(&self, progress: DownloadProgress);
+}
+
 /// 安装包下载通道：独立于 HttpClient（String body 与 15s 超时载不动字节流）。
 #[async_trait]
 pub trait AssetDownloader: Send + Sync {
     async fn download(&self, url: &str) -> Result<Vec<u8>, HttpError>;
+
+    /// 带进度的兼容入口。旧下载器只实现 [`Self::download`] 仍可用，完成时
+    /// 至少收到一次终态；生产下载器覆写此方法以提供实时分块进度。
+    async fn download_with_progress(
+        &self,
+        url: &str,
+        reporter: &dyn DownloadProgressReporter,
+    ) -> Result<Vec<u8>, HttpError> {
+        let bytes = self.download(url).await?;
+        reporter.report(DownloadProgress {
+            downloaded_bytes: bytes.len() as u64,
+            total_bytes: Some(bytes.len() as u64),
+            bytes_per_second: 0,
+        });
+        Ok(bytes)
+    }
 }
 
 /// reqwest 实现的安装包下载器。
@@ -205,12 +236,13 @@ impl ReqwestAssetDownloader {
                 .unwrap_or_default(), // builder 仅设超时，失败回退默认客户端
         }
     }
-}
 
-#[async_trait]
-impl AssetDownloader for ReqwestAssetDownloader {
-    async fn download(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        let resp = self
+    async fn download_inner(
+        &self,
+        url: &str,
+        reporter: Option<&dyn DownloadProgressReporter>,
+    ) -> Result<Vec<u8>, HttpError> {
+        let mut resp = self
             .client
             .get(url)
             .header("User-Agent", &format!("QuotaTray/{VERSION}"))
@@ -223,19 +255,80 @@ impl AssetDownloader for ReqwestAssetDownloader {
                 resp.status().as_u16()
             )));
         }
-        if let Some(len) = resp.content_length() {
-            if len as usize > MAX_DOWNLOAD_BYTES {
+        let total_bytes = resp.content_length();
+        if let Some(len) = total_bytes {
+            if len > MAX_DOWNLOAD_BYTES as u64 {
                 return Err(HttpError::Network(format!(
                     "安装包过大（{len} 字节，上限 {MAX_DOWNLOAD_BYTES}）"
                 )));
             }
         }
-        let bytes = resp.bytes().await.map_err(map_reqwest_err)?;
-        if bytes.len() > MAX_DOWNLOAD_BYTES {
-            return Err(HttpError::Network("安装包超过大小上限".into()));
+
+        let mut bytes = Vec::with_capacity(
+            total_bytes
+                .unwrap_or_default()
+                .min(MAX_DOWNLOAD_BYTES as u64) as usize,
+        );
+        let started = Instant::now();
+        let mut last_report = started;
+        if let Some(reporter) = reporter {
+            reporter.report(DownloadProgress {
+                downloaded_bytes: 0,
+                total_bytes,
+                bytes_per_second: 0,
+            });
         }
-        Ok(bytes.to_vec())
+
+        while let Some(chunk) = resp.chunk().await.map_err(map_reqwest_err)? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_DOWNLOAD_BYTES {
+                return Err(HttpError::Network("安装包超过大小上限".into()));
+            }
+            bytes.extend_from_slice(&chunk);
+            if let Some(reporter) = reporter {
+                if last_report.elapsed() >= Duration::from_millis(200) {
+                    let elapsed = started.elapsed();
+                    reporter.report(DownloadProgress {
+                        downloaded_bytes: bytes.len() as u64,
+                        total_bytes,
+                        bytes_per_second: calculate_bytes_per_second(bytes.len() as u64, elapsed),
+                    });
+                    last_report = Instant::now();
+                }
+            }
+        }
+
+        if let Some(reporter) = reporter {
+            reporter.report(DownloadProgress {
+                downloaded_bytes: bytes.len() as u64,
+                total_bytes,
+                bytes_per_second: calculate_bytes_per_second(bytes.len() as u64, started.elapsed()),
+            });
+        }
+        Ok(bytes)
     }
+}
+
+#[async_trait]
+impl AssetDownloader for ReqwestAssetDownloader {
+    async fn download(&self, url: &str) -> Result<Vec<u8>, HttpError> {
+        self.download_inner(url, None).await
+    }
+
+    async fn download_with_progress(
+        &self,
+        url: &str,
+        reporter: &dyn DownloadProgressReporter,
+    ) -> Result<Vec<u8>, HttpError> {
+        self.download_inner(url, Some(reporter)).await
+    }
+}
+
+fn calculate_bytes_per_second(downloaded_bytes: u64, elapsed: Duration) -> u64 {
+    let millis = elapsed.as_millis();
+    if millis == 0 {
+        return 0;
+    }
+    ((downloaded_bytes as u128 * 1_000) / millis).min(u64::MAX as u128) as u64
 }
 
 /// reqwest 错误映射（与 http::reqwest 同语义：timeout→Timeout，其余剥 URL）。
@@ -329,7 +422,25 @@ fn local_datetime(epoch_ms: u64) -> chrono::DateTime<chrono::Local> {
 mod tests {
     use super::*;
     use crate::provider::testing::MockHttp;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingProgress(Mutex<Vec<DownloadProgress>>);
+
+    impl DownloadProgressReporter for RecordingProgress {
+        fn report(&self, progress: DownloadProgress) {
+            self.0.lock().unwrap().push(progress);
+        }
+    }
+
+    struct LegacyDownloader;
+
+    #[async_trait]
+    impl AssetDownloader for LegacyDownloader {
+        async fn download(&self, _url: &str) -> Result<Vec<u8>, HttpError> {
+            Ok(vec![1, 2, 3, 4])
+        }
+    }
 
     // ---- 版本比较 ----
 
@@ -483,6 +594,71 @@ mod tests {
         let assets = vec![mk("a.zip"), mk("b.exe")];
         assert_eq!(pick_asset(&assets).unwrap().name, "b.exe");
         assert_eq!(pick_asset(&[mk("a.zip")]), None, "无 exe 资产 → None");
+    }
+
+    #[tokio::test]
+    async fn progress_api_keeps_legacy_downloaders_compatible() {
+        let reporter = RecordingProgress::default();
+        let bytes = LegacyDownloader
+            .download_with_progress("https://x/setup.exe", &reporter)
+            .await
+            .unwrap();
+        assert_eq!(bytes, vec![1, 2, 3, 4]);
+        assert_eq!(
+            reporter.0.lock().unwrap().as_slice(),
+            &[DownloadProgress {
+                downloaded_bytes: 4,
+                total_bytes: Some(4),
+                bytes_per_second: 0,
+            }],
+            "旧实现无需改签名，也应至少收到完成态"
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_downloader_reports_initial_and_completed_progress() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nDATA")
+                .unwrap();
+        });
+
+        let reporter = RecordingProgress::default();
+        let bytes = ReqwestAssetDownloader::new()
+            .download_with_progress(&format!("http://{addr}/setup.exe"), &reporter)
+            .await
+            .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(bytes, b"DATA");
+        let reports = reporter.0.lock().unwrap();
+        assert_eq!(
+            reports.first(),
+            Some(&DownloadProgress {
+                downloaded_bytes: 0,
+                total_bytes: Some(4),
+                bytes_per_second: 0,
+            })
+        );
+        assert_eq!(reports.last().unwrap().downloaded_bytes, 4);
+        assert_eq!(reports.last().unwrap().total_bytes, Some(4));
+    }
+
+    #[test]
+    fn speed_uses_elapsed_time_and_handles_zero_duration() {
+        assert_eq!(
+            calculate_bytes_per_second(1_500, Duration::from_millis(500)),
+            3_000
+        );
+        assert_eq!(calculate_bytes_per_second(1_500, Duration::ZERO), 0);
     }
 
     // ---- 节流 / 每日定时 ----

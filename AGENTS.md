@@ -84,7 +84,8 @@ QuotaTray/
 │           │   └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
-│                              #   独立下载通道（10min 超时 + 256MB 上限）、字节原子落盘
+│                              #   独立下载通道（10min 超时 + 256MB 上限、分块进度/速率
+│                              #   回调且兼容旧实现）、字节原子落盘
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
@@ -123,7 +124,8 @@ QuotaTray/
 │   │           │              #   管理（表格价格对照/同 id 覆盖/删空移键，纯函数可测）
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
-│   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）
+│   │           │              #   --output；交互终端实时进度/速率；http 与 downloader
+│   │           │              #   可注入测试；退出码三分）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（OK 行带
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
@@ -144,9 +146,9 @@ QuotaTray/
 │       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
-│       │   │                    #   KEEP_LAST_GOOD_MS）
+│       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
 │       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
@@ -187,9 +189,10 @@ QuotaTray/
 │       │       ├── pricingDraft.ts / pricingDraft.test.ts
 │       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
 │       │       │                       #   完整自定义判定纯逻辑
-│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡与检查/下载
+│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡（有更新
+│       │       │                       #   时原位下载）+ 实时进度/速率
 │       │       └── settingsView.ts / settingsView.test.ts
-│       │                               # 更新错误优先级与状态结论纯逻辑
+│       │                               # 更新错误优先级、状态结论、进度格式化纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本经 crate 继承 workspace；CSP 基线；decorations:false；NSIS 安装包
 │           ├── capabilities/
@@ -238,8 +241,9 @@ QuotaTray/
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测三字段）
 │               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
-│               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效；
-│               │               #   同 tick 顺带峰谷翻转检测）
+│               │               #   下载目录并向前端推送进度/速率 + 每分钟调度（due_check，
+│               │               #   完成后推送状态事件；设置变更自然生效；同 tick 顺带
+│               │               #   峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
 │   └── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/

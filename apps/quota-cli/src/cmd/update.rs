@@ -3,12 +3,16 @@
 //! 退出码：成功 0（含无 release / 已最新 / 仅检测）；检测或下载的网络类
 //! 失败 2（瞬时）、解析类失败 1（确定性）——与既有三分约定对齐。
 
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use dialoguer::{Confirm, theme::ColorfulTheme};
 use quota_core::http::{HttpClient, ReqwestHttpClient};
-use quota_core::update::{self, AssetDownloader, UpdateStatus, VERSION};
+use quota_core::update::{
+    self, AssetDownloader, DownloadProgress, DownloadProgressReporter, UpdateStatus, VERSION,
+};
 
 use crate::ctx::Ctx;
 use crate::texts::{self, T, t};
@@ -20,6 +24,77 @@ pub struct UpdateArgs {
     pub yes: bool,
     /// 安装包保存目录（默认当前目录）。
     pub output: Option<PathBuf>,
+}
+
+struct CliProgressReporter {
+    enabled: bool,
+    lang: crate::lang::Lang,
+    previous_width: Mutex<usize>,
+}
+
+impl CliProgressReporter {
+    fn new(lang: crate::lang::Lang) -> Self {
+        Self {
+            enabled: std::io::stderr().is_terminal(),
+            lang,
+            previous_width: Mutex::new(0),
+        }
+    }
+
+    fn finish_line(&self) {
+        if self.enabled {
+            eprintln!();
+        }
+    }
+}
+
+impl DownloadProgressReporter for CliProgressReporter {
+    fn report(&self, progress: DownloadProgress) {
+        if !self.enabled {
+            return;
+        }
+        let line = format_cli_progress(self.lang, progress);
+        let width = line.chars().count();
+        let mut previous = self.previous_width.lock().unwrap();
+        let padding = previous.saturating_sub(width);
+        eprint!("\r{line}{:padding$}", "");
+        let _ = std::io::stderr().flush();
+        *previous = width;
+    }
+}
+
+fn format_cli_progress(lang: crate::lang::Lang, progress: DownloadProgress) -> String {
+    let prefix = t(lang, T::UpdateDownloading);
+    let downloaded = format_bytes(progress.downloaded_bytes);
+    let speed = format!("{}/s", format_bytes(progress.bytes_per_second));
+    match progress.total_bytes.filter(|total| *total > 0) {
+        Some(total) => {
+            let percent = (progress.downloaded_bytes.saturating_mul(100) / total).min(100);
+            format!(
+                "{prefix} {downloaded} / {} · {speed} · {percent}%",
+                format_bytes(total)
+            )
+        }
+        None => format!("{prefix} {downloaded} · {speed}"),
+    }
+}
+
+fn format_bytes(value: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    if value == 0 {
+        return "0 B".into();
+    }
+    let mut scaled = value as f64;
+    let mut unit = 0;
+    while scaled >= 1024.0 && unit < UNITS.len() - 1 {
+        scaled /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{value} B")
+    } else {
+        format!("{scaled:.1} {}", UNITS[unit])
+    }
 }
 
 /// 生产入口：reqwest 检测（10s 超时）+ reqwest 下载（10 分钟超时）。
@@ -103,8 +178,21 @@ pub async fn run_with(
                     return 0;
                 }
             }
-            println!("{}", t(lang, T::UpdateDownloading));
-            match downloader.download(&asset.browser_download_url).await {
+            let progress = CliProgressReporter::new(lang);
+            if progress.enabled {
+                progress.report(DownloadProgress {
+                    downloaded_bytes: 0,
+                    total_bytes: (asset.size > 0).then_some(asset.size),
+                    bytes_per_second: 0,
+                });
+            } else {
+                println!("{}", t(lang, T::UpdateDownloading));
+            }
+            let result = downloader
+                .download_with_progress(&asset.browser_download_url, &progress)
+                .await;
+            progress.finish_line();
+            match result {
                 Err(e) => {
                     eprintln!("{}{e}", t(lang, T::UpdateDownloadFail));
                     // HttpError 全三分类中仅 InvalidRequest 是确定性
@@ -325,6 +413,29 @@ mod tests {
         )
         .await;
         assert_eq!(code, 1);
+    }
+
+    #[test]
+    fn cli_progress_formats_known_and_unknown_totals() {
+        let known = format_cli_progress(
+            Lang::En,
+            DownloadProgress {
+                downloaded_bytes: 5 * 1024 * 1024,
+                total_bytes: Some(20 * 1024 * 1024),
+                bytes_per_second: 2 * 1024 * 1024,
+            },
+        );
+        assert_eq!(known, "Downloading… 5.0 MB / 20.0 MB · 2.0 MB/s · 25%");
+
+        let unknown = format_cli_progress(
+            Lang::Zh,
+            DownloadProgress {
+                downloaded_bytes: 1536,
+                total_bytes: None,
+                bytes_per_second: 0,
+            },
+        );
+        assert_eq!(unknown, "下载中… 1.5 KB · 0 B/s");
     }
 
     fn never_downloader() -> FakeDownloader {

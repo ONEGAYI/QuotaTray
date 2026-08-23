@@ -1,12 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Check, ExternalLink, PackageCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
 import { useSettings, useUpdateState } from "../queries";
-import type { Settings } from "../types";
-import { resolveUpdateError, resolveUpdateStatus } from "./settingsView";
+import type { DownloadProgress, Settings } from "../types";
+import {
+  downloadPercent,
+  formatDownloadProgress,
+  resolveUpdateError,
+  resolveUpdateStatus,
+} from "./settingsView";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -24,6 +30,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("general");
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
 
   useEffect(() => {
     if (open && settings.data) setDraft({ ...settings.data });
@@ -32,6 +39,15 @@ export function SettingsDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
   }, [open, qc]);
+
+  useEffect(() => {
+    const unlisten = listen<DownloadProgress>("update-download-progress", (event) => {
+      setDownloadProgress(event.payload);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const save = useMutation({
     mutationFn: (value: Settings) => api.saveSettings(value),
@@ -66,6 +82,8 @@ export function SettingsDialog({ open, onClose }: Props) {
     hasAvailable: Boolean(available),
     error: operationError,
   });
+  const canDownload = Boolean(available?.downloadable);
+  const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
   return (
     <DialogShell
@@ -189,16 +207,50 @@ export function SettingsDialog({ open, onClose }: Props) {
                   </p>
                 </div>
                 <Button
-                  disabled={checkNow.isPending}
+                  variant={canDownload ? "primary" : undefined}
+                  disabled={checkNow.isPending || download.isPending}
                   onClick={() => {
                     setDownloadedPath(null);
-                    download.reset();
-                    checkNow.mutate();
+                    setDownloadProgress(
+                      canDownload
+                        ? {
+                            downloaded_bytes: 0,
+                            total_bytes: available?.asset_size ?? null,
+                            bytes_per_second: 0,
+                          }
+                        : null,
+                    );
+                    if (canDownload) {
+                      checkNow.reset();
+                      download.mutate();
+                    } else {
+                      download.reset();
+                      checkNow.mutate();
+                    }
                   }}
                 >
-                  {t("settings.checkNow")}
+                  {download.isPending
+                    ? t("settings.downloading")
+                    : canDownload
+                      ? t("settings.download")
+                      : t("settings.checkNow")}
                 </Button>
               </div>
+              {download.isPending && downloadProgress && (
+                <div className="qt-update-download-progress">
+                  <div
+                    className={`qt-update-progress-track ${percent == null ? "is-indeterminate" : ""}`}
+                    role="progressbar"
+                    aria-label={t("settings.downloading")}
+                    aria-valuemin={percent == null ? undefined : 0}
+                    aria-valuemax={percent == null ? undefined : 100}
+                    aria-valuenow={percent ?? undefined}
+                  >
+                    <span style={percent == null ? undefined : { width: `${percent}%` }} />
+                  </div>
+                  <p>{formatDownloadProgress(downloadProgress)}</p>
+                </div>
+              )}
               <SettingRow title={t("settings.updateEnabledTitle")} description={t("settings.updateEnabledHint")}>
                 <Switch
                   label={t("settings.updateEnabledTitle")}
@@ -214,19 +266,6 @@ export function SettingsDialog({ open, onClose }: Props) {
                   onChange={(event) => setDraft({ ...draft, update_check_time: event.target.value })}
                 />
               </SettingRow>
-              {available?.downloadable && (
-                <Button
-                  variant="primary"
-                  disabled={download.isPending}
-                  onClick={() => {
-                    setDownloadedPath(null);
-                    checkNow.reset();
-                    download.mutate();
-                  }}
-                >
-                  {download.isPending ? t("settings.downloading") : t("settings.download")}
-                </Button>
-              )}
               {available && !available.downloadable && (
                 <a
                   className="qt-settings-manual-link"

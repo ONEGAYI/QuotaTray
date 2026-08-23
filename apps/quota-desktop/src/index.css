@@ -370,6 +370,15 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-update-status-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--qt-success); color: var(--qt-on-accent); }
 .qt-update-status h3 { margin: 0; font-size: 14px; font-weight: 650; }
 .qt-update-status p { margin: 4px 0 0; color: var(--qt-text-soft); font-size: 12px; }
+.qt-update-download-progress { margin: 4px 0 10px; }
+.qt-update-download-progress p { margin: 6px 0 0; color: var(--qt-text-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qt-update-progress-track { height: 6px; overflow: hidden; border-radius: 999px; background: var(--qt-border); }
+.qt-update-progress-track > span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--qt-accent); transition: width 180ms ease; }
+.qt-update-progress-track.is-indeterminate > span { width: 38%; animation: qt-update-progress-indeterminate 1.2s ease-in-out infinite; }
+@keyframes qt-update-progress-indeterminate {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(300%); }
+}
 .qt-settings-success { color: var(--qt-success); font-size: 12px; overflow-wrap: anywhere; }
 .qt-settings-manual-link { display: inline-flex; max-width: 100%; align-items: flex-start; gap: 6px; margin: 4px 0 8px; color: var(--qt-accent-strong); font-size: 12px; overflow-wrap: anywhere; }
 .qt-settings-manual-link svg { flex: none; margin-top: 1px; }

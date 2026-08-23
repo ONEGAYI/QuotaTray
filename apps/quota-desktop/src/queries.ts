@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
+import type { UpdateStateDto } from "./types";
 
 export function useProviders() {
   return useQuery({
@@ -76,8 +77,17 @@ export function useSnapshots() {
   });
 }
 
-/** 更新检测状态（设置页「更新」分页展示；调度任务检测后由手动/保存动作失效）。 */
+/** 更新检测状态（设置页「更新」分页展示；自动调度完成后由后端事件即时推送）。 */
 export function useUpdateState() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<UpdateStateDto>("update-state-changed", (event) => {
+      qc.setQueryData(["update-state"], event.payload);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [qc]);
   return useQuery({
     queryKey: ["update-state"],
     queryFn: api.getUpdateState,
