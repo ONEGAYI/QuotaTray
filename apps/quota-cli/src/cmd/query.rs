@@ -68,7 +68,8 @@ pub async fn run(
             let payload: Vec<_> = outcomes.iter().map(|o| o.to_json()).collect();
             println!("{}", serde_json::to_string_pretty(&payload).unwrap());
         } else {
-            println!("{}", render::query_table(outcomes, lang));
+            let now_ms = chrono::Local::now().timestamp_millis();
+            println!("{}", render::query_table(outcomes, lang, now_ms));
         }
     };
 
@@ -276,7 +277,7 @@ mod tests {
 
         // 双语表格均含全部余额值
         for lang in [crate::lang::Lang::Zh, crate::lang::Lang::En] {
-            let table = render::query_table(&outcomes, lang);
+            let table = render::query_table(&outcomes, lang, 1_700_000_000_000);
             assert!(table.contains("88"), "{lang:?} deepseek 余额：{table}");
             assert!(table.contains("42.5"), "{lang:?} siliconflow 余额：{table}");
             assert!(

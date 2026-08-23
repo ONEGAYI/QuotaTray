@@ -52,6 +52,7 @@ export const zh = {
   "card.lastSuccess": "上次成功 · {time}",
   "card.neverSucceeded": "尚未成功查询",
   "card.moreWindows": "+{count} 个窗口",
+  "card.resetIn": "{time} 后重置",
   "card.details": "详情",
   "card.collapse": "收起",
   "card.periodPeak": "当前为高峰时段",

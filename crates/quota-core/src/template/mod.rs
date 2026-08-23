@@ -528,6 +528,7 @@ fn extract_usage(extract: &ExtractSpec, ctx: &Value) -> Result<UsageData, QueryE
         used: num(&extract.used, "used")?,
         remaining: num(&extract.remaining, "remaining")?,
         unit: text(&extract.unit)?,
+        reset_at: None,
         is_valid: boolean(&extract.is_valid)?,
         invalid_message: text(&extract.invalid_message)?,
         extra: None,

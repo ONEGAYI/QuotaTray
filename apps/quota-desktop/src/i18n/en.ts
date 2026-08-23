@@ -49,6 +49,7 @@ export const en: Record<TextKey, string> = {
   "card.lastSuccess": "Last success · {time}",
   "card.neverSucceeded": "No successful query yet",
   "card.moreWindows": "+{count} windows",
+  "card.resetIn": "Resets in {time}",
   "card.details": "Details",
   "card.collapse": "Collapse",
   "card.periodPeak": "Peak period now",

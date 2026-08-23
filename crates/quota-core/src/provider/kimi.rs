@@ -79,6 +79,7 @@ impl NativeProvider for Kimi {
             used: None,
             remaining: Some(remaining),
             unit: Some(self.unit.into()),
+            reset_at: None,
             is_valid: None,
             invalid_message: None,
             extra: Some(serde_json::json!({

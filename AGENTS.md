@@ -39,7 +39,7 @@ QuotaTray/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
-│           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
+│           ├── model.rs       # UsageData（含窗口重置时刻 reset_at）/ QueryError 双轨分类，附契约单测
 │           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
 │           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
@@ -72,7 +72,8 @@ QuotaTray/
 │           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
 │           │                         #   5h 空槽宁缺毋错；TIME_LIMIT 独立成
 │           │                         #   MCP 行（不受变体过滤）；PlanVariant
-│           │                         #   声明过滤——NoWeekly 只留 5h、Weekly 放宽）
+│           │                         #   声明过滤——NoWeekly 只留 5h、Weekly 放宽；
+│           │                         #   各窗口 nextResetTime 透传 reset_at 供倒计时）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
@@ -97,6 +98,7 @@ QuotaTray/
 │   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct）+
 │   │       │                  #   last_check 写回（Value 读改写保留未知字段 + 原子写）
 │   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）+
+│   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
 │   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
@@ -139,13 +141,14 @@ QuotaTray/
 │       │   ├── assets/
 │       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
-│       │   │                    #   PlanVariant、自定义模型库/按币种预置 DTO、
+│       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
 │       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
 │       │   ├── display.ts / display.test.ts
-│       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）
+│       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
+│       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
 │       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
@@ -159,11 +162,13 @@ QuotaTray/
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── BrandMark.tsx       # 标题栏/悬停面板共用的静态品牌标志薄组件
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
-│       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
+│       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口
+│       │       │                       #   逐窗主数值（短标签）+重置倒计时小字+
 │       │       │                       #   短时反馈、启停/编辑/删除确认
 │       │       ├── HoverPanel.tsx       # 托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +
 │       │       │                       #   圆环数据源账户与计价模型即时切换、
-│       │       │                       #   头部刷新/关闭按钮、低垂直空间压缩布局
+│       │       │                       #   头部刷新/关闭按钮、低垂直空间压缩布局、
+│       │       │                       #   hero 多窗口标签与用量行重置倒计时
 │       │       ├── hoverPanelView.ts / hoverPanelView.test.ts
 │       │       │                       # 悬停条目回退、前端圆环镜像与压缩视口
 │       │       │                       # 判定（联动后端缩窗）纯逻辑

@@ -138,6 +138,11 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-balance strong { display: inline-flex; align-items: baseline; gap: 4px; margin-top: 3px; color: var(--qt-text); font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; white-space: nowrap; }
 .qt-provider-balance strong.is-alert { color: var(--qt-danger); }
 .qt-provider-balance small { color: var(--qt-text-soft); font-size: 11px; font-weight: 500; }
+/* 多窗口（如智谱 5h/周限/MCP）：逐窗小数值行 + 重置倒计时 */
+.qt-provider-balance.is-multi { gap: 5px; }
+.qt-balance-item { display: flex; flex-direction: column; align-items: flex-end; }
+.qt-balance-item strong { font-size: 17px; margin-top: 1px; }
+.qt-balance-reset { color: var(--qt-text-soft); font-size: 11px; font-variant-numeric: tabular-nums; margin-top: 1px; }
 .qt-provider-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; color: var(--qt-text-soft); font-size: 12px; }
 .qt-provider-meta .qt-tooltip-anchor > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .qt-provider-meta .is-warning { color: var(--qt-warning); }
@@ -311,6 +316,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-hero > div:first-child > span { color: var(--qt-text-soft); font-size: 12px; }
 .qt-hover-hero strong { display: inline-flex; align-items: baseline; gap: 6px; font-size: 30px; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
 .qt-hover-hero strong small { color: var(--qt-text-soft); font-size: 12px; font-weight: 550; letter-spacing: 0; }
+.qt-hover-reset { color: var(--qt-text-soft); font-size: 11px; font-variant-numeric: tabular-nums; }
 .qt-hover-ring { position: relative; display: grid; width: 58px; height: 58px; flex: none; place-items: center; }
 .qt-hover-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
 .qt-hover-ring circle { fill: none; stroke: color-mix(in srgb, var(--qt-text-faint) 24%, transparent); stroke-width: 6; }
@@ -329,6 +335,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-usage > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--qt-text-soft); font-size: 11px; }
 .qt-hover-usage > div:first-child span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-hover-usage > div:first-child b { flex: none; color: var(--qt-text); font-weight: 600; }
+.qt-hover-usage-reset { flex: none; color: var(--qt-text-soft); font-size: 10px; font-variant-numeric: tabular-nums; }
 .qt-hover-progress { height: 5px; margin-top: 7px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--qt-text-faint) 17%, transparent); }
 .qt-hover-progress span { display: block; height: 100%; border-radius: inherit; background: var(--qt-accent); }
 .qt-hover-pricing { margin-top: 10px; border-radius: 10px; padding: 10px 11px 8px; background: var(--qt-surface-soft); }

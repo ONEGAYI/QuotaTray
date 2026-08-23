@@ -8,6 +8,8 @@ export interface UsageData {
   used?: number;
   remaining?: number;
   unit?: string;
+  /** 额度窗口重置时刻（epoch 毫秒；订阅/限额窗口有值，余额类无）。 */
+  reset_at?: number;
   is_valid?: boolean;
   invalid_message?: string;
   extra?: unknown;

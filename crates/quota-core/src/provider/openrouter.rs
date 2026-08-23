@@ -54,6 +54,7 @@ impl NativeProvider for OpenRouter {
             used: Some(used),
             remaining: Some(remaining),
             unit: Some("USD".into()),
+            reset_at: None,
             is_valid: Some(!exhausted),
             invalid_message: exhausted.then(|| "额度已耗尽".into()),
             extra: None,

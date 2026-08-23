@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, relativeTime, usedPercent } from "../display";
+import { amountText, dataSummary, relativeTime, resetCountdown, usedPercent, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -109,6 +109,11 @@ function HoverPanelInner() {
   });
   const mainData = view.data[0];
   const primary = primaryValue(mainData);
+  // 多窗口时 hero 标签带窗口短标注（"已用 5h"），单窗口保持通用文案
+  const heroWindow = view.data.length > 1
+    ? windowShortLabel(mainData?.plan_name, 0, lang)
+    : null;
+  const heroReset = resetCountdown(mainData?.reset_at);
   const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100);
   const nativeProviderId = entry?.kind.type === "native" ? entry.kind.provider : undefined;
   const nativeMeta = nativeProviderId
@@ -265,8 +270,9 @@ function HoverPanelInner() {
           <main className="qt-hover-content">
             <section className="qt-hover-hero">
               <div>
-                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "used" ? t("hover.usedQuota") : t("card.noData")}</span>
+                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "used" ? (heroWindow ? (lang === "zh" ? `已用 ${heroWindow}` : `Used ${heroWindow}`) : t("hover.usedQuota")) : t("card.noData")}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
+                {heroReset && <small className="qt-hover-reset" title={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>
               <div className={`qt-hover-ring ${overThreshold ? "is-alert" : ""}`} aria-label={renderedStatus}>
                 <svg viewBox="0 0 48 48" aria-hidden="true">
@@ -297,9 +303,14 @@ function HoverPanelInner() {
               <section className="qt-hover-usage-list">
                 {visibleWindows.map((item, index) => {
                   const percent = usedPercent(item);
+                  const reset = resetCountdown(item.reset_at);
                   return (
                     <div className="qt-hover-usage" key={`${item.plan_name ?? "window"}-${index}`}>
-                      <div><span>{item.plan_name ?? t("card.windowN", { n: index + 1 })}</span><b>{dataSummary(item, lang)}</b></div>
+                      <div>
+                        <span>{item.plan_name ?? t("card.windowN", { n: index + 1 })}</span>
+                        <b>{dataSummary(item, lang)}</b>
+                        {reset && <small className="qt-hover-usage-reset">{reset}</small>}
+                      </div>
                       {percent != null && (
                         <div className="qt-hover-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}>
                           <span style={{ width: `${Math.max(0, Math.min(100, percent))}%` }} />

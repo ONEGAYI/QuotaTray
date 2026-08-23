@@ -156,6 +156,7 @@ fn parse_windows(data: &Value, variant: PlanVariant) -> Vec<UsageData> {
                 used: Some(used),
                 remaining: Some(100.0 - used),
                 unit: Some("%".into()),
+                reset_at: item.get("nextResetTime").and_then(Value::as_i64),
                 is_valid: None,
                 invalid_message: None,
                 extra: Some(item.clone()),
@@ -228,6 +229,12 @@ mod tests {
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
         assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（week）"));
         assert_eq!(data[1].remaining, Some(93.0));
+        assert_eq!(
+            data[0].reset_at,
+            Some(1_755_000_000_000),
+            "nextResetTime 应进入 reset_at 供倒计时展示"
+        );
+        assert_eq!(data[1].reset_at, Some(1_755_500_000_000));
         assert_eq!(
             data[0].extra.as_ref().unwrap()["unit"],
             serde_json::json!(3),
@@ -380,8 +387,10 @@ mod tests {
             assert_eq!(data.len(), 2, "{variant:?}：5h 与 MCP 两行");
             assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
             assert_eq!(data[0].used, Some(20.0));
+            assert_eq!(data[0].reset_at, Some(1_787_501_495_548));
             assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（MCP）"));
             assert_eq!(data[1].used, Some(32.0));
+            assert_eq!(data[1].reset_at, Some(1_789_162_988_000), "MCP 行同样携带重置时刻");
             assert_eq!(
                 data[1].extra.as_ref().unwrap()["type"],
                 serde_json::json!("TIME_LIMIT"),

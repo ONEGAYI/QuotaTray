@@ -83,21 +83,23 @@ pub fn kind_label(kind: &ProviderKind) -> String {
 
 // ---- 各命令表格 ----------------------------------------------------------
 
-/// `quota query` 表格：名称 / 套餐 / 已用 / 剩余 / 单位 / 状态。
+/// `quota query` 表格：名称 / 套餐 / 已用 / 剩余 / 单位 / 重置 / 状态。
 /// 多窗口条目每窗口一行；条目失败占一行，状态列带错误分类前缀。
-pub fn query_table(outcomes: &[QueryOutcome], lang: Lang) -> String {
+/// `now_ms` 注入当前时刻（倒计时纯函数可测）。
+pub fn query_table(outcomes: &[QueryOutcome], lang: Lang, now_ms: i64) -> String {
     let mut table = new_table(&[
         t(lang, T::ColName),
         t(lang, T::ColPlan),
         t(lang, T::ColUsed),
         t(lang, T::ColRemaining),
         t(lang, T::ColUnit),
+        t(lang, T::ColReset),
         t(lang, T::ColStatus),
     ]);
     for o in outcomes {
         match &o.result {
             Ok(rows) if rows.is_empty() => {
-                table.add_row(row(&o.name, &UsageData::default(), t(lang, T::OkNoData)));
+                table.add_row(row(&o.name, &UsageData::default(), t(lang, T::OkNoData), now_ms));
             }
             Ok(rows) => {
                 for d in rows {
@@ -109,7 +111,7 @@ pub fn query_table(outcomes: &[QueryOutcome], lang: Lang) -> String {
                         ),
                         _ => "OK".to_string(),
                     };
-                    table.add_row(row(&o.name, d, &status));
+                    table.add_row(row(&o.name, d, &status, now_ms));
                 }
             }
             Err(e) => {
@@ -122,6 +124,7 @@ pub fn query_table(outcomes: &[QueryOutcome], lang: Lang) -> String {
                     &o.name,
                     &UsageData::default(),
                     &format!("[{kind}] {}", e.message()),
+                    now_ms,
                 ));
             }
         }
@@ -129,14 +132,45 @@ pub fn query_table(outcomes: &[QueryOutcome], lang: Lang) -> String {
     table.to_string()
 }
 
-/// 一行数据：数值列右对齐。
-fn row(name: &str, d: &UsageData, status: &str) -> Vec<Cell> {
+/// 额度重置倒计时（语言中性缩写）："21m" / "3h21m" / "3h" / "4d17h" / "4d"。
+/// None 或已到期（<= 0）显示 "-"——窗口翻转在即，倒计时无意义。
+/// 跨入天级后丢弃分钟粒度（天级窗口为周/月窗口，小时精度已足够）。
+pub fn fmt_reset_countdown(reset_at: Option<i64>, now_ms: i64) -> String {
+    let Some(reset_at) = reset_at else {
+        return "-".into();
+    };
+    let total_min = (reset_at - now_ms) / 60_000;
+    if total_min <= 0 {
+        return "-".into();
+    }
+    if total_min < 60 {
+        return format!("{total_min}m");
+    }
+    let h = total_min / 60;
+    if h < 24 {
+        return if total_min % 60 == 0 {
+            format!("{h}h")
+        } else {
+            format!("{h}h{}m", total_min % 60)
+        };
+    }
+    let d = h / 24;
+    if h % 24 == 0 {
+        format!("{d}d")
+    } else {
+        format!("{d}d{}h", h % 24)
+    }
+}
+
+/// 一行数据：数值列右对齐；重置列为倒计时（无/过期显示 "-"）。
+fn row(name: &str, d: &UsageData, status: &str, now_ms: i64) -> Vec<Cell> {
     vec![
         Cell::new(name),
         Cell::new(d.plan_name.clone().unwrap_or_else(|| "-".into())),
         Cell::new(fmt_num(d.used)).set_alignment(CellAlignment::Right),
         Cell::new(fmt_num(d.remaining)).set_alignment(CellAlignment::Right),
         Cell::new(d.unit.clone().unwrap_or_else(|| "-".into())),
+        Cell::new(fmt_reset_countdown(d.reset_at, now_ms)).set_alignment(CellAlignment::Right),
         Cell::new(status),
     ]
 }
@@ -372,6 +406,9 @@ mod tests {
         }
     }
 
+    /// 倒计时断言的固定基准时刻（epoch 毫秒）。
+    const NOW: i64 = 1_700_000_000_000;
+
     fn outcome_ok(rows: Vec<UsageData>) -> QueryOutcome {
         QueryOutcome {
             id: "e1".into(),
@@ -384,14 +421,14 @@ mod tests {
     #[test]
     fn query_table_renders_rows() {
         for lang in [Lang::Zh, Lang::En] {
-            let table = query_table(&[outcome_ok(vec![usage(58.0)])], lang);
+            let table = query_table(&[outcome_ok(vec![usage(58.0)])], lang, NOW);
             assert!(table.contains("five_hour"), "{lang:?}: {table}");
             assert!(table.contains("58"), "{lang:?}: {table}");
             assert!(table.contains("OK"), "{lang:?}: {table}");
             assert!(table.contains(t(lang, T::ColName)), "{lang:?}: {table}");
             assert!(table.contains(t(lang, T::ColStatus)), "{lang:?}: {table}");
             // None 字段显示 -
-            let table = query_table(&[outcome_ok(vec![UsageData::default()])], lang);
+            let table = query_table(&[outcome_ok(vec![UsageData::default()])], lang, NOW);
             assert!(table.contains('-'), "{lang:?}: {table}");
         }
     }
@@ -419,7 +456,7 @@ mod tests {
             (Lang::Zh, "[瞬时] ", "失效："),
             (Lang::En, "[transient] ", "invalid: "),
         ] {
-            let table = query_table(&outcomes, lang);
+            let table = query_table(&outcomes, lang, NOW);
             assert_eq!(
                 table.matches("测试").count(),
                 2,
@@ -440,8 +477,42 @@ mod tests {
     #[test]
     fn query_table_no_data_row() {
         for (lang, needle) in [(Lang::Zh, "OK（无数据）"), (Lang::En, "OK (no data)")] {
-            let table = query_table(&[outcome_ok(vec![])], lang);
+            let table = query_table(&[outcome_ok(vec![])], lang, NOW);
             assert!(table.contains(needle), "{lang:?}: {table}");
+        }
+    }
+
+    /// 契约：重置倒计时格式分档（分钟/时+分/天+时）与缺省/过期回退。
+    #[test]
+    fn reset_countdown_format_tiers() {
+        let m = |mins: i64| NOW + mins * 60_000;
+        // 无数据 → "-"
+        assert_eq!(fmt_reset_countdown(None, NOW), "-");
+        // 已过期 / 恰在当下 → "-"（翻转在即，无展示意义）
+        assert_eq!(fmt_reset_countdown(Some(NOW - 1), NOW), "-");
+        assert_eq!(fmt_reset_countdown(Some(NOW), NOW), "-");
+        // 分钟档（< 1h）
+        assert_eq!(fmt_reset_countdown(Some(m(21)), NOW), "21m");
+        assert_eq!(fmt_reset_countdown(Some(m(59)), NOW), "59m");
+        // 时+分档；整时省略分钟
+        assert_eq!(fmt_reset_countdown(Some(m(201)), NOW), "3h21m");
+        assert_eq!(fmt_reset_countdown(Some(m(180)), NOW), "3h");
+        // 天+时档（周/月窗口）；整天省略小时；跨天后丢弃分钟粒度
+        assert_eq!(fmt_reset_countdown(Some(m(24 * 60 + 5 * 60)), NOW), "1d5h");
+        assert_eq!(fmt_reset_countdown(Some(m(4 * 24 * 60 + 17 * 60)), NOW), "4d17h");
+        assert_eq!(fmt_reset_countdown(Some(m(4 * 24 * 60)), NOW), "4d");
+        assert_eq!(fmt_reset_countdown(Some(m(24 * 60 + 17)), NOW), "1d");
+    }
+
+    /// 契约：query 表格含重置列表头，行内显示倒计时而非原始时间戳。
+    #[test]
+    fn query_table_renders_reset_column() {
+        let mut with_reset = usage(58.0);
+        with_reset.reset_at = Some(NOW + 201 * 60_000);
+        for lang in [Lang::Zh, Lang::En] {
+            let table = query_table(&[outcome_ok(vec![with_reset.clone()])], lang, NOW);
+            assert!(table.contains(t(lang, T::ColReset)), "{lang:?}: {table}");
+            assert!(table.contains("3h21m"), "{lang:?}: {table}");
         }
     }
 

@@ -27,6 +27,10 @@ pub struct UsageData {
     /// 单位："USD" / "CNY" / "%"。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// 额度窗口重置时刻（epoch 毫秒）。订阅/限额窗口的翻转点
+    /// （如智谱 5h/周/MCP 窗口的 nextResetTime）；余额类无此概念。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<i64>,
     /// 凭据/套餐是否有效（如 key 过期、未订阅时为 false）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_valid: Option<bool>,
@@ -103,6 +107,7 @@ mod tests {
             used: Some(42.0),
             remaining: Some(58.0),
             unit: Some("%".into()),
+            reset_at: Some(1_755_000_000_000),
             is_valid: Some(true),
             invalid_message: None,
             extra: Some(serde_json::json!({ "resetTime": "2026-08-23T12:00:00Z" })),

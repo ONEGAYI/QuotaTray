@@ -1,6 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -16,7 +15,14 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, exactTime, relativeTime, usedPercent } from "../display";
+import {
+  amountText,
+  exactTime,
+  relativeTime,
+  resetCountdown,
+  usedPercent,
+  windowShortLabel,
+} from "../display";
 import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
@@ -38,24 +44,32 @@ interface Props {
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
 }
 
-function primaryValue(data: UsageData | undefined, lang: "zh" | "en") {
+/** 主数值区取值：百分比优先，否则剩余额度。多窗口时 label 带窗口短标签。 */
+function primaryValue(data: UsageData | undefined, lang: "zh" | "en", windowLabel?: string) {
   if (!data) return { value: "—", unit: "", label: lang === "zh" ? "暂无数据" : "No data" };
+  const zh = lang === "zh";
   const percent = usedPercent(data);
   if (percent != null) {
     return {
       value: `${Math.round(percent)}%`,
       unit: "",
-      label: lang === "zh" ? "已用额度" : "Used",
+      label: windowLabel
+        ? zh
+          ? `已用 ${windowLabel}`
+          : `Used ${windowLabel}`
+        : zh
+          ? "已用额度"
+          : "Used",
     };
   }
   if (data.remaining != null) {
     return {
       value: amountText(data.remaining),
       unit: data.unit ?? "",
-      label: lang === "zh" ? "可用余额" : "Available",
+      label: windowLabel ?? (zh ? "可用余额" : "Available"),
     };
   }
-  return { value: "—", unit: data.unit ?? "", label: lang === "zh" ? "已获取" : "Fetched" };
+  return { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
 }
 
 function providerInitials(name: string) {
@@ -95,7 +109,9 @@ export function ProviderCard({
   });
   const configured = Boolean(entry.api_key_enc);
   const mainData = view.data[0];
+  const multiWindow = view.data.length > 1;
   const primary = primaryValue(mainData, lang);
+  const mainReset = resetCountdown(mainData?.reset_at);
   const pricingView = resolveProviderPricingView(entry, nativeMeta, Date.now(), mainData?.unit);
   const modelChoices = pricingModelChoices(
     nativeMeta?.pricing ?? null,
@@ -205,9 +221,6 @@ export function ProviderCard({
             <div className="qt-provider-name-row">
               <h2>{entry.name}</h2>
               {statusBadge}
-              {view.data.length > 1 && (
-                <Badge>{t("card.moreWindows", { count: view.data.length - 1 })}</Badge>
-              )}
             </div>
             <div className="qt-provider-route">
               <span className="qt-provider-route-label">
@@ -245,12 +258,47 @@ export function ProviderCard({
           </div>
         </div>
 
-        <div className="qt-provider-balance">
-          <span>{primary.label}</span>
-          <strong className={overThreshold ? "is-alert" : ""}>
-            {primary.unit && <small>{primary.unit}</small>}
-            {primary.value}
-          </strong>
+        <div className={`qt-provider-balance ${multiWindow ? "is-multi" : ""}`}>
+          {multiWindow ? (
+            view.data.map((item, index) => {
+              const itemValue = primaryValue(
+                item,
+                lang,
+                windowShortLabel(item.plan_name, index, lang),
+              );
+              const itemReset = resetCountdown(item.reset_at);
+              return (
+                <div className="qt-balance-item" key={item.plan_name ?? index}>
+                  <span>{itemValue.label}</span>
+                  <strong className={thresholdStates[index] ? "is-alert" : ""}>
+                    {itemValue.unit && <small>{itemValue.unit}</small>}
+                    {itemValue.value}
+                  </strong>
+                  {itemReset && (
+                    <small
+                      className="qt-balance-reset"
+                      title={t("card.resetIn", { time: itemReset })}
+                    >
+                      {itemReset}
+                    </small>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <>
+              <span>{primary.label}</span>
+              <strong className={overThreshold ? "is-alert" : ""}>
+                {primary.unit && <small>{primary.unit}</small>}
+                {primary.value}
+              </strong>
+              {mainReset && (
+                <small className="qt-balance-reset" title={t("card.resetIn", { time: mainReset })}>
+                  {mainReset}
+                </small>
+              )}
+            </>
+          )}
         </div>
 
         <div className="qt-provider-meta">
@@ -321,19 +369,6 @@ export function ProviderCard({
               {configured ? t("card.keyConfigured") : t("card.keyMissing")}
               <span>·</span>
               {t("card.refreshEvery", { minutes: intervalMinutes })}
-            </div>
-          )}
-          {view.data.length > 1 && (
-            <div className="qt-provider-windows">
-              {view.data.map((item, index) => (
-                <span key={index} className={thresholdStates[index] ? "is-alert" : undefined}>
-                  {thresholdStates[index] && <AlertTriangle size={13} aria-hidden="true" />}
-                  {item.plan_name ?? t("card.windowN", { n: index + 1 })}: {dataSummary(item, lang)}
-                  {item.total != null && usedPercent(item) == null && (
-                    <> · {t("card.totalQuota", { total: item.total })}</>
-                  )}
-                </span>
-              ))}
             </div>
           )}
           {view.data.length === 1 && mainData?.total != null && usedPercent(mainData) == null && (

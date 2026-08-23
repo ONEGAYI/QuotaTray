@@ -63,3 +63,35 @@ export function dataSummary(d: UsageData, lang: UiLang): string {
   }
   return zh ? "已获取" : "Fetched";
 }
+
+/** 额度重置倒计时（语言中性缩写，与 CLI fmt_reset_countdown 成对）：
+ *  "21m" / "3h21m" / "4d17h"；缺省或已到期返回 null（无展示意义）。
+ *  跨入天级后丢弃分钟粒度（周/月窗口小时精度已足够）。 */
+export function resetCountdown(resetAtMs: number | null | undefined, nowMs: number = Date.now()): string | null {
+  if (resetAtMs == null) return null;
+  const totalMin = Math.floor((resetAtMs - nowMs) / 60_000);
+  if (totalMin <= 0) return null;
+  if (totalMin < 60) return `${totalMin}m`;
+  const hours = Math.floor(totalMin / 60);
+  if (hours < 24) {
+    return totalMin % 60 === 0 ? `${hours}h` : `${hours}h${totalMin % 60}m`;
+  }
+  const days = Math.floor(hours / 24);
+  return hours % 24 === 0 ? `${days}d` : `${days}d${hours % 24}h`;
+}
+
+/** 多窗口短标签：取 plan_name 全角括号内的窗口标注
+ *  （"GLM Coding Plan（5h）" → "5h"；week 映射双语"周限"/"weekly"）。
+ *  无括号用全名（template 窗口名），无名回退"窗口 N"。 */
+export function windowShortLabel(
+  planName: string | undefined,
+  index: number,
+  lang: UiLang,
+): string {
+  const zh = lang === "zh";
+  const paren = planName?.match(/[（(]([^（）()]+)[)）]\s*$/)?.[1];
+  const raw = paren ?? planName;
+  if (!raw) return zh ? `窗口 ${index + 1}` : `window ${index + 1}`;
+  if (raw === "week") return zh ? "周限" : "weekly";
+  return raw;
+}
