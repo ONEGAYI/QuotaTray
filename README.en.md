@@ -26,6 +26,7 @@ The key difference from other balance tools is **credential security**:
 - Tray menu lists balance / usage percentage and last-updated time per entry, plus two lines for off-peak pricing
 - Hover detail panel: balance-first summary with quick switching of the ring data-source account and pricing model
 - Main window with card list: add/edit entries, template editor (with validation and live test), structured off-peak pricing editor
+- Settings supports complete cross-machine configuration export/import with native file dialogs and sensitive-file confirmation
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window
 
@@ -38,6 +39,8 @@ quota query                    # query all enabled entries in parallel
 quota query --watch            # polling mode
 quota pricing show <id>        # effective off-peak pricing & current period verdict
 quota template test --json     # template validation + live query
+quota config export <path>     # export a complete transfer package (asks for confirmation)
+quota config import <path>     # replace all and re-encrypt with this machine's key
 quota update --check           # check for new releases
 ```
 
@@ -162,6 +165,8 @@ authenticates the encrypted configuration as a whole. Import rewraps those crede
 the destination machine's master key. **Although the package is not directly readable, it
 carries its transfer key and is therefore as sensitive as plaintext credentials.** Do not sync
 it to untrusted locations, and delete it after migration.
+Use `quota config export/import` in the CLI, or open **Settings → Data transfer** in the
+desktop app. Both require explicit confirmation by default; CLI automation can pass `--yes`.
 
 Known boundaries: reading the OS credential vault from another process of the same user is out of scope (same assurance level as browser-saved passwords); memory attacks and local malware are beyond a desktop tool's threat model.
 

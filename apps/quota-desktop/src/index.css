@@ -364,6 +364,10 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-settings-nav button { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--qt-text-soft); text-align: left; }
 .qt-settings-nav button[aria-selected="true"] { background: var(--qt-surface); color: var(--qt-accent-strong); font-weight: 650; }
 .qt-settings-content { min-width: 0; padding: 10px 18px; }
+.qt-transfer-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 7px 0 9px; padding: 13px; border-radius: 10px; background: var(--qt-warning-soft); color: var(--qt-text); }
+.qt-transfer-intro-icon { color: var(--qt-warning); }
+.qt-transfer-intro h3 { margin: 0 0 3px; font-size: 13px; }
+.qt-transfer-intro p { margin: 3px 0 0; color: var(--qt-text-soft); font-size: 12px; line-height: 1.5; }
 .qt-update-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 7px 0 9px; padding: 13px; border-radius: 10px; background: var(--qt-success-soft); }
 .qt-update-status.has-update { background: var(--qt-accent-soft); }
 .qt-update-status.has-error { background: var(--qt-danger-soft); }

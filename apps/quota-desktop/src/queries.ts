@@ -6,6 +6,19 @@ import { api } from "./api";
 import type { UpdateStateDto } from "./types";
 
 export function useProviders() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<number>("configuration-imported", () => {
+      void qc.invalidateQueries({ queryKey: ["providers"] });
+      void qc.invalidateQueries({ queryKey: ["provider"] });
+      void qc.invalidateQueries({ queryKey: ["provider-state"] });
+      void qc.invalidateQueries({ queryKey: ["snapshots"] });
+      void qc.invalidateQueries({ queryKey: ["native-metas"] });
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [qc]);
   return useQuery({
     queryKey: ["providers"],
     queryFn: api.listProviders,

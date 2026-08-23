@@ -137,6 +137,7 @@ pub enum T {
     VaultOpenFailCtx,
     EngineInitFail,
     ConfigFilePrefix,
+    ConfigTransferFail,
 
     // ---- devsmoke（仅 debug）----
     SmokeKeyFileFormat,
@@ -175,6 +176,13 @@ pub enum T {
     HelpTemplateBaseUrl,
     HelpVault,
     HelpVaultStatus,
+    HelpConfigTransfer,
+    HelpConfigExport,
+    HelpConfigExportOutput,
+    HelpConfigExportYes,
+    HelpConfigImport,
+    HelpConfigImportInput,
+    HelpConfigImportYes,
     HelpUpdate,
     HelpUpdateCheck,
     HelpUpdateYes,
@@ -369,6 +377,7 @@ fn zh(key: T) -> &'static str {
         T::VaultOpenFailCtx => "凭据保险库打开失败：",
         T::EngineInitFail => "查询引擎初始化失败：",
         T::ConfigFilePrefix => "配置文件：",
+        T::ConfigTransferFail => "配置迁移失败：",
 
         T::SmokeKeyFileFormat => "key 文件应为 {\"平台id\": \"key\"} 的 JSON 对象：",
         T::SmokeSkipBody => "跳过（key 为空）",
@@ -405,6 +414,13 @@ fn zh(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "覆盖 baseUrl 变量",
         T::HelpVault => "凭据保险库",
         T::HelpVaultStatus => "主密钥健康检查（系统凭据库可读性）",
+        T::HelpConfigTransfer => "完整配置跨机器迁移",
+        T::HelpConfigExport => "导出完整配置与凭据到私有迁移包",
+        T::HelpConfigExportOutput => "迁移包输出路径",
+        T::HelpConfigExportYes => "跳过敏感文件确认",
+        T::HelpConfigImport => "从迁移包整体替换当前配置",
+        T::HelpConfigImportInput => "迁移包输入路径",
+        T::HelpConfigImportYes => "跳过整体替换确认",
         T::HelpUpdate => "检测 GitHub release 新版本，可选下载安装包",
         T::HelpUpdateCheck => "只检测不下载",
         T::HelpUpdateYes => "跳过下载确认",
@@ -576,6 +592,7 @@ fn en(key: T) -> &'static str {
         T::VaultOpenFailCtx => "credential vault open failed: ",
         T::EngineInitFail => "query engine init failed: ",
         T::ConfigFilePrefix => "config file: ",
+        T::ConfigTransferFail => "configuration transfer failed: ",
 
         T::SmokeKeyFileFormat => "key file must be a JSON object of {\"platform-id\": \"key\"}: ",
         T::SmokeSkipBody => "skipped (empty key)",
@@ -624,6 +641,15 @@ fn en(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "Override the baseUrl variable",
         T::HelpVault => "Credential vault",
         T::HelpVaultStatus => "Master key health check (system credential store readability)",
+        T::HelpConfigTransfer => "Transfer the complete configuration between machines",
+        T::HelpConfigExport => {
+            "Export the complete configuration and credentials to a private transfer package"
+        }
+        T::HelpConfigExportOutput => "Transfer package output path",
+        T::HelpConfigExportYes => "Skip the sensitive-file confirmation",
+        T::HelpConfigImport => "Replace the current configuration from a transfer package",
+        T::HelpConfigImportInput => "Transfer package input path",
+        T::HelpConfigImportYes => "Skip the full-replacement confirmation",
         T::HelpUpdate => "Check for a new GitHub release, optionally download the installer",
         T::HelpUpdateCheck => "Check only, do not download",
         T::HelpUpdateYes => "Skip the download confirmation",
@@ -771,6 +797,53 @@ pub fn cancelled(lang: Lang) -> &'static str {
     match lang {
         Lang::En => "cancelled.",
         _ => "已取消。",
+    }
+}
+
+/// 配置导出前的高敏感文件确认。
+pub fn config_export_confirm(lang: Lang, path: &std::path::Path) -> String {
+    match lang {
+        Lang::En => format!(
+            "Export to {}? The package contains a decryption key and must be protected like plaintext credentials",
+            path.display()
+        ),
+        _ => format!(
+            "导出到 {}？迁移包携带解密密钥，必须按明文凭据同等保护",
+            path.display()
+        ),
+    }
+}
+
+/// 配置导入前的整体替换确认。
+pub fn config_import_confirm(lang: Lang, path: &std::path::Path) -> String {
+    match lang {
+        Lang::En => format!(
+            "Import {}? This replaces all current providers, credentials, pricing, and custom models",
+            path.display()
+        ),
+        _ => format!(
+            "导入 {}？这会整体替换当前所有供应商、凭据、定价与自定义模型",
+            path.display()
+        ),
+    }
+}
+
+/// 配置导出完成提示。
+pub fn config_exported(lang: Lang, path: &std::path::Path) -> String {
+    match lang {
+        Lang::En => format!("configuration exported to {}", path.display()),
+        _ => format!("配置已导出至 {}", path.display()),
+    }
+}
+
+/// 配置导入完成提示。
+pub fn config_imported(lang: Lang, path: &std::path::Path, count: usize) -> String {
+    match lang {
+        Lang::En => format!(
+            "configuration imported from {} ({count} provider(s))",
+            path.display()
+        ),
+        _ => format!("已从 {} 导入配置（{count} 个供应商）", path.display()),
     }
 }
 
@@ -1041,6 +1114,19 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
         .mut_subcommand("vault", |c| {
             c.about(tr(T::HelpVault))
                 .mut_subcommand("status", |c| c.about(tr(T::HelpVaultStatus)))
+        })
+        .mut_subcommand("config", |c| {
+            c.about(tr(T::HelpConfigTransfer))
+                .mut_subcommand("export", |c| {
+                    c.about(tr(T::HelpConfigExport))
+                        .mut_arg("output", |a| a.help(tr(T::HelpConfigExportOutput)))
+                        .mut_arg("yes", |a| a.help(tr(T::HelpConfigExportYes)))
+                })
+                .mut_subcommand("import", |c| {
+                    c.about(tr(T::HelpConfigImport))
+                        .mut_arg("input", |a| a.help(tr(T::HelpConfigImportInput)))
+                        .mut_arg("yes", |a| a.help(tr(T::HelpConfigImportYes)))
+                })
         })
         .mut_subcommand("pricing", |c| {
             c.about(tr(T::HelpPricing))

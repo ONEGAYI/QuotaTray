@@ -39,6 +39,7 @@ pub fn run() {
             tray::show_main(app);
         }))
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let state = state::AppState::init(data_dir.clone())?;
@@ -61,6 +62,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_providers,
+            commands::export_configuration,
+            commands::import_configuration,
             commands::upsert_provider,
             commands::remove_provider,
             commands::list_native_metas,

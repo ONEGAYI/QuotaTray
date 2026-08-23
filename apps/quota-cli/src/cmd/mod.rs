@@ -1,6 +1,7 @@
 //! 子命令实现：每命令一个模块，handler 接收 [`crate::ctx::Ctx`]。
 
 pub mod add;
+pub mod config;
 #[cfg(debug_assertions)]
 pub mod devsmoke;
 pub mod edit;
