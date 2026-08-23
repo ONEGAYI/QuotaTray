@@ -127,6 +127,15 @@ export function ProviderCard({
   const modelSelectValue = entry.pricing?.model
     ? explicitModelChoice?.value ?? `model:${entry.pricing.model}`
     : "default";
+  const optionText = (choice: (typeof modelChoices)[number]) =>
+    `${platformName} · ${choice.label}` +
+    (choice.value === "default" ? t("pricing.presetDefault") : "") +
+    (choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : "") +
+    (choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : "");
+  // 收起态 select 只显示截断文字，悬停以选中项全文作 title
+  const selectedTitle = explicitModelChoice
+    ? optionText(explicitModelChoice)
+    : (entry.pricing?.model ?? undefined);
   const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
   const showModelSelect = modelChoices.length > (hasImplicitDefaultChoice ? 1 : 0);
   const thresholdStates = view.data.map(
@@ -230,6 +239,7 @@ export function ProviderCard({
               {showModelSelect && (
                 <select
                   aria-label={t("card.switchModel")}
+                  title={selectedTitle}
                   value={modelSelectValue}
                   disabled={switchModel.isPending}
                   onChange={(event) => {
@@ -245,11 +255,8 @@ export function ProviderCard({
                     <option value="default">{t("pricing.noModel")}</option>
                   )}
                   {modelChoices.map((choice) => (
-                    <option key={choice.value} value={choice.value}>
-                      {platformName} · {choice.label}
-                      {choice.value === "default" ? t("pricing.presetDefault") : ""}
-                      {choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : ""}
-                      {choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : ""}
+                    <option key={choice.value} value={choice.value} title={optionText(choice)}>
+                      {optionText(choice)}
                     </option>
                   ))}
                 </select>
