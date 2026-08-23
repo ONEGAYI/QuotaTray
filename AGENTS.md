@@ -117,7 +117,7 @@ QuotaTray/
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
-│       │                      #   Lucide 图标/Vitest
+│       │                      #   Lucide 图标/Vitest/opener（外链浏览器打开）
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
@@ -143,7 +143,8 @@ QuotaTray/
 │       │   └── components/
 │       │       ├── ui.tsx              # 按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件
 │       │       │                       #   （Dialog 含 Escape、焦点圈定与关闭后焦点恢复）
-│       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、语言与主题
+│       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、GitHub 仓库链接
+│       │       │                       #   （opener 插件，scope 锁定仓库主页）、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── BrandMark.tsx       # 标题栏/悬停面板共用的静态品牌标志薄组件
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
@@ -171,7 +172,8 @@ QuotaTray/
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
 │           ├── capabilities/
-│           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 ACL
+│           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 + opener
+│           │   │                       #   打开仓库主页（scope 锁定 URL）ACL
 │           │   └── hover-panel.json    # 悬停窗口事件与主题最小 ACL
 │           ├── icons/          # 品牌主图导出的 PNG/ICO/ICNS/Windows 尺寸集 + manifest；
 │           │                   #   运行时托盘圆环仍由 ring.rs 动态渲染
@@ -192,7 +194,10 @@ QuotaTray/
 │               │               #   含峰谷行/定价错误带参方法）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
 │               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
-│               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令。
+│               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令；
+│               │               #   隐藏托盘兜底：rect 是任务栏 chevron 不可信时改以
+│               │               #   光标锚定（面板贴光标侧方、不覆盖鼠标点），show 后
+│               │               #   SetWindowPos 重插 topmost 压过 flyout（不激活）。
 │               │               #   架构备忘：悬停自动刷新链依赖主窗「关闭=隐藏不销毁」
 │               │               #   （refresh-now 由主窗响应查询后经 provider-state-changed
 │               │               #   回流面板）——若未来改主窗为销毁式，需改为后端直查

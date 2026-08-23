@@ -39,6 +39,7 @@ pub fn run() {
             tray::show_main(app);
         }))
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let state = state::AppState::init(data_dir.clone())?;
             app.manage(state);

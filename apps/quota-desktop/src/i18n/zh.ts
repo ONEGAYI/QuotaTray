@@ -107,6 +107,7 @@ export const zh = {
   "edit.keyMissing": "未配置",
 
   // ---- 自定义标题栏 ----
+  "titlebar.github": "GitHub 仓库",
   "titlebar.language": "切换语言",
   "titlebar.theme": "切换主题",
   "titlebar.minimize": "最小化",

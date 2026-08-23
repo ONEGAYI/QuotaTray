@@ -26,10 +26,11 @@ export function IconButton({
   icon: Icon,
   danger = false,
   className = "",
+  children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
   danger?: boolean;
 }) {
   return (
@@ -39,7 +40,7 @@ export function IconButton({
       className={`qt-icon-btn ${danger ? "qt-icon-btn-danger" : ""} ${className}`}
       {...props}
     >
-      <Icon size={16} aria-hidden="true" />
+      {Icon ? <Icon size={16} aria-hidden="true" /> : children}
     </button>
   );
 }

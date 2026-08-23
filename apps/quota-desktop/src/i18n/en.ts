@@ -104,6 +104,7 @@ export const en: Record<TextKey, string> = {
   "edit.keyMissing": "Not configured",
 
   // ---- 自定义标题栏 ----
+  "titlebar.github": "GitHub repository",
   "titlebar.language": "Switch language",
   "titlebar.theme": "Switch theme",
   "titlebar.minimize": "Minimize",
