@@ -4,12 +4,14 @@ use quota_core::AppConfig;
 
 use crate::ctx::Ctx;
 use crate::render;
+use crate::texts::{T, t};
 
 pub fn run(ctx: &Ctx, json: bool) -> i32 {
+    let lang = ctx.lang;
     let cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
@@ -22,10 +24,10 @@ pub fn run(ctx: &Ctx, json: bool) -> i32 {
         return 0;
     }
     if cfg.providers.is_empty() {
-        println!("还没有供应商条目；用 quota add 添加。");
+        println!("{}", t(lang, T::ListEmpty));
         return 0;
     }
-    println!("{}", render::list_table(&cfg.providers));
+    println!("{}", render::list_table(&cfg.providers, lang));
     0
 }
 

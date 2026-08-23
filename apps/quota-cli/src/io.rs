@@ -2,11 +2,15 @@
 //!
 //! 纯 IO，不含业务判定（可测逻辑下沉到调用方）；
 //! key 一律经 [`Zeroizing`] 包装，drop 时擦除内存。
+//! 文案由调用方传语言（prompt 文本 + 内部错误消息均走文案表）。
 
 use std::io::{BufRead, IsTerminal, Write};
 
 use console::{Key, Term};
 use zeroize::Zeroizing;
+
+use crate::lang::Lang;
+use crate::texts::{T, t};
 
 /// 掩码读取一行密钥：终端输入逐字符回显 `*`（长度可见，内容不可见——
 /// 红线约束的是明文不进回显，掩码字符不属于 key 材料）。
@@ -16,9 +20,9 @@ use zeroize::Zeroizing;
 /// 管道/重定向场景（`echo $KEY | quota set-key id`，spec §3）直接读
 /// 一行——管道下无"看着屏幕输入"的掩码需求。
 /// 返回值已 trim（粘贴误差常见的首尾空白不进入密文）。
-pub fn read_secret(prompt: &str) -> std::io::Result<Zeroizing<String>> {
+pub fn read_secret(prompt: &str, lang: Lang) -> std::io::Result<Zeroizing<String>> {
     if std::io::stdin().is_terminal() {
-        read_secret_masked(prompt)
+        read_secret_masked(prompt, lang)
     } else {
         let mut err = std::io::stderr();
         writeln!(err, "{prompt}").ok();
@@ -32,12 +36,10 @@ pub fn read_secret(prompt: &str) -> std::io::Result<Zeroizing<String>> {
 /// 终端掩码输入：字符 → `*`，退格删星号，回车确认，Ctrl+C/Ctrl+D 中止；
 /// Ctrl+V 代读剪贴板完成粘贴（raw 模式下 Ctrl+V 到达程序是控制字符
 /// SYN，PSReadLine 那种应用层粘贴不存在——这里自己补上）。
-fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
+fn read_secret_masked(prompt: &str, lang: Lang) -> std::io::Result<Zeroizing<String>> {
     let term = Term::stderr();
     if !term.is_term() {
-        return Err(std::io::Error::other(
-            "stderr 不是终端，无法交互输入（管道场景请把 key 写入 stdin）",
-        ));
+        return Err(std::io::Error::other(t(lang, T::NotTerminal)));
     }
     eprint!("{prompt}: ");
     std::io::stderr().flush().ok();
@@ -47,15 +49,15 @@ fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
         match term.read_key()? {
             Key::Char('\u{3}') => {
                 term.write_line("")?;
-                return Err(std::io::Error::other("输入被 Ctrl+C 中断"));
+                return Err(std::io::Error::other(t(lang, T::InterruptCtrlC)));
             }
             Key::Char('\u{4}') if chars.is_empty() => {
                 term.write_line("")?;
-                return Err(std::io::Error::other("输入被 Ctrl+D 中断"));
+                return Err(std::io::Error::other(t(lang, T::InterruptCtrlD)));
             }
             Key::Char('\u{16}') => {
-                if let Err(msg) = paste_clipboard(&term, &mut chars) {
-                    eprint!("\n剪贴板不可用（{msg}），请用 Shift+Ctrl+V 或右键粘贴：");
+                if let Err(msg) = paste_clipboard(&term, &mut chars, lang) {
+                    eprint!("\n{} ", crate::texts::clipboard_fail(lang, &msg));
                 }
             }
             Key::Char(c) => {
@@ -78,9 +80,12 @@ fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
 
 /// 读剪贴板并作为粘贴内容输入（取首行，到换行即止）。
 /// 返回粘贴的字符数；失败原因透出给调用方提示。
-fn paste_clipboard(term: &Term, chars: &mut Vec<char>) -> Result<usize, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开失败：{e}"))?;
-    let text = clipboard.get_text().map_err(|e| format!("读取失败：{e}"))?;
+fn paste_clipboard(term: &Term, chars: &mut Vec<char>, lang: Lang) -> Result<usize, String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("{}{e}", t(lang, T::ClipboardOpenFail)))?;
+    let text = clipboard
+        .get_text()
+        .map_err(|e| format!("{}{e}", t(lang, T::ClipboardReadFail)))?;
     let mut n = 0;
     for c in text.chars() {
         if c == '\r' || c == '\n' {
@@ -97,10 +102,10 @@ fn paste_clipboard(term: &Term, chars: &mut Vec<char>) -> Result<usize, String> 
 ///
 /// 两种用法等价：交互粘贴（空行结束）、`< file` 重定向（EOF 结束）。
 /// 返回累积的原始文本（不含结束空行）。
-pub fn read_multiline_json(prompt: &str) -> std::io::Result<String> {
+pub fn read_multiline_json(prompt: &str, lang: Lang) -> std::io::Result<String> {
     // 提示走 stderr：数据流（stdout）保持纯净，管道/重定向场景不被污染
     eprintln!("{prompt}");
-    eprintln!("（粘贴多行 JSON，输入单独空行结束；或 Ctrl+Z / Ctrl+D 结束输入）");
+    eprintln!("{}", t(lang, T::MultilineJsonHint));
 
     let mut buf = String::new();
     let stdin = std::io::stdin();

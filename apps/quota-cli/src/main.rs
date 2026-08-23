@@ -2,17 +2,25 @@
 //!
 //! 业务全部在 quota-core，CLI 只做参数解析、结果呈现与配置管理入口。
 //! 退出码三分约定见 [`exit`] 模块文档；clap 用法错误维持 Unix 惯例的 2。
+//!
+//! i18n：语言优先级 `--lang` > settings.json > 系统（见 [`lang`]）；
+//! help / 用法错误的文案由 [`texts::apply_help_lang`] 在解析前按选定
+//! 语言覆盖——为此 main 采用两阶段解析（先预扫描语言再交 clap）。
 
 mod cmd;
 mod ctx;
 mod exit;
 mod idgen;
 mod io;
+mod lang;
 mod render;
+mod texts;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use ctx::Ctx;
+use lang::Lang;
 use std::path::PathBuf;
+use texts::{T, t};
 
 /// quota —— 多平台 AI 账户余额监视器的命令行前端
 #[derive(Parser, Debug)]
@@ -25,6 +33,10 @@ struct Cli {
     /// 配置文件路径（默认 ~/.quotatray/config.json；不影响 vault 主密钥位置）
     #[arg(short, long, global = true, value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// 界面语言（本次运行覆盖 settings.json；缺省跟随 settings.json / 系统）
+    #[arg(long, global = true, value_name = "zh|en|system")]
+    lang: Option<Lang>,
 
     #[command(subcommand)]
     command: Command,
@@ -123,7 +135,32 @@ enum VaultCmd {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let cli = Cli::parse();
+    let args: Vec<String> = std::env::args().collect();
+
+    // 两阶段解析：先用预扫描的语言（--lang > --config 推导的 settings >
+    // 默认路径）覆盖命令面文案，再用**翻译后的 command** 做匹配——
+    // DisplayHelp / 用法错误在匹配时即时渲染，必须让 clap 拿到已翻译的 cmd。
+    // 注：clap 内置错误骨架（error:/Usage:/For more information…）是库
+    // 文案无法翻译，属生态限制，已知悉——可译面仅限 about/help/值解析消息。
+    let (scan_lang, scan_config) = lang::scan_args(&args);
+    let help_lang = lang::resolve_lang(
+        scan_lang,
+        scan_config
+            .or_else(|| quota_core::AppConfig::default_path().ok())
+            .as_deref()
+            .unwrap_or(std::path::Path::new("")),
+    )
+    .resolve();
+    let mut cmd = texts::apply_help_lang(Cli::command(), help_lang);
+
+    let cli = match cmd.try_get_matches_from_mut(&args) {
+        Ok(matches) => Cli::from_arg_matches(&matches).expect("clap 已校验 matches"),
+        Err(err) => {
+            // --help/--version 携带渲染结果退出码 0；用法错误为 2（clap 惯例）
+            let _ = err.print();
+            std::process::exit(err.exit_code());
+        }
+    };
     std::process::exit(run(cli).await);
 }
 
@@ -133,12 +170,15 @@ async fn run(cli: Cli) -> i32 {
         None => match quota_core::AppConfig::default_path() {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("错误：{e}");
+                // 默认路径不可得时语言只能走系统检测（settings 无从推导）
+                eprintln!("{}{e}", t(Lang::System.resolve(), T::Err));
                 return 1;
             }
         },
     };
-    let ctx = Ctx::production(config_path);
+
+    let lang = lang::resolve_lang(cli.lang, &config_path).resolve();
+    let ctx = Ctx::production(config_path, lang);
 
     match cli.command {
         Command::List { json } => cmd::list::run(&ctx, json),
@@ -156,7 +196,7 @@ async fn run(cli: Cli) -> i32 {
         } => cmd::edit::run(&ctx, id, enable, disable),
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
         Command::SetKey { id } => cmd::setkey::run(&ctx, id),
-        Command::Natives => cmd::natives::run(),
+        Command::Natives => cmd::natives::run(ctx.lang),
         Command::Template(TemplateCmd::Test {
             entry,
             json,
@@ -164,7 +204,7 @@ async fn run(cli: Cli) -> i32 {
         }) => cmd::template::run(&ctx, entry, json, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
         #[cfg(debug_assertions)]
-        Command::DevSmoke { key_file } => cmd::devsmoke::run(key_file).await,
+        Command::DevSmoke { key_file } => cmd::devsmoke::run(key_file, ctx.lang).await,
     }
 }
 
@@ -207,6 +247,11 @@ mod tests {
             ],
             vec!["quota", "vault", "status"],
             vec!["quota", "--config", "c.json", "list"],
+            // --lang 三值（全局参数，可置于子命令前后）
+            vec!["quota", "--lang", "zh", "list"],
+            vec!["quota", "--lang", "en", "query"],
+            vec!["quota", "--lang", "system", "list"],
+            vec!["quota", "list", "--lang", "en"],
         ] {
             Cli::try_parse_from(args).unwrap_or_else(|e| panic!("应可解析：{e}"));
         }
@@ -237,6 +282,14 @@ mod tests {
         assert!(Cli::try_parse_from(["quota", "query", "--watch", "--interval", "3"]).is_ok());
     }
 
+    /// 契约：--lang 非法值被 clap 拒绝（值解析错误）。
+    #[test]
+    fn rejects_invalid_lang_value() {
+        let e = Cli::try_parse_from(["quota", "--lang", "fr", "list"]).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::ValueValidation);
+        assert!(Cli::try_parse_from(["quota", "--lang", "zh", "list"]).is_ok());
+    }
+
     /// 契约：dev-smoke 仅 debug 构建存在。
     #[test]
     fn dev_smoke_availability_follows_build_profile() {
@@ -257,5 +310,18 @@ mod tests {
     fn config_flag_is_global() {
         let cli = Cli::try_parse_from(["quota", "--config", "/tmp/x.json", "natives"]).unwrap();
         assert_eq!(cli.config.unwrap(), PathBuf::from("/tmp/x.json"));
+    }
+
+    /// 契约：--lang 为全局参数，解析为三态值；缺省为 None（走 settings.json）。
+    #[test]
+    fn lang_flag_parses_three_states() {
+        let cli = Cli::try_parse_from(["quota", "--lang", "en", "natives"]).unwrap();
+        assert_eq!(cli.lang, Some(Lang::En));
+
+        let cli = Cli::try_parse_from(["quota", "natives", "--lang", "system"]).unwrap();
+        assert_eq!(cli.lang, Some(Lang::System));
+
+        let cli = Cli::try_parse_from(["quota", "natives"]).unwrap();
+        assert_eq!(cli.lang, None);
     }
 }

@@ -12,7 +12,9 @@ use zeroize::Zeroizing;
 
 use crate::ctx::Ctx;
 use crate::io;
+use crate::lang::Lang;
 use crate::render::fmt_num;
+use crate::texts::{self, T, t};
 
 /// stdin 模式试查用临时条目 id（不落盘，仅构造引擎入参）。
 const TEST_ENTRY_ID: &str = "template-test";
@@ -33,25 +35,26 @@ pub async fn run(
     json_mode: bool,
     base_url_override: Option<String>,
 ) -> i32 {
+    let lang = ctx.lang;
     // 1. 收集试查输入
     let source = if let Some(id) = entry_id {
         match build_from_entry(ctx, &id, base_url_override) {
             Ok(s) => s,
             Err(msg) => {
-                eprintln!("错误：{msg}");
+                eprintln!("{}{msg}", t(lang, T::Err));
                 return 1;
             }
         }
     } else if json_mode {
-        match build_from_stdin(base_url_override) {
+        match build_from_stdin(base_url_override, lang) {
             Ok(s) => s,
             Err(msg) => {
-                eprintln!("错误：{msg}");
+                eprintln!("{}{msg}", t(lang, T::Err));
                 return 1;
             }
         }
     } else {
-        eprintln!("错误：需要 --entry <id> 或 --json 之一（quota template test --help 查看）");
+        eprintln!("{}{}", t(lang, T::Err), t(lang, T::NeedEntryOrJson));
         return 1;
     };
 
@@ -64,23 +67,23 @@ pub async fn run(
         TestSource::Stdin { template, .. } => template,
     };
     if let Err(e) = template::validate(tpl_ref) {
-        eprintln!("静态校验失败：{e}");
+        eprintln!("{}{e}", t(lang, T::StaticCheckFail));
         return 1;
     }
-    println!("静态校验通过");
+    println!("{}", t(lang, T::StaticCheckOk));
 
     // 3. 真实试查（走引擎完整链路）
     let engine = match ctx.new_engine() {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
     let vault = match ctx.open_vault() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
@@ -93,14 +96,18 @@ pub async fn run(
         } => {
             let mut e = ProviderEntry {
                 id: TEST_ENTRY_ID.into(),
-                name: "模板试查".into(),
+                name: t(lang, T::TestEntryName).into(),
                 kind: ProviderKind::Template(template),
                 enabled: true,
                 api_key_enc: None,
                 base_url,
             };
             if let Err(err) = e.set_api_key(&vault, api_key.trim()) {
-                eprintln!("错误：试查凭据加密失败：{err}");
+                eprintln!(
+                    "{}{}{err}",
+                    t(lang, T::Err),
+                    t(lang, T::TryQueryEncryptFail)
+                );
                 return 1;
             }
             e
@@ -109,11 +116,11 @@ pub async fn run(
 
     match engine.query(&vault, &test_entry).await {
         Ok(rows) => {
-            print_usage(&rows);
+            print_usage(&rows, lang);
             0
         }
         Err(e) => {
-            eprintln!("试查失败：{e}");
+            eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::TryQueryFail));
             exit_code_for(&e)
         }
     }
@@ -131,14 +138,15 @@ fn build_from_entry(
     id: &str,
     base_url_override: Option<String>,
 ) -> Result<TestSource, String> {
-    let cfg = AppConfig::load(&ctx.config_path).map_err(|e| e.to_string())?;
+    let lang = ctx.lang;
+    let cfg = AppConfig::load(&ctx.config_path).map_err(|e| format!("{}{e}", t(lang, T::Err)))?;
     let entry = cfg
         .providers
         .iter()
         .find(|e| e.id == id)
-        .ok_or_else(|| format!("找不到条目 {id}"))?;
+        .ok_or_else(|| texts::entry_not_found(lang, id))?;
     if !matches!(entry.kind, ProviderKind::Template(_)) {
-        return Err(format!("条目 {id} 不是 template 类型"));
+        return Err(texts::not_template_entry(lang, id));
     }
     let mut test_entry = entry.clone();
     if let Some(b) = base_url_override {
@@ -148,18 +156,16 @@ fn build_from_entry(
 }
 
 /// `--json`：模板从 stdin 读；引用 `{{apiKey}}` 时交互读 key。
-fn build_from_stdin(base_url_override: Option<String>) -> Result<TestSource, String> {
-    let text =
-        io::read_multiline_json("粘贴模板 JSON").map_err(|e| format!("stdin 读取失败：{e}"))?;
+fn build_from_stdin(base_url_override: Option<String>, lang: Lang) -> Result<TestSource, String> {
+    let text = io::read_multiline_json(t(lang, T::PasteTemplateJson), lang)
+        .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
     let template: TemplateConfig =
-        serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败：{e}"))?;
+        serde_json::from_str(&text).map_err(|e| format!("{}{e}", t(lang, T::JsonParseFail)))?;
     let api_key = if template_needs_key(&template) {
-        let k = io::read_secret(
-            "该模板引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）",
-        )
-        .map_err(|e| format!("key 读取失败：{e}"))?;
+        let k = io::read_secret(t(lang, T::NeedsKeyPrompt), lang)
+            .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?;
         if k.trim().is_empty() {
-            return Err("key 为空；无 key 调试请改用 quota template test --entry".into());
+            return Err(t(lang, T::KeyEmptyHint).into());
         }
         k
     } else {
@@ -182,17 +188,22 @@ pub fn template_needs_key(tpl: &TemplateConfig) -> bool {
     texts.iter().any(|t| t.contains("{{apiKey}}"))
 }
 
-fn print_usage(rows: &[UsageData]) {
+fn print_usage(rows: &[UsageData], lang: Lang) {
     for d in rows {
         println!(
-            "套餐={} 已用={} 剩余={} 单位={} 有效={}",
+            "{}={} {}={} {}={} {}={} {}={}",
+            t(lang, T::ColPlan),
             d.plan_name.clone().unwrap_or_else(|| "-".into()),
+            t(lang, T::ColUsed),
             fmt_num(d.used),
+            t(lang, T::ColRemaining),
             fmt_num(d.remaining),
+            t(lang, T::ColUnit),
             d.unit.clone().unwrap_or_else(|| "-".into()),
+            t(lang, T::LblValid),
             match d.is_valid {
-                Some(false) => "否".to_string(),
-                _ => "是".to_string(),
+                Some(false) => t(lang, T::No),
+                _ => t(lang, T::Yes),
             },
         );
     }
@@ -232,5 +243,17 @@ mod tests {
     fn exit_code_reflects_error_track() {
         assert_eq!(exit_code_for(&QueryError::transient("timeout")), 2);
         assert_eq!(exit_code_for(&QueryError::deterministic("401")), 1);
+    }
+
+    /// 契约：print_usage 的标签行双语形态（标签与是/否随语言切换）。
+    #[test]
+    fn usage_labels_both_languages() {
+        assert_eq!(t(Lang::Zh, T::ColPlan), "套餐");
+        assert_eq!(t(Lang::En, T::ColPlan), "Plan");
+        assert_eq!(t(Lang::Zh, T::LblValid), "有效");
+        assert_eq!(t(Lang::En, T::LblValid), "valid");
+        // 是/否复用 Yes/No 文案
+        assert_eq!(t(Lang::Zh, T::Yes), "是");
+        assert_eq!(t(Lang::En, T::No), "no");
     }
 }

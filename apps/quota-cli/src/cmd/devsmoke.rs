@@ -10,7 +10,11 @@ use std::path::PathBuf;
 use quota_core::config::{ProviderEntry, ProviderKind};
 use quota_core::{InMemoryStore, QueryEngine, Vault, provider};
 
+use crate::lang::Lang;
+use crate::texts::{self, T, t};
+
 /// key 文件中平台 key 的分类结果。
+#[derive(Debug)]
 pub struct Classified {
     /// (平台 id, key)——平台已注册且 key 非空。
     pub runnable: Vec<(String, String)>,
@@ -21,9 +25,9 @@ pub struct Classified {
 }
 
 /// 解析 key 文件内容并按注册表分类（纯函数）。
-pub fn classify_keys(raw: &str) -> Result<Classified, String> {
-    let keys: BTreeMap<String, String> = serde_json::from_str(raw)
-        .map_err(|e| format!("key 文件应为 {{\"平台id\": \"key\"}} 的 JSON 对象：{e}"))?;
+pub fn classify_keys(raw: &str, lang: Lang) -> Result<Classified, String> {
+    let keys: BTreeMap<String, String> =
+        serde_json::from_str(raw).map_err(|e| format!("{}{e}", t(lang, T::SmokeKeyFileFormat)))?;
     let mut out = Classified {
         runnable: Vec::new(),
         skipped: Vec::new(),
@@ -42,44 +46,45 @@ pub fn classify_keys(raw: &str) -> Result<Classified, String> {
     Ok(out)
 }
 
-pub async fn run(key_file: Option<PathBuf>) -> i32 {
+pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
     let path = key_file.unwrap_or_else(|| PathBuf::from(".DevApiKey.json"));
     let raw = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) => {
             eprintln!(
-                "错误：无法读取 {}（{e}）；在仓库根运行或用 --key-file 指定",
-                path.display()
+                "{}{}",
+                t(lang, T::Err),
+                texts::smoke_unreadable(lang, &path, &e)
             );
             return 1;
         }
     };
-    let classified = match classify_keys(&raw) {
+    let classified = match classify_keys(&raw, lang) {
         Ok(c) => c,
         Err(msg) => {
-            eprintln!("错误：{msg}");
+            eprintln!("{}{msg}", t(lang, T::Err));
             return 1;
         }
     };
 
     for platform in &classified.skipped {
-        println!("[{platform}] 跳过（key 为空）");
+        println!("[{platform}] {}", t(lang, T::SmokeSkipBody));
     }
     for platform in &classified.unknown {
-        println!("[{platform}] 告警：未知平台 id（计为失败，检查拼写或升级版本）");
+        println!("[{platform}] {}", t(lang, T::SmokeUnknownWarn));
     }
 
     let vault = match Vault::open(&InMemoryStore::new()) {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
     let engine = match QueryEngine::with_default_client() {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
@@ -97,7 +102,7 @@ pub async fn run(key_file: Option<PathBuf>) -> i32 {
             base_url: None,
         };
         if let Err(e) = entry.set_api_key(&vault, key) {
-            eprintln!("[{platform}] 加密失败：{e}");
+            eprintln!("[{platform}] {}{e}", t(lang, T::SmokeEncryptFail));
             failures += 1;
             continue;
         }
@@ -113,8 +118,8 @@ pub async fn run(key_file: Option<PathBuf>) -> i32 {
                         d.used.map(|v| v.to_string()).unwrap_or_else(|| "-".into()),
                         d.unit.clone().unwrap_or_else(|| "-".into()),
                         match d.is_valid {
-                            Some(false) => "否",
-                            _ => "是",
+                            Some(false) => t(lang, T::No),
+                            _ => t(lang, T::Yes),
                         },
                         d.invalid_message,
                     );
@@ -128,10 +133,10 @@ pub async fn run(key_file: Option<PathBuf>) -> i32 {
     }
 
     if failures > 0 {
-        println!("共 {failures} 个平台失败/未知");
+        println!("{}", texts::smoke_total_fail(lang, failures));
         1
     } else {
-        println!("全部通过");
+        println!("{}", t(lang, T::SmokeAllPass));
         0
     }
 }
@@ -149,18 +154,26 @@ mod tests {
             "no-such-platform": "sk-2"
         })
         .to_string();
-        let c = classify_keys(&raw).unwrap();
-        assert_eq!(
-            c.runnable,
-            vec![("deepseek".to_string(), "sk-1".to_string())]
-        );
-        assert_eq!(c.skipped, vec!["siliconflow".to_string()]);
-        assert_eq!(c.unknown, vec!["no-such-platform".to_string()]);
+        for lang in [Lang::Zh, Lang::En] {
+            let c = classify_keys(&raw, lang).unwrap();
+            assert_eq!(
+                c.runnable,
+                vec![("deepseek".to_string(), "sk-1".to_string())]
+            );
+            assert_eq!(c.skipped, vec!["siliconflow".to_string()]);
+            assert_eq!(c.unknown, vec!["no-such-platform".to_string()]);
+        }
     }
 
-    /// 契约：坏 JSON 报错。
+    /// 契约：坏 JSON 报错（双语文案）。
     #[test]
     fn bad_key_file_rejected() {
-        assert!(classify_keys("not json").is_err());
+        for lang in [Lang::Zh, Lang::En] {
+            let err = classify_keys("not json", lang).unwrap_err();
+            assert!(
+                err.starts_with(t(lang, T::SmokeKeyFileFormat)),
+                "{lang:?}: {err}"
+            );
+        }
     }
 }

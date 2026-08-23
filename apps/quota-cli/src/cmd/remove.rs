@@ -4,39 +4,41 @@ use dialoguer::{Confirm, theme::ColorfulTheme};
 use quota_core::AppConfig;
 
 use crate::ctx::Ctx;
+use crate::texts::{self, T, t};
 
 pub fn run(ctx: &Ctx, id: String, yes: bool) -> i32 {
+    let lang = ctx.lang;
     let mut cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
     let Some(pos) = cfg.providers.iter().position(|e| e.id == id) else {
-        eprintln!("错误：找不到条目 {id}");
+        eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, &id));
         return 1;
     };
     let entry = cfg.providers[pos].clone();
 
     if !yes {
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt(format!("删除 {}（{id}）？其凭据密文将一并移除", entry.name))
+            .with_prompt(texts::remove_confirm(lang, &entry.name, &id))
             .default(false)
             .interact()
             .unwrap_or(false);
         if !confirmed {
-            println!("已取消。");
+            println!("{}", texts::cancelled(lang));
             return 0;
         }
     }
 
     cfg.providers.remove(pos);
     if let Err(e) = cfg.save(&ctx.config_path) {
-        eprintln!("错误：{e}");
+        eprintln!("{}{e}", t(lang, T::Err));
         return 1;
     }
-    println!("已删除：{}（{id}）", entry.name);
+    println!("{}", texts::removed(lang, &entry.name, &id));
     0
 }
 
@@ -91,5 +93,20 @@ mod tests {
         let ctx = test_ctx("missing");
         assert_eq!(run(&ctx, "zzz".into(), true), 1);
         let _ = std::fs::remove_dir_all(ctx.config_path.parent().unwrap());
+    }
+
+    /// 契约：确认提示/结果文案双语形态。
+    #[test]
+    fn remove_texts_both_languages() {
+        for lang in [crate::lang::Lang::Zh, crate::lang::Lang::En] {
+            let confirm = texts::remove_confirm(lang, "DS", "ab1");
+            assert!(!confirm.is_empty());
+            assert_ne!(
+                texts::remove_confirm(crate::lang::Lang::Zh, "DS", "ab1"),
+                texts::remove_confirm(crate::lang::Lang::En, "DS", "ab1")
+            );
+        }
+        assert_eq!(texts::cancelled(crate::lang::Lang::Zh), "已取消。");
+        assert_eq!(texts::cancelled(crate::lang::Lang::En), "cancelled.");
     }
 }

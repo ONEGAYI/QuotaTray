@@ -2,27 +2,34 @@
 
 use quota_core::provider;
 
+use crate::lang::Lang;
 use crate::render;
+use crate::texts::{T, t};
 
-pub fn run() -> i32 {
+pub fn run(lang: Lang) -> i32 {
     let metas = provider::metas();
     if metas.is_empty() {
-        println!("（无预置平台）");
+        println!("{}", t(lang, T::NativesEmpty));
         return 0;
     }
-    println!("{}", render::natives_table(&metas));
+    println!("{}", render::natives_table(&metas, lang));
     0
 }
 
 #[cfg(test)]
 mod tests {
-    /// 契约：表格渲染包含注册表全部平台 id。
+    use super::*;
+
+    /// 契约：表格渲染包含注册表全部平台 id（双语表头）。
     #[test]
     fn table_lists_registry_ids() {
-        let metas = quota_core::provider::metas();
-        let table = super::render::natives_table(&metas);
-        for m in &metas {
-            assert!(table.contains(m.id), "缺 {}：{table}", m.id);
+        let metas = provider::metas();
+        for lang in [Lang::Zh, Lang::En] {
+            let table = render::natives_table(&metas, lang);
+            for m in &metas {
+                assert!(table.contains(m.id), "{lang:?} 缺 {}：{table}", m.id);
+            }
+            assert!(table.contains(t(lang, T::ColName)), "{lang:?}: {table}");
         }
     }
 }
