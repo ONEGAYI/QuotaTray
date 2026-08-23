@@ -5,6 +5,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  /* 原生控件（滚动条/select 弹层等）跟随主题，否则暗色下恒为亮色 */
+  color-scheme: light;
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
   --qt-shell: #eaf0f7;
   --qt-shell-highlight: #f6f9fc;
@@ -32,6 +34,7 @@
 }
 
 :root.dark {
+  color-scheme: dark;
   --qt-shell: #0b1018;
   --qt-shell-highlight: #111a27;
   --qt-surface: #17202d;

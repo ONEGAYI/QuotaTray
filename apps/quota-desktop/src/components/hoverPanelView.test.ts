@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderEntry } from "../types";
-import { hoverRingView, resolveHoverProvider } from "./hoverPanelView";
+import { hoverRingView, isCompactViewport, resolveHoverProvider } from "./hoverPanelView";
 
 function provider(id: string, enabled = true): ProviderEntry {
   return {
@@ -26,5 +26,15 @@ describe("hoverRingView", () => {
     expect(hoverRingView({ unit: "%", used: 42 }, 100)).toEqual({ fillPercent: 58, center: "58%" });
     expect(hoverRingView({ remaining: 1_250 }, 100)).toEqual({ fillPercent: 100, center: "1250" });
     expect(hoverRingView(undefined, 100)).toBeNull();
+  });
+});
+
+describe("isCompactViewport", () => {
+  it("完整高度（520）为否，压缩高度（260）为是，阈值边界为否", () => {
+    expect(isCompactViewport(520)).toBe(false);
+    expect(isCompactViewport(400)).toBe(false);
+    expect(isCompactViewport(399)).toBe(true);
+    expect(isCompactViewport(260)).toBe(true);
+    expect(isCompactViewport(Number.NaN)).toBe(false);
   });
 });

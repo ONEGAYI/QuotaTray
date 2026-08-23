@@ -5,6 +5,15 @@ export interface HoverRingView {
   center: string;
 }
 
+/** 压缩布局阈值：窗口逻辑高度低于此值视为压缩视口——后端在垂直空间
+ * 不足时把窗口缩到压缩高度（hover_panel.rs 的 PANEL_HEIGHT_COMPACT），
+ * 前端据此裁掉峰谷/用量列表/页脚，只留头部+选择器+余额圆环。 */
+export const COMPACT_VIEWPORT_THRESHOLD = 400;
+
+export function isCompactViewport(innerHeight: number): boolean {
+  return Number.isFinite(innerHeight) && innerHeight < COMPACT_VIEWPORT_THRESHOLD;
+}
+
 export function resolveHoverProvider(
   providers: ProviderEntry[],
   trayIconEntryId: string | null,

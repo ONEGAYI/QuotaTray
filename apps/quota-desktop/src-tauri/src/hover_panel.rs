@@ -3,11 +3,16 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager, PhysicalPosition, Rect, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewUrl, WebviewWindowBuilder,
+};
 
 pub const LABEL: &str = "tray-hover";
 const PANEL_WIDTH: f64 = 374.0;
 const PANEL_HEIGHT: f64 = 520.0;
+/// 压缩版高度：垂直空间不足时的紧凑布局（头部 + 双选择器 + 余额圆环
+/// + 错误行，前端裁掉状态行/用量列表/峰谷/页脚，见 hoverPanelView）。
+const PANEL_HEIGHT_COMPACT: f64 = 260.0;
 const PANEL_GAP: i32 = 8;
 const HIDE_DELAY_MS: u64 = 450;
 
@@ -94,6 +99,17 @@ fn panel_position(
         ),
     };
     PhysicalPosition::new(x, y)
+}
+
+/// 面板高度决策：垂直可用空间放得下完整版（面板高 + 避让 + gap）用
+/// 完整，否则退压缩版；压缩版也放不下仍用压缩（位置由 clamp 兜底，
+/// 超小屏场景面板可能贴边或轻微出界，优于完全不可见）。
+fn panel_height_logical(available: i32, full: i32, compact: i32, extent: i32, gap: i32) -> i32 {
+    if available >= full + extent + gap {
+        full
+    } else {
+        compact
+    }
 }
 
 /// 托盘事件 rect 是否可作为定位锚点。
@@ -219,33 +235,62 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
                 tray.y as f64 + f64::from(tray.height) / 2.0,
             )
         });
-    if let (Some(work_area), Ok(panel_size)) =
-        (work_area_at(app, anchor_x, anchor_y), window.outer_size())
-    {
+    if let Some(work_area) = work_area_at(app, anchor_x, anchor_y) {
         // 垂直避让量：图标高度估计（rect 高度，下限 16 防 rect 尺寸异常）
         let icon_extent = (tray.height as i32).max(16);
-        let position = match cursor {
+        let flyout_hover = match cursor {
             // 光标严格在工作区内部 = 悬停的是隐藏托盘 flyout 内的图标
-            // （此时无论 rect 报 chevron 还是 flyout 坐标都不可作锚），
-            // 面板出现在图标上方（垂直让开整个图标高度，不遮挡图标）
-            Some(c) if !rect_is_trusted(c, work_area) => cursor_anchored_position(
-                c,
-                work_area,
-                panel_size.width,
-                panel_size.height,
-                icon_extent,
-                PANEL_GAP,
-            ),
-            // 正常任务栏（光标在工作区之外）；光标取不到时保守按 rect
-            _ => panel_position(
-                tray,
-                work_area,
-                panel_size.width,
-                panel_size.height,
-                PANEL_GAP,
-            ),
+            // （此时无论 rect 报 chevron 还是 flyout 坐标都不可作锚）
+            Some(c) => !rect_is_trusted(c, work_area),
+            None => false,
         };
-        let _ = window.set_position(position);
+        // 高度决策的可用垂直空间：flyout 路径取光标上下两侧较大者
+        // （面板可回退下方），任务栏路径取工作区高（避让为 0）
+        let work_height = work_area.height as i32;
+        let (available, extent) = match cursor.filter(|_| flyout_hover) {
+            Some(c) => (
+                (c.y - work_area.y).max(work_area.y + work_height - c.y),
+                icon_extent,
+            ),
+            _ => (work_height, 0),
+        };
+        let height_logical = panel_height_logical(
+            available,
+            PANEL_HEIGHT as i32,
+            PANEL_HEIGHT_COMPACT as i32,
+            extent,
+            PANEL_GAP,
+        );
+        // 高度变化才重设窗口（同值 set_size 可能引起重绘抖动）
+        if let (Ok(scale), Ok(current)) = (window.scale_factor(), window.inner_size()) {
+            let current_logical = current.height as f64 / scale;
+            if (current_logical - f64::from(height_logical)).abs() > 0.5 {
+                let _ = window.set_size(LogicalSize::new(PANEL_WIDTH, height_logical as f64));
+            }
+        }
+        if let Ok(panel_size) = window.outer_size() {
+            let position = match cursor.filter(|_| flyout_hover) {
+                // flyout 图标：面板出现在图标上方（垂直让开整个图标高度，
+                // 不遮挡图标）
+                Some(c) => cursor_anchored_position(
+                    c,
+                    work_area,
+                    panel_size.width,
+                    panel_size.height,
+                    icon_extent,
+                    PANEL_GAP,
+                ),
+                // 正常任务栏（光标在工作区之外）；光标取不到时保守按 rect
+                _ => panel_position(
+                    tray,
+                    work_area,
+                    panel_size.width,
+                    panel_size.height,
+                    PANEL_GAP,
+                ),
+            };
+            let _ = window.set_position(position);
+        }
     }
     let _ = window.show();
     raise_to_topmost(&window);
@@ -436,6 +481,22 @@ mod tests {
         // flyout 内图标 / 工作区内部任意点
         assert!(!rect_is_trusted(PhysicalPosition::new(1800, 900), work));
         assert!(!rect_is_trusted(PhysicalPosition::new(100, 100), work));
+    }
+
+    /// 契约：高度决策——垂直可用空间放得下完整版（面板高 + 避让 + gap）
+    /// 用完整；放不下退压缩版；压缩版也放不下仍用压缩（clamp 兜底）。
+    /// 任务栏路径（避让 0）与 flyout 路径（避让 32）各自覆盖边界。
+    #[test]
+    fn panel_height_decision_falls_back_to_compact() {
+        // flyout 路径：1040 可用、避让 32 → 560 ≤ 1040 完整
+        assert_eq!(panel_height_logical(1040, 520, 260, 32, 8), 520);
+        // 500 可用：560 > 500，压缩 300 ≤ 500 → 压缩
+        assert_eq!(panel_height_logical(500, 520, 260, 32, 8), 260);
+        // 200 可用：压缩也放不下 → 仍压缩
+        assert_eq!(panel_height_logical(200, 520, 260, 32, 8), 260);
+        // 任务栏路径（避让 0）：恰 528 完整；527 压缩
+        assert_eq!(panel_height_logical(528, 520, 260, 0, 8), 520);
+        assert_eq!(panel_height_logical(527, 520, 260, 0, 8), 260);
     }
 
     /// 契约：光标锚定兜底定位——面板出现在光标（图标）上方、水平以光标

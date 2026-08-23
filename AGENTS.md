@@ -125,7 +125,9 @@ QuotaTray/
 │       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
 │       │   │                              #   （标题栏/账户摘要/列表），编辑时传递查询币种
 │       │   ├── vite-env.d.ts   # Vite 静态资源（品牌 PNG 等）模块类型声明
-│       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、主窗响应式系统 + 悬停面板样式
+│       │   ├── index.css       # 明暗设计令牌（color-scheme 随主题切换，原生
+│       │   │                    #   滚动条/select 弹层联动换色）、Mica-like 基底、
+│       │   │                    #   主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
@@ -152,9 +154,10 @@ QuotaTray/
 │       │       │                       #   短时反馈、启停/编辑/删除确认
 │       │       ├── HoverPanel.tsx       # 托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +
 │       │       │                       #   圆环数据源账户与计价模型即时切换、
-│       │       │                       #   头部刷新/关闭按钮
+│       │       │                       #   头部刷新/关闭按钮、低垂直空间压缩布局
 │       │       ├── hoverPanelView.ts / hoverPanelView.test.ts
-│       │       │                       # 悬停条目回退与前端圆环镜像纯逻辑
+│       │       │                       # 悬停条目回退、前端圆环镜像与压缩视口
+│       │       │                       # 判定（联动后端缩窗）纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       ├── providerPricing.ts / providerPricing.test.ts
@@ -200,8 +203,10 @@ QuotaTray/
 │               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令；
 │               │               #   隐藏托盘兜底：光标严格在工作区内（=悬停 flyout
 │               │               #   图标，任务栏图标必在工作区外）时改以光标锚定
-│               │               #   （面板出现在图标上方、垂直让开整个图标高度），
-│               │               #   show 后 SetWindowPos 重插 topmost 压过 flyout（不激活）。
+│               │               #   （面板出现在图标上方、垂直让开整个图标高度）；
+│               │               #   垂直空间不足时窗口缩至压缩高度（260，前端
+│               │               #   联动裁剪区块）；show 后 SetWindowPos 重插
+│               │               #   topmost 压过 flyout（不激活）。
 │               │               #   架构备忘：悬停自动刷新链依赖主窗「关闭=隐藏不销毁」
 │               │               #   （refresh-now 由主窗响应查询后经 provider-state-changed
 │               │               #   回流面板）——若未来改主窗为销毁式，需改为后端直查

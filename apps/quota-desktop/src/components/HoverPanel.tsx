@@ -14,7 +14,7 @@ import {
 } from "../queries";
 import { ThemeProvider } from "../theme";
 import type { ProviderEntry, Settings } from "../types";
-import { hoverRingView, resolveHoverProvider } from "./hoverPanelView";
+import { hoverRingView, isCompactViewport, resolveHoverProvider } from "./hoverPanelView";
 import { BrandMark } from "./BrandMark";
 import { deriveProviderCardState } from "./providerCardView";
 import {
@@ -67,6 +67,14 @@ function HoverPanelInner() {
   const snapshots = useSnapshots();
   const nativeMetas = useNativeMetas();
   const [actionError, setActionError] = useState<string | null>(null);
+  // 压缩布局：后端在垂直空间不足时把窗口缩到压缩高度，前端随之裁剪区块
+  const [compact, setCompact] = useState(() => isCompactViewport(window.innerHeight));
+
+  useEffect(() => {
+    const onResize = () => setCompact(isCompactViewport(window.innerHeight));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     document.body.classList.add("qt-hover-body");
@@ -278,12 +286,14 @@ function HoverPanelInner() {
               </div>
             </section>
 
-            <section className="qt-hover-status-row">
-              <span className={`qt-hover-status is-${renderedTone}`}><i />{renderedStatus}</span>
-              <span>{platformName}{pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}</span>
-            </section>
+            {!compact && (
+              <section className="qt-hover-status-row">
+                <span className={`qt-hover-status is-${renderedTone}`}><i />{renderedStatus}</span>
+                <span>{platformName}{pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}</span>
+              </section>
+            )}
 
-            {visibleWindows.some((item) => usedPercent(item) != null) && (
+            {!compact && visibleWindows.some((item) => usedPercent(item) != null) && (
               <section className="qt-hover-usage-list">
                 {visibleWindows.map((item, index) => {
                   const percent = usedPercent(item);
@@ -301,7 +311,7 @@ function HoverPanelInner() {
               </section>
             )}
 
-            {pricingView && (
+            {!compact && pricingView && (
               <section className="qt-hover-pricing">
                 <div className="qt-hover-pricing-head">
                   <span><i className={pricingView.period === "peak" ? "is-peak" : "is-offpeak"} />
@@ -337,12 +347,14 @@ function HoverPanelInner() {
         </main>
       )}
 
-      <footer className="qt-hover-footer">
-        <span>{entry?.name ?? "QuotaTray"}</span>
-        <button type="button" onClick={() => void api.openMainWindow()}>
-          <ExternalLink size={14} />{t("hover.openMain")}
-        </button>
-      </footer>
+      {!compact && (
+        <footer className="qt-hover-footer">
+          <span>{entry?.name ?? "QuotaTray"}</span>
+          <button type="button" onClick={() => void api.openMainWindow()}>
+            <ExternalLink size={14} />{t("hover.openMain")}
+          </button>
+        </footer>
+      )}
     </div>
   );
 }
