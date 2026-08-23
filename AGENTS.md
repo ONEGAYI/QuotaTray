@@ -47,7 +47,8 @@ QuotaTray/
 │           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
 │           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
-│           │                  #   预置：DeepSeek 单站双币 + Kimi 国内/国际 + 智谱/Z.ai
+│           │                  #   预置：DeepSeek 单站双币 + Kimi 开放平台国内/国际 +
+│           │                  #   Kimi Code 国内/国际订阅额度 + 智谱/Z.ai
 │           │                  #   （按量模型 + Coding Plan 订阅项，模型级窗口）、
 │           │                  #   自定义校验与预置/自定义模型库字段级合并
 │           │                  #   （resolve/resolve_with、preset/preset_with_currency）
@@ -66,13 +67,15 @@ QuotaTray/
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（8 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（10 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
 │           │   ├── kimi.rs           # /v1/users/me/balance（国内/国际双站，
 │           │   │                     #   余额+代金券/现金拆分进 extra）
+│           │   ├── kimi_coding.rs    # Kimi Code 国内/国际双站 /coding/v1/usages：
+│           │   │                     #   5h+周额度、RFC3339 重置时间、remaining 本地推导
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
 │           │                         #   端点、裸 key、已用百分比多窗口：type
 │           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
@@ -147,7 +150,8 @@ QuotaTray/
 │       │   │                    #   随主题；全局 webkit 滚动条暗色 #2e2e2e）、
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
-│       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
+│       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
+│       │   │   └── providers/     # 六组官方 Provider SVG（国内/国际及余额/订阅复用品牌）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
@@ -182,6 +186,8 @@ QuotaTray/
 │       │       │                       # 判定（联动后端缩窗）纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
+│       │       ├── providerIcon.ts / providerIcon.test.ts
+│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
 │       │       ├── providerPricing.ts / providerPricing.test.ts
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑

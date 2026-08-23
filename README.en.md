@@ -64,10 +64,11 @@ quota update --check           # check for new releases
 | DeepSeek | — | single site, dual currency from balance API |
 | SiliconFlow | CN / Global | CNY / USD |
 | OpenRouter | — | remaining = credits − usage |
-| Kimi (Moonshot) | CN / Global | balance split into voucher / cash |
+| Kimi Open Platform | CN / Global | balance split into voucher / cash |
+| Kimi Code | kimi.com/code / kimi.ai/code | 5-hour + weekly quota windows with RFC3339 reset times |
 | Zhipu / Z.ai | dual site | GLM Coding Plan usage (multi-window), raw key |
 
-All of the above use official public APIs with fully mocked tests. **Platforms not listed can be added via declarative templates** (next section).
+Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; Zhipu / Z.ai use undocumented endpoints, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
 
 ## Custom Queries: Declarative Templates
 
@@ -92,7 +93,7 @@ Most balance APIs are "one GET + auth header + field mapping ± arithmetic". A J
 
 - `extract` takes values via a JSONPath subset (`$.a.b[0]`) or constants
 - `transforms` provides restricted arithmetic (multiply/divide/add/sub/round); no eval at runtime
-- `windows` unfolds multi-plan results (e.g. Kimi's 5-hour + weekly windows)
+- `windows` unfolds homogeneous quota arrays; heterogeneous responses such as Kimi Code are handled by a built-in provider
 - Templates are statically validated on save; URLs must be HTTPS and same-origin with `{{baseUrl}}` (loopback excepted)
 
 Runnable examples live in [examples/templates/](examples/templates/): single-object extraction (string numbers), dual-site `{{baseUrl}}`, total/usage display, and multi-window unfolding — each verifiable with `quota template test`.

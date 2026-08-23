@@ -124,7 +124,8 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-card.is-disabled { opacity: .62; }
 .qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1fr) max-content max-content; min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px; }
 .qt-provider-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
-.qt-provider-avatar { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--qt-accent) 13%, var(--qt-surface)); color: var(--qt-accent-strong); font-size: 13px; font-weight: 650; }
+.qt-provider-avatar { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, #8c8c86 22%, transparent); border-radius: 12px; background: #f5f5f2; color: #242422; font-size: 13px; font-weight: 650; box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 28%, transparent); }
+.qt-provider-avatar img { display: block; width: 30px; height: 30px; object-fit: contain; }
 .qt-provider-heading { min-width: 0; }
 .qt-provider-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .qt-provider-name-row h2 { overflow: hidden; margin: 0; font-size: 17px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
