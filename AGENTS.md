@@ -189,7 +189,7 @@ QuotaTray/
 │       │       └── settingsView.ts / settingsView.test.ts
 │       │                               # 更新错误优先级与状态结论纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
-│           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
+│           ├── tauri.conf.json # 版本经 crate 继承 workspace；CSP 基线；decorations:false；NSIS 安装包
 │           ├── capabilities/
 │           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 + opener
 │           │   │                       #   打开仓库主页（scope 锁定 URL）ACL
