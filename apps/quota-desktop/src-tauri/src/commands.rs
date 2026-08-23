@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use quota_core::template::{TemplateConfig, TemplateError};
 use quota_core::{AppConfig, ProviderEntry, ProviderKind, Vault};
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::i18n::Lang;
 use crate::settings::Settings;
@@ -401,7 +401,29 @@ pub async fn query_provider(
         }
     };
     after_state_change(&app, &state);
+    let _ = app.emit("provider-state-changed", &id);
     Ok(outcome)
+}
+
+/// 读取结果表中的单条当前状态，不发起网络请求。
+/// 悬停面板与主窗口共享后端结果，避免两个 WebView 对同一平台重复查询。
+#[tauri::command]
+pub fn get_provider_state(state: State<'_, AppState>, id: String) -> QueryOutcome {
+    let results = state.results.read().unwrap();
+    match results.get(&id) {
+        Some(entry) => QueryOutcome {
+            ok: entry.error.is_none(),
+            data: entry.data.clone(),
+            error: entry.error.clone(),
+            at: entry.at,
+        },
+        None => QueryOutcome {
+            ok: true,
+            data: None,
+            error: None,
+            at: None,
+        },
+    }
 }
 
 #[tauri::command]

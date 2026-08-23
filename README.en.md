@@ -24,6 +24,7 @@ The key difference from other balance tools is **credential security**:
 
 - Tray ring icon: layered arcs per entry, color shifts when balance drops below threshold
 - Tray menu lists balance / usage percentage and last-updated time per entry, plus two lines for off-peak pricing
+- Hover detail panel: balance-first summary with quick switching of the ring data-source account and pricing model
 - Main window with card list: add/edit entries, template editor (with validation and live test), structured off-peak pricing editor
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window

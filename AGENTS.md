@@ -122,9 +122,9 @@ QuotaTray/
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
-│       │   ├── main.tsx / App.tsx        # 入口与 Calm Native 主布局（标题栏/账户摘要/列表）+
-│       │   │                              #   编辑时传递账户查询币种选择对应预置套
-│       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、可滚动主区、共享控件与响应式视觉系统
+│       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
+│       │   │                              #   （标题栏/账户摘要/列表），编辑时传递查询币种
+│       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   自定义模型库/按币种预置 DTO、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
@@ -145,6 +145,10 @@ QuotaTray/
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
 │       │       │                       #   短时反馈、启停/编辑/删除确认
+│       │       ├── HoverPanel.tsx       # 托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +
+│       │       │                       #   圆环数据源账户与计价模型即时切换
+│       │       ├── hoverPanelView.ts / hoverPanelView.test.ts
+│       │       │                       # 悬停条目回退与前端圆环镜像纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       ├── providerPricing.ts / providerPricing.test.ts
@@ -162,7 +166,9 @@ QuotaTray/
 │       │                               # 更新错误优先级与状态结论纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
-│           ├── capabilities/default.json # 事件/主题/无装饰窗口控制 ACL（最小必要）
+│           ├── capabilities/
+│           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 ACL
+│           │   └── hover-panel.json    # 悬停窗口事件与主题最小 ACL
 │           ├── icons/          # 应用图标（托盘圆环为运行时动态渲染，无静态托盘资源）
 │           ├── examples/
 │           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
@@ -171,7 +177,7 @@ QuotaTray/
 │               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
-│               ├── commands.rs # IPC 14 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               ├── commands.rs # 主业务 IPC 15 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新三命令（状态/立即检查/下载安装包）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
@@ -181,6 +187,7 @@ QuotaTray/
 │               │               #   含峰谷行/定价错误带参方法）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
 │               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
+│               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
 │               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
 │               │               #   /keep-last-good 窗口/峰谷两行（挂当前展示条目，

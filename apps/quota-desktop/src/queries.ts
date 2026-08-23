@@ -31,6 +31,32 @@ export function useProviderQuery(id: string, enabled: boolean, intervalMinutes: 
   });
 }
 
+/** 单条共享结果只读视图：不发网络请求，供独立悬停 WebView 消费。 */
+export function useProviderState(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["provider-state", id],
+    queryFn: () => api.getProviderState(id),
+    enabled,
+    retry: false,
+  });
+}
+
+/** 后端任一查询完成后刷新对应共享结果视图。 */
+export function useProviderStateEvents() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<string>("provider-state-changed", (event) => {
+      void qc.invalidateQueries({ queryKey: ["provider-state", event.payload] });
+    }).catch((err) => {
+      console.error("provider-state-changed 事件监听失败：", err);
+      return () => {};
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [qc]);
+}
+
 export function useNativeMetas() {
   return useQuery({
     queryKey: ["native-metas"],

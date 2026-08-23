@@ -616,8 +616,12 @@ fn handle_tray_event(app: &AppHandle, event: &TrayIconEvent) {
             button_state: MouseButtonState::Up,
             ..
         } => show_main(app),
-        // 悬停：节流触发全量刷新
-        TrayIconEvent::Enter { .. } => hover_refresh(app),
+        // 悬停：显示详情浮层，并按既有 10 秒节流触发全量刷新。
+        TrayIconEvent::Enter { rect, .. } => {
+            crate::hover_panel::tray_enter(app, *rect);
+            hover_refresh(app);
+        }
+        TrayIconEvent::Leave { .. } => crate::hover_panel::tray_leave(app),
         _ => {}
     }
 }
@@ -652,6 +656,7 @@ fn emit_refresh(app: &AppHandle) {
 
 /// 显示并聚焦主窗口（托盘左键 / 单实例回调 / 菜单项共用）。
 pub fn show_main(app: &AppHandle) {
+    crate::hover_panel::hide(app);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();

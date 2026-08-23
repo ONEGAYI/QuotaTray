@@ -64,6 +64,14 @@ export const en: Record<TextKey, string> = {
   "card.modelChanged": "Switched to {model}",
   "card.modelChangeError": "Model switch failed: {msg}",
 
+  // ---- Tray hover panel ----
+  "hover.account": "Account",
+  "hover.model": "Model",
+  "hover.availableBalance": "Available balance",
+  "hover.usedQuota": "Quota used",
+  "hover.openMain": "Open main window",
+  "hover.noEnabled": "No enabled accounts",
+
   // ---- 添加/编辑对话框 ----
   "edit.titleEdit": "Edit provider",
   "edit.titleAdd": "Add provider",

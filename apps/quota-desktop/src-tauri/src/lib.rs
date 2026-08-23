@@ -1,11 +1,12 @@
 //! quota-desktop 桌面端（Tauri 2）：主进程入口。
 //!
 //! 职责（GUI-spec §1：GUI 是薄层，业务在 core）：
-//! - 组装 Tauri：单实例（首位注册）、自启、托盘、窗口事件、IPC 命令；
+//! - 组装 Tauri：单实例（首位注册）、自启、托盘、悬停浮窗、窗口事件、IPC 命令；
 //! - 初始化 [`AppState`]（保险库 / 引擎 / 设置 / 快照恢复）；
 //! - 窗口关闭 = 隐藏收托盘，退出只走托盘菜单（退出时清理托盘图标）。
 
 mod commands;
+mod hover_panel;
 mod i18n;
 mod ring;
 mod settings;
@@ -41,6 +42,8 @@ pub fn run() {
         .setup(move |app| {
             let state = state::AppState::init(data_dir.clone())?;
             app.manage(state);
+            app.manage(hover_panel::HoverPanelState::default());
+            hover_panel::create(app.handle()).map_err(|e| format!("悬停面板初始化失败：{e}"))?;
             // 托盘首屏即渲染快照（消除重启空窗）
             let state = app.state::<state::AppState>();
             tray::create(app.handle(), &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
@@ -63,6 +66,7 @@ pub fn run() {
             commands::validate_template,
             commands::test_template,
             commands::query_provider,
+            commands::get_provider_state,
             commands::get_settings,
             commands::save_settings,
             commands::set_resolved_theme,
@@ -70,6 +74,9 @@ pub fn run() {
             commands::get_update_state,
             commands::check_update_now,
             commands::download_update,
+            hover_panel::set_hover_panel_pointer_inside,
+            hover_panel::hide_hover_panel,
+            hover_panel::open_main_window,
         ])
         .run(tauri::generate_context!())
         .expect("QuotaTray 启动失败");

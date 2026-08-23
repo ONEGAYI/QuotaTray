@@ -67,6 +67,14 @@ export const zh = {
   "card.modelChanged": "已切换为 {model}",
   "card.modelChangeError": "模型切换失败：{msg}",
 
+  // ---- 托盘悬停面板 ----
+  "hover.account": "账户",
+  "hover.model": "模型",
+  "hover.availableBalance": "可用余额",
+  "hover.usedQuota": "已用额度",
+  "hover.openMain": "打开主窗口",
+  "hover.noEnabled": "没有已启用的账户",
+
   // ---- 添加/编辑对话框 ----
   "edit.titleEdit": "编辑供应商",
   "edit.titleAdd": "添加供应商",
