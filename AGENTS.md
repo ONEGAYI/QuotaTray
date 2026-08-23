@@ -24,6 +24,10 @@
 QuotaTray/
 ├── AGENTS.md                  # 本文件：项目规则单一事实源
 ├── CLAUDE.md                  # @AGENTS.md 导入 + Claude 专属补充
+├── README.md                  # 项目自述（中文，默认展示）：定位/功能/预置平台/
+│                              #   模板示例/安全设计/构建安装，顶部链英文版
+├── README.en.md               # 英文版自述，与中文版结构对齐，顶部互链
+├── CHANGELOG.md               # 版本变更记录（Keep a CHANGELOG，按 PR 归纳）
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
 ├── .gitignore                 # 含 .DevApiKey.json / 前端与 gen/schemas 生成物
