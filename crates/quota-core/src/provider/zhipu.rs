@@ -44,11 +44,14 @@ pub const ZAI: ZhipuApi = ZhipuApi {
     base_url: "https://api.z.ai",
 };
 
-/// TOKENS_LIMIT 条目的窗口归类（决定 plan_name 的窗口标签）。
+/// TOKENS_LIMIT 条目的窗口归类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ZhipuWindow {
     FiveHour,
     Weekly,
+    /// MCP 工具限额（`type: TIME_LIMIT`，月度窗口）。type 标注明确，
+    /// 不参与 unit 归类，也不受套餐变体过滤（三种变体下都显示）。
+    Mcp,
 }
 
 /// TOKENS_LIMIT 窗口标签（语言中性缩写，双语用户均可读）。
@@ -56,6 +59,7 @@ fn window_label(window: ZhipuWindow) -> &'static str {
     match window {
         ZhipuWindow::FiveHour => "5h",
         ZhipuWindow::Weekly => "week",
+        ZhipuWindow::Mcp => "MCP",
     }
 }
 
@@ -74,33 +78,43 @@ fn classify_window(item: &Value) -> Option<ZhipuWindow> {
     }
 }
 
-/// 把 `data.limits` 解析为窗口行（5h 在前、周在后，与 cc-switch 同序）。
+/// 把 `data.limits` 解析为窗口行（5h、week、MCP 各至多一行）。
 ///
 /// 归类优先级：`unit` 显式字段（3 → 5h、6 → 周）。兜底（`unit` 缺失或
 /// 不识别）：仅在 5h 槽空缺时归入（覆盖老套餐单条、无 unit 的历史
-/// 形态）；**week 槽只认 unit=6 的明确标注**——无法识别的条目（如
-/// v1 套餐的 MCP 工具调用限额）宁可丢弃也不错标成周限额。
+/// 形态）；**week 槽只认 unit=6 的明确标注**——无法识别的条目宁可
+/// 丢弃也不错标成周限额。`TIME_LIMIT` 条目是 MCP 工具限额（实测来源
+/// 用户的 Claude statusline 抓取脚本，月度窗口），type 标注明确，
+/// 独立成行且不受变体过滤。
 /// `variant` 为条目声明的套餐变体：`NoWeekly` 只输出 5h 行（周行含
 /// unit=6 一律丢弃，智谱 v1）；`Weekly` 放宽兜底（unit 未知的条目
 /// 可填入仍空缺的槽位，先 5h 后 week）；`Auto` 维持上述宁缺毋错。
-/// 非 TOKENS_LIMIT 条目忽略；`used` 钳到 [0,100] 防远端异常值把
-/// remaining 顶出 total。
+/// 其余类型条目忽略；`used` 钳到 [0,100] 防远端异常值把 remaining
+/// 顶出 total。
 fn parse_windows(data: &Value, variant: PlanVariant) -> Vec<UsageData> {
     let mut five_hour: Option<(f64, &Value)> = None;
     let mut weekly: Option<(f64, &Value)> = None;
+    let mut mcp: Option<(f64, &Value)> = None;
     let mut unclassified: Vec<(f64, Option<i64>, &Value)> = Vec::new();
 
     if let Some(limits) = data.get("limits").and_then(Value::as_array) {
         for item in limits {
             let limit_type = item.get("type").and_then(Value::as_str).unwrap_or("");
             // 大小写不敏感：上游若改变大小写仍能识别
-            if !limit_type.eq_ignore_ascii_case("TOKENS_LIMIT") {
-                continue;
-            }
             let Some(raw) = parse_num(item.get("percentage")) else {
                 continue;
             };
             let used = raw.clamp(0.0, 100.0);
+            if limit_type.eq_ignore_ascii_case("TIME_LIMIT") {
+                // MCP 工具限额：独立行，多条时取第一条
+                if mcp.is_none() {
+                    mcp = Some((used, item));
+                }
+                continue;
+            }
+            if !limit_type.eq_ignore_ascii_case("TOKENS_LIMIT") {
+                continue;
+            }
             let reset = item.get("nextResetTime").and_then(Value::as_i64);
             match classify_window(item) {
                 Some(ZhipuWindow::FiveHour) if five_hour.is_none() => {
@@ -128,8 +142,12 @@ fn parse_windows(data: &Value, variant: PlanVariant) -> Vec<UsageData> {
         weekly = None;
     }
 
-    [(ZhipuWindow::FiveHour, five_hour), (ZhipuWindow::Weekly, weekly)]
-        .into_iter()
+    [
+        (ZhipuWindow::FiveHour, five_hour),
+        (ZhipuWindow::Weekly, weekly),
+        (ZhipuWindow::Mcp, mcp),
+    ]
+    .into_iter()
         .filter_map(|(window, slot)| {
             let (used, item) = slot?;
             Some(UsageData {
@@ -344,6 +362,32 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// 契约：TIME_LIMIT 条目是 MCP 工具限额（月度），独立成行且不受
+    /// 套餐变体过滤；NoWeekly 下仍与 5h 行并存。
+    #[tokio::test]
+    async fn time_limit_is_mcp_row_regardless_of_variant() {
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":20.0,"nextResetTime":1787501495548},
+            {"type":"TIME_LIMIT","percentage":32.0,"nextResetTime":1789162988000}
+        ]}}"#;
+        for variant in [PlanVariant::Auto, PlanVariant::NoWeekly, PlanVariant::Weekly] {
+            let data = ZHIPU
+                .query(&creds(), &MockHttp::ok(body), variant)
+                .await
+                .unwrap();
+            assert_eq!(data.len(), 2, "{variant:?}：5h 与 MCP 两行");
+            assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
+            assert_eq!(data[0].used, Some(20.0));
+            assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（MCP）"));
+            assert_eq!(data[1].used, Some(32.0));
+            assert_eq!(
+                data[1].extra.as_ref().unwrap()["type"],
+                serde_json::json!("TIME_LIMIT"),
+                "原始窗口项透传 extra"
+            );
+        }
     }
 
     /// 契约：套餐变体——NoWeekly 只留 5h（unit=6 的周行也丢弃）；
