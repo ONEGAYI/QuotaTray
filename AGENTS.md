@@ -188,6 +188,10 @@ QuotaTray/
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       ├── providerIcon.ts / providerIcon.test.ts
 │       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
+│       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
+│       │       │                       #   悬停/键盘展开二级 Provider 选单
+│       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
+│       │       │                       # native id 的平台分组、稳定顺序与未知项兜底
 │       │       ├── providerPricing.ts / providerPricing.test.ts
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑

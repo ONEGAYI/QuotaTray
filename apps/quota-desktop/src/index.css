@@ -416,6 +416,30 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-input, .qt-select { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--qt-border-strong); border-radius: 8px; padding: 7px 10px; background: var(--qt-surface); color: var(--qt-text); }
 .qt-input::placeholder { color: var(--qt-text-faint); }
 .qt-input:focus, .qt-select:focus { border-color: var(--qt-accent); outline: 2px solid color-mix(in srgb, var(--qt-accent) 20%, transparent); outline-offset: 0; }
+.qt-native-picker { position: relative; transition: padding-bottom .12s ease; }
+.qt-native-picker-trigger { display: flex; width: 100%; min-width: 0; min-height: 36px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--qt-border-strong); border-radius: 8px; padding: 5px 9px; background: var(--qt-surface); color: var(--qt-text); text-align: left; }
+.qt-native-picker-trigger:hover { border-color: color-mix(in srgb, var(--qt-accent) 55%, var(--qt-border-strong)); }
+.qt-native-picker-trigger:focus-visible { border-color: var(--qt-accent); outline: 2px solid color-mix(in srgb, var(--qt-accent) 20%, transparent); outline-offset: 0; }
+.qt-native-picker-value, .qt-native-picker-group-main { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.qt-native-picker-value > span:last-child, .qt-native-picker-group-main > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-native-picker-value.is-placeholder { color: var(--qt-text-faint); }
+.qt-native-picker-value-icon, .qt-native-picker-group-icon { display: grid; flex: none; place-items: center; border: 1px solid color-mix(in srgb, #8c8c86 20%, transparent); background: #f5f5f2; color: #242422; }
+.qt-native-picker-value-icon { width: 25px; height: 25px; border-radius: 7px; }
+.qt-native-picker-group-icon { width: 29px; height: 29px; border-radius: 8px; }
+.qt-native-picker-value-icon img { width: 18px; height: 18px; object-fit: contain; }
+.qt-native-picker-group-icon img { width: 21px; height: 21px; object-fit: contain; }
+.qt-native-picker-value-icon.is-fallback, .qt-native-picker-group-icon.is-fallback { font-size: 11px; font-weight: 700; }
+.qt-native-picker-menu { position: fixed; z-index: 80; display: grid; grid-template-columns: minmax(176px, 42%) minmax(0, 58%); overflow: hidden; border: 1px solid var(--qt-border); border-radius: 10px; padding: 6px; background: var(--qt-surface); box-shadow: 0 16px 38px var(--qt-shadow); }
+.qt-native-picker-groups { min-width: 0; overflow-y: auto; border-right: 1px solid var(--qt-border); padding-right: 6px; }
+.qt-native-picker-group-button { display: flex; width: 100%; min-height: 41px; align-items: center; justify-content: space-between; gap: 10px; border: 0; border-radius: 7px; padding: 6px 8px; background: transparent; color: var(--qt-text-soft); text-align: left; }
+.qt-native-picker-group-button:hover, .qt-native-picker-group-button.is-active, .qt-native-picker-group-button:focus-visible { background: var(--qt-surface-soft); color: var(--qt-text); outline: none; }
+.qt-native-picker-submenu { min-width: 0; overflow-y: auto; padding-left: 6px; }
+.qt-native-picker-option { display: flex; width: 100%; min-height: 47px; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-radius: 7px; padding: 7px 9px; background: transparent; color: var(--qt-text); text-align: left; }
+.qt-native-picker-option:hover, .qt-native-picker-option:focus-visible { background: var(--qt-surface-soft); outline: none; }
+.qt-native-picker-option > span { min-width: 0; }
+.qt-native-picker-option strong { display: block; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.qt-native-picker-option small { display: block; margin-top: 2px; color: var(--qt-text-faint); font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 10px; }
+.qt-native-picker-option > svg { flex: none; color: var(--qt-accent-strong); }
 .qt-field-label { color: var(--qt-text-soft); font-size: 13px; }
 .qt-edit-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 16px; padding: 3px; border-radius: 9px; background: var(--qt-surface-soft); }
 .qt-edit-tabs button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--qt-text-soft); }

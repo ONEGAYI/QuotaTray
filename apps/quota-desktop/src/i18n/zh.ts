@@ -88,6 +88,7 @@ export const zh = {
   "edit.namePlaceholder": "如 DeepSeek 主号",
   "edit.nameRequired": "名称不能为空",
   "edit.platform": "平台",
+  "edit.platformGroupZhipu": "智谱",
   "edit.planVariant": "套餐变体（限额窗口结构）",
   "edit.planVariantAuto": "自动（按响应推断）",
   "edit.planVariantNoWeekly": "无周限 · v1（仅 5 小时窗）",

@@ -85,6 +85,7 @@ export const en: Record<TextKey, string> = {
   "edit.namePlaceholder": "e.g. DeepSeek main",
   "edit.nameRequired": "Name is required",
   "edit.platform": "Platform",
+  "edit.platformGroupZhipu": "Zhipu",
   "edit.planVariant": "Plan variant (limit windows)",
   "edit.planVariantAuto": "Auto (infer from response)",
   "edit.planVariantNoWeekly": "No weekly · v1 (5h window only)",
