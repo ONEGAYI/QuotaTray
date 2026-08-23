@@ -54,8 +54,10 @@ impl Lang {
 impl std::str::FromStr for Lang {
     type Err = String;
 
+    /// 错误串用英文：clap 的值解析错误骨架（error:/invalid value …）
+    /// 是库文案无法翻译，混排中文反而不一致——纯英文与骨架统一。
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse(s).ok_or_else(|| "无效值（合法：zh / en / system）".into())
+        Self::parse(s).ok_or_else(|| "invalid value (valid: zh | en | system)".into())
     }
 }
 
@@ -145,6 +147,17 @@ mod tests {
     fn resolve_passes_through_concrete() {
         assert_eq!(Lang::Zh.resolve(), Lang::Zh);
         assert_eq!(Lang::En.resolve(), Lang::En);
+    }
+
+    /// 契约：--lang 非法值的 FromStr 错误文案为纯英文——clap 错误骨架
+    /// （error:/invalid value…）是库文案不可译，混排中文反而不一致。
+    #[test]
+    fn from_str_error_message_is_english() {
+        let err = "fr".parse::<Lang>().unwrap_err();
+        assert_eq!(err, "invalid value (valid: zh | en | system)");
+        assert!(!err.chars().any(|c| c > '\u{7F}'), "不得含非 ASCII：{err}");
+        // 合法值照常解析
+        assert_eq!("en".parse::<Lang>().unwrap(), Lang::En);
     }
 
     /// 契约：settings 读取容错——缺失/损坏/缺字段/非法值回退 System；

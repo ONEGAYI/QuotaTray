@@ -79,21 +79,29 @@ mod tests {
         assert_eq!(v2.decrypt(&ct, "p").unwrap(), "secret");
     }
 
-    /// 契约：ctx 错误文案双语（语言字段直接驱动）。
+    /// 契约：ctx 错误文案双语（语言字段直接驱动）——注入恒失败 store
+    /// 驱动 open_vault 真实失败路径，断言消息以前缀开头且透出底层原因。
     #[test]
-    fn error_prefix_follows_lang() {
-        let mut ctx = Ctx::with_store(
-            PathBuf::from("unused.json"),
-            Arc::new(quota_core::InMemoryStore::new()),
-        );
-        // 正常打开无错误；以坏 store 无法轻易构造失败，这里锁定前缀形态即可：
-        // open_vault 失败时消息以 t(lang, VaultOpenFailCtx) 开头。
-        assert!(ctx.open_vault().is_ok());
-        ctx.lang = Lang::En;
-        assert!(ctx.open_vault().is_ok());
-        assert_eq!(
-            t(ctx.lang, T::VaultOpenFailCtx),
-            "credential vault open failed: "
-        );
+    fn open_vault_error_prefix_follows_lang() {
+        struct FailingStore;
+        impl quota_core::SecretStore for FailingStore {
+            fn get(&self) -> Result<Option<Vec<u8>>, quota_core::vault::VaultError> {
+                Err(quota_core::vault::VaultError::Store("backend down".into()))
+            }
+            fn set(&self, _key: &[u8]) -> Result<(), quota_core::vault::VaultError> {
+                Err(quota_core::vault::VaultError::Store("backend down".into()))
+            }
+        }
+
+        for lang in [Lang::Zh, Lang::En] {
+            let ctx = Ctx::with_store(PathBuf::from("unused.json"), Arc::new(FailingStore));
+            let ctx = Ctx { lang, ..ctx };
+            let err = ctx.open_vault().unwrap_err();
+            assert!(
+                err.starts_with(t(lang, T::VaultOpenFailCtx)),
+                "{lang:?}: {err}"
+            );
+            assert!(err.contains("backend down"), "{lang:?}: {err}");
+        }
     }
 }

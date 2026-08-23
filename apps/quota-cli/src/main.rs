@@ -140,6 +140,8 @@ async fn main() {
     // 两阶段解析：先用预扫描的语言（--lang > --config 推导的 settings >
     // 默认路径）覆盖命令面文案，再用**翻译后的 command** 做匹配——
     // DisplayHelp / 用法错误在匹配时即时渲染，必须让 clap 拿到已翻译的 cmd。
+    // 注：clap 内置错误骨架（error:/Usage:/For more information…）是库
+    // 文案无法翻译，属生态限制，已知悉——可译面仅限 about/help/值解析消息。
     let (scan_lang, scan_config) = lang::scan_args(&args);
     let help_lang = lang::resolve_lang(
         scan_lang,

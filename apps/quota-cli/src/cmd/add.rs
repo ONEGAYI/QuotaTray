@@ -126,9 +126,10 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
 
     let metas = quota_core::provider::metas();
+    // 连接符随语言（zh 全角双破折号 / en 单破折号），与 TemplateOption 排版一致
     let mut items: Vec<String> = metas
         .iter()
-        .map(|m| format!("{} —— {}", m.id, m.name))
+        .map(|m| format!("{} {} {}", m.id, t(lang, T::Dash), m.name))
         .collect();
     items.push(t(lang, T::TemplateOption).into());
     let sel = Select::with_theme(&theme)

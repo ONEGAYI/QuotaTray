@@ -116,6 +116,9 @@ pub enum T {
     KeyEmptyHint,
     /// 试查输出的「有效」标签（是/否复用 Yes/No）。
     LblValid,
+    /// 向导列表项 id 与名称的排版连接符（zh 全角双破折号 / en 单破折号，
+    /// 与 TemplateOption 的排版先例一致）。
+    Dash,
 
     // ---- vault ----
     VaultStoreOk,
@@ -263,6 +266,7 @@ fn zh(key: T) -> &'static str {
         }
         T::KeyEmptyHint => "key 为空；无 key 调试请改用 quota template test --entry",
         T::LblValid => "有效",
+        T::Dash => "——",
 
         T::VaultStoreOk => "系统凭据库：可读（主密钥已存在）",
         T::VaultStoreNotInit => "系统凭据库：可读（主密钥尚未初始化，本次检查将生成新密钥）",
@@ -407,6 +411,7 @@ fn en(key: T) -> &'static str {
         }
         T::KeyEmptyHint => "key is empty; for keyless debugging use quota template test --entry",
         T::LblValid => "valid",
+        T::Dash => "—",
 
         T::VaultStoreOk => "system credential store: readable (master key present)",
         T::VaultStoreNotInit => {
@@ -698,6 +703,7 @@ mod tests {
             T::VaultStoreNotInit,
             T::HelpAbout,
             T::HelpTemplateJson,
+            T::Dash,
         ] {
             let zh = t(Lang::Zh, key);
             let en = t(Lang::En, key);
