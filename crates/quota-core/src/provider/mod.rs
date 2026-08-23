@@ -8,6 +8,7 @@ pub mod kimi_coding;
 pub mod openrouter;
 pub mod siliconflow;
 pub mod zhipu;
+pub mod zhipu_metered;
 
 pub use deepseek::DeepSeek;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
@@ -15,6 +16,7 @@ pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
 pub use openrouter::OpenRouter;
 pub use siliconflow::{SILICONFLOW_CN, SILICONFLOW_GLOBAL, SiliconFlow};
 pub use zhipu::{ZAI, ZHIPU, ZhipuApi};
+pub use zhipu_metered::{ZAI_API, ZHIPU_API, ZhipuMetered};
 
 use std::sync::{Arc, LazyLock};
 
@@ -59,7 +61,9 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(KIMI_GLOBAL),
         Arc::new(KIMI_CODE_CN),
         Arc::new(KIMI_CODE_GLOBAL),
+        Arc::new(ZHIPU_API),
         Arc::new(ZHIPU),
+        Arc::new(ZAI_API),
         Arc::new(ZAI),
     ]
 });
@@ -342,6 +346,16 @@ mod tests {
         for id in ["kimi_code_cn", "kimi_code_global"] {
             assert!(find(id).is_some(), "注册表缺少 {id}");
             assert!(!supports_plan_variant(id), "{id} 不应展示 GLM 套餐变体");
+        }
+    }
+
+    /// 智谱通用 API 按量计费与 Coding Plan 是独立凭据/查询语义；
+    /// 新条目进入注册表，但不展示订阅套餐变体。
+    #[test]
+    fn registry_contains_zhipu_metered_without_plan_variant() {
+        for id in ["zhipu_api", "zai_api"] {
+            assert!(find(id).is_some(), "注册表缺少 {id}");
+            assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
         }
     }
 }

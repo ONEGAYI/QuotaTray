@@ -22,8 +22,8 @@ const KNOWN_GROUPS = [
   { key: "siliconflow", ids: ["siliconflow", "siliconflow_global"] },
   { key: "openrouter", ids: ["openrouter"] },
   { key: "kimi", ids: ["kimi_cn", "kimi_global", "kimi_code_cn", "kimi_code_global"] },
-  { key: "zhipu", ids: ["zhipu"] },
-  { key: "zai", ids: ["zai"] },
+  { key: "zhipu", ids: ["zhipu_api", "zhipu"] },
+  { key: "zai", ids: ["zai_api", "zai"] },
 ] as const;
 
 /** 将 native 注册表聚合为稳定的平台一级菜单；未知项独立追加，避免被静默隐藏。 */

@@ -99,6 +99,8 @@ cc-switch 把安全预算花在"凭据离开存储之后的每一条出口"上�
 
 > **Kimi 字段更新（2026-08-23）**：MoonshotAI 官方 `kimi-code` 已将当前响应契约收紧为周窗口 `usage.used/limit/resetTime`，以及 5 小时窗口 `limits[].detail.used/limit/resetTime`（窗口由 `duration=300`、`timeUnit=TIME_UNIT_MINUTE` 识别）。响应没有 `remaining`，需由 `limit - used` 计算；`resetTime` 为 RFC3339 字符串。cc-switch v3.20.0 的 `remaining` 读取方式不应直接移植。
 
+> **智谱通用 API 补充（2026-08-24）**：国内 `open.bigmodel.cn` 与国际 `api.z.ai` 的通用 API 均响应 Bearer 鉴权的 `/api/paas/v4/user/credit_grants` 与 `/api/paas/v4/balance` 路径，但未收入公开 API 参考。QuotaTray 将其与 Coding Plan 裸 key 查询拆成独立 Provider：优先读取 `total_granted/total_used/total_available`，仅在 credit grants 明确返回 404/405 时回退 `data.total_balance/used_balance/available_balance`；端点漂移按确定性解析失败暴露，不静默猜值。
+
 订阅类（Claude/Codex/Gemini）走各 CLI 本地 OAuth 文件取 token，端点分别为 `api.anthropic.com/api/oauth/usage`、`chatgpt.com/backend-api/wham/usage`、`cloudcode-pa.googleapis.com` 两段式（subscription.rs:344-1184）。
 
 ### 4.3 JS 脚本协议（QuotaTray 脚本兜底的蓝本）

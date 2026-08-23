@@ -721,11 +721,26 @@ mod tests {
             "kimi_global",
             "kimi_code_cn",
             "kimi_code_global",
+            "zhipu_api",
+            "zai_api",
             "zhipu",
             "zai",
         ] {
             let m = metas.iter().find(|m| m.id == id).unwrap();
             assert!(m.pricing.is_some(), "{id} 应有预置");
+        }
+        // 智谱/Z.ai 通用 API：默认模型为按量计费，不混入订阅项，
+        // 也不展示 Coding Plan 套餐变体。
+        for id in ["zhipu_api", "zai_api"] {
+            let m = metas.iter().find(|m| m.id == id).unwrap();
+            let p = m.pricing.as_ref().unwrap();
+            assert_eq!(p.default_model, "glm-5.3");
+            assert!(
+                p.models.iter().all(|model| {
+                    serde_json::to_value(model).unwrap()["plan"] == "pay_as_you_go"
+                })
+            );
+            assert!(!m.supports_plan_variant);
         }
         // Kimi Code 是独立订阅 Provider：默认模型即订阅额度，且不展示
         // 智谱专属的套餐变体选择。
@@ -773,6 +788,8 @@ mod tests {
                 "kimi_global",
                 "kimi_code_cn",
                 "kimi_code_global",
+                "zhipu_api",
+                "zai_api",
                 "zhipu",
                 "zai",
             ]

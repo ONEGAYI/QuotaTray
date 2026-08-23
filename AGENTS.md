@@ -48,7 +48,8 @@ QuotaTray/
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
 │           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
 │           │                  #   预置：DeepSeek 单站双币 + Kimi 开放平台国内/国际 +
-│           │                  #   Kimi Code 国内/国际订阅额度 + 智谱/Z.ai
+│           │                  #   Kimi Code 国内/国际订阅额度 + 智谱/Z.ai 通用 API
+│           │                  #   国内/国际按量模型 + Coding Plan
 │           │                  #   （按量模型 + Coding Plan 订阅项，模型级窗口）、
 │           │                  #   自定义校验与预置/自定义模型库字段级合并
 │           │                  #   （resolve/resolve_with、preset/preset_with_currency）
@@ -67,7 +68,7 @@ QuotaTray/
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（10 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（12 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
@@ -76,6 +77,8 @@ QuotaTray/
 │           │   │                     #   余额+代金券/现金拆分进 extra）
 │           │   ├── kimi_coding.rs    # Kimi Code 国内/国际双站 /coding/v1/usages：
 │           │   │                     #   5h+周额度、RFC3339 重置时间、remaining 本地推导
+│           │   ├── zhipu_metered.rs  # 智谱/Z.ai 通用 API 按量余额：Bearer、credit grants
+│           │   │                     #   优先，404/405 回退 balance；两站 CNY/USD
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
 │           │                         #   端点、裸 key、已用百分比多窗口：type
 │           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
