@@ -157,7 +157,9 @@ pub fn next_change(
 }
 
 /// epoch 毫秒 → (时区星期, 当日分钟数)。tz None = 本地；非法偏移/超范围
-/// 按当前本地时间兜底（与 `update::local_datetime` 同策略，不 panic）。
+/// 兜底仍基于**入参时刻**的本地时区（保持纯函数——`next_change` 的扫描
+/// 依赖同一入参的可重判定），仅入参超出 chrono 有效范围才按当前时间兜底
+/// （与 `update::local_datetime` 同策略，不 panic）。
 fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     fn parts<Tz: chrono::TimeZone>(dt: chrono::DateTime<Tz>) -> (chrono::Weekday, u32) {
         (dt.weekday(), dt.hour() * 60 + dt.minute())
@@ -174,7 +176,12 @@ fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     } else if let Some(dt) = chrono::Local.timestamp_millis_opt(now_ms as i64).single() {
         return parts(dt);
     }
-    parts(chrono::Local::now())
+    parts(
+        chrono::Local
+            .timestamp_millis_opt(now_ms as i64)
+            .single()
+            .unwrap_or_else(chrono::Local::now),
+    )
 }
 
 /// "HH:MM" 解析（复用 `update::parse_hhmm`，24 小时制含边界）；非法 → None。
@@ -184,13 +191,20 @@ fn parse_hhmm(s: &str) -> Option<(u8, u8)> {
 
 // ---- 格式化 ----------------------------------------------------------------
 
-/// 价格展示：最多 2 位小数去尾零（`0.30`→`0.3`、`27.00`→`27`）。
+/// 价格展示：最多 2 位小数去尾零（`0.30`→`0.3`、`27.00`→`27`）；
+/// 小于 0.05 的非零价保留 4 位——美元档峰谷命中价（谷 0.007 / 峰 0.014）
+/// 若按 2 位舍入会同显 "0.01"，两档撞车（阈值取 0.05 而非 0.01：
+/// 0.014 这类值 2 位舍入同样损失信息）。
 /// 非有限值（NaN/∞，未经 validate 的数据）显示 "—"。
 pub fn format_price(v: f64) -> String {
     if !v.is_finite() {
         return "—".into();
     }
-    let s = format!("{v:.2}");
+    let s = if v != 0.0 && v.abs() < 0.05 {
+        format!("{v:.4}")
+    } else {
+        format!("{v:.2}")
+    };
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s.is_empty() { "0".into() } else { s.into() }
 }
@@ -603,11 +617,23 @@ mod tests {
         );
     }
 
-    /// 契约：非法偏移不 panic，按本地兜底。
+    /// 契约：非法偏移不 panic，且等价于**入参时刻**的本地时区判定（保持
+    /// 纯函数——兜底若换成"此刻"，next_change 扫描会恒等于 current 而
+    /// 静默返回 None）。
     #[test]
     fn classify_invalid_offset_falls_back() {
         let w = deepseek_windows();
-        let _ = classify(&w, Some(i32::MAX), WED_0930_BJ_MS);
+        let now = WED_0930_BJ_MS;
+        let local_offset = chrono::Local::now().offset().local_minus_utc();
+        assert_eq!(
+            classify(&w, Some(i32::MAX), now),
+            classify(&w, Some(local_offset), now),
+            "非法偏移应按入参时刻的本地时区判定"
+        );
+        // 非法偏移下 next_change 仍能找到翻转（而非静默 None）
+        let (t, kind) = next_change(&w, Some(i32::MAX), now).expect("应找到翻转");
+        assert_eq!(kind, PeakKind::OffPeak);
+        assert!(t > now);
     }
 
     // ---- next_change ----
@@ -648,6 +674,20 @@ mod tests {
         assert_eq!(format_price(0.0), "0");
         assert_eq!(format_price(f64::NAN), "—");
         assert_eq!(format_price(f64::INFINITY), "—");
+    }
+
+    /// 契约：小于 0.01 的非零价保留 4 位小数——美元档峰谷命中价
+    /// （谷 0.007 / 峰 0.014）不得都舍入成 "0.01"（两档显示撞车）。
+    #[test]
+    fn format_price_keeps_sub_cents_distinct() {
+        assert_eq!(format_price(0.007), "0.007");
+        assert_eq!(format_price(0.014), "0.014");
+        assert_eq!(format_price(0.0001), "0.0001");
+        assert_ne!(
+            format_price(0.007),
+            format_price(0.014),
+            "美元档峰谷命中价不得显示相同"
+        );
     }
 
     // ---- validate ----
