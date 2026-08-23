@@ -4,6 +4,7 @@
 //! - `model`：统一数据契约（M0）
 //! - `vault` / `config` / `http` / `provider` / `query`：核心业务（M1）
 //! - `template`：声明式模板 DSL（M2a，core 的 M2 API 面就此冻结）
+//! - `update`：GitHub release 检测更新与安装包下载（M4-b）
 //! - `script`（M4）随里程碑建立，不留空壳模块。
 
 pub mod config;
@@ -12,10 +13,12 @@ pub mod model;
 pub mod provider;
 pub mod query;
 pub mod template;
+pub mod update;
 pub mod vault;
 
 pub use config::{AppConfig, Credentials, ProviderEntry, ProviderKind};
 pub use model::{QueryError, UsageData};
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use template::{TemplateConfig, TemplateError};
+pub use update::{AssetDownloader, ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION};
 pub use vault::{InMemoryStore, KeyringStore, SecretStore, Vault};
