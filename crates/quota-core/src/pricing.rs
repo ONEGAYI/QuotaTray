@@ -299,6 +299,17 @@ pub fn validate(cfg: &PricingConfig) -> Result<(), PricingError> {
 
 // ---- 预置（官方定价，随版本内置；数据以官网为准） ---------------------------
 
+/// 计费模式：决定展示语义——按量为「每 MTokens 三档价」，
+/// 订阅为「积分/额度倍率」（价格档留空，峰谷窗口表达折扣时段）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanKind {
+    /// 按量付费（pay-as-you-go），三档价格有效。
+    PayAsYouGo,
+    /// 订阅套餐（如 GLM Coding Plan），积分制、无每 token 价。
+    Subscription,
+}
+
 /// 预置单模型价格档。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PresetModel {
@@ -306,6 +317,12 @@ pub struct PresetModel {
     pub id: &'static str,
     /// 展示名（如 "V4 Flash"）。
     pub display: &'static str,
+    /// 计费模式（订阅项价格档留空、窗口表达折扣时段）。
+    pub plan: PlanKind,
+    /// 模型级峰谷窗口覆盖：None = 继承平台级；Some(vec![]) = 该模型恒空闲。
+    /// 订阅项在此携带自己的折扣窗口（如 Coding Plan 工作日 14:00–18:00），
+    /// 同平台按量模型则继承平台级（无峰谷平台即恒空闲）。
+    pub windows: Option<Vec<PeakWindow>>,
     pub peak: PriceTier,
     pub off_peak: PriceTier,
 }
@@ -317,49 +334,193 @@ pub struct PresetProvider {
     pub currency: &'static str,
     /// UTC 偏移（分钟）。
     pub timezone_offset_minutes: i32,
+    /// 平台级高峰窗口（模型级 `windows` 为 None 时生效）。
     pub windows: Vec<PeakWindow>,
     pub models: Vec<PresetModel>,
     pub default_model: &'static str,
 }
 
+/// 平台的默认预置币种（条目未指定时 `preset` 取这套）。
+/// OpenRouter 虽无峰谷预置但按量计价为 USD，一并给出以防误兜底。
+pub fn default_currency(native_id: &str) -> &'static str {
+    match native_id {
+        "kimi_global" | "zai" | "siliconflow_global" | "openrouter" => "USD",
+        _ => "CNY",
+    }
+}
+
+/// 按币种取预置套：DeepSeek 单站双币（余额 API `currency` 字段区分账户），
+/// 其余平台忽略 `currency` 返回唯一套。无预置 → None。
+pub fn preset_with_currency(native_id: &str, currency: &str) -> Option<PresetProvider> {
+    match native_id {
+        "deepseek" if currency.eq_ignore_ascii_case("USD") => Some(deepseek_preset("USD")),
+        "deepseek" => Some(deepseek_preset("CNY")),
+        _ => preset(native_id),
+    }
+}
+
 /// 按 native id 取预置峰谷定价；无预置 → None。
 ///
-/// DeepSeek 数据抓取自官网定价页（2026-08-23，
-/// https://api-docs.deepseek.com/zh-cn/quick_start/pricing/ ，中英文页交叉验证）：
-/// 高峰 = 北京时间周一至周五 09:00–12:00、14:00–18:00，空闲价为高峰一半。
+/// 数据抓取自各官网定价页（2026-08-23，中英文页交叉验证）：
+/// - DeepSeek：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/ （CNY）
+///   与英文页（USD）。高峰 = 北京时间周一至周五 09:00–12:00、14:00–18:00，
+///   空闲价为高峰一半。
+/// - Kimi：https://platform.kimi.com/docs/pricing/chat （CNY）/
+///   platform.kimi.ai（USD），无峰谷（恒空闲，两档同价）。
+/// - 智谱/Z.ai：open.bigmodel.cn/pricing（CNY，SPA 实抓）/ docs.z.ai
+///   （USD）。按量无峰谷；Coding Plan 订阅积分制高峰 = 工作日 14:00–18:00，
+///   其余时段（含周末全天）积分消耗更低——倍率口径以官网权益说明为准
+///   （Z.ai 为闲时 0.5×，智谱国内站倍率曾调整过，两站均非峰谷时段本身）。
 pub fn preset(native_id: &str) -> Option<PresetProvider> {
     match native_id {
-        "deepseek" => Some(PresetProvider {
-            native_id: "deepseek",
-            currency: "CNY",
-            timezone_offset_minutes: 480,
-            windows: vec![
-                peak_window_workday("09:00", "12:00"),
-                peak_window_workday("14:00", "18:00"),
+        "deepseek" => Some(deepseek_preset("CNY")),
+        "kimi_cn" => Some(kimi_preset(
+            "kimi_cn",
+            "CNY",
+            &[
+                ("k3", "Kimi K3", 2.0, 20.0, 100.0),
+                ("k27-code", "Kimi K2.7 Code", 1.3, 6.5, 27.0),
             ],
-            models: vec![
-                PresetModel {
-                    id: "flash",
-                    display: "V4 Flash",
-                    peak: PriceTier::full(0.10, 3.0, 9.0),
-                    off_peak: PriceTier::full(0.05, 1.5, 4.5),
-                },
-                PresetModel {
-                    id: "pro",
-                    display: "V4 Pro",
-                    peak: PriceTier::full(0.30, 9.0, 27.0),
-                    off_peak: PriceTier::full(0.15, 4.5, 13.5),
-                },
-                PresetModel {
-                    id: "vision",
-                    display: "V4 Flash Vision Exp",
-                    peak: PriceTier::full(0.10, 3.0, 9.0),
-                    off_peak: PriceTier::full(0.05, 1.5, 4.5),
-                },
+            "k3",
+        )),
+        "kimi_global" => Some(kimi_preset(
+            "kimi_global",
+            "USD",
+            &[
+                ("k3", "Kimi K3", 0.30, 3.00, 15.00),
+                ("k26", "Kimi K2.6", 0.16, 0.95, 4.00),
             ],
-            default_model: "flash",
-        }),
+            "k3",
+        )),
+        "zhipu" => Some(zhipu_preset(
+            "zhipu",
+            "CNY",
+            &[
+                ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
+                ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
+                ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
+            ],
+        )),
+        "zai" => Some(zhipu_preset(
+            "zai",
+            "USD",
+            &[
+                ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
+                ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
+                ("glm-5-turbo", "GLM-5-Turbo", 0.24, 1.2, 4.0),
+            ],
+        )),
         _ => None,
+    }
+}
+
+/// DeepSeek 预置（单站双币：账户币种由余额 API `currency` 字段返回）。
+fn deepseek_preset(currency: &'static str) -> PresetProvider {
+    let (flash, pro): ((f64, f64, f64), (f64, f64, f64)) = if currency == "USD" {
+        ((0.014, 0.44, 1.32), (0.044, 1.32, 3.96))
+    } else {
+        ((0.10, 3.0, 9.0), (0.30, 9.0, 27.0))
+    };
+    let half = |(a, b, c): (f64, f64, f64)| (a / 2.0, b / 2.0, c / 2.0);
+    let (flash_off, pro_off) = (half(flash), half(pro));
+    PresetProvider {
+        native_id: "deepseek",
+        currency,
+        timezone_offset_minutes: 480,
+        windows: vec![
+            peak_window_workday("09:00", "12:00"),
+            peak_window_workday("14:00", "18:00"),
+        ],
+        models: vec![
+            payg_model("flash", "V4 Flash", flash, flash_off),
+            payg_model("pro", "V4 Pro", pro, pro_off),
+            payg_model("vision", "V4 Flash Vision Exp", flash, flash_off),
+        ],
+        default_model: "flash",
+    }
+}
+
+/// Kimi 预置：无峰谷（恒空闲，两档同价）。
+fn kimi_preset(
+    native_id: &'static str,
+    currency: &'static str,
+    models: &[(&'static str, &'static str, f64, f64, f64)],
+    default_model: &'static str,
+) -> PresetProvider {
+    PresetProvider {
+        native_id,
+        currency,
+        timezone_offset_minutes: 480,
+        windows: vec![],
+        models: models
+            .iter()
+            .map(|&(id, display, cache_hit, miss, output)| {
+                payg_model(
+                    id,
+                    display,
+                    (cache_hit, miss, output),
+                    (cache_hit, miss, output),
+                )
+            })
+            .collect(),
+        default_model,
+    }
+}
+
+/// 智谱/Z.ai 预置：按量模型无峰谷（平台级恒空闲）+ Coding Plan 订阅项
+/// （模型级窗口覆盖：工作日 14:00–18:00 高峰，其余时段积分消耗更低，
+/// 倍率口径以官网权益说明为准——窗口结构是本预置锁定的部分）。
+/// GLM-5-Turbo 国内为输入长度阶梯价（<32K / ≥32K），预置取基础档（<32K）。
+fn zhipu_preset(
+    native_id: &'static str,
+    currency: &'static str,
+    models: &[(&'static str, &'static str, f64, f64, f64)],
+) -> PresetProvider {
+    debug_assert!(!models.is_empty(), "按量模型列表为空则无默认模型");
+    let mut preset_models: Vec<PresetModel> = models
+        .iter()
+        .map(|&(id, display, cache_hit, miss, output)| {
+            payg_model(
+                id,
+                display,
+                (cache_hit, miss, output),
+                (cache_hit, miss, output),
+            )
+        })
+        .collect();
+    preset_models.push(PresetModel {
+        id: "coding-plan",
+        display: "GLM Coding Plan（订阅积分）",
+        plan: PlanKind::Subscription,
+        // 订阅项不继承平台级空窗口，显式携带积分折扣时段
+        windows: Some(vec![peak_window_workday("14:00", "18:00")]),
+        peak: PriceTier::default(),
+        off_peak: PriceTier::default(),
+    });
+    PresetProvider {
+        native_id,
+        currency,
+        timezone_offset_minutes: 480,
+        windows: vec![],
+        models: preset_models,
+        default_model: models[0].0,
+    }
+}
+
+/// 按量模型构造（无模型级窗口覆盖）。
+fn payg_model(
+    id: &'static str,
+    display: &'static str,
+    peak: (f64, f64, f64),
+    off_peak: (f64, f64, f64),
+) -> PresetModel {
+    PresetModel {
+        id,
+        display,
+        plan: PlanKind::PayAsYouGo,
+        windows: None,
+        peak: PriceTier::full(peak.0, peak.1, peak.2),
+        off_peak: PriceTier::full(off_peak.0, off_peak.1, off_peak.2),
     }
 }
 
@@ -399,6 +560,8 @@ pub struct ResolvedPricing {
     pub currency: Option<String>,
     /// 生效模型展示标签（预置模型 display 或自定义字符串）。
     pub model_label: Option<String>,
+    /// 生效计费模式（订阅项价格档为 None、窗口表达折扣时段）。
+    pub plan: PlanKind,
     pub source: PricingSource,
 }
 
@@ -422,63 +585,187 @@ impl PricingConfig {
     }
 }
 
+/// 用户自定义模型定价（按 native id 聚类，存 `AppConfig::custom_models`）。
+///
+/// 与预置模型同等参与条目 `model` 匹配，**id 撞名时自定义优先**——
+/// 可作为官方改价后用户自行修正预置的通道。字段缺失语义：windows/
+/// timezone/currency 缺失回退平台级预置（有预置时；与条目级覆盖链一致），
+/// **peak/off_peak 缺失不回退**（预置模型价格只在条目未选库模型时生效）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CustomModelDef {
+    /// 模型选择键（条目 `pricing.model` 匹配项，大小写不敏感）。
+    pub id: String,
+    /// 展示名。
+    pub display: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone_offset_minutes: Option<i32>,
+    /// 高峰窗口；None = 回退平台级预置（无预置则恒空闲），Some([]) = 恒空闲。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<Vec<PeakWindow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak: Option<PriceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_peak: Option<PriceTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+}
+
 /// 解析条目生效定价：无可展示内容（无预置，且自定义为空或缺失）→ None。
 ///
 /// 合并规则：`model` 匹配预置模型 id（大小写不敏感）则选定该模型，否则
 /// 仅作展示标签（价格回退默认模型）；`windows`/`peak`/`off_peak`/`currency`/
 /// `timezone_offset_minutes` 自定义非空即覆盖，否则回退预置；来源以
 /// 「是否有任何自定义值生效」判定（时区与 model 标签同口径）。
+/// 模型级窗口：选中预置/自定义模型自带 `windows` 时优先于平台级
+/// （订阅项如 Coding Plan 由此携带折扣时段）；价格档全空的模型
+/// （订阅项）不回退平台价，生效为 None。
 pub fn resolve(entry: &ProviderEntry) -> Option<ResolvedPricing> {
-    let preset = match &entry.kind {
-        ProviderKind::Native { provider } => preset(provider),
+    resolve_with(entry, &Default::default())
+}
+
+/// [`resolve`] 的完整形态：额外接受按 native id 聚类的用户自定义模型库。
+/// 空库时与 [`resolve`] 行为一致。
+pub fn resolve_with(
+    entry: &ProviderEntry,
+    custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
+) -> Option<ResolvedPricing> {
+    let native_id = match &entry.kind {
+        ProviderKind::Native { provider } => Some(provider.as_str()),
         _ => None,
     };
+    let preset = native_id.and_then(preset);
+    let lib = native_id.and_then(|id| custom_models.get(id));
     let custom = entry.pricing.as_ref();
-    if preset.is_none() && custom.is_none_or(|c| c.is_empty()) {
+    // 无预置平台的「有内容」判定是条目级：条目自定义非空，或条目 model
+    // 命中库（库的存在本身不算——同平台其他条目未引用时保持 None，
+    // 维持「未配置峰谷定价返回空」的托盘契约）。
+    let lib_hit = |id: &str| lib.is_some_and(|l| l.iter().any(|m| m.id.eq_ignore_ascii_case(id)));
+    let entry_has_content = custom.is_some_and(|c| !c.is_empty())
+        || custom.is_some_and(|c| c.model.as_deref().is_some_and(lib_hit));
+    if preset.is_none() && !entry_has_content {
         return None;
     }
 
-    // 模型选择：自定义 id 匹配预置模型 → 该模型；否则默认模型 + 自定义标签
+    // 模型选择：条目 model 先匹配自定义库（撞名优先），再匹配预置；
+    // 均不匹配时回退预置默认模型，条目 model 仅作展示标签。
+    // 选中模型统一为中间形态：字段缺失处由调用链回退（预置→平台级）。
+    struct Selected {
+        id: Option<String>,
+        label: String,
+        plan: PlanKind,
+        windows: Option<Vec<PeakWindow>>,
+        timezone: Option<i32>,
+        peak: Option<PriceTier>,
+        off_peak: Option<PriceTier>,
+        currency: Option<String>,
+        from_lib: bool,
+    }
+    let non_empty = |t: &PriceTier| (!t.is_empty()).then(|| t.clone());
+    // 自定义模型暂只有按量语义（CustomModelDef 无 plan 字段，订阅项
+    // 只能来自官方预置；放开属后续能力）
+    let from_lib_model = |m: &CustomModelDef| Selected {
+        id: Some(m.id.clone()),
+        label: m.display.clone(),
+        plan: PlanKind::PayAsYouGo,
+        windows: m.windows.clone(),
+        timezone: m.timezone_offset_minutes,
+        peak: m.peak.as_ref().and_then(non_empty),
+        off_peak: m.off_peak.as_ref().and_then(non_empty),
+        currency: m.currency.clone(),
+        from_lib: true,
+    };
+    let from_preset_model = |m: &PresetModel, p: &PresetProvider| Selected {
+        id: Some(m.id.into()),
+        label: m.display.into(),
+        plan: m.plan,
+        windows: m.windows.clone(),
+        timezone: Some(p.timezone_offset_minutes),
+        peak: non_empty(&m.peak),
+        off_peak: non_empty(&m.off_peak),
+        currency: None,
+        from_lib: false,
+    };
+
     let (model, model_label, model_from_custom) =
-        match (&preset, custom.and_then(|c| c.model.as_deref())) {
-            (Some(p), Some(id)) => {
-                let matched = p.models.iter().find(|m| m.id.eq_ignore_ascii_case(id));
-                match matched {
-                    Some(m) => (Some(m.clone()), Some(m.display.into()), false),
+        match (&preset, &lib, custom.and_then(|c| c.model.as_deref())) {
+            (Some(p), _, Some(id)) => {
+                let lib_hit = lib
+                    .and_then(|l| l.iter().find(|m| m.id.eq_ignore_ascii_case(id)))
+                    .map(from_lib_model);
+                let preset_hit = p
+                    .models
+                    .iter()
+                    .find(|m| m.id.eq_ignore_ascii_case(id))
+                    .map(|m| from_preset_model(m, p));
+                match lib_hit.or(preset_hit) {
+                    Some(m) => {
+                        let label = m.label.clone();
+                        let from_lib = m.from_lib;
+                        (Some(m), label, from_lib)
+                    }
                     None => {
-                        let default = p.models.iter().find(|m| m.id == p.default_model);
-                        (default.cloned(), Some(id.into()), true)
+                        let default = p
+                            .models
+                            .iter()
+                            .find(|m| m.id == p.default_model)
+                            .map(|m| from_preset_model(m, p));
+                        (default, id.into(), true)
                     }
                 }
             }
-            (Some(p), None) => {
-                let default = p.models.iter().find(|m| m.id == p.default_model);
-                (default.cloned(), default.map(|m| m.display.into()), false)
+            (Some(p), _, None) => {
+                let default = p
+                    .models
+                    .iter()
+                    .find(|m| m.id == p.default_model)
+                    .map(|m| from_preset_model(m, p));
+                let label = default.as_ref().map(|m| m.label.clone());
+                (default, label.unwrap_or_default(), false)
             }
-            (None, Some(id)) => (None, Some(id.into()), true),
-            (None, None) => (None, None, false),
+            (None, Some(l), Some(id)) => {
+                let hit = l
+                    .iter()
+                    .find(|m| m.id.eq_ignore_ascii_case(id))
+                    .map(from_lib_model);
+                match hit {
+                    Some(m) => {
+                        let label = m.label.clone();
+                        (Some(m), label, true)
+                    }
+                    // 无预置平台：自定义库存在但未命中 → 纯标签（现状语义）
+                    None => (None, id.into(), true),
+                }
+            }
+            (None, _, Some(id)) => (None, id.into(), true),
+            (None, _, None) => (None, String::new(), false),
         };
 
-    let tier_or = |custom_tier: Option<&PriceTier>, preset_tier: Option<PriceTier>| {
+    // 生效值：条目显式 > 选中模型（含其模型级窗口）> 平台级（仅预置）。
+    // 自定义库模型缺失 windows/timezone/currency 时回退平台级预置
+    // （有预置时；与 CustomModelDef 文档约定一致），平台无预置则无值。
+    let tier_or = |custom_tier: Option<&PriceTier>, model_tier: Option<PriceTier>| {
         custom_tier
             .filter(|t| !t.is_empty())
             .cloned()
-            .or(preset_tier)
+            .or(model_tier)
     };
+    let model_windows = model.as_ref().and_then(|m| m.windows.clone());
     let windows = custom
         .and_then(|c| c.windows.clone())
+        .or(model_windows)
         .or_else(|| preset.as_ref().map(|p| p.windows.clone()))
         .unwrap_or_default();
     let peak = tier_or(
         custom.and_then(|c| c.peak.as_ref()),
-        model.as_ref().map(|m| m.peak.clone()),
+        model.as_ref().and_then(|m| m.peak.clone()),
     );
     let off_peak = tier_or(
         custom.and_then(|c| c.off_peak.as_ref()),
-        model.as_ref().map(|m| m.off_peak.clone()),
+        model.as_ref().and_then(|m| m.off_peak.clone()),
     );
     let currency = custom
         .and_then(|c| c.currency.clone())
+        .or_else(|| model.as_ref().and_then(|m| m.currency.clone()))
         .or_else(|| preset.as_ref().map(|p| p.currency.into()));
 
     let any_custom = custom.is_some_and(|c| {
@@ -494,7 +781,7 @@ pub fn resolve(entry: &ProviderEntry) -> Option<ResolvedPricing> {
             native_id: p.native_id.into(),
             model: model
                 .as_ref()
-                .map(|m| m.id.into())
+                .and_then(|m| m.id.clone())
                 .unwrap_or_else(|| p.default_model.into()),
         },
         // 有自定义生效 / 无预置但自定义非空（is_empty 已在入口拦截空对象）
@@ -504,12 +791,14 @@ pub fn resolve(entry: &ProviderEntry) -> Option<ResolvedPricing> {
     Some(ResolvedPricing {
         timezone_offset_minutes: custom
             .and_then(|c| c.timezone_offset_minutes)
+            .or_else(|| model.as_ref().and_then(|m| m.timezone))
             .or_else(|| preset.as_ref().map(|p| p.timezone_offset_minutes)),
         windows,
         peak,
         off_peak,
         currency,
-        model_label,
+        model_label: (!model_label.is_empty()).then_some(model_label),
+        plan: model.as_ref().map_or(PlanKind::PayAsYouGo, |m| m.plan),
         source,
     })
 }
@@ -895,6 +1184,367 @@ mod tests {
     }
 
     // ---- resolve 合并回退链 ----
+
+    /// 无峰谷平台的按量模型构造（两档同价）。
+    fn flat_payg(id: &'static str, display: &'static str, t: (f64, f64, f64)) -> PresetModel {
+        PresetModel {
+            id,
+            display,
+            plan: PlanKind::PayAsYouGo,
+            windows: None,
+            peak: PriceTier::full(t.0, t.1, t.2),
+            off_peak: PriceTier::full(t.0, t.1, t.2),
+        }
+    }
+
+    /// 契约：新平台预置数据逐字锁定（官网 2026-08-23 抓取，改价须核对官网）。
+    /// Kimi 定价页 platform.kimi.com（CNY）/ platform.kimi.ai（USD）；
+    /// 智谱 open.bigmodel.cn/pricing（SPA 实抓）/ docs.z.ai（USD）。
+    /// 整 Vec 对比：任何模型/字段的手滑都会击穿本测试。
+    #[test]
+    fn new_provider_presets_snapshot() {
+        // Kimi 国内：K3 与 K2.7-Code，无峰谷（两档同价）
+        let p = preset("kimi_cn").unwrap();
+        assert_eq!(p.currency, "CNY");
+        assert_eq!(p.timezone_offset_minutes, 480);
+        assert!(p.windows.is_empty(), "Kimi 无峰谷");
+        assert_eq!(p.default_model, "k3");
+        assert_eq!(
+            p.models,
+            vec![
+                flat_payg("k3", "Kimi K3", (2.0, 20.0, 100.0)),
+                flat_payg("k27-code", "Kimi K2.7 Code", (1.3, 6.5, 27.0)),
+            ]
+        );
+
+        // Kimi 国际：K3 与 K2.6 美元价
+        let p = preset("kimi_global").unwrap();
+        assert_eq!(p.currency, "USD");
+        assert_eq!(p.timezone_offset_minutes, 480);
+        assert!(p.windows.is_empty());
+        assert_eq!(p.default_model, "k3");
+        assert_eq!(
+            p.models,
+            vec![
+                flat_payg("k3", "Kimi K3", (0.30, 3.00, 15.00)),
+                flat_payg("k26", "Kimi K2.6", (0.16, 0.95, 4.00)),
+            ]
+        );
+
+        // 智谱国内：GLM-5.3 / 5.2 / 5-Turbo（基础档）+ Coding Plan 订阅项
+        let p = preset("zhipu").unwrap();
+        assert_eq!(p.currency, "CNY");
+        assert_eq!(p.timezone_offset_minutes, 480);
+        assert!(p.windows.is_empty(), "智谱按量无峰谷（平台级恒空闲）");
+        assert_eq!(p.default_model, "glm-5.3");
+        assert_eq!(
+            p.models[..3],
+            [
+                flat_payg("glm-5.3", "GLM-5.3", (2.0, 8.0, 28.0)),
+                flat_payg("glm-5.2", "GLM-5.2", (2.0, 8.0, 28.0)),
+                flat_payg("glm-5-turbo", "GLM-5-Turbo", (1.2, 5.0, 22.0)),
+            ]
+        );
+        let coding = &p.models[3];
+        assert_eq!(coding.id, "coding-plan");
+        assert_eq!(coding.display, "GLM Coding Plan（订阅积分）");
+        assert_eq!(coding.plan, PlanKind::Subscription);
+        assert!(
+            coding.peak.is_empty() && coding.off_peak.is_empty(),
+            "订阅项无三档价"
+        );
+        assert_eq!(
+            coding.windows.as_deref(),
+            Some(&[peak_window_workday("14:00", "18:00")][..]),
+            "Coding Plan 高峰 = 工作日 14:00–18:00"
+        );
+        assert_eq!(p.models.len(), 4, "不应有第 5 个模型");
+
+        // Z.ai：美元价（5.3 与 5.2 同价）+ 同款订阅项
+        let p = preset("zai").unwrap();
+        assert_eq!(p.currency, "USD");
+        assert_eq!(p.timezone_offset_minutes, 480);
+        assert_eq!(p.default_model, "glm-5.3");
+        assert_eq!(
+            p.models[..3],
+            [
+                flat_payg("glm-5.3", "GLM-5.3", (0.26, 1.4, 4.4)),
+                flat_payg("glm-5.2", "GLM-5.2", (0.26, 1.4, 4.4)),
+                flat_payg("glm-5-turbo", "GLM-5-Turbo", (0.24, 1.2, 4.0)),
+            ]
+        );
+        assert_eq!(p.models[3].plan, PlanKind::Subscription);
+        assert_eq!(
+            p.models[3].windows,
+            Some(vec![peak_window_workday("14:00", "18:00")])
+        );
+        assert_eq!(p.models.len(), 4);
+
+        // 无峰谷预置的平台
+        assert!(preset("siliconflow").is_none());
+        assert!(preset("siliconflow_global").is_none());
+        assert!(preset("openrouter").is_none());
+    }
+
+    /// 契约：DeepSeek 单站双币——余额 API 的 currency 决定取哪套预置；
+    /// USD 套同样满足「空闲 = 高峰减半」。
+    #[test]
+    fn deepseek_currency_variants() {
+        let cny = preset_with_currency("deepseek", "CNY").unwrap();
+        let usd = preset_with_currency("deepseek", "USD").unwrap();
+        assert_eq!(cny.currency, "CNY");
+        assert_eq!(usd.currency, "USD");
+        // USD 套三模型逐字锁定（Flash 与 Vision 同价）
+        assert_eq!(
+            usd.models,
+            vec![
+                PresetModel {
+                    id: "flash",
+                    display: "V4 Flash",
+                    plan: PlanKind::PayAsYouGo,
+                    windows: None,
+                    peak: PriceTier::full(0.014, 0.44, 1.32),
+                    off_peak: PriceTier::full(0.007, 0.22, 0.66),
+                },
+                PresetModel {
+                    id: "pro",
+                    display: "V4 Pro",
+                    plan: PlanKind::PayAsYouGo,
+                    windows: None,
+                    peak: PriceTier::full(0.044, 1.32, 3.96),
+                    off_peak: PriceTier::full(0.022, 0.66, 1.98),
+                },
+                PresetModel {
+                    id: "vision",
+                    display: "V4 Flash Vision Exp",
+                    plan: PlanKind::PayAsYouGo,
+                    windows: None,
+                    peak: PriceTier::full(0.014, 0.44, 1.32),
+                    off_peak: PriceTier::full(0.007, 0.22, 0.66),
+                },
+            ]
+        );
+        // 减半自检（与 CNY 套的 deepseek_preset_snapshot 同口径）
+        for m in &usd.models {
+            for (peak_v, off_v) in [
+                (m.peak.cache_hit_input, m.off_peak.cache_hit_input),
+                (m.peak.cache_miss_input, m.off_peak.cache_miss_input),
+                (m.peak.output, m.off_peak.output),
+            ] {
+                assert_eq!(off_v.unwrap(), peak_v.unwrap() / 2.0);
+            }
+        }
+        // 窗口与 CNY 套一致（同一峰谷时段，仅价格币种不同）
+        assert_eq!(cny.windows, usd.windows);
+        // 大小写不敏感；其余平台忽略币种返回唯一套
+        assert_eq!(
+            preset_with_currency("deepseek", "usd").unwrap().currency,
+            "USD"
+        );
+        assert_eq!(
+            preset_with_currency("kimi_cn", "USD").unwrap().currency,
+            "CNY",
+            "Kimi 国内无美元套，忽略币种"
+        );
+        // 默认币种表与注册表对齐（openrouter 按量为 USD，防误兜底）；
+        // 遍历注册表防新增平台漏配清单
+        for (id, expect) in [
+            ("deepseek", "CNY"),
+            ("siliconflow", "CNY"),
+            ("siliconflow_global", "USD"),
+            ("openrouter", "USD"),
+            ("kimi_cn", "CNY"),
+            ("kimi_global", "USD"),
+            ("zhipu", "CNY"),
+            ("zai", "USD"),
+        ] {
+            assert_eq!(default_currency(id), expect, "{id}");
+        }
+        let known: std::collections::HashSet<&str> = [
+            "deepseek",
+            "siliconflow",
+            "siliconflow_global",
+            "openrouter",
+            "kimi_cn",
+            "kimi_global",
+            "zhipu",
+            "zai",
+        ]
+        .into_iter()
+        .collect();
+        for meta in crate::provider::metas() {
+            assert!(
+                known.contains(meta.id),
+                "default_currency 测试清单缺少注册表平台 {}，请补断言",
+                meta.id
+            );
+        }
+    }
+
+    fn native_entry(provider: &str) -> ProviderEntry {
+        ProviderEntry {
+            id: "e1".into(),
+            name: provider.into(),
+            kind: ProviderKind::Native {
+                provider: provider.into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            base_url: None,
+            pricing: None,
+        }
+    }
+
+    /// 契约：订阅项 resolve——Coding Plan 窗口生效、三档价为 None、
+    /// 计费模式透出 Subscription（GUI 依此切换"积分倍率"文案）。
+    #[test]
+    fn subscription_model_resolution() {
+        let mut entry = native_entry("zhipu");
+        entry.pricing = Some(PricingConfig {
+            model: Some("coding-plan".into()),
+            ..Default::default()
+        });
+        let r = resolve(&entry).unwrap();
+        assert_eq!(r.plan, PlanKind::Subscription);
+        assert!(r.peak.is_none() && r.off_peak.is_none(), "订阅项无价格档");
+        assert_eq!(r.windows, vec![peak_window_workday("14:00", "18:00")]);
+        assert_eq!(
+            r.model_label.as_deref(),
+            Some("GLM Coding Plan（订阅积分）")
+        );
+        // 峰谷判定与下次翻转对订阅窗口照常生效：
+        // 工作日 15:00（北京）= UTC 07:00 高峰；周六恒空闲
+        assert_eq!(r.kind(parts_ms(chrono::Weekday::Wed, 7, 0)), PeakKind::Peak);
+        assert_eq!(r.kind(SAT_0840_BJ_MS), PeakKind::OffPeak);
+
+        // 按量模型：恒空闲（无峰谷）、三档价生效、模式 PayAsYouGo
+        let mut entry = native_entry("zhipu");
+        entry.pricing = Some(PricingConfig {
+            model: Some("glm-5.3".into()),
+            ..Default::default()
+        });
+        let r = resolve(&entry).unwrap();
+        assert_eq!(r.plan, PlanKind::PayAsYouGo);
+        assert!(r.windows.is_empty());
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(28.0));
+    }
+
+    /// 契约：自定义模型库——id 撞名时自定义优先（官方改价修正通道），
+    /// 未撞名时按 id 正常匹配，条目字段仍可覆盖模型值。
+    #[test]
+    fn resolve_with_custom_library() {
+        let lib = |models: Vec<CustomModelDef>| {
+            let mut m = std::collections::BTreeMap::new();
+            m.insert("deepseek".to_string(), models);
+            m
+        };
+
+        // 撞名覆盖：用户自建的 "flash" 价格优先于官方预置；
+        // 缺失的 windows/timezone/currency 回退平台级预置
+        // （「撞名只改价、保留官方窗口」主用例），仅价格档缺失不回退
+        let custom_flash = CustomModelDef {
+            id: "flash".into(),
+            display: "V4 Flash（自算）".into(),
+            peak: Some(PriceTier::full(0.11, 3.1, 9.1)),
+            off_peak: None,
+            currency: None,
+            ..Default::default()
+        };
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("FLASH".into()),
+            ..Default::default()
+        });
+        let r = resolve_with(&entry, &lib(vec![custom_flash])).unwrap();
+        assert_eq!(r.model_label.as_deref(), Some("V4 Flash（自算）"));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.11));
+        assert_eq!(r.off_peak, None, "自定义模型缺失档不回退预置");
+        assert_eq!(r.windows, deepseek_windows(), "缺失窗口回退平台级预置");
+        assert_eq!(r.timezone_offset_minutes, BJ, "缺失时区回退平台级预置");
+        assert_eq!(r.currency.as_deref(), Some("CNY"), "缺失币种回退平台级预置");
+        assert!(matches!(r.source, PricingSource::Custom));
+
+        // 未撞名的库模型：windows/tz/currency 全量来自模型定义
+        // （currency/tz 故意取与平台预置不同的值，正向锁定模型级优先链）
+        let night = CustomModelDef {
+            id: "night-only".into(),
+            display: "夜间特惠档".into(),
+            windows: Some(vec![peak_window_workday("09:00", "12:00")]),
+            timezone_offset_minutes: Some(0),
+            peak: Some(PriceTier::full(1.0, 2.0, 3.0)),
+            off_peak: Some(PriceTier::full(0.5, 1.0, 1.5)),
+            currency: Some("USD".into()),
+        };
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("night-only".into()),
+            ..Default::default()
+        });
+        let r = resolve_with(&entry, &lib(vec![night.clone()])).unwrap();
+        assert_eq!(r.windows, night.windows.clone().unwrap());
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(3.0));
+        assert_eq!(
+            r.currency.as_deref(),
+            Some("USD"),
+            "模型级币种优先于平台预置（CNY）"
+        );
+        assert_eq!(
+            r.timezone_offset_minutes,
+            Some(0),
+            "模型级时区优先于平台预置（480）"
+        );
+
+        // 条目显式字段仍可覆盖库模型（条目 > 模型 > 平台级）：
+        // 价格与窗口两条链各自独立覆盖
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("night-only".into()),
+            peak: Some(PriceTier::full(9.0, 9.0, 9.0)),
+            windows: Some(vec![]),
+            ..Default::default()
+        });
+        let r = resolve_with(&entry, &lib(vec![night])).unwrap();
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(9.0), "价格链覆盖");
+        assert!(r.windows.is_empty(), "条目显式空窗口覆盖库模型窗口");
+
+        // 空库 = 现有 resolve 行为（逐字段等价）
+        let entry = deepseek_entry(None);
+        assert_eq!(resolve_with(&entry, &Default::default()), resolve(&entry));
+    }
+
+    /// 契约：自定义库对无预置平台同样生效（如 siliconflow），
+    /// 库未命中时 model 仍是纯标签（现状语义不变）。
+    #[test]
+    fn library_on_presetless_provider() {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(
+            "siliconflow".to_string(),
+            vec![CustomModelDef {
+                id: "glm-5.2".into(),
+                display: "GLM-5.2 转售价".into(),
+                peak: Some(PriceTier::full(1.0, 4.0, 2.0)),
+                currency: Some("CNY".into()),
+                ..Default::default()
+            }],
+        );
+        let mut entry = native_entry("siliconflow");
+        entry.pricing = Some(PricingConfig {
+            model: Some("GLM-5.2".into()),
+            ..Default::default()
+        });
+        let r = resolve_with(&entry, &m).unwrap();
+        assert_eq!(r.model_label.as_deref(), Some("GLM-5.2 转售价"));
+        assert_eq!(r.peak.as_ref().unwrap().cache_miss_input, Some(4.0));
+        assert_eq!(r.plan, PlanKind::PayAsYouGo);
+
+        // 库的存在是平台级、生效是条目级：同平台未引用库/未自定义的
+        // 条目保持 None（「未配置峰谷定价返回空」的托盘契约不被打破）
+        assert_eq!(
+            resolve_with(&native_entry("siliconflow"), &m),
+            None,
+            "未引用库的条目不应凭库存在而获得定价"
+        );
+    }
 
     fn deepseek_entry(pricing: Option<PricingConfig>) -> ProviderEntry {
         ProviderEntry {

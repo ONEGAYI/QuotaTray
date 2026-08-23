@@ -21,8 +21,9 @@ pub mod vault;
 pub use config::{AppConfig, Credentials, ProviderEntry, ProviderKind};
 pub use model::{QueryError, UsageData};
 pub use pricing::{
-    PeakKind, PeakWindow, PriceTier, PricingConfig, PricingError, PricingSource, ResolvedPricing,
-    format_price, next_change, preset, resolve, validate,
+    CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
+    PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,
+    preset_with_currency, resolve, resolve_with, validate,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use template::{TemplateConfig, TemplateError};

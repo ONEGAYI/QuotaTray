@@ -103,10 +103,16 @@ export interface PricingConfig {
   currency?: string;
 }
 
+/** 计费模式：按量 = 三档价格有效；订阅 = 积分/额度倍率（价格档为空，窗口表达折扣时段）。 */
+export type PlanKind = "pay_as_you_go" | "subscription";
+
 /** 预置单模型价格档（IPC 形状，来自 list_native_metas）。 */
 export interface PresetModel {
   id: string;
   display: string;
+  plan: PlanKind;
+  /** 模型级窗口覆盖：null = 继承平台级（订阅项在此携带折扣时段）。 */
+  windows: PeakWindow[] | null;
   peak: PriceTier;
   off_peak: PriceTier;
 }

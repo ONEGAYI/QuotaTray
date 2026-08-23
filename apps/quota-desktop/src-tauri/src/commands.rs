@@ -50,6 +50,10 @@ pub struct PresetPricingDto {
 pub struct PresetModelDto {
     pub id: String,
     pub display: String,
+    /// 计费模式（订阅项无三档价、窗口表达折扣时段，前端据此切换文案）。
+    pub plan: quota_core::PlanKind,
+    /// 模型级窗口覆盖（None = 继承平台级）。
+    pub windows: Option<Vec<quota_core::PeakWindow>>,
     pub peak: quota_core::PriceTier,
     pub off_peak: quota_core::PriceTier,
 }
@@ -67,6 +71,8 @@ impl PresetPricingDto {
                 .map(|m| PresetModelDto {
                     id: m.id.into(),
                     display: m.display.into(),
+                    plan: m.plan,
+                    windows: m.windows.clone(),
                     peak: m.peak.clone(),
                     off_peak: m.off_peak.clone(),
                 })
@@ -606,7 +612,8 @@ mod tests {
     }
 
     /// 契约：list_native_metas 携带峰谷预置——deepseek 有（三模型/默认 flash/
-    /// UTC+8 双窗口），其余平台 None。
+    /// UTC+8 双窗口），kimi/智谱系各站有预置，聚合与无预置平台为 None；
+    /// 订阅项 DTO 带 plan/windows 字段（前端类型镜像依据）。
     #[test]
     fn native_metas_carry_pricing_preset() {
         let metas = list_native_metas();
@@ -621,8 +628,31 @@ mod tests {
         let j = serde_json::to_value(p).unwrap();
         assert_eq!(j["models"][0]["id"], "flash");
         assert_eq!(j["models"][0]["peak"]["cache_hit_input"], 0.1);
+        assert_eq!(j["models"][0]["plan"], "pay_as_you_go");
 
-        for other in metas.iter().filter(|m| m.id != "deepseek") {
+        // 有预置的平台（新批次）
+        for id in ["kimi_cn", "kimi_global", "zhipu", "zai"] {
+            let m = metas.iter().find(|m| m.id == id).unwrap();
+            assert!(m.pricing.is_some(), "{id} 应有预置");
+        }
+        // 智谱订阅项：plan=subscription、模型级窗口
+        let zhipu = metas.iter().find(|m| m.id == "zhipu").unwrap();
+        let p = zhipu.pricing.as_ref().unwrap();
+        let coding = p
+            .models
+            .iter()
+            .find(|m| m.id == "coding-plan")
+            .expect("智谱应含 Coding Plan 订阅项");
+        assert_eq!(
+            serde_json::to_value(coding).unwrap()["plan"],
+            "subscription"
+        );
+        assert_eq!(coding.windows.as_ref().map(Vec::len), Some(1));
+
+        // 聚合平台与无预置平台为 None
+        for other in metas.iter().filter(|m| {
+            !["deepseek", "kimi_cn", "kimi_global", "zhipu", "zai"].contains(&m.id.as_str())
+        }) {
             assert!(other.pricing.is_none(), "{} 不应有预置", other.id);
         }
     }

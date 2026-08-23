@@ -96,9 +96,12 @@ fn main() {
     providers.push(mock_entry);
 
     let config_path = data_dir.join("config.json");
-    AppConfig { providers }
-        .save(&config_path)
-        .expect("写入沙箱配置失败");
+    AppConfig {
+        providers,
+        custom_models: Default::default(),
+    }
+    .save(&config_path)
+    .expect("写入沙箱配置失败");
     println!(
         "已注入 {} 个条目到 {}（key 不回显）",
         count_entries(&config_path),

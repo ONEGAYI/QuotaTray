@@ -1,23 +1,47 @@
-//! SiliconFlow 官方余额查询。
+//! SiliconFlow 余额查询，国内/国际双站（端点路径相同，仅域名与币种不同）。
 //!
-//! `GET https://api.siliconflow.cn/v1/user/info`（Bearer api key）
+//! `GET {base}/v1/user/info`（Bearer api key）
 //! 响应：`{"code": 20000, "data": {"totalBalance": "42.50", ...}}`
+//! 文档：docs.siliconflow.cn / docs.siliconflow.com（双站账户独立）。
 
 use async_trait::async_trait;
 
-use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
+use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
 use crate::config::Credentials;
-use crate::http::HttpClient;
+use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
-pub struct SiliconFlow;
+/// 双站共享的实现，域名/币种随站点实例化。
+pub struct SiliconFlow {
+    id: &'static str,
+    name: &'static str,
+    base_url: &'static str,
+    unit: &'static str,
+}
+
+/// 国内站（api.siliconflow.cn，人民币）。
+pub const SILICONFLOW_CN: SiliconFlow = SiliconFlow {
+    id: "siliconflow",
+    name: "SiliconFlow",
+    base_url: "https://api.siliconflow.cn",
+    unit: "CNY",
+};
+
+/// 国际站（api.siliconflow.com，美元——官方文档未标注余额单位，
+/// 依国际站整体 USD 计价推断）。
+pub const SILICONFLOW_GLOBAL: SiliconFlow = SiliconFlow {
+    id: "siliconflow_global",
+    name: "SiliconFlow（国际站）",
+    base_url: "https://api.siliconflow.com",
+    unit: "USD",
+};
 
 #[async_trait]
 impl NativeProvider for SiliconFlow {
     fn meta(&self) -> NativeMeta {
         NativeMeta {
-            id: "siliconflow",
-            name: "SiliconFlow",
+            id: self.id,
+            name: self.name,
         }
     }
 
@@ -26,7 +50,7 @@ impl NativeProvider for SiliconFlow {
         creds: &Credentials,
         http: &dyn HttpClient,
     ) -> Result<Vec<UsageData>, QueryError> {
-        let req = crate::http::HttpRequest::get("https://api.siliconflow.cn/v1/user/info")
+        let req = HttpRequest::get(format!("{}/v1/user/info", self.base_url))
             .bearer(&creds.api_key)
             .header("Accept", "application/json");
         let body = fetch_json(http, req).await?;
@@ -56,21 +80,11 @@ impl NativeProvider for SiliconFlow {
             total: None,
             used: None,
             remaining: Some(remaining),
-            // M1 面向 api.siliconflow.cn（中国站），货币为 CNY
-            unit: Some("CNY".into()),
+            unit: Some(self.unit.into()),
             is_valid: None,
             invalid_message: None,
             extra: None,
         }])
-    }
-}
-
-/// 整数字段解析：兼容 JSON number 与字符串数字。
-fn parse_int(v: &serde_json::Value) -> Option<i64> {
-    match v {
-        serde_json::Value::Number(n) => n.as_i64(),
-        serde_json::Value::String(s) => s.trim().parse().ok(),
-        _ => None,
     }
 }
 
@@ -85,10 +99,10 @@ mod tests {
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
-        SiliconFlow.query(&creds(), &mock).await
+        SILICONFLOW_CN.query(&creds(), &mock).await
     }
 
-    /// 正常响应：totalBalance（字符串数字）→ remaining，unit 固定 CNY。
+    /// 正常响应：totalBalance（字符串数字）→ remaining，unit 按站点币种。
     #[tokio::test]
     async fn parses_balance() {
         let body = r#"{"code":20000,"data":{"totalBalance":"42.50"}}"#;
@@ -105,6 +119,19 @@ mod tests {
                 invalid_message: None,
                 extra: None,
             }]
+        );
+    }
+
+    /// 国际站：同构响应，域名与 unit 切换为 USD。
+    #[tokio::test]
+    async fn global_variant_hits_com_domain_in_usd() {
+        let mock = MockHttp::ok(r#"{"code":20000,"data":{"totalBalance":"1.25"}}"#);
+        let data = SILICONFLOW_GLOBAL.query(&creds(), &mock).await.unwrap();
+        assert_eq!(data[0].remaining, Some(1.25));
+        assert_eq!(data[0].unit.as_deref(), Some("USD"));
+        assert_eq!(
+            mock.captured_requests()[0].url,
+            "https://api.siliconflow.com/v1/user/info"
         );
     }
 

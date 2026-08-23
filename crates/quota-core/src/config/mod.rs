@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::model::QueryError;
-use crate::pricing::PricingConfig;
+use crate::pricing::{CustomModelDef, PricingConfig};
 use crate::vault::Vault;
 
 mod provider;
@@ -68,6 +68,10 @@ impl ProviderEntry {
 pub struct AppConfig {
     #[serde(default)]
     pub providers: Vec<ProviderEntry>,
+    /// 用户自定义模型定价，按 native id 聚类（见 `pricing::resolve_with`）。
+    /// 一次定义、同平台多个条目复用；template 条目不参与（无 native id）。
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub custom_models: std::collections::BTreeMap<String, Vec<CustomModelDef>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -138,6 +142,40 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// 契约：自定义模型库随配置持久化（按 native id 聚类），旧文件无该字段
+    /// 加载为空库；空库不落盘字段（serde skip）。
+    #[test]
+    fn custom_models_roundtrip_and_legacy_compat() {
+        use crate::pricing::{CustomModelDef, PriceTier};
+        let path = temp_path("custom-models");
+        let mut cfg = AppConfig::default();
+        cfg.custom_models.insert(
+            "deepseek".into(),
+            vec![CustomModelDef {
+                id: "flash".into(),
+                display: "V4 Flash（自算）".into(),
+                peak: Some(PriceTier::full(0.11, 3.1, 9.1)),
+                ..Default::default()
+            }],
+        );
+        cfg.save(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("\"custom_models\""), "库字段应落盘");
+        assert!(raw.contains("V4 Flash（自算）"));
+        let back = AppConfig::load(&path).unwrap();
+        assert_eq!(back.custom_models, cfg.custom_models);
+        let _ = std::fs::remove_file(&path);
+
+        // 旧格式（无 custom_models 字段）加载 → 空库；空库保存不写字段
+        let path = temp_path("legacy");
+        std::fs::write(&path, r#"{"providers":[]}"#).unwrap();
+        assert!(AppConfig::load(&path).unwrap().custom_models.is_empty());
+        AppConfig::default().save(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("custom_models"), "空库省略字段");
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// 契约：加载不存在的文件返回空配置（首次运行不报错）。
     #[test]
     fn load_missing_file_yields_empty() {
@@ -174,6 +212,7 @@ mod tests {
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![entry],
         };
         cfg.save(&path).unwrap();

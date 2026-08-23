@@ -308,6 +308,7 @@ mod run_tests {
     fn enable_flag_persists() {
         let ctx = test_ctx("a");
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![disabled_entry("e1")],
         };
         cfg.save(&ctx.config_path).unwrap();

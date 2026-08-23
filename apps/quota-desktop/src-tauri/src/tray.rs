@@ -1013,6 +1013,7 @@ mod tests {
             pricing: None,
         };
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![entry("a", true), entry("b", false)],
         };
         let settings = Settings::default(); // 阈值 80
@@ -1061,6 +1062,7 @@ mod tests {
             pricing: None,
         };
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![entry("a")],
         };
         let settings = Settings::default(); // 阈值 80

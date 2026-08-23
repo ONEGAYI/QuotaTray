@@ -3,12 +3,16 @@
 //! 平台实现的端点与字段映射依据 `docs/CC-Switch调研报告.md` §4.2。
 
 pub mod deepseek;
+pub mod kimi;
 pub mod openrouter;
 pub mod siliconflow;
+pub mod zhipu;
 
 pub use deepseek::DeepSeek;
+pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use openrouter::OpenRouter;
-pub use siliconflow::SiliconFlow;
+pub use siliconflow::{SILICONFLOW_CN, SILICONFLOW_GLOBAL, SiliconFlow};
+pub use zhipu::{ZAI, ZHIPU, ZhipuApi};
 
 use std::sync::{Arc, LazyLock};
 
@@ -44,8 +48,13 @@ pub trait NativeProvider: Send + Sync {
 static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
     vec![
         Arc::new(DeepSeek),
-        Arc::new(SiliconFlow),
+        Arc::new(SILICONFLOW_CN),
+        Arc::new(SILICONFLOW_GLOBAL),
         Arc::new(OpenRouter),
+        Arc::new(KIMI_CN),
+        Arc::new(KIMI_GLOBAL),
+        Arc::new(ZHIPU),
+        Arc::new(ZAI),
     ]
 });
 
@@ -123,6 +132,16 @@ pub(crate) fn parse_num(v: Option<&Value>) -> Option<f64> {
     match v? {
         Value::Number(n) => n.as_f64().filter(|f| f.is_finite()),
         Value::String(s) => s.trim().parse::<f64>().ok().filter(|f| f.is_finite()),
+        _ => None,
+    }
+}
+
+/// 整数字段解析：兼容 JSON number 与字符串数字（Kimi/SiliconFlow 的
+/// 业务码字段历史上两种形态都出现过）。
+pub(crate) fn parse_int(v: &Value) -> Option<i64> {
+    match v {
+        Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.trim().parse().ok(),
         _ => None,
     }
 }
