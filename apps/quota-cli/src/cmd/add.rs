@@ -157,26 +157,46 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         )
     };
 
+    // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
+    let key = io::read_secret("API key（直接回车跳过；输入显示为星号）")
+        .map_err(|e| format!("key 读取失败：{e}"))?;
+    assemble_entry(
+        ctx,
+        name.trim().to_string(),
+        kind,
+        base_url,
+        Some(key.trim().to_string()),
+        existing_ids,
+    )
+}
+
+/// 组装向导条目。
+///
+/// **顺序契约：id 必须先于 `set_api_key` 确定**——密文 AAD 绑定条目 id，
+/// 曾因先加密后生成 id（AAD=空串）导致向导创建的条目全部解密失败，
+/// 由 [`tests::wizard_entry_decrypts`] 锁定。
+pub fn assemble_entry(
+    ctx: &Ctx,
+    name: String,
+    kind: ProviderKind,
+    base_url: Option<String>,
+    key: Option<String>,
+    existing_ids: &[String],
+) -> Result<ProviderEntry, String> {
     let mut entry = ProviderEntry {
-        id: String::new(),
-        name: name.trim().to_string(),
+        id: idgen::unique_id(existing_ids).map_err(|e| format!("id 生成失败：{e}"))?,
+        name,
         kind,
         enabled: true,
         api_key_enc: None,
         base_url,
     };
-
-    // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
-    let key = io::read_secret("API key（直接回车跳过；输入显示为星号）")
-        .map_err(|e| format!("key 读取失败：{e}"))?;
-    if !key.trim().is_empty() {
+    if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
         entry
-            .set_api_key(&vault, key.trim())
+            .set_api_key(&vault, k)
             .map_err(|e| format!("凭据加密失败：{e}"))?;
     }
-
-    entry.id = idgen::unique_id(existing_ids).map_err(|e| format!("id 生成失败：{e}"))?;
     Ok(entry)
 }
 
@@ -261,6 +281,50 @@ mod tests {
         });
         let err = parse_entry_json(&entry_json(bad_tpl)).unwrap_err();
         assert!(err.contains("模板校验失败"), "{err}");
+    }
+
+    /// 契约（顺序锁定）：向导组装的条目必须能被自己的 vault 解密——
+    /// 曾因 set_api_key 先于 id 生成（AAD=空串）导致向导条目全部解密失败。
+    #[test]
+    fn wizard_entry_decrypts() {
+        use crate::ctx::Ctx;
+        use quota_core::InMemoryStore;
+        use std::sync::Arc;
+
+        let ctx = Ctx::with_store(
+            std::path::PathBuf::from("unused.json"),
+            Arc::new(InMemoryStore::new()),
+        );
+        let entry = assemble_entry(
+            &ctx,
+            "向导条目".into(),
+            ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            None,
+            Some("sk-wizard-key".into()),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(entry.id.len(), 6, "id 应为 6 位：{entry:?}");
+        let vault = ctx.open_vault().unwrap();
+        let creds = entry.credentials(&vault).expect("向导条目必须可解密");
+        assert_eq!(creds.api_key.as_str(), "sk-wizard-key");
+
+        // key 为空/None = 跳过，不写密文
+        let no_key = assemble_entry(
+            &ctx,
+            "无 key".into(),
+            ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        assert!(no_key.api_key_enc.is_none());
     }
 
     /// 契约：名称空 / id 冲突被 check_entry 拦截。
