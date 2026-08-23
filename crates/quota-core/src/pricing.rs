@@ -525,7 +525,7 @@ mod tests {
     /// 北京时间 2026-08-19（周三）04:30 = UTC 前一日（周二）20:30。
     const WED_0430_BJ_MS: u64 = 1_787_085_000_000;
     /// 北京时间 2026-08-22（周六）08:40 = UTC 00:40。
-    const SAT_1000_BJ_MS: u64 = 1_787_359_200_000;
+    const SAT_0840_BJ_MS: u64 = 1_787_359_200_000;
 
     /// UTC+8 偏移。
     const BJ: Option<i32> = Some(480);
@@ -585,7 +585,7 @@ mod tests {
     #[test]
     fn classify_weekend_and_night_off_peak() {
         let w = deepseek_windows();
-        // 周六 10:00（北京时间 18:00）
+        // 周六 UTC 02:00 = 北京 10:00
         assert_eq!(
             classify(&w, BJ, parts_ms(chrono::Weekday::Sat, 2, 0)),
             PeakKind::OffPeak
@@ -612,10 +612,10 @@ mod tests {
         let w = deepseek_windows();
         // 周三 UTC 01:30 = 北京 09:30 → 峰（预置真实锚点交叉验证）
         assert_eq!(classify(&w, BJ, WED_0930_BJ_MS), PeakKind::Peak);
-        // 周三 UTC 04:30 = 北京 12:30 午间 → 谷
+        // 北京周三 04:30（夜间）→ 谷
         assert_eq!(classify(&w, BJ, WED_0430_BJ_MS), PeakKind::OffPeak);
-        // 周六 UTC 02:00 → 谷
-        assert_eq!(classify(&w, BJ, SAT_1000_BJ_MS), PeakKind::OffPeak);
+        // 周六 UTC 00:40 → 谷
+        assert_eq!(classify(&w, BJ, SAT_0840_BJ_MS), PeakKind::OffPeak);
     }
 
     /// 契约：无窗口恒空闲；非法时刻窗口不参与判定（防御）。
@@ -740,7 +740,7 @@ mod tests {
         assert_eq!(format_price(f64::INFINITY), "—");
     }
 
-    /// 契约：小于 0.01 的非零价保留 4 位小数——美元档峰谷命中价
+    /// 契约：小于 0.05 的非零价保留 4 位小数——美元档峰谷命中价
     /// （谷 0.007 / 峰 0.014）不得都舍入成 "0.01"（两档显示撞车）。
     #[test]
     fn format_price_keeps_sub_cents_distinct() {
@@ -1130,7 +1130,7 @@ mod tests {
         };
         assert!(validate(&cfg).is_ok(), "24:00 作为 end 应被接受");
         // 任意时刻命中（含 23:59 与 00:00 边界）
-        for now in [WED_0930_BJ_MS, WED_0430_BJ_MS, SAT_1000_BJ_MS] {
+        for now in [WED_0930_BJ_MS, WED_0430_BJ_MS, SAT_0840_BJ_MS] {
             assert_eq!(
                 classify(cfg.windows.as_ref().unwrap(), None, now),
                 PeakKind::Peak,
