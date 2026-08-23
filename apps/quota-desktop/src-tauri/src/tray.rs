@@ -5,10 +5,10 @@
 //! 前端 `src/display.ts` 是平行双实现（成对注释约定），文案语义保持成对。
 //! 圆环图标本体在 [`crate::ring`]（视觉规格 docs/design/tray-ring-demo.html）。
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use quota_core::pricing::{self, PeakKind};
-use quota_core::{AppConfig, ProviderEntry, UsageData};
+use quota_core::{AppConfig, CustomModelDef, PlanKind, ProviderEntry, UsageData};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -184,12 +184,26 @@ pub fn entry_lines(
 ///   （缺价字段跳过；当前档整体缺失只显示行 1）。
 ///
 /// 未配置峰谷定价（无预置且未自定义）返回空——不追加任何行。
+#[cfg(test)]
 pub fn pricing_lines(entry: &ProviderEntry, now_ms: u64, lang: Lang) -> Vec<String> {
-    let Some(resolved) = pricing::resolve(entry) else {
+    pricing_lines_with(entry, &Default::default(), None, now_ms, lang)
+}
+
+fn pricing_lines_with(
+    entry: &ProviderEntry,
+    custom_models: &BTreeMap<String, Vec<CustomModelDef>>,
+    currency_hint: Option<&str>,
+    now_ms: u64,
+    lang: Lang,
+) -> Vec<String> {
+    let Some(resolved) = pricing::resolve_in_currency(entry, custom_models, currency_hint) else {
         return vec![];
     };
     let kind = resolved.kind(now_ms);
     let line1 = lang.peak_status_line(kind == PeakKind::Peak, resolved.model_label.as_deref());
+    if resolved.plan == PlanKind::Subscription {
+        return vec![line1, lang.subscription_pricing_line().into()];
+    }
     let tier = match kind {
         PeakKind::Peak => resolved.peak.as_ref(),
         PeakKind::OffPeak => resolved.off_peak.as_ref(),
@@ -379,16 +393,35 @@ fn snapshot_views(state: &AppState) -> Option<(AppConfig, HashMap<String, EntryS
     Some((cfg, results, settings))
 }
 
+fn pricing_currency_hint<'a>(
+    entry: &'a ProviderEntry,
+    state: Option<&'a EntryState>,
+) -> Option<&'a str> {
+    state
+        .and_then(|value| value.data.as_ref())
+        .and_then(|data| data.first())
+        .and_then(|data| data.unit.as_deref())
+        .or_else(|| {
+            entry
+                .pricing
+                .as_ref()
+                .and_then(|pricing| pricing.currency.as_deref())
+        })
+}
+
 /// 每分钟调度调用：图标条目的峰谷状态与上次重建时不一致（含首次）→
 /// 重建托盘。峰谷标签在菜单重建时判定，轮询间隔长时靠本检测兜底刷新；
 /// 读盘失败静默保留缓存（下次再比）。
 pub fn rebuild_on_peak_flip(app: &AppHandle, state: &AppState) {
-    let Some((cfg, _, settings)) = snapshot_views(state) else {
+    let Some((cfg, results, settings)) = snapshot_views(state) else {
         return;
     };
     let now = now_ms();
-    let current = ring::icon_entry(&cfg, &settings)
-        .and_then(|entry| pricing::resolve(entry).map(|r| (entry.id.clone(), r.kind(now))));
+    let current = ring::icon_entry(&cfg, &settings).and_then(|entry| {
+        let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
+        pricing::resolve_in_currency(entry, &cfg.custom_models, currency_hint)
+            .map(|resolved| (entry.id.clone(), resolved.kind(now)))
+    });
     let mut last = state.last_peak.write().unwrap();
     if *last == current {
         return;
@@ -443,7 +476,11 @@ fn build_menu(
         }
         // 峰谷行（disabled，id 独立前缀避免与数据行混同）
         if icon_entry_id == Some(entry.id.as_str()) {
-            for (i, line) in pricing_lines(entry, now, lang).iter().enumerate() {
+            let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
+            for (i, line) in pricing_lines_with(entry, &cfg.custom_models, currency_hint, now, lang)
+                .iter()
+                .enumerate()
+            {
                 menu.append(&MenuItem::with_id(
                     app,
                     format!("info-pricing-{i}"),
@@ -740,6 +777,67 @@ mod tests {
         assert_eq!(
             pricing_lines(&e, PEAK_NOW, Lang::Zh),
             vec!["⚡ 高峰 · V4 Pro", "命中 0.3 · 未命中 9 · 输出 27 CNY/Mtok"]
+        );
+    }
+
+    #[test]
+    fn pricing_lines_follow_currency_and_custom_model_library() {
+        let e = entry_with(None);
+        assert_eq!(
+            pricing_lines_with(&e, &Default::default(), Some("USD"), OFF_NOW, Lang::Zh),
+            vec![
+                "空闲 · V4 Flash",
+                "命中 0.007 · 未命中 0.22 · 输出 0.66 USD/Mtok"
+            ]
+        );
+
+        let mut models = std::collections::BTreeMap::new();
+        models.insert(
+            "deepseek".into(),
+            vec![quota_core::CustomModelDef {
+                id: "flash".into(),
+                display: "V4 Flash（自算）".into(),
+                peak: Some(quota_core::PriceTier {
+                    output: Some(9.1),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+        );
+        let e = entry_with(Some(quota_core::PricingConfig {
+            model: Some("flash".into()),
+            ..Default::default()
+        }));
+        assert_eq!(
+            pricing_lines_with(&e, &models, None, PEAK_NOW, Lang::Zh),
+            vec!["⚡ 高峰 · V4 Flash（自算）", "输出 9.1 CNY/Mtok"]
+        );
+    }
+
+    #[test]
+    fn pricing_currency_hint_prefers_query_unit_then_entry_override() {
+        let e = entry_with(Some(quota_core::PricingConfig {
+            currency: Some("CNY".into()),
+            ..Default::default()
+        }));
+        let state = ok_state(vec![data(Some(8.0), Some("USD"))], NOW);
+        assert_eq!(pricing_currency_hint(&e, Some(&state)), Some("USD"));
+        assert_eq!(pricing_currency_hint(&e, None), Some("CNY"));
+    }
+
+    #[test]
+    fn pricing_lines_describe_subscription_plan() {
+        let mut e = entry_with(Some(quota_core::PricingConfig {
+            model: Some("coding-plan".into()),
+            ..Default::default()
+        }));
+        e.kind = quota_core::ProviderKind::Native {
+            provider: "zhipu".into(),
+        };
+        let wed_1500_bj = 1_787_122_800_000;
+        assert_eq!(
+            pricing_lines_with(&e, &Default::default(), Some("%"), wed_1500_bj, Lang::Zh,),
+            vec!["⚡ 高峰 · GLM Coding Plan（订阅积分）", "订阅积分制"]
         );
     }
 

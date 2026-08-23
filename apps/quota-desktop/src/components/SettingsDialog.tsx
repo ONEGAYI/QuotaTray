@@ -1,16 +1,13 @@
-// 设置对话框（聚类分页：常规 / 更新）。
-// - 常规：刷新间隔 / 低额度阈值 / 开机自启 / 托盘圆环每圈单位；
-// - 更新：自动检测开关、每日检测时刻（随「保存」落盘）+ 版本信息与
-//   「立即检查 / 下载安装包」即时操作（不进 draft，走独立 IPC）。
-// 语言与主题三态设置在自定义标题栏的快捷菜单中（TitleBar.tsx）。
-// 保存走既有 save_settings 链路（磁盘权威）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Check, ExternalLink, PackageCheck, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
 import { useSettings, useUpdateState } from "../queries";
 import type { Settings } from "../types";
+import { resolveUpdateError, resolveUpdateStatus } from "./settingsView";
+import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
   open: boolean;
@@ -18,15 +15,6 @@ interface Props {
 }
 
 type Tab = "general" | "update";
-
-const inputCls =
-  "w-24 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const labelCls = "text-sm text-slate-600 dark:text-slate-300";
-const tabCls = (active: boolean) =>
-  "rounded-t px-4 py-1.5 text-sm transition-colors " +
-  (active
-    ? "bg-white font-medium text-indigo-600 dark:bg-slate-800 dark:text-indigo-300"
-    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200");
 
 export function SettingsDialog({ open, onClose }: Props) {
   const qc = useQueryClient();
@@ -41,251 +29,222 @@ export function SettingsDialog({ open, onClose }: Props) {
     if (open && settings.data) setDraft({ ...settings.data });
   }, [open, settings.data]);
 
-  // 打开设置页时刷新检测状态（后台调度可能已更新，staleTime 内不会自动重取）
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
   }, [open, qc]);
 
   const save = useMutation({
-    mutationFn: (s: Settings) => api.saveSettings(s),
+    mutationFn: (value: Settings) => api.saveSettings(value),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["settings"] });
-      void qc.invalidateQueries({ queryKey: ["provider"] }); // 间隔变化即时生效
+      void qc.invalidateQueries({ queryKey: ["provider"] });
       onClose();
     },
   });
 
-  // 「立即检查」：手动检测不受节流限制，检测结果同步托盘菜单
   const checkNow = useMutation({
     mutationFn: api.checkUpdateNow,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["update-state"] });
-    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
   });
 
-  // 「下载安装包」：Rust 侧下载到系统下载目录，返回路径
   const download = useMutation({
     mutationFn: api.downloadUpdate,
     onSuccess: (path) => setDownloadedPath(path),
   });
 
-  if (!open) return null;
-  if (!draft) return null;
-
-  const us = updateState.data;
-  const available = us?.available ?? null;
-  // 「最新版本」栏：检测过显示结论；未检测过显示占位符
-  const latestText = checkNow.isPending
-    ? t("settings.checking")
-    : us == null
-      ? "—"
-      : available
-        ? `v${available.version}`
-        : us.last_error
-          ? t("settings.updateError", { msg: us.last_error })
-          : t("settings.upToDate");
+  if (!open || !draft) return null;
+  const update = updateState.data;
+  const available = update?.available ?? null;
+  const operationError = resolveUpdateError({
+    checkError: checkNow.isError ? checkNow.error : null,
+    downloadError: download.isError ? download.error : null,
+    backendError: update?.last_error,
+    hasAvailable: Boolean(available),
+  });
+  const updateStatus = resolveUpdateStatus({
+    checking: checkNow.isPending,
+    hasAvailable: Boolean(available),
+    error: operationError,
+  });
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-800">
-        <div className="border-b border-slate-200 px-5 pt-3 dark:border-slate-700">
-          <h2 className="font-medium">{t("settings.title")}</h2>
-          <div className="mt-2 flex gap-1">
-            <button className={tabCls(tab === "general")} onClick={() => setTab("general")}>
-              {t("settings.tabGeneral")}
-            </button>
-            <button className={tabCls(tab === "update")} onClick={() => setTab("update")}>
-              {t("settings.tabUpdate")}
-            </button>
-          </div>
-        </div>
+    <DialogShell
+      title={t("settings.title")}
+      description={t("settings.description")}
+      onClose={onClose}
+      closeLabel={t("titlebar.close")}
+      size="md"
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+            {save.isPending ? t("common.saving") : t("settings.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="qt-settings-layout">
+        <nav className="qt-settings-nav" aria-label={t("settings.title")}>
+          <button
+            type="button"
+            aria-selected={tab === "general"}
+            onClick={() => setTab("general")}
+          >
+            <SlidersHorizontal size={16} aria-hidden="true" />
+            {t("settings.tabGeneral")}
+          </button>
+          <button
+            type="button"
+            aria-selected={tab === "update"}
+            onClick={() => setTab("update")}
+          >
+            <PackageCheck size={16} aria-hidden="true" />
+            {t("settings.tabUpdate")}
+          </button>
+        </nav>
 
-        <form
-          className="space-y-4 px-5 py-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (draft) save.mutate(draft);
-          }}
-        >
+        <div className="qt-settings-content">
           {tab === "general" ? (
             <>
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.interval")}</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={1440}
-                  value={draft.refresh_interval_minutes}
-                  onChange={(e) =>
-                    setDraft({ ...draft, refresh_interval_minutes: Number(e.target.value) })
-                  }
-                  className={inputCls}
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.threshold")}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={draft.low_balance_threshold_percent}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      low_balance_threshold_percent: Number(e.target.value),
-                    })
-                  }
-                  className={inputCls}
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.autostart")}</span>
-                <input
-                  type="checkbox"
+              <SettingRow title={t("settings.intervalTitle")} description={t("settings.intervalHint")}>
+                <div className="qt-number-control">
+                  <input
+                    className="qt-input"
+                    type="number"
+                    min={1}
+                    max={1440}
+                    step={1}
+                    value={draft.refresh_interval_minutes}
+                    onChange={(event) =>
+                      setDraft({ ...draft, refresh_interval_minutes: Number(event.target.value) })
+                    }
+                  />
+                  <span>{t("settings.minuteUnit")}</span>
+                </div>
+              </SettingRow>
+              <SettingRow title={t("settings.thresholdTitle")} description={t("settings.thresholdHint")}>
+                <div className="qt-number-control">
+                  <input
+                    className="qt-input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft.low_balance_threshold_percent}
+                    onChange={(event) =>
+                      setDraft({ ...draft, low_balance_threshold_percent: Number(event.target.value) })
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </SettingRow>
+              <SettingRow title={t("settings.autostart")} description={t("settings.autostartHint")}>
+                <Switch
+                  label={t("settings.autostart")}
                   checked={draft.autostart}
-                  onChange={(e) => setDraft({ ...draft, autostart: e.target.checked })}
-                  className="h-4 w-4"
+                  onChange={(autostart) => setDraft({ ...draft, autostart })}
                 />
-              </label>
-
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.ringUnits")}</span>
+              </SettingRow>
+              <SettingRow title={t("settings.ringUnits")} description={t("settings.ringUnitsHint")}>
                 <input
+                  className="qt-input"
                   type="number"
                   min={1}
                   step="any"
                   value={draft.ring_units_per_circle}
-                  onChange={(e) =>
-                    setDraft({ ...draft, ring_units_per_circle: Number(e.target.value) })
+                  onChange={(event) =>
+                    setDraft({ ...draft, ring_units_per_circle: Number(event.target.value) })
                   }
-                  className={inputCls}
                 />
-              </label>
+              </SettingRow>
             </>
           ) : (
             <>
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.updateEnabled")}</span>
-                <input
-                  type="checkbox"
-                  checked={draft.update_check_enabled}
-                  onChange={(e) =>
-                    setDraft({ ...draft, update_check_enabled: e.target.checked })
-                  }
-                  className="h-4 w-4"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-4">
-                <span className={labelCls}>{t("settings.updateTime")}</span>
-                <input
-                  type="text"
-                  placeholder="HH:MM"
-                  value={draft.update_check_time}
-                  onChange={(e) => setDraft({ ...draft, update_check_time: e.target.value })}
-                  className={inputCls + " w-20 text-center"}
-                />
-              </label>
-
-              {/* 版本信息区（只读，数据来自 update-state 查询） */}
-              <div className="rounded border border-slate-200 p-3 text-sm dark:border-slate-600">
-                <div className="flex items-center justify-between">
-                  <span className={labelCls}>{t("settings.currentVersion")}</span>
-                  <span className="font-mono">v{us?.current_version ?? "…"}</span>
-                </div>
-                <div className="mt-1.5 flex items-center justify-between">
-                  <span className={labelCls}>{t("settings.latestVersion")}</span>
-                  <span className="font-mono">{latestText}</span>
-                </div>
-                {available?.notes && (
-                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    {available.notes}
+              <div className={`qt-update-status ${
+                updateStatus === "error"
+                  ? "has-error"
+                  : updateStatus === "available"
+                    ? "has-update"
+                    : "is-current"
+              }`}>
+                <span className="qt-update-status-icon">
+                  {updateStatus === "error"
+                    ? <AlertTriangle size={17} aria-hidden="true" />
+                    : <Check size={17} aria-hidden="true" />}
+                </span>
+                <div>
+                  <h3>
+                    {updateStatus === "checking"
+                      ? t("settings.checking")
+                      : updateStatus === "available" && available
+                        ? t("settings.updateAvailable", { version: available.version })
+                        : updateStatus === "error"
+                          ? t("settings.updateCheckFailed")
+                          : t("settings.upToDate")}
+                  </h3>
+                  <p>
+                    QuotaTray {update?.current_version ?? "…"} · {update?.last_check
+                      ? relativeTime(update.last_check, lang)
+                      : t("settings.neverChecked")}
                   </p>
-                )}
-                <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                  {us?.last_check
-                    ? t("settings.lastCheck", {
-                        time: relativeTime(us.last_check, lang),
-                      })
-                    : t("settings.neverChecked")}
-                </p>
-              </div>
-
-              {available && !available.downloadable && (
-                <p className="break-all text-xs text-slate-500 dark:text-slate-400">
-                  {t("settings.manualUrl", { url: available.html_url })}
-                </p>
-              )}
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
+                </div>
+                <Button
+                  disabled={checkNow.isPending}
                   onClick={() => {
                     setDownloadedPath(null);
+                    download.reset();
                     checkNow.mutate();
                   }}
-                  disabled={checkNow.isPending}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
                 >
-                  {checkNow.isPending ? t("settings.checking") : t("settings.checkNow")}
-                </button>
-                {available?.downloadable && (
-                  <button
-                    type="button"
-                    onClick={() => download.mutate()}
-                    disabled={download.isPending}
-                    className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-                  >
-                    {download.isPending ? t("settings.downloading") : t("settings.download")}
-                  </button>
-                )}
+                  {t("settings.checkNow")}
+                </Button>
               </div>
-
-              {downloadedPath && (
-                <p className="break-all text-xs text-emerald-600 dark:text-emerald-400">
-                  {t("settings.downloaded", { path: downloadedPath })}
-                  <br />
-                  {t("settings.runInstaller")}
-                </p>
+              <SettingRow title={t("settings.updateEnabledTitle")} description={t("settings.updateEnabledHint")}>
+                <Switch
+                  label={t("settings.updateEnabledTitle")}
+                  checked={draft.update_check_enabled}
+                  onChange={(update_check_enabled) => setDraft({ ...draft, update_check_enabled })}
+                />
+              </SettingRow>
+              <SettingRow title={t("settings.updateTimeTitle")} description={t("settings.updateTimeHint")}>
+                <input
+                  className="qt-input"
+                  type="text"
+                  value={draft.update_check_time}
+                  onChange={(event) => setDraft({ ...draft, update_check_time: event.target.value })}
+                />
+              </SettingRow>
+              {available?.downloadable && (
+                <Button
+                  variant="primary"
+                  disabled={download.isPending}
+                  onClick={() => {
+                    setDownloadedPath(null);
+                    checkNow.reset();
+                    download.mutate();
+                  }}
+                >
+                  {download.isPending ? t("settings.downloading") : t("settings.download")}
+                </Button>
               )}
-              {download.isError && (
-                <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-                  {String(download.error)}
-                </p>
+              {available && !available.downloadable && (
+                <a
+                  className="qt-settings-manual-link"
+                  href={available.html_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink size={14} aria-hidden="true" />
+                  {t("settings.manualUrl", { url: available.html_url })}
+                </a>
               )}
-              {checkNow.isError && (
-                <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-                  {String(checkNow.error)}
-                </p>
-              )}
+              {downloadedPath && <p className="qt-settings-success">{t("settings.downloaded", { path: downloadedPath })}</p>}
+              {operationError && <p className="qt-inline-error">{operationError}</p>}
             </>
           )}
-
-          {save.isError && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-              {String(save.error)}
-            </p>
-          )}
-        </form>
-
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-700">
-          <button
-            onClick={onClose}
-            className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            onClick={() => save.mutate(draft)}
-            disabled={save.isPending}
-            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-          >
-            {save.isPending ? t("common.saving") : t("common.save")}
-          </button>
+          {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}
         </div>
       </div>
-    </div>
+    </DialogShell>
   );
 }

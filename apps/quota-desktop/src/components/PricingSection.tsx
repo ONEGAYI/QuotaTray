@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { HelpCircle } from "lucide-react";
 import { useLang } from "../i18n";
 import type {
+  CustomModelDef,
   PeakWindow,
-  PresetModel,
+  PlanKind,
   PresetPricing,
   PriceTier,
   PricingConfig,
@@ -16,16 +18,17 @@ import {
   selectedPresetModel,
   type PricingDraft,
 } from "./pricingDraft";
+import { Badge, Tooltip } from "./ui";
+import { pricingModelChoices } from "./providerPricing";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-const fieldCls =
-  "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const compactFieldCls =
-  "min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const subduedTextCls = "text-xs text-slate-500 dark:text-slate-400";
+const fieldCls = "qt-input";
+const compactFieldCls = "qt-input qt-input-compact";
+const subduedTextCls = "qt-text-subdued";
 
 interface Props {
   preset: PresetPricing | null;
+  customModels: CustomModelDef[];
   initial: PricingConfig | undefined;
   onChange: (pricing: PricingConfig | undefined) => void;
 }
@@ -37,23 +40,44 @@ export function PricingSection(props: Props) {
   onChangeRef.current = props.onChange;
 
   useEffect(() => {
-    onChangeRef.current(buildPricing(draft, props.preset));
-  }, [draft, props.preset]);
+    onChangeRef.current(buildPricing(draft, props.preset, props.customModels));
+  }, [draft, props.preset, props.customModels]);
 
   const patch = (partial: Partial<PricingDraft>) => {
     setDraft((current) => ({ ...current, ...partial }));
   };
 
-  const presetModel = selectedPresetModel(props.preset, draft.model);
-  const modelIsKnown =
-    props.preset?.models.some(
-      (model) => model.id.toLowerCase() === draft.model.trim().toLowerCase(),
-    ) ?? false;
-  const selectedModelId = modelIsKnown
-    ? draft.model.trim()
-    : draft.model.trim() || props.preset?.default_model || "";
+  const modelChoices = pricingModelChoices(props.preset, props.customModels);
+  const selectedChoice = draft.model.trim()
+    ? modelChoices.find(
+        (choice) => choice.modelId?.toLowerCase() === draft.model.trim().toLowerCase(),
+      )
+    : modelChoices.find((choice) => choice.value === "default");
+  const modelIsKnown = Boolean(selectedChoice);
+  const selectedModelValue = draft.model.trim()
+    ? selectedChoice?.value ?? `model:${draft.model.trim()}`
+    : "default";
+  const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
+  const libraryModel = selectedChoice?.source === "custom"
+    ? props.customModels.find(
+        (model) => model.id.toLowerCase() === selectedChoice.modelId?.toLowerCase(),
+      )
+    : undefined;
+  const presetModel = libraryModel
+    ? undefined
+    : selectedPresetModel(props.preset, draft.model);
+  const effectiveWindows = libraryModel?.windows ?? presetModel?.windows ?? props.preset?.windows ?? [];
+  const effectiveTimezone = libraryModel?.timezone_offset_minutes
+    ?? props.preset?.timezone_offset_minutes;
+  const effectiveCurrency = libraryModel?.currency ?? props.preset?.currency;
+  const effectivePeak = libraryModel ? libraryModel.peak : presetModel?.peak;
+  const effectiveOffPeak = libraryModel ? libraryModel.off_peak : presetModel?.off_peak;
+  const effectivePlan = libraryModel ? "pay_as_you_go" : presetModel?.plan ?? "pay_as_you_go";
   const modelLabel =
-    (!modelIsKnown && draft.model.trim()) || presetModel?.display || t("pricing.customModel");
+    (!modelIsKnown && draft.model.trim())
+    || selectedChoice?.label
+    || presetModel?.display
+    || t("pricing.customModel");
 
   const setMode = (custom: boolean) => {
     patch({
@@ -63,14 +87,14 @@ export function PricingSection(props: Props) {
   };
 
   const activateCustomSchedule = () => {
-    const presetWindows = props.preset?.windows.map((window) => ({
+    const presetWindows = effectiveWindows.map((window) => ({
       days: [...window.days],
       start: window.start,
       end: window.end,
     }));
     patch({
       scheduleCustom: true,
-      windows: draft.windows.length > 0 ? draft.windows : (presetWindows ?? []),
+      windows: draft.windows.length > 0 ? draft.windows : presetWindows,
     });
   };
 
@@ -94,83 +118,114 @@ export function PricingSection(props: Props) {
   const updateWindows = (windows: PeakWindow[]) => patch({ windows });
 
   return (
-    <fieldset className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+    <fieldset className="qt-pricing-section">
       <legend className="sr-only">{t("pricing.section")}</legend>
 
-      <div className="flex items-start justify-between gap-4 px-4 py-4">
+      <div className="qt-pricing-section-header">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+          <h3>
             {t("pricing.section")}
           </h3>
-          <p className={`mt-1 ${subduedTextCls}`}>
+          <p className={subduedTextCls}>
             {draft.custom
               ? t("pricing.summaryCustom", { model: modelLabel })
               : props.preset
                 ? t("pricing.summaryPreset", {
                     model: modelLabel,
-                    timezone: formatUtcOffset(props.preset.timezone_offset_minutes),
-                    currency: props.preset.currency,
+                    timezone: effectiveTimezone == null ? "—" : formatUtcOffset(effectiveTimezone),
+                    currency: effectiveCurrency ?? "—",
                   })
                 : t("pricing.summaryOff")}
           </p>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-            draft.custom
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300"
-              : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-          }`}
-        >
+        <Badge tone={draft.custom || selectedChoice?.source === "custom" ? "accent" : "neutral"}>
           {draft.custom
             ? t("pricing.statusCustom")
+            : selectedChoice?.source === "custom"
+              ? t("pricing.libraryModel")
             : props.preset
               ? t("pricing.statusPreset")
               : t("pricing.statusOff")}
-        </span>
+        </Badge>
       </div>
 
-      <div className="mx-4 mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900/70">
+      <div className="qt-pricing-mode">
         <ModeButton active={!draft.custom} onClick={() => setMode(false)}>
-          {props.preset ? t("pricing.modePreset") : t("pricing.modeOff")}
+          {selectedChoice?.source === "custom"
+            ? t("pricing.modeModel")
+            : props.preset ? t("pricing.modePreset") : t("pricing.modeOff")}
         </ModeButton>
         <ModeButton active={draft.custom} onClick={() => setMode(true)}>
           {props.preset ? t("pricing.modeCustom") : t("pricing.modeConfigure")}
         </ModeButton>
       </div>
 
-      {props.preset && (
-        <div className="grid gap-2 border-y border-slate-200 px-4 py-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:items-center dark:border-slate-700">
-          <label htmlFor="pricing-model" className="text-sm font-medium text-slate-700 dark:text-slate-200">
+      {modelChoices.length > 0 && (
+        <div className="qt-pricing-model-row">
+          <label htmlFor="pricing-model">
             {t("pricing.presetModel")}
           </label>
           <select
             id="pricing-model"
-            value={selectedModelId}
-            onChange={(event) => patch({ model: event.target.value })}
+            value={selectedModelValue}
+            onChange={(event) => {
+              const choice = modelChoices.find((item) => item.value === event.target.value);
+              const next: Partial<PricingDraft> = {
+                model: choice ? (choice.modelId ?? "") : event.target.value.replace(/^model:/, ""),
+                custom: !props.preset && choice?.modelId != null ? true : draft.custom,
+              };
+              if (choice?.plan === "subscription") {
+                Object.assign(next, {
+                  peakHit: "",
+                  peakMiss: "",
+                  peakOut: "",
+                  offHit: "",
+                  offMiss: "",
+                  offOut: "",
+                });
+              }
+              patch(next);
+            }}
             className={compactFieldCls}
           >
             {!modelIsKnown && draft.model.trim() && (
-              <option value={draft.model.trim()}>{draft.model.trim()}</option>
+              <option value={`model:${draft.model.trim()}`}>{draft.model.trim()}</option>
             )}
-            {props.preset.models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.display}
-                {model.id === props.preset?.default_model ? t("pricing.presetDefault") : ""}
+            {!hasImplicitDefaultChoice && (
+              <option value="default">{t("pricing.noModel")}</option>
+            )}
+            {modelChoices.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.label}
+                {choice.value === "default" ? t("pricing.presetDefault") : ""}
+                {choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : ""}
+                {choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : ""}
               </option>
             ))}
           </select>
-          <span className={`${subduedTextCls} sm:text-right`}>{t("pricing.presetNote")}</span>
+          <span className={`${subduedTextCls} sm:text-right`}>
+            {selectedChoice?.source === "custom"
+              ? t("pricing.libraryNote")
+              : t("pricing.presetNote")}
+          </span>
         </div>
       )}
 
-      {!draft.custom && props.preset && presetModel && (
-        <PresetPreview preset={props.preset} model={presetModel} />
+      {!draft.custom && (presetModel || libraryModel) && (
+        <PresetPreview
+          windows={effectiveWindows}
+          timezone={effectiveTimezone}
+          currency={effectiveCurrency}
+          plan={effectivePlan}
+          peak={effectivePeak}
+          offPeak={effectiveOffPeak}
+        />
       )}
 
       {draft.custom && (
         <div>
           {props.preset && (
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+            <div className="qt-inherit-banner">
               <span>{t("pricing.inheritNote")}</span>
               <button type="button" onClick={clearOverrides} className="font-medium hover:underline">
                 {t("pricing.clearOverrides")}
@@ -278,10 +333,13 @@ export function PricingSection(props: Props) {
                   {t("pricing.priceTitle")}
                 </h3>
                 <p className={`mt-1 ${subduedTextCls}`}>
-                  {props.preset ? t("pricing.priceHint") : t("pricing.priceHintNoPreset")}
+                  {effectivePlan === "subscription"
+                    ? t("pricing.subscriptionHint")
+                    : props.preset ? t("pricing.priceHint") : t("pricing.priceHintNoPreset")}
                 </p>
               </div>
-              <label className="grid gap-1 sm:grid-cols-[auto_7rem] sm:items-center sm:gap-2">
+              {effectivePlan === "pay_as_you_go" && (
+                <label className="grid gap-1 sm:grid-cols-[auto_7rem] sm:items-center sm:gap-2">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
                   {t("pricing.currency")}
                 </span>
@@ -291,7 +349,8 @@ export function PricingSection(props: Props) {
                   placeholder={props.preset ? t("pricing.inheritValue", { value: props.preset.currency }) : "CNY"}
                   className={compactFieldCls}
                 />
-              </label>
+                </label>
+              )}
             </div>
 
             {!props.preset && (
@@ -308,11 +367,20 @@ export function PricingSection(props: Props) {
               </label>
             )}
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <PriceTierEditor kind="peak" draft={draft} presetTier={presetModel?.peak} patch={patch} />
-              <PriceTierEditor kind="off" draft={draft} presetTier={presetModel?.off_peak} patch={patch} />
-            </div>
-            <p className={`mt-3 text-right ${subduedTextCls}`}>{t("pricing.unit")}</p>
+            {effectivePlan === "pay_as_you_go" ? (
+              <>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <PriceTierEditor kind="peak" draft={draft} presetTier={effectivePeak} patch={patch} />
+                  <PriceTierEditor kind="off" draft={draft} presetTier={effectiveOffPeak} patch={patch} />
+                </div>
+                <p className={`mt-3 text-right ${subduedTextCls}`}>{t("pricing.unit")}</p>
+              </>
+            ) : (
+              <div className="qt-subscription-editor-note">
+                <Badge tone="accent">{t("pricing.subscriptionShort")}</Badge>
+                <span>{t("pricing.subscriptionPlan")}</span>
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -342,37 +410,72 @@ function ModeButton(props: {
   );
 }
 
-function PresetPreview(props: { preset: PresetPricing; model: PresetModel }) {
+function PresetPreview(props: {
+  windows: PeakWindow[];
+  timezone: number | undefined;
+  currency: string | undefined;
+  plan: PlanKind;
+  peak: PriceTier | undefined;
+  offPeak: PriceTier | undefined;
+}) {
   const { t } = useLang();
   return (
-    <div className="grid gap-px bg-slate-200 sm:grid-cols-2 dark:bg-slate-700">
+    <div className="qt-preset-preview">
       <PreviewItem
         label={t("pricing.windowsTitle")}
-        value={t("pricing.windowCount", { count: props.preset.windows.length })}
+        value={t("pricing.windowCount", { count: props.windows.length })}
       />
       <PreviewItem
         label={t("pricing.timezoneCurrency")}
-        value={`${formatUtcOffset(props.preset.timezone_offset_minutes)} · ${props.preset.currency}`}
+        value={`${props.timezone == null ? "—" : formatUtcOffset(props.timezone)} · ${props.currency ?? "—"}`}
       />
-      <PreviewItem label={t("pricing.peak")} value={tierSummary(props.model.peak, t("pricing.noValue"))} />
-      <PreviewItem label={t("pricing.offPeak")} value={tierSummary(props.model.off_peak, t("pricing.noValue"))} />
+      {props.plan === "subscription" ? (
+        <div className="qt-preview-item qt-preview-subscription">
+          <Badge tone="accent">{t("pricing.subscriptionShort")}</Badge>
+          <div>
+            <p>{t("pricing.subscriptionPlan")}</p>
+            <span>{t("pricing.subscriptionHint")}</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <PresetTierPreview label={t("pricing.peak")} tier={props.peak} />
+          <PresetTierPreview label={t("pricing.offPeak")} tier={props.offPeak} />
+        </>
+      )}
     </div>
   );
 }
 
 function PreviewItem(props: { label: string; value: string }) {
   return (
-    <div className="bg-white px-4 py-3 dark:bg-slate-800">
+    <div className="qt-preview-item">
       <span className={subduedTextCls}>{props.label}</span>
-      <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{props.value}</p>
+      <p>{props.value}</p>
     </div>
   );
 }
 
-function tierSummary(tier: PriceTier, fallback: string): string {
-  return [tier.cache_hit_input, tier.cache_miss_input, tier.output]
-    .map((value) => (value == null ? fallback : formatPrice(value)))
-    .join(" · ");
+function PresetTierPreview(props: { label: string; tier: PriceTier | undefined }) {
+  const { t } = useLang();
+  if (
+    !props.tier
+    || (props.tier.cache_hit_input == null
+      && props.tier.cache_miss_input == null
+      && props.tier.output == null)
+  ) {
+    return <PreviewItem label={props.label} value={t("pricing.noValue")} />;
+  }
+  return (
+    <div className="qt-preview-item qt-preview-tier">
+      <span className={subduedTextCls}>{props.label}</span>
+      <dl>
+        <div><dt>{t("pricing.hit")}</dt><dd>{formatPrice(props.tier.cache_hit_input)}</dd></div>
+        <div><dt>{t("pricing.miss")}</dt><dd>{formatPrice(props.tier.cache_miss_input)}</dd></div>
+        <div><dt>{t("pricing.out")}</dt><dd>{formatPrice(props.tier.output)}</dd></div>
+      </dl>
+    </div>
+  );
 }
 
 function WindowEditor(props: {
@@ -494,7 +597,20 @@ function PriceTierEditor(props: {
           const inherited = props.presetTier?.[presetKey];
           return (
             <label key={draftKey} className="grid grid-cols-[minmax(8rem,1fr)_minmax(5rem,7rem)] items-center gap-x-2 py-1">
-              <span className="text-xs text-slate-700 dark:text-slate-300">{label}</span>
+              <span className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-300">
+                {label}
+                <Tooltip
+                  text={
+                    presetKey === "cache_hit_input"
+                      ? t("pricing.hitExplain")
+                      : presetKey === "cache_miss_input"
+                        ? t("pricing.missExplain")
+                        : t("pricing.outExplain")
+                  }
+                >
+                  <HelpCircle size={13} aria-hidden="true" />
+                </Tooltip>
+              </span>
               <input
                 type="number"
                 step="any"

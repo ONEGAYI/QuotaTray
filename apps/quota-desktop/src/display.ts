@@ -23,6 +23,18 @@ export function relativeTime(atMs: number | null | undefined, lang: UiLang): str
   return zh ? `${n} 天前` : `${n}d ago`;
 }
 
+/** 最后成功时刻的精确本地时间（Tooltip 使用）。 */
+export function exactTime(atMs: number, lang: UiLang): string {
+  return new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(atMs));
+}
+
 /** 已用百分比（0-100）：unit="%" 直读，否则 used/total 换算；数据不足返回 null。 */
 export function usedPercent(d: UsageData): number | null {
   if (d.unit === "%") return d.used ?? null;

@@ -35,7 +35,8 @@ export function useNativeMetas() {
   return useQuery({
     queryKey: ["native-metas"],
     queryFn: api.listNativeMetas,
-    staleTime: Infinity,
+    // 自定义模型库可由 CLI 修改；窗口重新聚焦后最多沿用 30 秒旧元信息。
+    staleTime: 30_000,
   });
 }
 

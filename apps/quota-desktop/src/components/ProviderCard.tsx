@@ -1,51 +1,126 @@
-// 供应商卡片：名称 / 类型徽标 / 用量数据 / 错误徽标 / 相对时间 / 手动操作。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  Ellipsis,
+  KeyRound,
+  Pause,
+  Pencil,
+  Play,
+  RefreshCw,
+  Trash2,
+  WifiOff,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { dataSummary, relativeTime, usedPercent } from "../display";
+import { amountText, dataSummary, exactTime, relativeTime, usedPercent } from "../display";
 import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
-import { KEEP_LAST_GOOD_MS, type ProviderEntry, type QueryOutcome, type SnapshotEntry } from "../types";
+import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
+import { deriveProviderCardState } from "./providerCardView";
+import {
+  pricingModelChoices,
+  resolveProviderPricingView,
+  withProviderModel,
+} from "./providerPricing";
+import { formatPrice } from "./pricingDraft";
+import { Badge, Button, ConfirmDialog, DropdownMenu, IconButton, MenuItem, Tooltip } from "./ui";
 
 interface Props {
   entry: ProviderEntry;
   intervalMinutes: number;
   thresholdPercent: number;
-  /** 启动快照（spec §5：首屏先渲染上次成功结果，消除重启空窗） */
   snapshot?: SnapshotEntry;
-  onEdit: (entry: ProviderEntry) => void;
+  nativeMeta?: NativeMeta;
+  onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
 }
 
-/** 卡片展示视图（展示语义与 Rust tray.rs 的纯函数保持一致）。 */
-function cardView(outcome: QueryOutcome | undefined) {
-  if (!outcome) {
-    return { badge: null as string | null, stale: false };
+function primaryValue(data: UsageData | undefined, lang: "zh" | "en") {
+  if (!data) return { value: "—", unit: "", label: lang === "zh" ? "暂无数据" : "No data" };
+  const percent = usedPercent(data);
+  if (percent != null) {
+    return {
+      value: `${Math.round(percent)}%`,
+      unit: "",
+      label: lang === "zh" ? "已用额度" : "Used",
+    };
   }
-  if (!outcome.ok && outcome.error) {
-    // keep-last-good：瞬时失败且旧值在窗口内 → 保留旧值展示；
-    // 超窗或确定性失败 → 错误立即透出
-    const keepGood =
-      outcome.error.kind === "transient" &&
-      outcome.data != null &&
-      outcome.at != null &&
-      Date.now() - outcome.at <= KEEP_LAST_GOOD_MS;
-    return { badge: outcome.error.kind, stale: keepGood };
+  if (data.remaining != null) {
+    return {
+      value: amountText(data.remaining),
+      unit: data.unit ?? "",
+      label: lang === "zh" ? "可用余额" : "Available",
+    };
   }
-  const invalid = outcome.data?.find((d) => d.is_valid === false);
-  if (invalid) {
-    return { badge: "invalid", stale: false };
-  }
-  return { badge: null, stale: false };
+  return { value: "—", unit: data.unit ?? "", label: lang === "zh" ? "已获取" : "Fetched" };
 }
 
-export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapshot, onEdit }: Props) {
+function providerInitials(name: string) {
+  const capitals = name.match(/[A-Z]/g);
+  if (capitals && capitals.length >= 2) return capitals.slice(0, 2).join("");
+
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+export function ProviderCard({
+  entry,
+  intervalMinutes,
+  thresholdPercent,
+  snapshot,
+  nativeMeta,
+  onEdit,
+}: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
-  const outcome = query.data;
-  const view = cardView(outcome);
+  const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+  const view = deriveProviderCardState({
+    enabled: entry.enabled,
+    outcome: query.data,
+    snapshot,
+    isFetching: query.isFetching,
+  });
   const configured = Boolean(entry.api_key_enc);
+  const mainData = view.data[0];
+  const primary = primaryValue(mainData, lang);
+  const pricingView = resolveProviderPricingView(entry, nativeMeta, Date.now(), mainData?.unit);
+  const modelChoices = pricingModelChoices(
+    nativeMeta?.pricing ?? null,
+    nativeMeta?.custom_models ?? [],
+  );
+  const platformName =
+    entry.kind.type === "native" ? (nativeMeta?.name ?? entry.kind.provider) : t("card.templateKind");
+  const explicitModelChoice = entry.pricing?.model
+    ? modelChoices.find(
+        (choice) => choice.modelId?.toLowerCase() === entry.pricing?.model?.toLowerCase(),
+      )
+    : undefined;
+  const modelSelectValue = entry.pricing?.model
+    ? explicitModelChoice?.value ?? `model:${entry.pricing.model}`
+    : "default";
+  const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
+  const showModelSelect = modelChoices.length > (hasImplicitDefaultChoice ? 1 : 0);
+  const thresholdStates = view.data.map(
+    (data) => (usedPercent(data) ?? -1) >= thresholdPercent,
+  );
+  const overThreshold = thresholdStates[0] ?? false;
+  const anyOverThreshold = thresholdStates.some(Boolean);
 
   const invalidate = () => {
+    setFeedback(null);
     void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
   };
 
@@ -53,7 +128,26 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
     mutationFn: () => api.upsertProvider({ ...entry, enabled: !entry.enabled }, null),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
+      setFeedback(entry.enabled ? t("card.disabled") : t("card.enable"));
     },
+    onError: (error) => setFeedback(String(error)),
+  });
+
+  const switchModel = useMutation({
+    mutationFn: (choiceValue: string) => {
+      const choice = modelChoices.find((item) => item.value === choiceValue);
+      const modelId = choiceValue === "default"
+        ? null
+        : choice?.modelId ?? choiceValue.replace(/^model:/, "");
+      return api.upsertProvider(withProviderModel(entry, modelId), null);
+    },
+    onSuccess: (_, choiceValue) => {
+      void qc.invalidateQueries({ queryKey: ["providers"] });
+      void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
+      const choice = modelChoices.find((item) => item.value === choiceValue);
+      setFeedback(t("card.modelChanged", { model: choice?.label ?? choiceValue }));
+    },
+    onError: (error) => setFeedback(t("card.modelChangeError", { msg: String(error) })),
   });
 
   const remove = useMutation({
@@ -61,145 +155,262 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
       void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
+      setConfirmOpen(false);
     },
   });
 
-  // native 徽标保留技术标识原文；template 徽标走字典（en 下同为 "template"）
-  const kindBadge =
-    entry.kind.type === "native" ? `native · ${entry.kind.provider}` : t("card.templateKind");
-
-  const badgeEl = (() => {
-    if (!entry.enabled) {
-      return (
-        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-          {t("card.disabled")}
-        </span>
-      );
-    }
-    switch (view.badge) {
-      case "deterministic":
-        return (
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-950/60 dark:text-red-300">
-            {t("card.deterministic")}
-          </span>
-        );
-      case "invalid":
-        return (
-          <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-950/60 dark:text-red-300">
-            {t("card.invalid")}
-          </span>
-        );
+  const statusBadge = (() => {
+    switch (view.kind) {
+      case "normal":
+        return <Badge tone="success" dot>{t("card.normal")}</Badge>;
+      case "snapshot":
+        return <Badge tone="neutral" dot>{t("card.snapshot")}</Badge>;
+      case "stale":
+        return <Badge tone="warning" dot>{t("card.staleKeep")}</Badge>;
       case "transient":
-        return (
-          <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-            {view.stale ? t("card.staleKeep") : t("card.network")}
-          </span>
-        );
+        return <Badge tone="warning" dot>{t("card.network")}</Badge>;
+      case "deterministic":
+        return <Badge tone="danger" dot>{t("card.deterministic")}</Badge>;
+      case "invalid":
+        return <Badge tone="danger" dot>{t("card.invalid")}</Badge>;
+      case "disabled":
+        return <Badge tone="neutral" dot>{t("card.disabled")}</Badge>;
+      case "loading":
+        return <Badge tone="neutral" dot>{t("card.querying")}</Badge>;
       default:
-        return null;
+        return <Badge tone="neutral">{t("card.noData")}</Badge>;
     }
   })();
 
+  const timestamp = view.at ? relativeTime(view.at, lang) : null;
+  const timestampLabel = view.kind === "stale" || view.kind === "snapshot"
+    ? t("card.lastSuccess", { time: timestamp ?? "—" })
+    : timestamp ?? t("card.neverSucceeded");
+  const displayedError = view.kind === "invalid"
+    ? `${t("card.invalidPrefix")}${view.errorMessage ?? t("card.noReason")}`
+    : view.errorMessage;
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-center gap-2">
-        <span className={`font-medium ${entry.enabled ? "" : "text-slate-400 dark:text-slate-500"}`}>
-          {entry.name}
-        </span>
-        <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-          {kindBadge}
-        </span>
-        {badgeEl}
-        <span className="ml-auto flex items-center gap-1">
+    <article
+      className={`qt-provider-card ${expanded ? "is-expanded" : ""} ${
+        !entry.enabled ? "is-disabled" : ""
+      } ${view.kind === "stale" || view.kind === "transient" ? "is-warning" : ""} ${
+        anyOverThreshold ? "has-balance-alert" : ""
+      }`}
+    >
+      <div className="qt-provider-primary">
+        <div className="qt-provider-identity">
+          <span className="qt-provider-avatar">{providerInitials(platformName)}</span>
+          <div className="qt-provider-heading">
+            <div className="qt-provider-name-row">
+              <h2>{entry.name}</h2>
+              {statusBadge}
+              {view.data.length > 1 && (
+                <Badge>{t("card.moreWindows", { count: view.data.length - 1 })}</Badge>
+              )}
+            </div>
+            <div className="qt-provider-route">
+              <span className="qt-provider-route-label">
+                {platformName}
+                {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
+              </span>
+              {showModelSelect && (
+                <select
+                  aria-label={t("card.switchModel")}
+                  value={modelSelectValue}
+                  disabled={switchModel.isPending}
+                  onChange={(event) => {
+                    setFeedback(null);
+                    switchModel.mutate(event.target.value);
+                  }}
+                  className="qt-select qt-provider-model-select"
+                >
+                  {!explicitModelChoice && entry.pricing?.model && (
+                    <option value={`model:${entry.pricing.model}`}>{entry.pricing.model}</option>
+                  )}
+                  {!hasImplicitDefaultChoice && (
+                    <option value="default">{t("pricing.noModel")}</option>
+                  )}
+                  {modelChoices.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {platformName} · {choice.label}
+                      {choice.value === "default" ? t("pricing.presetDefault") : ""}
+                      {choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : ""}
+                      {choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="qt-provider-balance">
+          <span>{primary.label}</span>
+          <strong className={overThreshold ? "is-alert" : ""}>
+            {primary.unit && <small>{primary.unit}</small>}
+            {primary.value}
+          </strong>
+        </div>
+
+        <div className="qt-provider-meta">
+          <Tooltip text={view.at ? exactTime(view.at, lang) : timestampLabel}>
+            <span className={view.kind === "stale" || view.kind === "transient" ? "is-warning" : ""}>
+              {view.kind === "stale" || view.kind === "transient" ? (
+                <WifiOff size={15} aria-hidden="true" />
+              ) : timestamp ? (
+                <CheckCircle2 size={15} aria-hidden="true" />
+              ) : (
+                <Clock3 size={15} aria-hidden="true" />
+              )}
+              {timestampLabel}
+            </span>
+          </Tooltip>
           <button
-            title={t("card.refresh")}
-            disabled={!entry.enabled}
-            onClick={invalidate}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-700"
+            type="button"
+            className="qt-details-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
           >
-            ⟳
+            {expanded ? t("card.collapse") : t("card.details")}
+            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
-          <button
-            title={entry.enabled ? t("card.disable") : t("card.enable")}
-            onClick={() => toggleEnabled.mutate()}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-          >
-            {entry.enabled ? "⏸" : "▶"}
-          </button>
-          <button
-            title={t("card.edit")}
-            onClick={() => onEdit(entry)}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-          >
-            ✎
-          </button>
-          <button
-            title={t("card.remove")}
-            onClick={() => {
-              if (window.confirm(t("card.confirmRemove", { name: entry.name }))) remove.mutate();
-            }}
-            className="rounded px-2 py-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-          >
-            ✕
-          </button>
-        </span>
+        </div>
       </div>
 
-      <div className="mt-2 space-y-1">
-        {!entry.enabled ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">{t("card.disabledNote")}</p>
-        ) : view.badge === "deterministic" ? (
-          <p className="text-sm text-red-600 dark:text-red-400">{outcome?.error?.message}</p>
-        ) : view.badge === "transient" && !view.stale ? (
-          // 瞬时失败且旧值超窗/无旧值 → 错误立即透出
-          <p className="text-sm text-slate-600 dark:text-slate-300">{outcome?.error?.message}</p>
-        ) : view.badge === "invalid" ? (
-          <p className="text-sm text-red-600 dark:text-red-400">
-            {t("card.invalidPrefix")}
-            {outcome?.data?.find((d) => d.is_valid === false)?.invalid_message ?? t("card.noReason")}
-          </p>
-        ) : outcome?.data == null && snapshot == null ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">
-            {query.isFetching ? t("card.querying") : t("card.noData")}
-          </p>
-        ) : (
-          (outcome?.data ?? snapshot?.data ?? []).map((d, i) => {
-            const rows = outcome?.data ?? snapshot?.data ?? [];
-            const pct = usedPercent(d);
-            const over = pct != null && pct >= thresholdPercent;
-            return (
-              <div key={i} className="flex items-baseline gap-2 text-sm">
-                {rows.length > 1 && (
-                  <span className="text-slate-500 dark:text-slate-400">
-                    {d.plan_name ?? t("card.windowN", { n: i + 1 })}
-                  </span>
-                )}
-                <span className={over ? "font-semibold text-red-600 dark:text-red-400" : "text-slate-800 dark:text-slate-200"}>
-                  {dataSummary(d, lang)}
-                  {over && " ⚠"}
-                </span>
-                {d.total != null && pct == null && (
-                  <span className="text-xs text-slate-400 dark:text-slate-500">
-                    {t("card.totalQuota", { total: d.total })}
-                  </span>
+      <div className="qt-provider-secondary">
+        <div className="qt-provider-secondary-info">
+          {!entry.enabled ? (
+            <div className="qt-provider-security">
+              <Pause size={15} aria-hidden="true" />
+              {t("card.disabledNote")}
+            </div>
+          ) : pricingView ? (
+            <>
+              <div className="qt-pricing-context">
+                <span className={`qt-period-dot ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`} />
+                {pricingView.plan === "subscription"
+                  ? pricingView.period === "peak"
+                    ? t("card.subscriptionPeak")
+                    : t("card.subscriptionOffPeak")
+                  : pricingView.period === "peak"
+                    ? t("card.periodPeak")
+                    : t("card.periodOffPeak")}
+                {pricingView.plan === "pay_as_you_go" && pricingView.currency && (
+                  <span>· {pricingView.currency} / {t("pricing.unitShort")}</span>
                 )}
               </div>
-            );
-          })
-        )}
+              {pricingView.plan === "subscription" ? (
+                <div className="qt-subscription-note">
+                  <Badge tone="accent">{t("pricing.subscriptionShort")}</Badge>
+                  <span>{t("pricing.subscriptionHint")}</span>
+                </div>
+              ) : pricingView.tier && (
+                <dl className="qt-provider-prices">
+                  <div><dt>{t("pricing.hit")}</dt><dd>{formatPrice(pricingView.tier.cache_hit_input)}</dd></div>
+                  <div><dt>{t("pricing.miss")}</dt><dd>{formatPrice(pricingView.tier.cache_miss_input)}</dd></div>
+                  <div><dt>{t("pricing.out")}</dt><dd>{formatPrice(pricingView.tier.output)}</dd></div>
+                </dl>
+              )}
+            </>
+          ) : (
+            <div className="qt-provider-security">
+              <KeyRound size={15} aria-hidden="true" />
+              {configured ? t("card.keyConfigured") : t("card.keyMissing")}
+              <span>·</span>
+              {t("card.refreshEvery", { minutes: intervalMinutes })}
+            </div>
+          )}
+          {view.data.length > 1 && (
+            <div className="qt-provider-windows">
+              {view.data.map((item, index) => (
+                <span key={index} className={thresholdStates[index] ? "is-alert" : undefined}>
+                  {thresholdStates[index] && <AlertTriangle size={13} aria-hidden="true" />}
+                  {item.plan_name ?? t("card.windowN", { n: index + 1 })}: {dataSummary(item, lang)}
+                  {item.total != null && usedPercent(item) == null && (
+                    <> · {t("card.totalQuota", { total: item.total })}</>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {view.data.length === 1 && mainData?.total != null && usedPercent(mainData) == null && (
+            <p className="qt-provider-total">
+              {t("card.totalQuota", { total: mainData.total })}
+            </p>
+          )}
+          {displayedError && (
+            <p
+              className={`qt-provider-error ${
+                view.kind === "deterministic" || view.kind === "invalid" ? "is-danger" : ""
+              }`}
+            >
+              {displayedError}
+            </p>
+          )}
+        </div>
+
+        <div className="qt-provider-actions">
+          <Button variant="ghost" icon={RefreshCw} disabled={!entry.enabled} onClick={invalidate}>
+            {view.kind === "transient" ? t("card.retry") : t("card.refresh")}
+          </Button>
+          <Button
+            variant="ghost"
+            icon={entry.enabled ? Pause : Play}
+            disabled={toggleEnabled.isPending}
+            onClick={() => {
+              setFeedback(null);
+              toggleEnabled.mutate();
+            }}
+          >
+            {entry.enabled ? t("card.disable") : t("card.enable")}
+          </Button>
+          <Button variant="ghost" icon={Pencil} onClick={() => onEdit(entry, mainData?.unit)}>
+            {t("card.edit")}
+          </Button>
+          <div className="qt-provider-menu-anchor">
+            <IconButton
+              icon={Ellipsis}
+              label={t("card.more")}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((value) => !value)}
+            />
+            <DropdownMenu open={menuOpen} onClose={() => setMenuOpen(false)}>
+              <MenuItem
+                icon={Trash2}
+                onClick={() => {
+                  setFeedback(null);
+                  setMenuOpen(false);
+                  setConfirmOpen(true);
+                }}
+              >
+                {t("card.remove")}
+              </MenuItem>
+            </DropdownMenu>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-2 flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
-        <span>{configured ? t("card.keyConfigured") : t("card.keyMissing")}</span>
-        <span>·</span>
-        {/* outcome 为空（首次查询未返回）时回落到启动快照时间 */}
-        <span>{relativeTime(outcome?.at ?? snapshot?.at, lang)}</span>
-        {outcome?.data == null && snapshot != null && !query.isFetching && (
-          <span>{t("card.snapshotAt", { time: relativeTime(snapshot.at, lang) })}</span>
-        )}
-        {query.isFetching && <span className="animate-pulse">{t("card.refreshing")}</span>}
-        {view.stale && outcome?.error && <span>· {outcome.error.message}</span>}
-      </div>
-    </div>
+      {(feedback || switchModel.isPending || query.isFetching) && (
+        <div className="qt-provider-feedback" role="status" aria-live="polite">
+          {switchModel.isPending
+            ? t("card.modelChanging")
+            : query.isFetching
+              ? t("card.refreshing")
+              : feedback}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t("card.removeTitle")}
+        message={t("card.confirmRemove", { name: entry.name })}
+        confirmLabel={t("card.remove")}
+        cancelLabel={t("common.cancel")}
+        pending={remove.isPending}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => remove.mutate()}
+      />
+    </article>
   );
 }

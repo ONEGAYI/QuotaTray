@@ -4,6 +4,7 @@ import {
   buildPricing,
   draftFrom,
   formatUtcOffset,
+  formatPrice,
   isFullCustom,
   selectedPresetModel,
 } from "./pricingDraft";
@@ -45,6 +46,13 @@ describe("峰谷 GUI 草稿契约", () => {
   it("只切换预置模型时仅保存 model", () => {
     const draft = { ...draftFrom(undefined, preset), model: "pro" };
     expect(buildPricing(draft, preset)).toEqual({ model: "pro" });
+  });
+
+  it("显式选择与默认 id 撞名的自定义模型时仍保存 model", () => {
+    const draft = { ...draftFrom(undefined, preset), model: "flash" };
+    expect(
+      buildPricing(draft, preset, [{ id: "flash", display: "V4 Flash（自算）" }]),
+    ).toEqual({ model: "flash" });
   });
 
   it("无预置平台关闭峰谷定价后不保留模型标签", () => {
@@ -95,6 +103,12 @@ describe("峰谷 GUI 草稿契约", () => {
     expect(formatUtcOffset(480)).toBe("UTC+08:00");
     expect(formatUtcOffset(-330)).toBe("UTC−05:30");
     expect(formatUtcOffset(0)).toBe("UTC+00:00");
+  });
+
+  it("美元小额价格保留四位精度，避免高峰与空闲档撞价", () => {
+    expect(formatPrice(0.014)).toBe("0.014");
+    expect(formatPrice(0.007)).toBe("0.007");
+    expect(formatPrice(0.1)).toBe("0.1");
   });
 
   it("时区覆盖也属于完整自定义", () => {

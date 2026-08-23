@@ -111,31 +111,50 @@ QuotaTray/
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
-│       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror
+│       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
+│       │                      #   Lucide 图标/Vitest
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
-│       │   ├── main.tsx / App.tsx        # 入口与主布局（TitleBar + 列表 + 添加/设置）
-│       │   ├── types.ts        # core serde 形状的 TS 镜像（含峰谷定价六类型与预置 DTO
-│       │   │                    #   （模型级 plan/windows）、KEEP_LAST_GOOD_MS）
+│       │   ├── main.tsx / App.tsx        # 入口与 Calm Native 主布局（标题栏/账户摘要/列表）+
+│       │   │                              #   编辑时传递账户查询币种选择对应预置套
+│       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、可滚动主区、共享控件与响应式视觉系统
+│       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
+│       │   │                    #   自定义模型库/按币种预置 DTO、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态
-│       │   ├── display.ts      # 相对时间/已用百分比/数据文案（双语，与 tray.rs 成对）
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
+│       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
+│       │   ├── display.ts / display.test.ts
+│       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
 │       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
 │       │   │   ├── zh.ts       # 中文字典（as const 类型基准）
 │       │   │   └── en.ts       # 英文字典（Record<TextKey,string> 编译期锁键完整）
 │       │   └── components/
+│       │       ├── ui.tsx              # 按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件
+│       │       │                       #   （Dialog 含 Escape、焦点圈定与关闭后焦点恢复）
 │       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
-│       │       ├── ProviderCard.tsx    # 卡片：数据/错误徽标（灰瞬时红确定）/阈值告警/快照首屏
+│       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
+│       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
+│       │       │                       #   短时反馈、启停/编辑/删除确认
+│       │       ├── providerCardView.ts / providerCardView.test.ts
+│       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
+│       │       ├── providerPricing.ts / providerPricing.test.ts
+│       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
+│       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
 │       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
-│       │       │                       #   + PricingSection 峰谷区块（预置模型下拉、
-│       │       │                       #   一键填充、窗口/价格结构化编辑，空=回退预置）
-│       │       └── SettingsDialog.tsx  # 聚类分页：常规（间隔/阈值/自启/每圈单位）+
-│       │                               #   更新（自动检测开关/每日时刻/版本/检查/下载）
+│       │       │                       #   分组表单、独立凭据区与固定页脚
+│       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
+│       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
+│       │       ├── pricingDraft.ts / pricingDraft.test.ts
+│       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
+│       │       │                       #   完整自定义判定纯逻辑
+│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡与检查/下载
+│       │       └── settingsView.ts / settingsView.test.ts
+│       │                               # 更新错误优先级与状态结论纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本继承 workspace；CSP 基线；decorations:false；NSIS 目标（M4 打包）
 │           ├── capabilities/default.json # 事件/主题/无装饰窗口控制 ACL（最小必要）
@@ -151,7 +170,8 @@ QuotaTray/
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新三命令（状态/立即检查/下载安装包）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
-│               │               #   list_native_metas 携带峰谷预置 DTO
+│               │               #   list_native_metas 携带模型级 plan/windows、DeepSeek
+│               │               #   CNY/USD 预置套与按 native id 聚类的自定义模型 DTO
 │               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts，
 │               │               #   含峰谷行/定价错误带参方法）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
@@ -159,6 +179,7 @@ QuotaTray/
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
 │               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
 │               │               #   /keep-last-good 窗口/峰谷两行（挂当前展示条目，
+│               │               #   resolve_in_currency 接线自定义模型库/查询币种/订阅说明，
 │               │               #   pricing_lines 纯函数）+rebuild_on_peak_flip 每分钟翻转检测
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测三字段）

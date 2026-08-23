@@ -1,4 +1,5 @@
 import type {
+  CustomModelDef,
   PeakWindow,
   PresetModel,
   PresetPricing,
@@ -72,12 +73,17 @@ export function draftFrom(
 export function buildPricing(
   draft: PricingDraft,
   preset: PresetPricing | null,
+  customModels: CustomModelDef[] = [],
 ): PricingConfig | undefined {
   const config: PricingConfig = {};
   const model = draft.model.trim();
   if (
     model &&
-    !(preset != null && model.toLowerCase() === preset.default_model.toLowerCase())
+    !(
+      preset != null
+      && model.toLowerCase() === preset.default_model.toLowerCase()
+      && !customModels.some((item) => item.id.toLowerCase() === model.toLowerCase())
+    )
   ) {
     config.model = model;
   }
@@ -130,9 +136,12 @@ export function selectedPresetModel(
   );
 }
 
-/** 价格展示：最多两位小数并去除尾零。 */
+/** 价格展示：镜像 core，小于 0.05 的非零价保留四位，其余两位并去尾零。 */
 export function formatPrice(value: number | undefined): string {
-  return value == null ? "—" : String(parseFloat(value.toFixed(2)));
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  const digits = Math.abs(value) < 0.05 ? 4 : 2;
+  return value.toFixed(digits).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 /** 分钟偏移转换为 UTC±HH:MM。 */

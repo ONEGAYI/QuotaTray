@@ -126,6 +126,17 @@ export interface PresetPricing {
   models: PresetModel[];
 }
 
+/** 用户自定义模型库条目（AppConfig.custom_models 的只读 GUI 镜像）。 */
+export interface CustomModelDef {
+  id: string;
+  display: string;
+  timezone_offset_minutes?: number;
+  windows?: PeakWindow[] | null;
+  peak?: PriceTier;
+  off_peak?: PriceTier;
+  currency?: string;
+}
+
 /** 桌面端设置（settings.json，字段与 Rust 侧 Settings 一一对应）。 */
 export interface Settings {
   refresh_interval_minutes: number;
@@ -185,6 +196,10 @@ export interface NativeMeta {
   name: string;
   /** 峰谷定价预置（平台无预置则 null） */
   pricing: PresetPricing | null;
+  /** 按余额查询币种选择的预置套；当前 DeepSeek 同时提供 CNY/USD。 */
+  pricing_by_currency: Record<string, PresetPricing>;
+  /** 该 native id 下由 CLI/config 定义的用户模型，只读展示与选择。 */
+  custom_models: CustomModelDef[];
 }
 
 export interface TemplateErrorDto {
