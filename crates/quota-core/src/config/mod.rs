@@ -12,8 +12,13 @@ use crate::pricing::{CustomModelDef, PricingConfig};
 use crate::vault::Vault;
 
 mod provider;
+mod transfer;
 
 pub use provider::{Credentials, PlanVariant, ProviderKind};
+pub use transfer::{
+    CONFIG_EXPORT_EXTENSION, ConfigTransferError, export_config, export_config_to_path,
+    import_config, import_config_from_path, import_config_to_path,
+};
 
 /// 单个供应商条目。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -14,8 +14,8 @@ QuotaTray compresses that into a single glance: it lives in the system tray, the
 
 The key difference from other balance tools is **credential security**:
 
-- API keys are stored locally as AES-256-GCM ciphertext; the master key that encrypts them is held by the OS credential vault — **no file on disk ever contains plaintext**.
-- Even if the config file is copied away (backups, cloud sync, screen sharing), it cannot be decrypted off this machine.
+- API keys are stored as AES-256-GCM ciphertext in the regular config; the machine master key is held by the OS credential vault and is **never exported**.
+- A copied regular config file cannot be decrypted off this machine. An explicitly generated cross-machine transfer package carries a one-time transfer key and must be protected like plaintext credentials.
 - The project only *reads* balances and never writes into any CLI tool's config files — that is precisely what allows credentials to stay encrypted end to end.
 
 ## Feature Overview
@@ -136,6 +136,13 @@ Credential fields in ~/.quotatray/config.json (v1:<base64>, versioned)
 - The GCM authentication tag guarantees integrity — tampering fails decryption
 - Credentials in logs and error messages are always masked (`sk-****<last4>`)
 - The web frontend never receives plaintext credentials: queries happen in the local backend and the UI only shows results; editing credentials goes through a write-only channel with no echo
+
+Cross-machine migration uses the private `.qtray-export` binary container. On every export,
+core generates a fresh 32-byte one-time transfer key, rewraps the source credentials, and
+authenticates the encrypted configuration as a whole. Import rewraps those credentials under
+the destination machine's master key. **Although the package is not directly readable, it
+carries its transfer key and is therefore as sensitive as plaintext credentials.** Do not sync
+it to untrusted locations, and delete it after migration.
 
 Known boundaries: reading the OS credential vault from another process of the same user is out of scope (same assurance level as browser-saved passwords); memory attacks and local malware are beyond a desktop tool's threat model.
 

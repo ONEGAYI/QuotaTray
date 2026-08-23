@@ -54,8 +54,10 @@ QuotaTray/
 │           ├── config/        # 配置层
 │           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
 │           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
-│           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）、PlanVariant
-│           │                  #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
+│           │   ├── provider.rs# Credentials / ProviderKind（serde tag 分派）、PlanVariant
+│           │   │              #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
+│           │   └── transfer.rs# 完整配置跨机器迁移：一次性迁移密钥转写、私有认证
+│           │                  #   二进制容器、字节 API 与原子文件导入导出
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
@@ -288,13 +290,15 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 1. **主密钥与凭据**只允许存在于：系统凭据库（运行时取用）、内存、AES-GCM 密文。任何日志、错误信息、调试输出不得包含明文或密钥材料。
 2. **源码零密钥**：不得硬编码任何密钥、盐、派生参数；配置文件中凭据字段必须是密文（`v1:<base64>` 格式，含版本号以便未来算法升级）。
 3. **前端/GUI 永不接收明文凭据**：查询由 core 在后端完成，GUI 只展示结果；编辑凭据时走"写入专用"通道（空值 = 保持不变，不回显）。
-4. 导出/同步功能若引入，导出前必须显式警告包含密文且主密钥不随行（密文离开本机不可解，这是特性不是缺陷）。
+4. **机器主密钥永不导出**。普通 `config.json` 不含任何解密能力，离开本机不可解；显式生成的 `.qtray-export` 迁移包例外携带每次导出新生成的一次性迁移密钥，敏感级别等同明文凭据。CLI/GUI 接入导出时必须在写文件前显式警告并建议用户迁移后删除。
 
 ## 术语表
 
 | 术语 | 含义 |
 |---|---|
 | 主密钥（KEK） | 首次运行随机生成的 32 字节密钥，存系统凭据库，仅用于加解密配置中的凭据字段 |
+| 一次性迁移密钥 | 每次导出随机生成的 32 字节密钥；源凭据先转写到该密钥，密钥随 `.qtray-export` 包携带，导入后再转写到目标机器主密钥 |
+| 配置迁移包 | QuotaTray 私有、带版本和认证校验的二进制配置导出；虽然不可直接阅读，但因携带迁移密钥，保密级别等同明文凭据 |
 | 预置平台（native provider） | core 内置 Rust 实现的官方查询（如 DeepSeek、SiliconFlow），随版本发布 |
 | 声明式模板（template provider） | JSON 描述的查询配置（URL/头/字段映射/算术），零代码 |
 | 脚本查询（script provider） | QuickJS 沙箱内运行的 `{request, extractor}` 脚本，兜底复杂平台 |

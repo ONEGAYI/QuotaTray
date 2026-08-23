@@ -29,6 +29,23 @@ pub struct Vault {
 }
 
 impl Vault {
+    /// 使用显式密钥构造仅限 crate 内部使用的临时保险库。
+    ///
+    /// 迁移模块用它承载每次导出新生成的一次性迁移密钥；生产调用方不能借此
+    /// 读取、注入或替换系统凭据库中的机器主密钥。
+    pub(crate) fn from_master_key(master_key: &[u8]) -> Result<Self, VaultError> {
+        Ok(Self {
+            cipher: AesGcmCipher::new(master_key)?,
+        })
+    }
+
+    /// 创建一次性临时保险库，同时返回需写入迁移容器的随机密钥。
+    pub(crate) fn transient() -> Result<(Self, zeroize::Zeroizing<Vec<u8>>), VaultError> {
+        let key = zeroize::Zeroizing::new(cipher::generate_master_key());
+        let vault = Self::from_master_key(&key)?;
+        Ok((vault, key))
+    }
+
     /// 打开（或首次创建）保险库：从 `store` 读取主密钥，不存在则随机生成并写入。
     ///
     /// 写入后回读校验，检测同机多进程并发首次初始化的覆盖竞态
@@ -50,8 +67,7 @@ impl Vault {
                 key.to_vec()
             }
         };
-        let cipher = AesGcmCipher::new(&key)?;
-        Ok(Self { cipher })
+        Self::from_master_key(&key)
     }
 
     /// 加密明文，返回 `v1:<base64(...)>` 格式密文。
