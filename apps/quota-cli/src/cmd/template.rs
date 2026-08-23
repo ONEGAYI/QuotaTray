@@ -101,6 +101,7 @@ pub async fn run(
                 enabled: true,
                 api_key_enc: None,
                 base_url,
+                pricing: None,
             };
             if let Err(err) = e.set_api_key(&vault, api_key.trim()) {
                 eprintln!(

@@ -59,6 +59,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         let j = serde_json::to_value(&[entry]).unwrap();
         assert_eq!(j[0]["kind"]["type"], "native");

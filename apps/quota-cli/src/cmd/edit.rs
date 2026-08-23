@@ -184,6 +184,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: Some("https://old.com".into()),
+            pricing: None,
         }
     }
 
@@ -298,6 +299,7 @@ mod run_tests {
             enabled: false,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         }
     }
 

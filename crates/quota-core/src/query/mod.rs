@@ -91,6 +91,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         }
     }
 
@@ -177,6 +178,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: Some("https://api.demo.com".into()),
+            pricing: None,
         };
         e.set_api_key(&vault, "sk-tpl").unwrap();
 

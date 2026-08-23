@@ -242,6 +242,7 @@ pub async fn test_template(
         enabled: true,
         api_key_enc: None,
         base_url,
+        pricing: None,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -465,6 +466,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         }
     }
 

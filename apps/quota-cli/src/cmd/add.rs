@@ -194,6 +194,7 @@ pub fn assemble_entry(
         enabled: true,
         api_key_enc: None,
         base_url,
+        pricing: None,
     };
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
@@ -368,6 +369,7 @@ mod tests {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         });
 
         for lang in [Lang::Zh, Lang::En] {
@@ -394,6 +396,7 @@ mod tests {
                 enabled: true,
                 api_key_enc: None,
                 base_url: None,
+                pricing: None,
             };
             assert_eq!(
                 check_entry(&e2, &cfg, lang).unwrap_err(),

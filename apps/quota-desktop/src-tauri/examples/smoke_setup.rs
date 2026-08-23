@@ -58,6 +58,7 @@ fn main() {
             enabled: true,
             api_key_enc: None,
             base_url: None,
+            pricing: None,
         };
         entry
             .set_api_key(&vault, key)
@@ -87,6 +88,7 @@ fn main() {
         enabled: true,
         api_key_enc: None,
         base_url: Some(mock_url),
+        pricing: None,
     };
     mock_entry
         .set_api_key(&vault, "sk-mock-smoke")
