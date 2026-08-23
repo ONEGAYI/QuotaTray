@@ -134,11 +134,19 @@ mod tests {
     }
 
     /// 无 name 字段的窗口：plan_name 回退为不带标识，不 panic。
+    /// 非字符串 name（如数字）与纯空白 name 同样回退。
     #[tokio::test]
     async fn nameless_window_falls_back_to_plain_plan_name() {
-        let body = r#"{"data":{"limits":[{"percentage":10.0}]}}"#;
+        let body = r#"{"data":{"limits":[{"percentage":10.0},{"percentage":11.0,"name":5},{"percentage":12.0,"name":"   "}]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
-        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan"));
+        assert_eq!(data.len(), 3);
+        for (i, row) in data.iter().enumerate() {
+            assert_eq!(
+                row.plan_name.as_deref(),
+                Some("GLM Coding Plan"),
+                "第 {i} 行应回退为无标识 plan_name"
+            );
+        }
     }
 
     /// 边界契约：used 钳到 [0,100]——超界值不得把 remaining 顶出 total。

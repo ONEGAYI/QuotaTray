@@ -113,8 +113,8 @@ QuotaTray/
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口与主布局（TitleBar + 列表 + 添加/设置）
-│       │   ├── types.ts        # core serde 形状的 TS 镜像（含峰谷定价五类型与预置 DTO、
-│       │   │                    #   KEEP_LAST_GOOD_MS）
+│       │   ├── types.ts        # core serde 形状的 TS 镜像（含峰谷定价六类型与预置 DTO
+│       │   │                    #   （模型级 plan/windows）、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态
 │       │   ├── display.ts      # 相对时间/已用百分比/数据文案（双语，与 tray.rs 成对）

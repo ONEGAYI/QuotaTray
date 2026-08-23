@@ -588,10 +588,9 @@ impl PricingConfig {
 /// 用户自定义模型定价（按 native id 聚类，存 `AppConfig::custom_models`）。
 ///
 /// 与预置模型同等参与条目 `model` 匹配，**id 撞名时自定义优先**——
-/// 可作为官方改价后用户自行修正预置的通道。字段缺失语义与条目级
-/// `PricingConfig` 一致：None = 回退平台级预置（平台无预置则无峰谷/无值），
-/// 显式空 windows = 恒空闲；价格档全空即未提供。主用例
-/// 「撞名只改价、保留官方窗口」由该回退链直接支持。
+/// 可作为官方改价后用户自行修正预置的通道。字段缺失语义：windows/
+/// timezone/currency 缺失回退平台级预置（有预置时；与条目级覆盖链一致），
+/// **peak/off_peak 缺失不回退**（预置模型价格只在条目未选库模型时生效）。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CustomModelDef {
     /// 模型选择键（条目 `pricing.model` 匹配项，大小写不敏感）。
@@ -637,7 +636,13 @@ pub fn resolve_with(
     let preset = native_id.and_then(preset);
     let lib = native_id.and_then(|id| custom_models.get(id));
     let custom = entry.pricing.as_ref();
-    if preset.is_none() && lib.is_none_or(|l| l.is_empty()) && custom.is_none_or(|c| c.is_empty()) {
+    // 无预置平台的「有内容」判定是条目级：条目自定义非空，或条目 model
+    // 命中库（库的存在本身不算——同平台其他条目未引用时保持 None，
+    // 维持「未配置峰谷定价返回空」的托盘契约）。
+    let lib_hit = |id: &str| lib.is_some_and(|l| l.iter().any(|m| m.id.eq_ignore_ascii_case(id)));
+    let entry_has_content = custom.is_some_and(|c| !c.is_empty())
+        || custom.is_some_and(|c| c.model.as_deref().is_some_and(lib_hit));
+    if preset.is_none() && !entry_has_content {
         return None;
     }
 
@@ -1341,7 +1346,8 @@ mod tests {
             "CNY",
             "Kimi 国内无美元套，忽略币种"
         );
-        // 默认币种表与注册表对齐（openrouter 按量为 USD，防误兜底）
+        // 默认币种表与注册表对齐（openrouter 按量为 USD，防误兜底）；
+        // 遍历注册表防新增平台漏配清单
         for (id, expect) in [
             ("deepseek", "CNY"),
             ("siliconflow", "CNY"),
@@ -1353,6 +1359,25 @@ mod tests {
             ("zai", "USD"),
         ] {
             assert_eq!(default_currency(id), expect, "{id}");
+        }
+        let known: std::collections::HashSet<&str> = [
+            "deepseek",
+            "siliconflow",
+            "siliconflow_global",
+            "openrouter",
+            "kimi_cn",
+            "kimi_global",
+            "zhipu",
+            "zai",
+        ]
+        .into_iter()
+        .collect();
+        for meta in crate::provider::metas() {
+            assert!(
+                known.contains(meta.id),
+                "default_currency 测试清单缺少注册表平台 {}，请补断言",
+                meta.id
+            );
         }
     }
 
@@ -1440,14 +1465,15 @@ mod tests {
         assert!(matches!(r.source, PricingSource::Custom));
 
         // 未撞名的库模型：windows/tz/currency 全量来自模型定义
+        // （currency/tz 故意取与平台预置不同的值，正向锁定模型级优先链）
         let night = CustomModelDef {
             id: "night-only".into(),
             display: "夜间特惠档".into(),
             windows: Some(vec![peak_window_workday("09:00", "12:00")]),
+            timezone_offset_minutes: Some(0),
             peak: Some(PriceTier::full(1.0, 2.0, 3.0)),
             off_peak: Some(PriceTier::full(0.5, 1.0, 1.5)),
-            currency: Some("CNY".into()),
-            ..Default::default()
+            currency: Some("USD".into()),
         };
         let mut entry = deepseek_entry(None);
         entry.pricing = Some(PricingConfig {
@@ -1457,7 +1483,16 @@ mod tests {
         let r = resolve_with(&entry, &lib(vec![night.clone()])).unwrap();
         assert_eq!(r.windows, night.windows.clone().unwrap());
         assert_eq!(r.peak.as_ref().unwrap().output, Some(3.0));
-        assert_eq!(r.currency.as_deref(), Some("CNY"));
+        assert_eq!(
+            r.currency.as_deref(),
+            Some("USD"),
+            "模型级币种优先于平台预置（CNY）"
+        );
+        assert_eq!(
+            r.timezone_offset_minutes,
+            Some(0),
+            "模型级时区优先于平台预置（480）"
+        );
 
         // 条目显式字段仍可覆盖库模型（条目 > 模型 > 平台级）：
         // 价格与窗口两条链各自独立覆盖
@@ -1501,6 +1536,14 @@ mod tests {
         assert_eq!(r.model_label.as_deref(), Some("GLM-5.2 转售价"));
         assert_eq!(r.peak.as_ref().unwrap().cache_miss_input, Some(4.0));
         assert_eq!(r.plan, PlanKind::PayAsYouGo);
+
+        // 库的存在是平台级、生效是条目级：同平台未引用库/未自定义的
+        // 条目保持 None（「未配置峰谷定价返回空」的托盘契约不被打破）
+        assert_eq!(
+            resolve_with(&native_entry("siliconflow"), &m),
+            None,
+            "未引用库的条目不应凭库存在而获得定价"
+        );
     }
 
     fn deepseek_entry(pricing: Option<PricingConfig>) -> ProviderEntry {
