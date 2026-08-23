@@ -314,7 +314,8 @@ function HoverPanelInner() {
             {!compact && pricingView && (
               <section className="qt-hover-pricing">
                 <div className="qt-hover-pricing-head">
-                  <span><i className={pricingView.period === "peak" ? "is-peak" : "is-offpeak"} />
+                  <span className={`qt-period-text ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`}>
+                    <i className={pricingView.period === "peak" ? "is-peak" : "is-offpeak"} />
                     {pricingView.plan === "subscription"
                       ? pricingView.period === "peak" ? t("card.subscriptionPeak") : t("card.subscriptionOffPeak")
                       : pricingView.period === "peak" ? t("card.periodPeak") : t("card.periodOffPeak")}

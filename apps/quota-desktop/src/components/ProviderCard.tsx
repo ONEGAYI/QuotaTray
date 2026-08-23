@@ -289,13 +289,15 @@ export function ProviderCard({
             <>
               <div className="qt-pricing-context">
                 <span className={`qt-period-dot ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`} />
-                {pricingView.plan === "subscription"
-                  ? pricingView.period === "peak"
-                    ? t("card.subscriptionPeak")
-                    : t("card.subscriptionOffPeak")
-                  : pricingView.period === "peak"
+                <span className={`qt-period-text ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`}>
+                  {pricingView.plan === "subscription"
+                    ? pricingView.period === "peak"
+                      ? t("card.subscriptionPeak")
+                      : t("card.subscriptionOffPeak")
+                    : pricingView.period === "peak"
                     ? t("card.periodPeak")
                     : t("card.periodOffPeak")}
+                </span>
                 {pricingView.plan === "pay_as_you_go" && pricingView.currency && (
                   <span>· {pricingView.currency} / {t("pricing.unitShort")}</span>
                 )}
