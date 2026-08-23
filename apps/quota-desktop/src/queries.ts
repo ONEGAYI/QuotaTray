@@ -49,6 +49,15 @@ export function useSnapshots() {
   });
 }
 
+/** 更新检测状态（设置页「更新」分页展示；调度任务检测后由手动/保存动作失效）。 */
+export function useUpdateState() {
+  return useQuery({
+    queryKey: ["update-state"],
+    queryFn: api.getUpdateState,
+    staleTime: 30_000,
+  });
+}
+
 /** 托盘「立即刷新」/ 悬停触发的事件：全量失效各条目查询。 */
 export function useRefreshNow() {
   const qc = useQueryClient();

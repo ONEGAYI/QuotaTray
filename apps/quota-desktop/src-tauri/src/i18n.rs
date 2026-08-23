@@ -43,7 +43,6 @@ pub struct Texts {
     /// 数据既无百分比也无余额时的兜底行
     pub fetched: &'static str,
 }
-
 const ZH: Texts = Texts {
     no_enabled_providers: "暂无启用的供应商",
     refresh_now: "立即刷新",
@@ -233,6 +232,58 @@ impl Lang {
             (Self::Zh, false) => format!("关闭开机自启失败：{e}"),
             (Self::En, true) => format!("Failed to enable autostart: {e}"),
             (Self::En, false) => format!("Failed to disable autostart: {e}"),
+        }
+    }
+
+    // ---- 更新检测（M4-b） ----------------------------------------------------
+
+    /// 托盘菜单「新版本可用」信息行（disabled 项，⟳ 前缀）。
+    pub fn update_available(&self, version: &str) -> String {
+        match self {
+            Self::Zh => format!("⟳ 新版本 v{version} 可用（设置 · 更新）"),
+            Self::En => format!("⟳ New version v{version} available (Settings · Update)"),
+        }
+    }
+
+    pub fn err_update_client(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("HTTP 客户端初始化失败：{e}"),
+            Self::En => format!("Failed to build an HTTP client: {e}"),
+        }
+    }
+
+    pub fn err_update_not_checked(&self) -> String {
+        match self {
+            Self::Zh => "尚未检测更新（先点「立即检查」）".into(),
+            Self::En => "No update check yet (click \"Check now\" first)".into(),
+        }
+    }
+
+    pub fn err_update_no_asset(&self) -> String {
+        match self {
+            Self::Zh => "该版本没有可下载的安装包，请到发布页获取".into(),
+            Self::En => "No downloadable installer for this version; see the release page".into(),
+        }
+    }
+
+    pub fn err_update_download(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("下载失败：{e}"),
+            Self::En => format!("Download failed: {e}"),
+        }
+    }
+
+    pub fn err_update_no_dir(&self) -> String {
+        match self {
+            Self::Zh => "无法定位下载目录".into(),
+            Self::En => "Cannot locate the downloads directory".into(),
+        }
+    }
+
+    pub fn err_update_save(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("安装包写入失败：{e}"),
+            Self::En => format!("Failed to write the installer: {e}"),
         }
     }
 }

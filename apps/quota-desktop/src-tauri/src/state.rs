@@ -14,6 +14,7 @@ use serde::Serialize;
 
 use crate::settings::Settings;
 use crate::snapshot::Snapshots;
+use crate::update_ctl::UpdateCtlState;
 
 /// 数据目录布局：`~/.quotatray/`（可被 `--data-dir` 调试参数覆盖）。
 #[derive(Debug, Clone)]
@@ -105,6 +106,9 @@ pub struct AppState {
     /// 初始 false：跨平台无轻量取系统主题的 Rust API，前端首帧即推送
     /// 真实值，托盘首建的一帧浅色误差可接受（详见 commands::set_resolved_theme）。
     pub resolved_theme: RwLock<bool>,
+    /// 更新检测的展示状态（版本信息/上次检测/错误）；
+    /// 节流判定权威源是 settings.update_last_check（磁盘），此处为展示镜像。
+    pub update_ctl: RwLock<UpdateCtlState>,
 }
 
 /// 当前 epoch 毫秒。
@@ -124,6 +128,8 @@ impl AppState {
         let engine = QueryEngine::with_default_client()
             .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
+        // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
+        let last_check = settings.update_last_check;
         let mut results = HashMap::new();
         for (id, snap) in Snapshots::load(&paths.snapshot()).entries {
             results.insert(
@@ -143,6 +149,11 @@ impl AppState {
             paths,
             last_hover_refresh_ms: AtomicU64::new(0),
             resolved_theme: RwLock::new(false),
+            // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
+            update_ctl: RwLock::new(UpdateCtlState {
+                last_check,
+                ..Default::default()
+            }),
         })
     }
 }

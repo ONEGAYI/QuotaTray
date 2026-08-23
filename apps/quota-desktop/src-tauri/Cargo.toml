@@ -30,3 +30,4 @@ dirs = { workspace = true }
 # 桌面端私有依赖（不动 workspace 根共享段）：
 tiny-skia = "0.11"   # 托盘圆环图标抗锯齿绘制
 sys-locale = "0.3"   # language=system 时解析系统 locale
+async-trait = "0.1"  # update_ctl 测试注入 mock HttpClient/AssetDownloader

@@ -415,6 +415,39 @@ pub fn get_snapshots(
     Ok(snapshots_from_results(&state.results.read().unwrap()).entries)
 }
 
+// ---- 更新检测（core::update 的薄封装） -------------------------------------
+
+/// 当前更新状态（版本 / 上次检测 / 新版本信息 / 最近错误）。
+#[tauri::command]
+pub fn get_update_state(
+    state: State<'_, AppState>,
+) -> Result<crate::update_ctl::UpdateStateDto, String> {
+    Ok(crate::update_ctl::dto_of(&state.update_ctl.read().unwrap()))
+}
+
+/// 手动检测（设置页「立即检查」）：不受节流限制，检测后重建托盘菜单
+/// （新版本信息行即时出现）。
+#[tauri::command]
+pub async fn check_update_now(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::update_ctl::UpdateStateDto, String> {
+    let lang = lang_of(&state);
+    let http = quota_core::http::ReqwestHttpClient::new(std::time::Duration::from_secs(10))
+        .map_err(|e| lang.err_update_client(&e))?;
+    let inner = crate::update_ctl::run_check(&state, &http).await;
+    tray::rebuild(&app, &state);
+    Ok(crate::update_ctl::dto_of(&inner))
+}
+
+/// 下载安装包到系统下载目录，返回完整路径（前端展示路径文本，
+/// 用户自行运行安装包；打开文件夹属后续增强，暂不引 opener 插件）。
+#[tauri::command]
+pub async fn download_update(state: State<'_, AppState>) -> Result<String, String> {
+    let lang = lang_of(&state);
+    crate::update_ctl::download_installer(&state, lang).await
+}
+
 // ---- 契约测试 -------------------------------------------------------------
 
 #[cfg(test)]

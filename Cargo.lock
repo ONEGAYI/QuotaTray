@@ -3157,6 +3157,7 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "dirs 6.0.0",
  "keyring",
  "reqwest 0.12.28",
@@ -3172,6 +3173,7 @@ dependencies = [
 name = "quota-desktop"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "dirs 6.0.0",
  "quota-core",
  "serde",

@@ -84,12 +84,37 @@ export interface Settings {
   ring_units_per_circle: number;
   /** 托盘图标显示的条目 id（null = 第一个启用条目） */
   tray_icon_entry_id: string | null;
+  /** 自动检测更新（启动 + 每日定时，CLI 共用） */
+  update_check_enabled: boolean;
+  /** 每日定时检测时刻（"HH:MM"） */
+  update_check_time: string;
+  /** 上次自动检测时间（epoch 毫秒，null = 从未） */
+  update_last_check: number | null;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */
 export interface ErrorInfo {
   kind: "transient" | "deterministic";
   message: string;
+}
+
+/** 检测到的可用新版本（IPC 形状，asset_url 仅后端下载用）。 */
+export interface UpdateAvailable {
+  version: string;
+  html_url: string;
+  notes: string | null;
+  asset_name: string | null;
+  asset_size: number | null;
+  downloadable: boolean;
+  asset_url: string | null;
+}
+
+/** get_update_state 的 IPC 返回形状。 */
+export interface UpdateStateDto {
+  current_version: string;
+  last_check: number | null;
+  available: UpdateAvailable | null;
+  last_error: string | null;
 }
 
 /** 查询结果（含 keep-last-good 保留的旧值）。 */
