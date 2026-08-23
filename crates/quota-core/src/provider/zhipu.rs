@@ -76,11 +76,12 @@ fn classify_window(item: &Value) -> Option<ZhipuWindow> {
 
 /// 把 `data.limits` 解析为窗口行（5h 在前、周在后，与 cc-switch 同序）。
 ///
-/// 归类优先级：`unit` 显式字段；兜底启发式（`unit` 缺失或不识别）：
-/// 无 `nextResetTime` 的条目优先归 5 小时窗口（5 小时桶在 0% 等状态下
-/// 可能没有重置时间），其余按重置时间升序依次填入仍空缺的槽位。
-/// 非 TOKENS_LIMIT 条目忽略；超出两桶的多余条目忽略。`used` 钳到
-/// [0,100] 防远端异常值把 remaining 顶出 total。
+/// 归类优先级：`unit` 显式字段（3 → 5h、6 → 周）。兜底（`unit` 缺失或
+/// 不识别）：仅在 5h 槽空缺时归入（覆盖老套餐单条、无 unit 的历史
+/// 形态）；**week 槽只认 unit=6 的明确标注**——无法识别的条目（如
+/// v1 套餐的 MCP 工具调用限额）宁可丢弃也不错标成周限额。
+/// 非 TOKENS_LIMIT 条目忽略；`used` 钳到 [0,100] 防远端异常值把
+/// remaining 顶出 total。
 fn parse_windows(data: &Value) -> Vec<UsageData> {
     let mut five_hour: Option<(f64, &Value)> = None;
     let mut weekly: Option<(f64, &Value)> = None;
@@ -108,13 +109,12 @@ fn parse_windows(data: &Value) -> Vec<UsageData> {
         }
     }
 
-    // 兜底排序：无重置时间在前（优先归 5h），其余按时间升序
+    // 兜底排序：无重置时间在前（5h 桶在 0% 等状态下可能没有重置时间），
+    // 仅用于挑出填入 5h 空槽的第一条
     unclassified.sort_by_key(|(_, reset, _)| (reset.is_some(), reset.unwrap_or(i64::MIN)));
     for (used, _, item) in unclassified {
         if five_hour.is_none() {
             five_hour = Some((used, item));
-        } else if weekly.is_none() {
-            weekly = Some((used, item));
         }
     }
 
@@ -227,29 +227,39 @@ mod tests {
         assert_eq!(data[0].used, Some(10.0));
     }
 
-    /// unit 缺失的兜底归类：无 nextResetTime 优先归 5h，其余按重置时间
-    /// 升序填空缺槽位（先 5h 后 week）。
+    /// unit 缺失的兜底：仅在 5h 槽空缺时归入（无 reset 优先）；week 槽
+    /// 只认 unit=6 的明确标注，无法识别的条目丢弃，不错标成周限额。
     #[tokio::test]
-    async fn unclassified_items_fall_back_by_reset_time() {
-        // 无 reset 的归 5h，带 reset 的归 week
+    async fn unclassified_items_fill_five_hour_slot_only() {
+        // 无 reset 的未知条目填 5h；带 reset 的未知条目丢弃（不造 week 行）
         let body = r#"{"data":{"limits":[
             {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
             {"type":"TOKENS_LIMIT","percentage":31.0}
         ]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
-        assert_eq!(data.len(), 2);
+        assert_eq!(data.len(), 1);
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
-        assert_eq!(data[0].used, Some(31.0));
-        assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（week）"));
+        assert_eq!(data[0].used, Some(31.0), "无 reset 的未知条目填 5h");
 
-        // 两条都带 reset：升序依次填 5h、week
+        // 两条都带 reset：升序第一条填 5h，另一条丢弃
         let body = r#"{"data":{"limits":[
             {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
             {"type":"TOKENS_LIMIT","percentage":31.0,"nextResetTime":1755000000000}
         ]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
-        assert_eq!(data[0].used, Some(31.0), "更早重置的先填 5h 槽位");
-        assert_eq!(data[1].used, Some(9.0));
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].used, Some(31.0), "更早重置的填 5h");
+
+        // unit=3 已占 5h 槽后，未知条目（如 v1 的 MCP 限额若同为
+        // TOKENS_LIMIT）不再入列——宁缺毋错
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"percentage":9.0},
+            {"type":"TOKENS_LIMIT","unit":42,"percentage":31.0}
+        ]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].used, Some(9.0));
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
     }
 
     /// 边界契约：used 钳到 [0,100]——超界值不得把 remaining 顶出 total。

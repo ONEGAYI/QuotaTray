@@ -67,7 +67,8 @@ QuotaTray/
 │           │   │                     #   余额+代金券/现金拆分进 extra）
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
 │           │                         #   端点、裸 key、已用百分比多窗口：type
-│           │                         #   过滤 + unit 归类 5h/周 + reset 时间兜底）
+│           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
+│           │                         #   5h 空槽宁缺毋错，MCP 等限额不错标）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
