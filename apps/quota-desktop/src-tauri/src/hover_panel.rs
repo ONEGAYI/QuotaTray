@@ -158,10 +158,7 @@ fn cursor_anchored_position(
     };
     let max_x = (work_right - panel_width).max(work_area.x);
     let max_y = (work_bottom - panel_height).max(work_area.y);
-    PhysicalPosition::new(
-        x.clamp(work_area.x, max_x),
-        y.clamp(work_area.y, max_y),
-    )
+    PhysicalPosition::new(x.clamp(work_area.x, max_x), y.clamp(work_area.y, max_y))
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
@@ -227,14 +224,12 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
         .map(|p| PhysicalPosition::new(p.x as i32, p.y as i32));
     // 锚定显示器：优先光标（悬停时光标必在图标/flyout 上），取不到时
     // 退回 rect 中心
-    let (anchor_x, anchor_y) = cursor
-        .map(|c| (c.x as f64, c.y as f64))
-        .unwrap_or_else(|| {
-            (
-                tray.x as f64 + f64::from(tray.width) / 2.0,
-                tray.y as f64 + f64::from(tray.height) / 2.0,
-            )
-        });
+    let (anchor_x, anchor_y) = cursor.map(|c| (c.x as f64, c.y as f64)).unwrap_or_else(|| {
+        (
+            tray.x as f64 + f64::from(tray.width) / 2.0,
+            tray.y as f64 + f64::from(tray.height) / 2.0,
+        )
+    });
     if let Some(work_area) = work_area_at(app, anchor_x, anchor_y) {
         // 垂直避让量：图标高度估计（rect 高度，下限 16 防 rect 尺寸异常）
         let icon_extent = (tray.height as i32).max(16);
@@ -302,7 +297,7 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
 #[cfg(windows)]
 fn raise_to_topmost(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos,
     };
     if let Ok(hwnd) = window.hwnd() {
         unsafe {
@@ -531,9 +526,18 @@ mod tests {
 
         // 各场景面板垂直范围均避开图标带（光标 ± 图标高度）
         for (cursor, pos) in [
-            (PhysicalPosition::new(1800, 900), PhysicalPosition::new(1546, 340)),
-            (PhysicalPosition::new(960, 560), PhysicalPosition::new(773, 0)),
-            (PhysicalPosition::new(960, 400), PhysicalPosition::new(773, 440)),
+            (
+                PhysicalPosition::new(1800, 900),
+                PhysicalPosition::new(1546, 340),
+            ),
+            (
+                PhysicalPosition::new(960, 560),
+                PhysicalPosition::new(773, 0),
+            ),
+            (
+                PhysicalPosition::new(960, 400),
+                PhysicalPosition::new(773, 440),
+            ),
         ] {
             let panel_top = pos.y;
             let panel_bottom = pos.y + 520;

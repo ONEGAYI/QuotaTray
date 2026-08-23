@@ -99,7 +99,12 @@ pub fn query_table(outcomes: &[QueryOutcome], lang: Lang, now_ms: i64) -> String
     for o in outcomes {
         match &o.result {
             Ok(rows) if rows.is_empty() => {
-                table.add_row(row(&o.name, &UsageData::default(), t(lang, T::OkNoData), now_ms));
+                table.add_row(row(
+                    &o.name,
+                    &UsageData::default(),
+                    t(lang, T::OkNoData),
+                    now_ms,
+                ));
             }
             Ok(rows) => {
                 for d in rows {
@@ -499,7 +504,10 @@ mod tests {
         assert_eq!(fmt_reset_countdown(Some(m(180)), NOW), "3h");
         // 天+时档（周/月窗口）；整天省略小时；跨天后丢弃分钟粒度
         assert_eq!(fmt_reset_countdown(Some(m(24 * 60 + 5 * 60)), NOW), "1d5h");
-        assert_eq!(fmt_reset_countdown(Some(m(4 * 24 * 60 + 17 * 60)), NOW), "4d17h");
+        assert_eq!(
+            fmt_reset_countdown(Some(m(4 * 24 * 60 + 17 * 60)), NOW),
+            "4d17h"
+        );
         assert_eq!(fmt_reset_countdown(Some(m(4 * 24 * 60)), NOW), "4d");
         assert_eq!(fmt_reset_countdown(Some(m(24 * 60 + 17)), NOW), "1d");
     }
