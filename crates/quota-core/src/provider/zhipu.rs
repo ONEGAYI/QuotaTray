@@ -1,14 +1,22 @@
 //! 智谱 BigModel / Z.ai 的 GLM Coding Plan 套餐用量查询（国内/国际双站）。
 //!
 //! `GET {base}/api/monitor/usage/quota/limit`（**裸 api key，无 Bearer 前缀**）
-//! 响应：`{"data": {"limits": [{"percentage": 42.5, ...}]}}`，
-//! `percentage` 已是已用百分比（0-100），每项限制窗口一条 `UsageData`。
+//! 响应：`{"data": {"limits": [{"type": "TOKENS_LIMIT", "unit": 3,
+//! "percentage": 42.5, ...}]}}`，`percentage` 已是已用百分比（0-100）。
+//! 每个 TOKENS_LIMIT 窗口一条 `UsageData`，按 `unit` 归类（5 小时/每周）。
+//!
+//! 窗口归类依据 cc-switch 实测（本项目调研报告 §4.2 + coding_plan.rs）：
+//! - `unit: 3` → 5 小时滚动窗口；`unit: 6` → 每周窗口（number 取值有两种，
+//!   只锚定 unit）；老套餐只回 1 条（自然只有 5h 行），新套餐回 2 条；
+//! - 不能按 `nextResetTime` 排序代替分类——周期末尾每周窗口会比 5 小时
+//!   窗口更早重置，时间排序必然把两桶标反（cc-switch issue #3036）。
 //!
 //! 端点为社区逆向所得、无官方文档（cc-switch 同款，本项目调研报告 §4.2
 //! 收录），官方可能变动。仅支持个人版 Coding Plan key；团队版需额外
 //! `bigmodel-organization`/`bigmodel-project` 头（已知限制，暂不支持）。
 
 use async_trait::async_trait;
+use serde_json::Value;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
 use crate::config::Credentials;
@@ -36,6 +44,98 @@ pub const ZAI: ZhipuApi = ZhipuApi {
     base_url: "https://api.z.ai",
 };
 
+/// TOKENS_LIMIT 条目的窗口归类（决定 plan_name 的窗口标签）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ZhipuWindow {
+    FiveHour,
+    Weekly,
+}
+
+/// TOKENS_LIMIT 窗口标签（语言中性缩写，双语用户均可读）。
+fn window_label(window: ZhipuWindow) -> &'static str {
+    match window {
+        ZhipuWindow::FiveHour => "5h",
+        ZhipuWindow::Weekly => "week",
+    }
+}
+
+/// 按 `unit` 字段判定 TOKENS_LIMIT 条目所属窗口。
+///
+/// 实测形态（bigmodel.cn 与 z.ai 共用同一后端，字段一致）：
+/// - `unit: 3` → 5 小时滚动窗口（老/新套餐均有）；
+/// - `unit: 6` → 每周窗口（`number: 7` 与 `number: 1` 两种取值都被实测
+///   过，故只锚定 `unit`、不绑 `number`）；
+/// - `unit` 缺失或值不认识 → None，由调用方走重置时间启发式兜底。
+fn classify_window(item: &Value) -> Option<ZhipuWindow> {
+    match item.get("unit").and_then(Value::as_i64) {
+        Some(3) => Some(ZhipuWindow::FiveHour),
+        Some(6) => Some(ZhipuWindow::Weekly),
+        _ => None,
+    }
+}
+
+/// 把 `data.limits` 解析为窗口行（5h 在前、周在后，与 cc-switch 同序）。
+///
+/// 归类优先级：`unit` 显式字段；兜底启发式（`unit` 缺失或不识别）：
+/// 无 `nextResetTime` 的条目优先归 5 小时窗口（5 小时桶在 0% 等状态下
+/// 可能没有重置时间），其余按重置时间升序依次填入仍空缺的槽位。
+/// 非 TOKENS_LIMIT 条目忽略；超出两桶的多余条目忽略。`used` 钳到
+/// [0,100] 防远端异常值把 remaining 顶出 total。
+fn parse_windows(data: &Value) -> Vec<UsageData> {
+    let mut five_hour: Option<(f64, &Value)> = None;
+    let mut weekly: Option<(f64, &Value)> = None;
+    let mut unclassified: Vec<(f64, Option<i64>, &Value)> = Vec::new();
+
+    if let Some(limits) = data.get("limits").and_then(Value::as_array) {
+        for item in limits {
+            let limit_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+            // 大小写不敏感：上游若改变大小写仍能识别
+            if !limit_type.eq_ignore_ascii_case("TOKENS_LIMIT") {
+                continue;
+            }
+            let Some(raw) = parse_num(item.get("percentage")) else {
+                continue;
+            };
+            let used = raw.clamp(0.0, 100.0);
+            let reset = item.get("nextResetTime").and_then(Value::as_i64);
+            match classify_window(item) {
+                Some(ZhipuWindow::FiveHour) if five_hour.is_none() => {
+                    five_hour = Some((used, item))
+                }
+                Some(ZhipuWindow::Weekly) if weekly.is_none() => weekly = Some((used, item)),
+                _ => unclassified.push((used, reset, item)),
+            }
+        }
+    }
+
+    // 兜底排序：无重置时间在前（优先归 5h），其余按时间升序
+    unclassified.sort_by_key(|(_, reset, _)| (reset.is_some(), reset.unwrap_or(i64::MIN)));
+    for (used, _, item) in unclassified {
+        if five_hour.is_none() {
+            five_hour = Some((used, item));
+        } else if weekly.is_none() {
+            weekly = Some((used, item));
+        }
+    }
+
+    [(ZhipuWindow::FiveHour, five_hour), (ZhipuWindow::Weekly, weekly)]
+        .into_iter()
+        .filter_map(|(window, slot)| {
+            let (used, item) = slot?;
+            Some(UsageData {
+                plan_name: Some(format!("GLM Coding Plan（{}）", window_label(window))),
+                total: Some(100.0),
+                used: Some(used),
+                remaining: Some(100.0 - used),
+                unit: Some("%".into()),
+                is_valid: None,
+                invalid_message: None,
+                extra: Some(item.clone()),
+            })
+        })
+        .collect()
+}
+
 #[async_trait]
 impl NativeProvider for ZhipuApi {
     fn meta(&self) -> NativeMeta {
@@ -55,39 +155,12 @@ impl NativeProvider for ZhipuApi {
             .header("Authorization", creds.api_key.as_str());
         let body = fetch_json(http, req).await?;
 
-        let limits = body
+        let data = body
             .get("data")
-            .and_then(|d| d.get("limits"))
-            .and_then(|l| l.as_array())
             .ok_or_else(|| parse_error(self.name, "data.limits 数组"))?;
 
-        // percentage 已是已用百分比：空数组/无一项含数值都视为结构异常。
-        // 多窗口（如 5 小时/周限额）各产一行，窗口标识（item.name 字符串，
-        // 若有）拼进 plan_name 便于区分；used 钳到 [0,100] 防远端异常值
-        // 把 remaining 顶出 total。
-        let mut rows = Vec::new();
-        for item in limits {
-            let Some(raw) = parse_num(item.get("percentage")) else {
-                continue;
-            };
-            let used = raw.clamp(0.0, 100.0);
-            let plan_name = match item.get("name").and_then(|v| v.as_str()) {
-                Some(name) if !name.trim().is_empty() => {
-                    format!("GLM Coding Plan（{name}）")
-                }
-                _ => "GLM Coding Plan".into(),
-            };
-            rows.push(UsageData {
-                plan_name: Some(plan_name),
-                total: Some(100.0),
-                used: Some(used),
-                remaining: Some(100.0 - used),
-                unit: Some("%".into()),
-                is_valid: None,
-                invalid_message: None,
-                extra: Some(item.clone()),
-            });
-        }
+        // 空数组/无一项可解析都视为结构异常
+        let rows = parse_windows(data);
         if rows.is_empty() {
             return Err(parse_error(self.name, "limits[].percentage 数值"));
         }
@@ -112,47 +185,80 @@ mod tests {
             .unwrap()
     }
 
-    /// 正常响应：每个 limits 项 → 一条已用百分比 UsageData；
-    /// 窗口标识拼进 plan_name，原始 item 透传进 extra。
+    /// 正常响应（新套餐两条）：unit 3 → 5h 行在前、unit 6 → week 行在后；
+    /// used 钳制、remaining 互补、原始 item 透传 extra。
     #[tokio::test]
-    async fn parses_percentage_windows() {
-        let body = r#"{"data":{"limits":[{"percentage":42.5,"name":"5h"},{"percentage":7.0,"name":"week"}]}}"#;
+    async fn parses_percentage_windows_by_unit() {
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":42.5,"nextResetTime":1755000000000},
+            {"type":"TOKENS_LIMIT","unit":6,"number":7,"percentage":7.0,"nextResetTime":1755500000000}
+        ]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].used, Some(42.5));
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
-        assert_eq!(
-            data[1].plan_name.as_deref(),
-            Some("GLM Coding Plan（week）")
-        );
+        assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（week）"));
         assert_eq!(data[1].remaining, Some(93.0));
         assert_eq!(
-            data[0].extra.as_ref().unwrap()["name"],
-            serde_json::json!("5h"),
+            data[0].extra.as_ref().unwrap()["unit"],
+            serde_json::json!(3),
             "原始窗口项透传 extra"
         );
     }
 
-    /// 无 name 字段的窗口：plan_name 回退为不带标识，不 panic。
-    /// 非字符串 name（如数字）与纯空白 name 同样回退。
+    /// 老套餐只回一条（unit 3）：单行 5h，不造 week 行。
     #[tokio::test]
-    async fn nameless_window_falls_back_to_plain_plan_name() {
-        let body = r#"{"data":{"limits":[{"percentage":10.0},{"percentage":11.0,"name":5},{"percentage":12.0,"name":"   "}]}}"#;
+    async fn legacy_single_limit_yields_only_five_hour_row() {
+        let body = r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":31.0}]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
-        assert_eq!(data.len(), 3);
-        for (i, row) in data.iter().enumerate() {
-            assert_eq!(
-                row.plan_name.as_deref(),
-                Some("GLM Coding Plan"),
-                "第 {i} 行应回退为无标识 plan_name"
-            );
-        }
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
+    }
+
+    /// 非 TOKENS_LIMIT 条目忽略；TOKENS_LIMIT 大小写不敏感。
+    #[tokio::test]
+    async fn non_tokens_limit_items_are_skipped() {
+        let body = r#"{"data":{"limits":[
+            {"type":"CONCURRENCY_LIMIT","percentage":99.0},
+            {"type":"tokens_limit","unit":3,"percentage":10.0}
+        ]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data.len(), 1, "只应保留 TOKENS_LIMIT 条目");
+        assert_eq!(data[0].used, Some(10.0));
+    }
+
+    /// unit 缺失的兜底归类：无 nextResetTime 优先归 5h，其余按重置时间
+    /// 升序填空缺槽位（先 5h 后 week）。
+    #[tokio::test]
+    async fn unclassified_items_fall_back_by_reset_time() {
+        // 无 reset 的归 5h，带 reset 的归 week
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
+            {"type":"TOKENS_LIMIT","percentage":31.0}
+        ]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
+        assert_eq!(data[0].used, Some(31.0));
+        assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（week）"));
+
+        // 两条都带 reset：升序依次填 5h、week
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
+            {"type":"TOKENS_LIMIT","percentage":31.0,"nextResetTime":1755000000000}
+        ]}}"#;
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].used, Some(31.0), "更早重置的先填 5h 槽位");
+        assert_eq!(data[1].used, Some(9.0));
     }
 
     /// 边界契约：used 钳到 [0,100]——超界值不得把 remaining 顶出 total。
     #[tokio::test]
     async fn percentage_is_clamped_to_unit_range() {
-        let body = r#"{"data":{"limits":[{"percentage":120.0},{"percentage":-5.0}]}}"#;
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"percentage":120.0},
+            {"type":"TOKENS_LIMIT","unit":6,"percentage":-5.0}
+        ]}}"#;
         let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
         assert_eq!(data[0].used, Some(100.0));
         assert_eq!(data[0].remaining, Some(0.0));
@@ -177,7 +283,7 @@ mod tests {
     /// 请求头契约：Authorization 为裸 key（无 Bearer 前缀），域名按站点。
     #[tokio::test]
     async fn raw_key_header_and_site_domains() {
-        let mock = MockHttp::ok(r#"{"data":{"limits":[{"percentage":1.0}]}}"#);
+        let mock = MockHttp::ok(r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":1.0}]}}"#);
         ZHIPU.query(&creds(), &mock).await.unwrap();
         let req = &mock.captured_requests()[0];
         assert_eq!(
@@ -186,7 +292,7 @@ mod tests {
         );
         assert_eq!(auth_of(req), "raw-key-no-bearer", "智谱约定为裸 key");
 
-        let mock = MockHttp::ok(r#"{"data":{"limits":[{"percentage":1.0}]}}"#);
+        let mock = MockHttp::ok(r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":1.0}]}}"#);
         ZAI.query(&creds(), &mock).await.unwrap();
         assert_eq!(
             mock.captured_requests()[0].url,

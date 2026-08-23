@@ -66,7 +66,8 @@ QuotaTray/
 │           │   ├── kimi.rs           # /v1/users/me/balance（国内/国际双站，
 │           │   │                     #   余额+代金券/现金拆分进 extra）
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
-│           │                         #   端点、裸 key、已用百分比多窗口）
+│           │                         #   端点、裸 key、已用百分比多窗口：type
+│           │                         #   过滤 + unit 归类 5h/周 + reset 时间兜底）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
@@ -125,9 +126,9 @@ QuotaTray/
 │       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
 │       │   │                              #   （标题栏/账户摘要/列表），编辑时传递查询币种
 │       │   ├── vite-env.d.ts   # Vite 静态资源（品牌 PNG 等）模块类型声明
-│       │   ├── index.css       # 明暗设计令牌（color-scheme 随主题切换，原生
-│       │   │                    #   滚动条/select 弹层联动换色）、Mica-like 基底、
-│       │   │                    #   主窗响应式系统 + 悬停面板样式
+│       │   ├── index.css       # 明暗设计令牌（暗色 #161616 中性系；color-scheme
+│       │   │                    #   随主题；全局 webkit 滚动条暗色 #2e2e2e）、
+│       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、

@@ -31,20 +31,22 @@
   --qt-peak: #ec7a24;
   --qt-offpeak: #3d78dd;
   --qt-shadow: rgba(31, 45, 68, 0.12);
+  --qt-scrollbar-thumb: #c3c9d3;
+  --qt-scrollbar-thumb-hover: #aeb5c2;
 }
 
 :root.dark {
   color-scheme: dark;
-  --qt-shell: #0b1018;
-  --qt-shell-highlight: #111a27;
-  --qt-surface: #17202d;
-  --qt-surface-soft: #1d2837;
-  --qt-surface-hover: #202c3d;
-  --qt-text: #edf2f8;
-  --qt-text-soft: #a8b4c6;
-  --qt-text-faint: #7f8b9e;
-  --qt-border: #334155;
-  --qt-border-strong: #475569;
+  --qt-shell: #0d0d0d;
+  --qt-shell-highlight: #121212;
+  --qt-surface: #161616;
+  --qt-surface-soft: #1e1e1e;
+  --qt-surface-hover: #232323;
+  --qt-text: #ededed;
+  --qt-text-soft: #a6a6a6;
+  --qt-text-faint: #7d7d7d;
+  --qt-border: #2e2e2e;
+  --qt-border-strong: #3f3f3f;
   --qt-accent: #8b8cf6;
   --qt-accent-strong: #a5a6ff;
   --qt-accent-soft: #2a2c5b;
@@ -58,11 +60,25 @@
   --qt-peak: #ff9b4b;
   --qt-offpeak: #73a5ff;
   --qt-shadow: rgba(0, 0, 0, 0.42);
+  --qt-scrollbar-thumb: #2e2e2e;
+  --qt-scrollbar-thumb-hover: #3d3d3d;
 }
 
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: var(--qt-shell); }
 button, input, select, textarea { font: inherit; }
+
+/* 全局滚动条（Chromium 系）：颜色随主题令牌，暗色 #2e2e2e */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--qt-scrollbar-thumb);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--qt-scrollbar-thumb-hover); background-clip: padding-box; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
