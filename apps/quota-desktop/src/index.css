@@ -122,7 +122,7 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-card.is-warning { border-color: color-mix(in srgb, var(--qt-warning) 52%, var(--qt-border)); }
 .qt-provider-card.has-balance-alert { border-color: color-mix(in srgb, var(--qt-danger) 58%, var(--qt-border)); }
 .qt-provider-card.is-disabled { opacity: .62; }
-.qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1.35fr) minmax(125px, .62fr) minmax(145px, auto); min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px; }
+.qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1fr) max-content max-content; min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px; }
 .qt-provider-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .qt-provider-avatar { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--qt-accent) 13%, var(--qt-surface)); color: var(--qt-accent-strong); font-size: 13px; font-weight: 650; }
 .qt-provider-heading { min-width: 0; }
@@ -139,7 +139,7 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-balance strong.is-alert { color: var(--qt-danger); }
 .qt-provider-balance small { color: var(--qt-text-soft); font-size: 11px; font-weight: 500; }
 /* 多窗口（如智谱 5h/周限/MCP）：窗口横向并排，倒计时贴各自数值左下 */
-.qt-provider-balance.is-multi { flex-direction: row; align-items: flex-start; justify-content: flex-end; gap: 16px; }
+.qt-provider-balance.is-multi { width: max-content; flex-direction: row; align-items: flex-start; justify-content: flex-end; gap: 16px; }
 .qt-balance-item { display: flex; flex-direction: column; align-items: flex-end; }
 .qt-balance-item strong { font-size: 17px; margin-top: 1px; }
 .qt-balance-reset { align-self: flex-end; color: var(--qt-text-soft); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -439,9 +439,6 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
   .qt-setting-row { grid-template-columns: 1fr; gap: 8px; }
   .qt-setting-control { justify-content: flex-start; }
   .qt-main-content { padding: 20px 14px 28px; }
-  .qt-page-heading { align-items: flex-start; flex-direction: column; }
-  .qt-page-actions { width: 100%; }
-  .qt-page-actions .qt-btn { flex: 1; }
   .qt-titlebar-subtitle { display: none; }
   .qt-settings-layout { grid-template-columns: 1fr; }
   .qt-settings-nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--qt-border); }
