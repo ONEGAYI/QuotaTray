@@ -29,7 +29,9 @@ pub fn read_secret(prompt: &str) -> std::io::Result<Zeroizing<String>> {
     }
 }
 
-/// 终端掩码输入：字符 → `*`，退格删星号，回车确认，Ctrl+C/Ctrl+D 中止。
+/// 终端掩码输入：字符 → `*`，退格删星号，回车确认，Ctrl+C/Ctrl+D 中止；
+/// Ctrl+V 代读剪贴板完成粘贴（raw 模式下 Ctrl+V 到达程序是控制字符
+/// SYN，PSReadLine 那种应用层粘贴不存在——这里自己补上）。
 fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
     let term = Term::stderr();
     if !term.is_term() {
@@ -51,6 +53,11 @@ fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
                 term.write_line("")?;
                 return Err(std::io::Error::other("输入被 Ctrl+D 中断"));
             }
+            Key::Char('\u{16}') => {
+                if let Err(msg) = paste_clipboard(&term, &mut chars) {
+                    eprint!("\n剪贴板不可用（{msg}），请用 Shift+Ctrl+V 或右键粘贴：");
+                }
+            }
             Key::Char(c) => {
                 chars.push(c);
                 term.write_str("*")?;
@@ -67,6 +74,23 @@ fn read_secret_masked(prompt: &str) -> std::io::Result<Zeroizing<String>> {
     term.write_line("")?;
     let raw: String = chars.into_iter().collect();
     Ok(Zeroizing::new(raw.trim().to_string()))
+}
+
+/// 读剪贴板并作为粘贴内容输入（取首行，到换行即止）。
+/// 返回粘贴的字符数；失败原因透出给调用方提示。
+fn paste_clipboard(term: &Term, chars: &mut Vec<char>) -> Result<usize, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开失败：{e}"))?;
+    let text = clipboard.get_text().map_err(|e| format!("读取失败：{e}"))?;
+    let mut n = 0;
+    for c in text.chars() {
+        if c == '\r' || c == '\n' {
+            break;
+        }
+        chars.push(c);
+        term.write_str("*").ok();
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// 多行读取 JSON 文本，直到单个空行或 EOF。
