@@ -749,6 +749,7 @@ mod tests {
             pricing: None,
         };
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![entry("a", true), entry("b", true), entry("c", false)],
         };
         let mut settings = Settings::default();

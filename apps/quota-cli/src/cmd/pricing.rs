@@ -419,6 +419,7 @@ mod tests {
             std::process::id()
         ));
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![deepseek_entry()],
         };
         cfg.save(&path).unwrap();
@@ -500,6 +501,7 @@ mod tests {
             pricing: None,
         };
         AppConfig {
+            custom_models: Default::default(),
             providers: vec![entry],
         }
         .save(&path)

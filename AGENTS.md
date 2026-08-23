@@ -37,23 +37,31 @@ QuotaTray/
 │           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
 │           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
-│           │                  #   每 MTokens）、DeepSeek 预置（V4 三模型，官网快照测试）、
-│           │                  #   自定义校验与预置字段级合并（resolve/classify/validate）
+│           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
+│           │                  #   预置：DeepSeek 单站双币 + Kimi 国内/国际 + 智谱/Z.ai
+│           │                  #   （按量模型 + Coding Plan 订阅项，模型级窗口）、
+│           │                  #   自定义校验与预置/自定义模型库字段级合并
+│           │                  #   （resolve/resolve_with、preset/preset_with_currency）
 │           ├── vault/         # 凭据保险库
 │           │   ├── mod.rs     # Vault 门面：open（取/建主密钥）+ encrypt/decrypt
 │           │   ├── cipher.rs  # AES-256-GCM 与 v1: 密文格式（nonce 随机、AAD 绑定）
 │           │   └── store.rs   # SecretStore trait + KeyringStore（生产）/ InMemoryStore（测试）
 │           ├── config/        # 配置层
-│           │   ├── mod.rs     # AppConfig + ProviderEntry（原子写、密文落盘）
+│           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
+│           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
 │           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait + 注册表 + 解析工具 + MockHttp
-│           │   ├── deepseek.rs       # /user/balance
-│           │   ├── siliconflow.rs    # /v1/user/info（CNY）
-│           │   └── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
+│           │   ├── mod.rs     # NativeProvider trait + 注册表（8 项）+ 解析工具 + MockHttp
+│           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
+│           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
+│           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
+│           │   ├── kimi.rs           # /v1/users/me/balance（国内/国际双站，
+│           │   │                     #   余额+代金券/现金拆分进 extra）
+│           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
+│           │                         #   端点、裸 key、已用百分比多窗口）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）

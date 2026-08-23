@@ -77,6 +77,7 @@ mod tests {
     fn remove_yes_persists() {
         let ctx = test_ctx("yes");
         let cfg = AppConfig {
+            custom_models: Default::default(),
             providers: vec![native("e1"), native("e2")],
         };
         cfg.save(&ctx.config_path).unwrap();
