@@ -422,10 +422,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
 
 /// 查询单条目（IPC 命令入口）：实现在 [`refetch_and_store`]。
 #[tauri::command]
-pub async fn query_provider(
-    app: AppHandle,
-    id: String,
-) -> Result<QueryOutcome, String> {
+pub async fn query_provider(app: AppHandle, id: String) -> Result<QueryOutcome, String> {
     refetch_and_store(&app, id).await
 }
 
@@ -740,7 +737,13 @@ mod tests {
         assert!(!ds.supports_plan_variant);
         let zai = metas.iter().find(|m| m.id == "zai").unwrap();
         assert!(zai.supports_plan_variant);
-        assert!(!metas.iter().find(|m| m.id == "openrouter").unwrap().supports_plan_variant);
+        assert!(
+            !metas
+                .iter()
+                .find(|m| m.id == "openrouter")
+                .unwrap()
+                .supports_plan_variant
+        );
 
         // 聚合平台与无预置平台为 None
         for other in metas.iter().filter(|m| {

@@ -151,7 +151,10 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         ProviderKind::Native { provider }
             if quota_core::provider::supports_plan_variant(provider) =>
         {
-            Some(crate::cmd::add::prompt_plan_variant(current.plan_variant, lang)?)
+            Some(crate::cmd::add::prompt_plan_variant(
+                current.plan_variant,
+                lang,
+            )?)
         }
         _ => None,
     };
@@ -297,10 +300,10 @@ mod tests {
 
 #[cfg(test)]
 mod run_tests {
-    use quota_core::PlanVariant;
     use super::*;
     use crate::ctx::Ctx;
     use quota_core::InMemoryStore;
+    use quota_core::PlanVariant;
     use std::sync::Arc;
 
     fn test_ctx(tag: &str) -> Ctx {

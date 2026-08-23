@@ -157,8 +157,8 @@ pub async fn run_queries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quota_core::PlanVariant;
     use quota_core::InMemoryStore;
+    use quota_core::PlanVariant;
     use quota_core::config::ProviderKind;
     use quota_core::http::{HttpClient, HttpError, HttpRequest, HttpResponse};
     use std::sync::Arc;

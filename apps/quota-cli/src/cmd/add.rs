@@ -217,10 +217,7 @@ pub fn assemble_entry(
 }
 
 /// 问询套餐变体（订阅型平台）：默认高亮当前/缺省值（回车即保持）。
-pub fn prompt_plan_variant(
-    current: PlanVariant,
-    lang: Lang,
-) -> Result<PlanVariant, String> {
+pub fn prompt_plan_variant(current: PlanVariant, lang: Lang) -> Result<PlanVariant, String> {
     let theme = ColorfulTheme::default();
     let items = [
         t(lang, T::PlanVariantAuto),
