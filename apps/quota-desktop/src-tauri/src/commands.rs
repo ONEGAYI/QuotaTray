@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use quota_core::template::{TemplateConfig, TemplateError};
 use quota_core::{AppConfig, ProviderEntry, ProviderKind, Vault};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::i18n::Lang;
 use crate::settings::Settings;
@@ -221,7 +221,20 @@ pub fn upsert_provider(
     // 条目已变，作废该条目的旧查询结果（其他条目的 keep-last-good 数据与快照保留）
     state.results.write().unwrap().remove(&entry_id);
     after_state_change(&app, &state);
+    // 立即补查一次：悬停面板只读共享结果表（不发查询），清结果后若无人
+    // 补查，面板会停留「无数据」直到下次轮询——补查完成后经
+    // provider-state-changed 广播回流。条目被禁用时补查自然报错，仅记日志。
+    spawn_refetch(app.clone(), entry_id);
     Ok(())
+}
+
+/// 后台补查单条目并落入共享结果表（忽略错误，仅记日志）。
+fn spawn_refetch(app: AppHandle, id: String) {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = refetch_and_store(&app, id).await {
+            eprintln!("条目补查失败：{e}");
+        }
+    });
 }
 
 #[tauri::command]
@@ -349,14 +362,11 @@ pub async fn test_template(
     Ok(outcome)
 }
 
-/// 查询单条目：成功更新结果表与快照并重建托盘；失败按双轨分类透出，
-/// 结果表保留最后一次成功数据（keep-last-good 数据源）。
-#[tauri::command]
-pub async fn query_provider(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<QueryOutcome, String> {
+/// 查询单条目并落入共享结果表：成功更新结果与快照并重建托盘；失败按
+/// 双轨分类透出，结果表保留最后一次成功数据（keep-last-good 数据源）。
+/// 完成后广播 provider-state-changed（悬停面板等只读视图回流）。
+async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, String> {
+    let state = app.state::<AppState>();
     let lang = lang_of(&state);
     let cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     let entry = cfg
@@ -400,9 +410,18 @@ pub async fn query_provider(
             }
         }
     };
-    after_state_change(&app, &state);
+    after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
     Ok(outcome)
+}
+
+/// 查询单条目（IPC 命令入口）：实现在 [`refetch_and_store`]。
+#[tauri::command]
+pub async fn query_provider(
+    app: AppHandle,
+    id: String,
+) -> Result<QueryOutcome, String> {
+    refetch_and_store(&app, id).await
 }
 
 /// 读取结果表中的单条当前状态，不发起网络请求。

@@ -186,6 +186,8 @@ QuotaTray/
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
 │               ├── commands.rs # 主业务 IPC 15 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
+│               │               #   消除悬停面板等只读视图的无数据空窗）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新三命令（状态/立即检查/下载安装包）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
