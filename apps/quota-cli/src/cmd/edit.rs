@@ -98,7 +98,7 @@ fn collect_edit_input(current: &ProviderEntry) -> Result<EditInput, String> {
     println!("粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）。");
 
     let name = Input::<String>::with_theme(&theme)
-        .with_prompt("名称（回车保持）")
+        .with_prompt("名称（仅做标识符，回车保持）")
         .with_initial_text(&current.name)
         .interact_text()
         .map_err(|e| format!("输入读取失败：{e}"))?;

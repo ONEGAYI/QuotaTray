@@ -112,7 +112,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
     println!("          API key 输入支持 Ctrl+V 粘贴，回显为星号。");
 
     let name = Input::<String>::with_theme(&theme)
-        .with_prompt("名称")
+        .with_prompt("名称（仅做标识符，用于列表展示）")
         .validate_with(|s: &String| {
             if s.trim().is_empty() {
                 Err("名称不能为空")
