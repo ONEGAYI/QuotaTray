@@ -3136,6 +3136,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "async-trait",
+ "chrono",
  "clap",
  "comfy-table",
  "console",

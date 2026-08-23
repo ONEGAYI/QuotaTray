@@ -156,6 +156,8 @@ pub fn spawn_scheduler(app: AppHandle) {
                         tray::rebuild(&app, &state);
                     }
                 }
+                // 峰谷标签过期兜底：图标条目峰/谷翻转才重建（内部自比对）
+                tray::rebuild_on_peak_flip(&app, &state);
             }
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
@@ -267,6 +269,7 @@ mod tests {
             last_hover_refresh_ms: std::sync::atomic::AtomicU64::new(0),
             resolved_theme: std::sync::RwLock::new(false),
             update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
+            last_peak: std::sync::RwLock::new(None),
         };
 
         // 无 release（404）→ last_check 记录、无 info、无错误

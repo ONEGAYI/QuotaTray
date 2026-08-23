@@ -66,7 +66,7 @@ QuotaTray/
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
-│   │       ├── main.rs        # clap 定义 11 子命令 + dispatch + --lang 全局参数
+│   │       ├── main.rs        # clap 定义 12 子命令 + dispatch + --lang 全局参数
 │   │       │                  #   （两阶段解析）+ 启动更新提示钩子（stderr、节流、
 │   │       │                  #   --json 与 update 子命令自身豁免）
 │   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
@@ -77,7 +77,8 @@ QuotaTray/
 │   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
 │   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct）+
 │   │       │                  #   last_check 写回（Value 读改写保留未知字段 + 原子写）
-│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）
+│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）+
+│   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
 │   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）
@@ -88,7 +89,10 @@ QuotaTray/
 │   │           ├── edit.rs    # 向导（回车保持）+ --enable/--disable 快捷路径
 │   │           ├── remove.rs  # 确认删除（--yes 跳过）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
-│   │           ├── natives.rs # 预置平台表
+│   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
+│   │           ├── pricing.rs  # pricing show/set/clear：生效定价展示（判定/
+│   │           │              #   价格对照表/时段聚合/下次翻转，now 注入纯函数）、
+│   │           │              #   stdin JSON 校验写入、清除回退预置
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）
@@ -101,7 +105,8 @@ QuotaTray/
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口与主布局（TitleBar + 列表 + 添加/设置）
-│       │   ├── types.ts        # core serde 形状的 TS 镜像（含 KEEP_LAST_GOOD_MS）
+│       │   ├── types.ts        # core serde 形状的 TS 镜像（含峰谷定价五类型与预置 DTO、
+│       │   │                    #   KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态
 │       │   ├── display.ts      # 相对时间/已用百分比/数据文案（双语，与 tray.rs 成对）
@@ -115,6 +120,8 @@ QuotaTray/
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── ProviderCard.tsx    # 卡片：数据/错误徽标（灰瞬时红确定）/阈值告警/快照首屏
 │       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
+│       │       │                       #   + PricingSection 峰谷区块（预置模型下拉、
+│       │       │                       #   一键填充、窗口/价格结构化编辑，空=回退预置）
 │       │       └── SettingsDialog.tsx  # 聚类分页：常规（间隔/阈值/自启/每圈单位）+
 │       │                               #   更新（自动检测开关/每日时刻/版本/检查/下载）
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
@@ -127,20 +134,25 @@ QuotaTray/
 │               ├── main.rs     # 薄壳（release 隐藏控制台）
 │               ├── lib.rs      # Builder：单实例（首位）/自启/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
-│               │               #   +--data-dir 覆盖+ErrorInfo
+│               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
 │               ├── commands.rs # IPC 14 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
-│               │               #   更新三命令（状态/立即检查/下载安装包）
-│               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts）
+│               │               #   更新三命令（状态/立即检查/下载安装包）；
+│               │               #   validate_entry 统一校验（含峰谷配置）、
+│               │               #   list_native_metas 携带峰谷预置 DTO
+│               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts，
+│               │               #   含峰谷行/定价错误带参方法）
 │               ├── ring.rs     # 托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/
 │               │               #   4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
 │               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
-│               │               #   /keep-last-good 窗口
+│               │               #   /keep-last-good 窗口/峰谷两行（挂当前展示条目，
+│               │               #   pricing_lines 纯函数）+rebuild_on_peak_flip 每分钟翻转检测
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测三字段）
 │               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
-│               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效）
+│               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效；
+│               │               #   同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
@@ -199,3 +211,4 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 脚本查询（script provider） | QuickJS 沙箱内运行的 `{request, extractor}` 脚本，兜底复杂平台 |
 | 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
 | keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |
+| 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |

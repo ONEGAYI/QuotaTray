@@ -43,6 +43,11 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 
 - **菜单**：按条目分组的余额列表（`名称 · 剩余 62.97 CNY` 或
   `名称 · 已用 42% · 3 分钟前`）→ 分隔线 → 「立即刷新」「打开主窗口」「退出」。
+- **峰谷信息行**：当前展示条目（圆环数据源）的余额行后追加两行 disabled 项——
+  `⚡ 高峰 · V4 Flash`（判定 + 模型标签）与当前档三价
+  `命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok`（缺价字段跳过）；未配置峰谷的
+  条目不追加。判定在菜单重建时进行；更新调度每分钟比对峰/谷状态，
+  翻转才重建托盘（轮询间隔长时的过期兜底）。
 - **悬停刷新**：指针进入托盘触发全量查询，10 秒节流（cc-switch 验证过的节奏）。
 - **低额度提醒**：任一条目已用百分比 ≥ 阈值时，该菜单项标红；
   全部条目低于阈值时托盘图标常态，任一超限换警示色图标。
@@ -63,9 +68,9 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | command | 入 → 出 | 对应 core |
 |---|---|---|
 | `list_providers` | → `ProviderEntry[]`（含密文字段，供编辑回显结构） | `AppConfig::load` |
-| `upsert_provider` | `ProviderEntry` → () | `AppConfig::save` |
+| `upsert_provider` | `ProviderEntry` → ()（含 `pricing` 字段校验） | `AppConfig::save` + `pricing::validate` |
 | `remove_provider` | `id` → () | 同上 |
-| `list_native_metas` | → `NativeMeta[]` | `provider::metas` |
+| `list_native_metas` | → `NativeMeta[]`（含峰谷预置 pricing 字段） | `provider::metas` + `pricing::preset` |
 | `validate_template` | `TemplateConfig` → `Ok / 字段定位错误` | `template::validate` |
 | `test_template` | `TemplateConfig + key输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
@@ -93,6 +98,8 @@ core 冻结期内由本端实现：查询成功后把 `{ id: { data, at } }` 写
 - [ ] 关闭窗口收托盘，托盘「退出」正常退出且图标清理
 - [ ] 重启应用托盘先显快照再刷新，无空窗
 - [ ] native/template 两种条目的增删改查全程可用，模板校验错误带字段定位展示
+- [ ] 峰谷定价：DeepSeek 预置三模型可选（默认 flash），托盘显示当前峰/谷
+  与三档价；自定义时段/价格可保存，跨日等非法配置被拒并提示字段定位
 - [ ] key 在 UI 任何位置不回显明文；`--json` 类调试输出亦无泄漏
 - [ ] 单实例：第二个实例启动只激活已有窗口
 - [ ] 低额度提醒按阈值生效

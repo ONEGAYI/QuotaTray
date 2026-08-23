@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU64;
 
+use quota_core::pricing::PeakKind;
 use quota_core::{QueryEngine, Vault};
 use serde::Serialize;
 
@@ -109,6 +110,10 @@ pub struct AppState {
     /// 更新检测的展示状态（版本信息/上次检测/错误）；
     /// 节流判定权威源是 settings.update_last_check（磁盘），此处为展示镜像。
     pub update_ctl: RwLock<UpdateCtlState>,
+    /// 上次托盘重建时图标条目的峰谷状态（条目 id + 峰/谷）。
+    /// 每分钟调度比对（`tray::rebuild_on_peak_flip`），翻转才重建托盘，
+    /// 避免轮询间隔长时峰谷标签过期。
+    pub last_peak: RwLock<Option<(String, PeakKind)>>,
 }
 
 /// 当前 epoch 毫秒。
@@ -154,6 +159,7 @@ impl AppState {
                 last_check,
                 ..Default::default()
             }),
+            last_peak: RwLock::new(None),
         })
     }
 }
