@@ -24,3 +24,4 @@ comfy-table = { workspace = true }
 getrandom = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+sys-locale = "0.3"

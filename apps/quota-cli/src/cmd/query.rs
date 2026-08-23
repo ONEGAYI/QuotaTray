@@ -9,6 +9,7 @@ use quota_core::{AppConfig, ProviderEntry, QueryEngine, Vault};
 use crate::ctx::Ctx;
 use crate::exit::exit_code;
 use crate::render::{self, QueryOutcome};
+use crate::texts::{T, t};
 
 /// 默认轮询间隔（分钟）。spec §3：M2b 固定 5 分钟（条目级配置后续里程碑引入）。
 pub const DEFAULT_INTERVAL_MIN: u64 = 5;
@@ -20,10 +21,11 @@ pub async fn run(
     watch: bool,
     interval_min: Option<u64>,
 ) -> i32 {
+    let lang = ctx.lang;
     let cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
@@ -32,27 +34,31 @@ pub async fn run(
         Ok(entries) => entries,
         Err(missing) => {
             for id in missing {
-                eprintln!("错误：找不到条目 {id}");
+                eprintln!(
+                    "{}{}",
+                    t(lang, T::Err),
+                    crate::texts::entry_not_found(lang, &id)
+                );
             }
             return 1;
         }
     };
     if entries.is_empty() {
-        println!("没有可查询的条目；用 quota add 添加，或 quota query <id> 指定禁用条目。");
+        println!("{}", t(lang, T::QueryNoEntries));
         return 0;
     }
 
     let vault = match ctx.open_vault() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
     let engine = match ctx.new_engine() {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("错误：{e}");
+            eprintln!("{}{e}", t(lang, T::Err));
             return 1;
         }
     };
@@ -62,7 +68,7 @@ pub async fn run(
             let payload: Vec<_> = outcomes.iter().map(|o| o.to_json()).collect();
             println!("{}", serde_json::to_string_pretty(&payload).unwrap());
         } else {
-            println!("{}", render::query_table(outcomes));
+            println!("{}", render::query_table(outcomes, lang));
         }
     };
 
@@ -78,7 +84,7 @@ pub async fn run(
             };
             let _ = term.clear_screen();
             print_once(&outcomes);
-            println!("（每 {} 分钟刷新，Ctrl+C 退出）", period.as_secs() / 60);
+            println!("{}", crate::texts::watch_hint(lang, period.as_secs() / 60));
             tokio::select! {
                 _ = tokio::time::sleep(period) => {}
                 _ = &mut ctrl_c => break,
@@ -263,11 +269,17 @@ mod tests {
         }
         assert_eq!(exit_code(&flatten(&outcomes)), 0);
 
-        let table = render::query_table(&outcomes);
-        assert!(table.contains("88"), "deepseek 余额：{table}");
-        assert!(table.contains("42.5"), "siliconflow 余额：{table}");
-        assert!(table.contains("60"), "openrouter remaining：{table}");
-        assert!(table.contains("7.5"), "template 余额：{table}");
+        // 双语表格均含全部余额值
+        for lang in [crate::lang::Lang::Zh, crate::lang::Lang::En] {
+            let table = render::query_table(&outcomes, lang);
+            assert!(table.contains("88"), "{lang:?} deepseek 余额：{table}");
+            assert!(table.contains("42.5"), "{lang:?} siliconflow 余额：{table}");
+            assert!(
+                table.contains("60"),
+                "{lang:?} openrouter remaining：{table}"
+            );
+            assert!(table.contains("7.5"), "{lang:?} template 余额：{table}");
+        }
     }
 
     /// 契约：确定性（401）混入 → 退出码 1；仅瞬时（503/超时）→ 2。

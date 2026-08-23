@@ -1,12 +1,16 @@
 //! 输出渲染：comfy-table UTF-8 边框表格与 `--json` 输出结构。
 //!
-//! 渲染函数均为纯函数（`&[T] → String`），输出字符串由单元测试锁定。
+//! 渲染函数均为纯函数（`&[T] → String`），语言经参数传入，
+//! 输出字符串由单元测试按双语锁定。
 
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL};
 use quota_core::model::{QueryError, UsageData};
 use quota_core::provider::NativeMeta;
 use quota_core::{ProviderEntry, ProviderKind};
 use serde::Serialize;
+
+use crate::lang::Lang;
+use crate::texts::{T, t};
 
 /// 单个条目的查询结果（query 命令的聚合单元）。
 #[derive(Clone)]
@@ -79,31 +83,40 @@ pub fn kind_label(kind: &ProviderKind) -> String {
 
 /// `quota query` 表格：名称 / 套餐 / 已用 / 剩余 / 单位 / 状态。
 /// 多窗口条目每窗口一行；条目失败占一行，状态列带错误分类前缀。
-pub fn query_table(outcomes: &[QueryOutcome]) -> String {
-    let mut t = new_table(&["名称", "套餐", "已用", "剩余", "单位", "状态"]);
+pub fn query_table(outcomes: &[QueryOutcome], lang: Lang) -> String {
+    let mut table = new_table(&[
+        t(lang, T::ColName),
+        t(lang, T::ColPlan),
+        t(lang, T::ColUsed),
+        t(lang, T::ColRemaining),
+        t(lang, T::ColUnit),
+        t(lang, T::ColStatus),
+    ]);
     for o in outcomes {
         match &o.result {
             Ok(rows) if rows.is_empty() => {
-                t.add_row(row(&o.name, &UsageData::default(), "OK（无数据）"));
+                table.add_row(row(&o.name, &UsageData::default(), t(lang, T::OkNoData)));
             }
             Ok(rows) => {
                 for d in rows {
                     let status = match d.is_valid {
-                        Some(false) => {
-                            format!("失效：{}", d.invalid_message.clone().unwrap_or_default())
-                        }
+                        Some(false) => format!(
+                            "{}{}",
+                            t(lang, T::InvalidPrefix),
+                            d.invalid_message.clone().unwrap_or_default()
+                        ),
                         _ => "OK".to_string(),
                     };
-                    t.add_row(row(&o.name, d, &status));
+                    table.add_row(row(&o.name, d, &status));
                 }
             }
             Err(e) => {
                 let kind = if e.is_transient() {
-                    "瞬时"
+                    t(lang, T::Transient)
                 } else {
-                    "确定性"
+                    t(lang, T::Deterministic)
                 };
-                t.add_row(row(
+                table.add_row(row(
                     &o.name,
                     &UsageData::default(),
                     &format!("[{kind}] {}", e.message()),
@@ -111,7 +124,7 @@ pub fn query_table(outcomes: &[QueryOutcome]) -> String {
             }
         }
     }
-    t.to_string()
+    table.to_string()
 }
 
 /// 一行数据：数值列右对齐。
@@ -127,14 +140,24 @@ fn row(name: &str, d: &UsageData, status: &str) -> Vec<Cell> {
 }
 
 /// `quota list` 表格：id / 名称 / 类型 / 启用 / 凭据已配。
-pub fn list_table(entries: &[ProviderEntry]) -> String {
-    let mut t = new_table(&["id", "名称", "类型", "启用", "凭据已配"]);
+pub fn list_table(entries: &[ProviderEntry], lang: Lang) -> String {
+    let mut table = new_table(&[
+        "id",
+        t(lang, T::ColName),
+        t(lang, T::ColType),
+        t(lang, T::ColEnabled),
+        t(lang, T::ColKeySet),
+    ]);
     for e in entries {
-        t.add_row(vec![
+        table.add_row(vec![
             Cell::new(&e.id),
             Cell::new(&e.name),
             Cell::new(kind_label(&e.kind)),
-            Cell::new(if e.enabled { "是" } else { "否" }),
+            Cell::new(if e.enabled {
+                t(lang, T::Yes)
+            } else {
+                t(lang, T::No)
+            }),
             Cell::new(if e.api_key_enc.is_some() {
                 "✓"
             } else {
@@ -142,16 +165,16 @@ pub fn list_table(entries: &[ProviderEntry]) -> String {
             }),
         ]);
     }
-    t.to_string()
+    table.to_string()
 }
 
 /// `quota natives` 表格：id / 名称。
-pub fn natives_table(metas: &[NativeMeta]) -> String {
-    let mut t = new_table(&["id", "名称"]);
+pub fn natives_table(metas: &[NativeMeta], lang: Lang) -> String {
+    let mut table = new_table(&["id", t(lang, T::ColName)]);
     for m in metas {
-        t.add_row(vec![Cell::new(m.id), Cell::new(m.name)]);
+        table.add_row(vec![Cell::new(m.id), Cell::new(m.name)]);
     }
-    t.to_string()
+    table.to_string()
 }
 
 #[cfg(test)]
@@ -176,19 +199,23 @@ mod tests {
         }
     }
 
-    /// 契约：成功行含全部列值，None 数值显示 "-"。
+    /// 契约：成功行含全部列值，None 数值显示 "-"（两语言表头齐备）。
     #[test]
     fn query_table_renders_rows() {
-        let table = query_table(&[outcome_ok(vec![usage(58.0)])]);
-        assert!(table.contains("five_hour"), "{table}");
-        assert!(table.contains("58"), "{table}");
-        assert!(table.contains("OK"), "{table}");
-        // None 字段显示 -
-        let table = query_table(&[outcome_ok(vec![UsageData::default()])]);
-        assert!(table.contains('-'), "{table}");
+        for lang in [Lang::Zh, Lang::En] {
+            let table = query_table(&[outcome_ok(vec![usage(58.0)])], lang);
+            assert!(table.contains("five_hour"), "{lang:?}: {table}");
+            assert!(table.contains("58"), "{lang:?}: {table}");
+            assert!(table.contains("OK"), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColName)), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColStatus)), "{lang:?}: {table}");
+            // None 字段显示 -
+            let table = query_table(&[outcome_ok(vec![UsageData::default()])], lang);
+            assert!(table.contains('-'), "{lang:?}: {table}");
+        }
     }
 
-    /// 契约：多窗口条目多行、失败条目带分类前缀、失效条目透出 invalid_message。
+    /// 契约：多窗口条目多行、失败条目带分类前缀、失效条目透出 invalid_message（双语）。
     #[test]
     fn query_table_multi_window_and_errors() {
         let mut invalid = usage(1.0);
@@ -207,13 +234,37 @@ mod tests {
                 result: Ok(vec![invalid]),
             },
         ];
-        let table = query_table(&outcomes);
-        assert_eq!(table.matches("测试").count(), 2, "多窗口应两行：{table}");
-        assert!(table.contains("[瞬时] 查询超时"), "{table}");
-        assert!(table.contains("失效：key 已过期"), "{table}");
+        for (lang, kind_prefix, invalid_prefix) in [
+            (Lang::Zh, "[瞬时] ", "失效："),
+            (Lang::En, "[transient] ", "invalid: "),
+        ] {
+            let table = query_table(&outcomes, lang);
+            assert_eq!(
+                table.matches("测试").count(),
+                2,
+                "{lang:?} 多窗口应两行：{table}"
+            );
+            assert!(
+                table.contains(&format!("{kind_prefix}查询超时")),
+                "{lang:?}: {table}"
+            );
+            assert!(
+                table.contains(&format!("{invalid_prefix}key 已过期")),
+                "{lang:?}: {table}"
+            );
+        }
     }
 
-    /// 契约：list 表格列与类型标签。
+    /// 契约：无数据行的「OK（无数据）」双语。
+    #[test]
+    fn query_table_no_data_row() {
+        for (lang, needle) in [(Lang::Zh, "OK（无数据）"), (Lang::En, "OK (no data)")] {
+            let table = query_table(&[outcome_ok(vec![])], lang);
+            assert!(table.contains(needle), "{lang:?}: {table}");
+        }
+    }
+
+    /// 契约：list 表格列与类型标签（两语言表头与是/否）。
     #[test]
     fn list_table_labels() {
         let entries = vec![ProviderEntry {
@@ -226,9 +277,30 @@ mod tests {
             api_key_enc: Some("v1:xxx".into()),
             base_url: None,
         }];
-        let table = list_table(&entries);
-        assert!(table.contains("native:deepseek"), "{table}");
-        assert!(table.contains("✓"), "{table}");
+        for lang in [Lang::Zh, Lang::En] {
+            let table = list_table(&entries, lang);
+            assert!(table.contains("native:deepseek"), "{lang:?}: {table}");
+            assert!(table.contains("✓"), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColEnabled)), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColKeySet)), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::Yes)), "{lang:?}: {table}");
+        }
+        // 禁用条目显示 否/no
+        let mut disabled = entries[0].clone();
+        disabled.enabled = false;
+        assert!(list_table(&[disabled.clone()], Lang::Zh).contains("否"));
+        assert!(list_table(&[disabled], Lang::En).contains("no"));
+    }
+
+    /// 契约：natives 表头双语。
+    #[test]
+    fn natives_table_headers() {
+        let metas = quota_core::provider::metas();
+        for lang in [Lang::Zh, Lang::En] {
+            let table = natives_table(&metas, lang);
+            assert!(table.contains(t(lang, T::ColName)), "{lang:?}: {table}");
+            assert!(table.contains("id"), "{lang:?}: {table}");
+        }
     }
 
     /// 契约：--json 输出结构——成功与失败两态、kind 双值。
