@@ -154,9 +154,10 @@ fn build_from_stdin(base_url_override: Option<String>) -> Result<TestSource, Str
     let template: TemplateConfig =
         serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败：{e}"))?;
     let api_key = if template_needs_key(&template) {
-        let k =
-            io::read_secret("该模板引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入不回显）")
-                .map_err(|e| format!("key 读取失败：{e}"))?;
+        let k = io::read_secret(
+            "该模板引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）",
+        )
+        .map_err(|e| format!("key 读取失败：{e}"))?;
         if k.trim().is_empty() {
             return Err("key 为空；无 key 调试请改用 quota template test --entry".into());
         }

@@ -164,7 +164,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
     };
 
     // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
-    let key = io::read_secret("API key（直接回车跳过；输入不回显）")
+    let key = io::read_secret("API key（直接回车跳过；输入显示为星号）")
         .map_err(|e| format!("key 读取失败：{e}"))?;
     if !key.trim().is_empty() {
         let vault = ctx.open_vault()?;

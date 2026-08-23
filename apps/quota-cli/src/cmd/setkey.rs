@@ -21,7 +21,7 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
         return 1;
     };
 
-    let key = match io::read_secret("输入新的 API key（输入不回显）") {
+    let key = match io::read_secret("输入新的 API key（输入显示为星号）") {
         Ok(k) => k,
         Err(e) => {
             eprintln!("错误：key 读取失败：{e}");

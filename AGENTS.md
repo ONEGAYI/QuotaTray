@@ -62,7 +62,7 @@ QuotaTray/
 │           ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入（生产 keyring / 测试内存）
 │           ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │           ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
-│           ├── io.rs          # 交互薄层：隐藏读 key（tty/管道分流）、多行 JSON 粘贴
+│           ├── io.rs          # 交互薄层：掩码读 key（星号回显/管道分流）、多行 JSON 粘贴
 │           ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测）
 │           └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx）
 │               ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）

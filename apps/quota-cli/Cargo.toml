@@ -19,7 +19,6 @@ serde_json = { workspace = true }
 zeroize = { workspace = true }
 dialoguer = { workspace = true }
 console = { workspace = true }
-rpassword = { workspace = true }
 comfy-table = { workspace = true }
 getrandom = { workspace = true }
 async-trait = { workspace = true }

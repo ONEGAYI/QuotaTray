@@ -77,7 +77,7 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
-    /// 写入/更新 API key（隐藏输入，不进 shell history）
+    /// 写入/更新 API key（星号掩码输入，不进 shell history）
     SetKey {
         /// 条目 id
         id: String,
