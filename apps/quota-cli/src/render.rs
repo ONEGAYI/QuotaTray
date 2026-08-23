@@ -360,6 +360,7 @@ pub fn fmt_datetime_in_tz(ms: u64, timezone_offset_minutes: Option<i32>) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
 
     fn usage(remaining: f64) -> UsageData {
         UsageData {
@@ -457,6 +458,7 @@ mod tests {
             api_key_enc: Some("v1:xxx".into()),
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }];
         for lang in [Lang::Zh, Lang::En] {
             let table = list_table(&entries, lang);

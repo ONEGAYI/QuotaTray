@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::HttpClient;
 use crate::model::{QueryError, UsageData};
 
@@ -26,6 +26,7 @@ impl NativeProvider for OpenRouter {
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        _variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = crate::http::HttpRequest::get("https://openrouter.ai/api/v1/credits")
             .bearer(&creds.api_key)
@@ -71,7 +72,7 @@ mod tests {
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
-        OpenRouter.query(&creds(), &mock).await
+        OpenRouter.query(&creds(), &mock, PlanVariant::Auto).await
     }
 
     /// 正常响应：remaining = total_credits − total_usage。

@@ -8,7 +8,7 @@
 use async_trait::async_trait;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
@@ -49,6 +49,7 @@ impl NativeProvider for Kimi {
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        _variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = HttpRequest::get(format!("{}/v1/users/me/balance", self.base_url))
             .bearer(&creds.api_key);
@@ -111,7 +112,7 @@ mod tests {
     async fn parses_balance_cn_and_global() {
         let body = r#"{"code":0,"data":{"available_balance":49.58894,"voucher_balance":46.58893,"cash_balance":3.00001}}"#;
         for (provider, unit) in [(&KIMI_CN, "CNY"), (&KIMI_GLOBAL, "USD")] {
-            let data = provider.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+            let data = provider.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
             assert_eq!(data[0].remaining, Some(49.58894), "{unit}");
             assert_eq!(data[0].unit.as_deref(), Some(unit));
             let extra = data[0].extra.as_ref().unwrap();
@@ -124,7 +125,7 @@ mod tests {
     #[tokio::test]
     async fn hits_site_specific_domain_with_bearer() {
         let mock = MockHttp::ok(r#"{"code":0,"data":{"available_balance":1.0}}"#);
-        KIMI_CN.query(&creds(), &mock).await.unwrap();
+        KIMI_CN.query(&creds(), &mock, PlanVariant::Auto).await.unwrap();
         let req = &mock.captured_requests()[0];
         assert_eq!(
             req.url, "https://api.moonshot.cn/v1/users/me/balance",
@@ -133,7 +134,7 @@ mod tests {
         assert_eq!(auth_of(req), "Bearer sk-test");
 
         let mock = MockHttp::ok(r#"{"code":0,"data":{"available_balance":1.0}}"#);
-        KIMI_GLOBAL.query(&creds(), &mock).await.unwrap();
+        KIMI_GLOBAL.query(&creds(), &mock, PlanVariant::Auto).await.unwrap();
         assert_eq!(
             mock.captured_requests()[0].url,
             "https://api.moonshot.ai/v1/users/me/balance",
@@ -146,7 +147,7 @@ mod tests {
     async fn business_error_code_is_deterministic() {
         let body = r#"{"code":401,"message":"invalid api key"}"#;
         let err = KIMI_CN
-            .query(&creds(), &MockHttp::ok(body))
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient());
@@ -158,7 +159,7 @@ mod tests {
     async fn string_code_still_checked() {
         let body = r#"{"code":"401","message":"invalid api key"}"#;
         let err = KIMI_CN
-            .query(&creds(), &MockHttp::ok(body))
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient());
@@ -172,13 +173,13 @@ mod tests {
     #[tokio::test]
     async fn error_classification() {
         let err = KIMI_CN
-            .query(&creds(), &MockHttp::ok("<html>Bad Gateway</html>"))
+            .query(&creds(), &MockHttp::ok("<html>Bad Gateway</html>"), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient(), "非 JSON 应为确定性");
 
         let err = KIMI_CN
-            .query(&creds(), &MockHttp::fail())
+            .query(&creds(), &MockHttp::fail(), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(err.is_transient(), "网络故障应为瞬时");
@@ -188,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn missing_balance_is_deterministic() {
         let err = KIMI_CN
-            .query(&creds(), &MockHttp::ok(r#"{"code":0,"data":{}}"#))
+            .query(&creds(), &MockHttp::ok(r#"{"code":0,"data":{}}"#), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient());

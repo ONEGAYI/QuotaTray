@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use quota_core::config::{ProviderEntry, ProviderKind};
+use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::{InMemoryStore, QueryEngine, Vault, provider};
 
 use crate::lang::Lang;
@@ -101,6 +101,7 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         if let Err(e) = entry.set_api_key(&vault, key) {
             eprintln!("[{platform}] {}{e}", t(lang, T::SmokeEncryptFail));
@@ -111,7 +112,7 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
             Ok(data) => {
                 for d in &data {
                     println!(
-                        "[{platform}] OK {} remaining={} used={} unit={} valid={} msg={:?}",
+                        "[{platform}] OK {} remaining={} used={} unit={} valid={} msg={:?} extra={}",
                         d.plan_name.clone().unwrap_or_default(),
                         d.remaining
                             .map(|v| v.to_string())
@@ -123,6 +124,10 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
                             _ => t(lang, T::Yes),
                         },
                         d.invalid_message,
+                        d.extra
+                            .as_ref()
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "-".into()),
                     );
                 }
             }

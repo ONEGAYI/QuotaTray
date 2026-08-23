@@ -34,6 +34,7 @@ pub fn run(ctx: &Ctx, json: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
     use quota_core::config::{ProviderEntry, ProviderKind};
 
     /// 契约：空配置打印引导文案、退出 0。
@@ -60,6 +61,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         let j = serde_json::to_value(&[entry]).unwrap();
         assert_eq!(j[0]["kind"]["type"], "native");

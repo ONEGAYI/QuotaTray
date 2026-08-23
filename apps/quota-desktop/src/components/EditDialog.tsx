@@ -10,6 +10,7 @@ import { dataSummary } from "../display";
 import { useLang } from "../i18n";
 import { useNativeMetas } from "../queries";
 import type {
+  PlanVariant,
   PricingConfig,
   ProviderEntry,
   ProviderKind,
@@ -58,6 +59,9 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
   const [name, setName] = useState(initial?.name ?? "");
   const [nativeProvider, setNativeProvider] = useState(
     initial?.kind.type === "native" ? initial.kind.provider : "",
+  );
+  const [planVariant, setPlanVariant] = useState<PlanVariant>(
+    initial?.plan_variant ?? "auto",
   );
   const [templateJson, setTemplateJson] = useState(() => {
     if (initial?.kind.type !== "template") return DEFAULT_TEMPLATE;
@@ -130,6 +134,8 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         base_url:
           tab === "template" ? (baseUrl.trim() || undefined) : initial?.base_url,
         pricing: pricingRef.current,
+        // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
+        plan_variant: planVariant,
       };
       await api.upsertProvider(entry, apiKey.trim() ? apiKey : null);
     },
@@ -214,6 +220,21 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                     {t("edit.platformOption", { name: meta.name, id: meta.id })}
                   </option>
                 ))}
+              </select>
+            </label>
+          )}
+
+          {tab === "native" && selectedNativeMeta?.supports_plan_variant && (
+            <label className="qt-field">
+              <span>{t("edit.planVariant")}</span>
+              <select
+                value={planVariant}
+                onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
+                className={inputCls}
+              >
+                <option value="auto">{t("edit.planVariantAuto")}</option>
+                <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
+                <option value="weekly">{t("edit.planVariantWeekly")}</option>
               </select>
             </label>
           )}

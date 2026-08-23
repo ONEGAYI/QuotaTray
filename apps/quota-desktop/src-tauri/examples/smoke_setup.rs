@@ -15,6 +15,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use quota_core::PlanVariant;
 use quota_core::{AppConfig, ProviderEntry, ProviderKind, TemplateConfig, Vault};
 
 fn main() {
@@ -59,6 +60,7 @@ fn main() {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         entry
             .set_api_key(&vault, key)
@@ -89,6 +91,7 @@ fn main() {
         api_key_enc: None,
         base_url: Some(mock_url),
         pricing: None,
+        plan_variant: PlanVariant::Auto,
     };
     mock_entry
         .set_api_key(&vault, "sk-mock-smoke")

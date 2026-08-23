@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
@@ -80,9 +80,12 @@ fn classify_window(item: &Value) -> Option<ZhipuWindow> {
 /// 不识别）：仅在 5h 槽空缺时归入（覆盖老套餐单条、无 unit 的历史
 /// 形态）；**week 槽只认 unit=6 的明确标注**——无法识别的条目（如
 /// v1 套餐的 MCP 工具调用限额）宁可丢弃也不错标成周限额。
+/// `variant` 为条目声明的套餐变体：`NoWeekly` 只输出 5h 行（周行含
+/// unit=6 一律丢弃，智谱 v1）；`Weekly` 放宽兜底（unit 未知的条目
+/// 可填入仍空缺的槽位，先 5h 后 week）；`Auto` 维持上述宁缺毋错。
 /// 非 TOKENS_LIMIT 条目忽略；`used` 钳到 [0,100] 防远端异常值把
 /// remaining 顶出 total。
-fn parse_windows(data: &Value) -> Vec<UsageData> {
+fn parse_windows(data: &Value, variant: PlanVariant) -> Vec<UsageData> {
     let mut five_hour: Option<(f64, &Value)> = None;
     let mut weekly: Option<(f64, &Value)> = None;
     let mut unclassified: Vec<(f64, Option<i64>, &Value)> = Vec::new();
@@ -109,13 +112,20 @@ fn parse_windows(data: &Value) -> Vec<UsageData> {
         }
     }
 
-    // 兜底排序：无重置时间在前（5h 桶在 0% 等状态下可能没有重置时间），
-    // 仅用于挑出填入 5h 空槽的第一条
+    // 兜底排序：无重置时间在前（5h 桶在 0% 等状态下可能没有重置时间）
     unclassified.sort_by_key(|(_, reset, _)| (reset.is_some(), reset.unwrap_or(i64::MIN)));
     for (used, _, item) in unclassified {
         if five_hour.is_none() {
             five_hour = Some((used, item));
+        } else if variant == PlanVariant::Weekly && weekly.is_none() {
+            // 声明有周限：未标注条目可填周槽；Auto/NoWeekly 宁缺毋错
+            weekly = Some((used, item));
         }
+    }
+
+    // NoWeekly 声明（如智谱 v1）：只保留短窗，周行（含 unit=6）丢弃
+    if variant == PlanVariant::NoWeekly {
+        weekly = None;
     }
 
     [(ZhipuWindow::FiveHour, five_hour), (ZhipuWindow::Weekly, weekly)]
@@ -149,6 +159,7 @@ impl NativeProvider for ZhipuApi {
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = HttpRequest::get(format!("{}/api/monitor/usage/quota/limit", self.base_url))
             // 智谱侧约定：Authorization 直接放裸 key，无 Bearer 前缀
@@ -160,7 +171,7 @@ impl NativeProvider for ZhipuApi {
             .ok_or_else(|| parse_error(self.name, "data.limits 数组"))?;
 
         // 空数组/无一项可解析都视为结构异常
-        let rows = parse_windows(data);
+        let rows = parse_windows(data, variant);
         if rows.is_empty() {
             return Err(parse_error(self.name, "limits[].percentage 数值"));
         }
@@ -193,7 +204,7 @@ mod tests {
             {"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":42.5,"nextResetTime":1755000000000},
             {"type":"TOKENS_LIMIT","unit":6,"number":7,"percentage":7.0,"nextResetTime":1755500000000}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].used, Some(42.5));
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
@@ -210,7 +221,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_single_limit_yields_only_five_hour_row() {
         let body = r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":31.0}]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
     }
@@ -222,7 +233,7 @@ mod tests {
             {"type":"CONCURRENCY_LIMIT","percentage":99.0},
             {"type":"tokens_limit","unit":3,"percentage":10.0}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 1, "只应保留 TOKENS_LIMIT 条目");
         assert_eq!(data[0].used, Some(10.0));
     }
@@ -236,7 +247,7 @@ mod tests {
             {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
             {"type":"TOKENS_LIMIT","percentage":31.0}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
         assert_eq!(data[0].used, Some(31.0), "无 reset 的未知条目填 5h");
@@ -246,7 +257,7 @@ mod tests {
             {"type":"TOKENS_LIMIT","percentage":9.0,"nextResetTime":1755500000000},
             {"type":"TOKENS_LIMIT","percentage":31.0,"nextResetTime":1755000000000}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].used, Some(31.0), "更早重置的填 5h");
 
@@ -256,7 +267,7 @@ mod tests {
             {"type":"TOKENS_LIMIT","unit":3,"percentage":9.0},
             {"type":"TOKENS_LIMIT","unit":42,"percentage":31.0}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].used, Some(9.0));
         assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
@@ -269,7 +280,7 @@ mod tests {
             {"type":"TOKENS_LIMIT","unit":3,"percentage":120.0},
             {"type":"TOKENS_LIMIT","unit":6,"percentage":-5.0}
         ]}}"#;
-        let data = ZHIPU.query(&creds(), &MockHttp::ok(body)).await.unwrap();
+        let data = ZHIPU.query(&creds(), &MockHttp::ok(body), PlanVariant::Auto).await.unwrap();
         assert_eq!(data[0].used, Some(100.0));
         assert_eq!(data[0].remaining, Some(0.0));
         assert_eq!(data[1].used, Some(0.0));
@@ -281,12 +292,12 @@ mod tests {
     #[tokio::test]
     async fn error_classification() {
         let err = ZHIPU
-            .query(&creds(), &MockHttp::ok("<html>Not Found</html>"))
+            .query(&creds(), &MockHttp::ok("<html>Not Found</html>"), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient(), "非 JSON 应为确定性");
 
-        let err = ZHIPU.query(&creds(), &MockHttp::fail()).await.unwrap_err();
+        let err = ZHIPU.query(&creds(), &MockHttp::fail(), PlanVariant::Auto).await.unwrap_err();
         assert!(err.is_transient(), "网络故障应为瞬时");
     }
 
@@ -294,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn raw_key_header_and_site_domains() {
         let mock = MockHttp::ok(r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":1.0}]}}"#);
-        ZHIPU.query(&creds(), &mock).await.unwrap();
+        ZHIPU.query(&creds(), &mock, PlanVariant::Auto).await.unwrap();
         let req = &mock.captured_requests()[0];
         assert_eq!(
             req.url,
@@ -303,7 +314,7 @@ mod tests {
         assert_eq!(auth_of(req), "raw-key-no-bearer", "智谱约定为裸 key");
 
         let mock = MockHttp::ok(r#"{"data":{"limits":[{"type":"TOKENS_LIMIT","unit":3,"percentage":1.0}]}}"#);
-        ZAI.query(&creds(), &mock).await.unwrap();
+        ZAI.query(&creds(), &mock, PlanVariant::Auto).await.unwrap();
         assert_eq!(
             mock.captured_requests()[0].url,
             "https://api.z.ai/api/monitor/usage/quota/limit"
@@ -318,7 +329,7 @@ mod tests {
             r#"{"data":{"limits":[{"name":"5h"}]}}"#,
         ] {
             let err = ZHIPU
-                .query(&creds(), &MockHttp::ok(body))
+                .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
                 .await
                 .unwrap_err();
             assert!(!err.is_transient(), "body: {body}");
@@ -329,9 +340,47 @@ mod tests {
     #[tokio::test]
     async fn missing_structure_is_deterministic() {
         let err = ZHIPU
-            .query(&creds(), &MockHttp::ok(r#"{"data":{}}"#))
+            .query(&creds(), &MockHttp::ok(r#"{"data":{}}"#), PlanVariant::Auto)
             .await
             .unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// 契约：套餐变体——NoWeekly 只留 5h（unit=6 的周行也丢弃）；
+    /// Weekly 放宽兜底（unit 未知条目填周槽）。
+    #[tokio::test]
+    async fn plan_variant_filters_windows() {
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"percentage":9.0},
+            {"type":"TOKENS_LIMIT","unit":6,"percentage":21.0}
+        ]}}"#;
+        // NoWeekly（v1）：只显示 5h，周行（unit=6）丢弃
+        let data = ZHIPU
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::NoWeekly)
+            .await
+            .unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].plan_name.as_deref(), Some("GLM Coding Plan（5h）"));
+        assert_eq!(data[0].used, Some(9.0));
+
+        // Weekly（v2/v3）：两行齐全
+        let data = ZHIPU
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::Weekly)
+            .await
+            .unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[1].plan_name.as_deref(), Some("GLM Coding Plan（week）"));
+
+        // Weekly 兜底放宽：unit 未知的条目（5h 已被 unit=3 占据）填入周槽
+        let body = r#"{"data":{"limits":[
+            {"type":"TOKENS_LIMIT","unit":3,"percentage":9.0},
+            {"type":"TOKENS_LIMIT","percentage":21.0,"nextResetTime":1755500000000}
+        ]}}"#;
+        let data = ZHIPU
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::Weekly)
+            .await
+            .unwrap();
+        assert_eq!(data.len(), 2, "Weekly 声明下未知条目应填周槽");
+        assert_eq!(data[1].used, Some(21.0));
     }
 }

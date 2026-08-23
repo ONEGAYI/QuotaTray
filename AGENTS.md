@@ -54,12 +54,14 @@ QuotaTray/
 │           ├── config/        # 配置层
 │           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
 │           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
-│           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）
+│           │   └── provider.rs# Credentials / ProviderKind（serde tag 分派）、PlanVariant
+│           │                  #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait + 注册表（8 项）+ 解析工具 + MockHttp
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（8 项）+
+│           │   │              #   supports_plan_variant 标记 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
@@ -68,7 +70,9 @@ QuotaTray/
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
 │           │                         #   端点、裸 key、已用百分比多窗口：type
 │           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
-│           │                         #   5h 空槽宁缺毋错，MCP 等限额不错标）
+│           │                         #   5h 空槽宁缺毋错，MCP 等限额不错标；
+│           │                         #   PlanVariant 声明过滤——NoWeekly 只留 5h、
+│           │                         #   Weekly 放宽兜底）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
 │           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
@@ -100,8 +104,9 @@ QuotaTray/
 │   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
 │   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
-│   │           ├── add.rs     # 交互向导 / --json stdin（拒收 api_key_enc）
-│   │           ├── edit.rs    # 向导（回车保持）+ --enable/--disable 快捷路径
+│   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体）/ --json stdin
+│   │           │              #   （拒收 api_key_enc）
+│   │           ├── edit.rs    # 向导（回车保持，套餐变体可改）+ --enable/--disable 快捷路径
 │   │           ├── remove.rs  # 确认删除（--yes 跳过）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
@@ -116,7 +121,8 @@ QuotaTray/
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
-│   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
+│   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（OK 行带
+│   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
 │       │                      #   Lucide 图标/Vitest/opener（外链浏览器打开）
@@ -133,7 +139,8 @@ QuotaTray/
 │       │   ├── assets/
 │       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
-│       │   │                    #   自定义模型库/按币种预置 DTO、KEEP_LAST_GOOD_MS）
+│       │   │                    #   PlanVariant、自定义模型库/按币种预置 DTO、
+│       │   │                    #   KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
 │       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
@@ -165,7 +172,8 @@ QuotaTray/
 │       │       ├── providerPricing.ts / providerPricing.test.ts
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
-│       │       ├── EditDialog.tsx      # Modal：native 下拉/template 编辑器（校验+试查）/script 预留
+│       │       ├── EditDialog.tsx      # Modal：native 下拉（订阅型带套餐变体选择）/
+│       │       │                       #   template 编辑器（校验+试查）/script 预留、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
 │       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
 │       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
@@ -196,7 +204,8 @@ QuotaTray/
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新三命令（状态/立即检查/下载安装包）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
-│               │               #   list_native_metas 携带模型级 plan/windows、DeepSeek
+│               │               #   list_native_metas 携带模型级 plan/windows 与
+│               │               #   supports_plan_variant、DeepSeek
 │               │               #   CNY/USD 预置套与按 native id 聚类的自定义模型 DTO
 │               ├── i18n.rs     # Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts，
 │               │               #   含峰谷行/定价错误带参方法）

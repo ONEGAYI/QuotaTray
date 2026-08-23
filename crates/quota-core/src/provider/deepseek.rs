@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_num};
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::HttpClient;
 use crate::model::{QueryError, UsageData};
 
@@ -25,6 +25,7 @@ impl NativeProvider for DeepSeek {
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        _variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = crate::http::HttpRequest::get("https://api.deepseek.com/user/balance")
             .bearer(&creds.api_key)
@@ -81,7 +82,7 @@ mod tests {
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
-        DeepSeek.query(&creds(), &mock).await
+        DeepSeek.query(&creds(), &mock, PlanVariant::Auto).await
     }
 
     /// 正常响应：remaining 取自 total_balance，unit 取自 currency。

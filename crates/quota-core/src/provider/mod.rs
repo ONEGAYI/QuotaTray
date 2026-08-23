@@ -19,7 +19,7 @@ use std::sync::{Arc, LazyLock};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
@@ -36,11 +36,13 @@ pub trait NativeProvider: Send + Sync {
     fn meta(&self) -> NativeMeta;
 
     /// 查询该平台余额。`http` 由调用方注入（生产=reqwest，测试=mock），
-    /// 实现内部不得直接依赖具体 HTTP 栈。
+    /// 实现内部不得直接依赖具体 HTTP 栈；`variant` 为条目声明的套餐
+    /// 变体（订阅型平台据此过滤限额窗口，按量平台忽略）。
     async fn query(
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError>;
 }
 
@@ -66,6 +68,13 @@ pub fn all() -> Vec<Arc<dyn NativeProvider>> {
 /// 按 id 查找预置平台。
 pub fn find(id: &str) -> Option<Arc<dyn NativeProvider>> {
     all().into_iter().find(|p| p.meta().id == id)
+}
+
+/// 该 native 平台是否支持套餐变体声明（[`crate::config::PlanVariant`]）。
+/// 当前仅智谱系订阅套餐使用（v1 无周限 / v2+ 有周限），其他平台查询
+/// 忽略该字段；UI/向导据此决定是否展示变体选择。
+pub fn supports_plan_variant(id: &str) -> bool {
+    matches!(id, "zhipu" | "zai")
 }
 
 /// 全部平台元信息。

@@ -35,6 +35,7 @@ const meta: NativeMeta = {
     ],
   },
   pricing_by_currency: {},
+    supports_plan_variant: false,
   custom_models: [],
 };
 
@@ -95,6 +96,7 @@ describe("Provider 卡片定价视图", () => {
         ],
       },
       pricing_by_currency: {},
+    supports_plan_variant: false,
       custom_models: [],
     };
     const coding = { ...entry, pricing: { model: "coding-plan" } };
@@ -163,6 +165,7 @@ describe("Provider 卡片定价视图", () => {
       name: "SiliconFlow",
       pricing: null,
       pricing_by_currency: {},
+    supports_plan_variant: false,
       custom_models: [
         {
           id: "glm-5.2",

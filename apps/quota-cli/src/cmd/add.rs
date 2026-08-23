@@ -2,7 +2,7 @@
 
 use dialoguer::{Input, Select, theme::ColorfulTheme};
 use quota_core::AppConfig;
-use quota_core::config::{ProviderEntry, ProviderKind};
+use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::template::{self, TemplateConfig};
 
 use crate::ctx::Ctx;
@@ -139,12 +139,19 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         .interact()
         .map_err(|e| format!("{}{e}", t(lang, T::SelectReadFail)))?;
 
-    let (kind, base_url) = if sel < metas.len() {
+    let (kind, base_url, variant) = if sel < metas.len() {
+        // 订阅型平台（智谱系）问套餐变体，其余平台固定 Auto
+        let variant = if quota_core::provider::supports_plan_variant(metas[sel].id) {
+            prompt_plan_variant(PlanVariant::Auto, lang)?
+        } else {
+            PlanVariant::Auto
+        };
         (
             ProviderKind::Native {
                 provider: metas[sel].id.to_string(),
             },
             None,
+            variant,
         )
     } else {
         let tpl = prompt_template(lang)?;
@@ -157,6 +164,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         (
             ProviderKind::Template(Box::new(tpl)),
             (!base_url.is_empty()).then_some(base_url),
+            PlanVariant::Auto,
         )
     };
 
@@ -170,6 +178,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         base_url,
         Some(key.trim().to_string()),
         existing_ids,
+        variant,
     )
 }
 
@@ -185,6 +194,7 @@ pub fn assemble_entry(
     base_url: Option<String>,
     key: Option<String>,
     existing_ids: &[String],
+    plan_variant: PlanVariant,
 ) -> Result<ProviderEntry, String> {
     let lang = ctx.lang;
     let mut entry = ProviderEntry {
@@ -195,6 +205,7 @@ pub fn assemble_entry(
         api_key_enc: None,
         base_url,
         pricing: None,
+        plan_variant,
     };
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
@@ -203,6 +214,35 @@ pub fn assemble_entry(
             .map_err(|e| format!("{}{e}", t(lang, T::EncryptFail)))?;
     }
     Ok(entry)
+}
+
+/// 问询套餐变体（订阅型平台）：默认高亮当前/缺省值（回车即保持）。
+pub fn prompt_plan_variant(
+    current: PlanVariant,
+    lang: Lang,
+) -> Result<PlanVariant, String> {
+    let theme = ColorfulTheme::default();
+    let items = [
+        t(lang, T::PlanVariantAuto),
+        t(lang, T::PlanVariantNoWeekly),
+        t(lang, T::PlanVariantWeekly),
+    ];
+    let default = match current {
+        PlanVariant::Auto => 0,
+        PlanVariant::NoWeekly => 1,
+        PlanVariant::Weekly => 2,
+    };
+    let sel = Select::with_theme(&theme)
+        .items(&items)
+        .default(default)
+        .with_prompt(t(lang, T::PlanVariantPrompt))
+        .interact()
+        .map_err(|e| format!("{}{e}", t(lang, T::SelectReadFail)))?;
+    Ok(match sel {
+        0 => PlanVariant::Auto,
+        1 => PlanVariant::NoWeekly,
+        _ => PlanVariant::Weekly,
+    })
 }
 
 /// 粘贴模板 JSON，解析 + 静态校验失败时提示并重试（Ctrl+C 放弃）。
@@ -333,6 +373,7 @@ mod tests {
             None,
             Some("sk-wizard-key".into()),
             &[],
+            PlanVariant::Auto,
         )
         .unwrap();
 
@@ -351,6 +392,7 @@ mod tests {
             None,
             None,
             &[],
+            PlanVariant::Auto,
         )
         .unwrap();
         assert!(no_key.api_key_enc.is_none());
@@ -370,6 +412,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         });
 
         for lang in [Lang::Zh, Lang::En] {
@@ -397,6 +440,7 @@ mod tests {
                 api_key_enc: None,
                 base_url: None,
                 pricing: None,
+                plan_variant: PlanVariant::Auto,
             };
             assert_eq!(
                 check_entry(&e2, &cfg, lang).unwrap_err(),

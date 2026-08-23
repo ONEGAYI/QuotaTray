@@ -857,6 +857,7 @@ fn resolve_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlanVariant;
 
     /// 北京时间 2026-08-19（周三）09:30 = UTC 01:30。
     const WED_0930_BJ_MS: u64 = 1_787_103_000_000;
@@ -1441,6 +1442,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -1701,6 +1703,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -1726,6 +1729,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing,
+            plan_variant: PlanVariant::Auto,
         }
     }
 

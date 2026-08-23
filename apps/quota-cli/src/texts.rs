@@ -71,6 +71,11 @@ pub enum T {
     TypePrompt,
     /// 向导类型列表的 template 选项。
     TemplateOption,
+    /// 套餐变体问询（订阅型平台的限额窗口结构声明）。
+    PlanVariantPrompt,
+    PlanVariantAuto,
+    PlanVariantNoWeekly,
+    PlanVariantWeekly,
     BaseUrlPromptAdd,
     KeyPromptSkip,
     IdEmptyHint,
@@ -305,6 +310,10 @@ fn zh(key: T) -> &'static str {
         T::PasteHintB => "          API key 输入支持 Ctrl+V 粘贴，回显为星号。",
         T::NamePromptAdd => "名称（仅做标识符，用于列表展示）",
         T::TypePrompt => "类型",
+        T::PlanVariantPrompt => "套餐变体（限额窗口结构，影响显示哪些用量窗口）",
+        T::PlanVariantAuto => "自动（按响应推断）",
+        T::PlanVariantNoWeekly => "无周限（v1：仅 5 小时窗）",
+        T::PlanVariantWeekly => "有周限（v2+：5 小时 + 周窗）",
         T::TemplateOption => "template —— 自定义 JSON 模板",
         T::BaseUrlPromptAdd => "base_url（模板 {{baseUrl}} 变量来源，可空）",
         T::KeyPromptSkip => "API key（直接回车跳过；输入显示为星号）",
@@ -503,6 +512,10 @@ fn en(key: T) -> &'static str {
         }
         T::NamePromptAdd => "Name (display label only, shown in listings)",
         T::TypePrompt => "Type",
+        T::PlanVariantPrompt => "Plan variant (which usage windows to show)",
+        T::PlanVariantAuto => "Auto (infer from response)",
+        T::PlanVariantNoWeekly => "No weekly limit (v1: 5h window only)",
+        T::PlanVariantWeekly => "Weekly limit (v2+: 5h + weekly)",
         T::TemplateOption => "template — custom JSON template",
         T::BaseUrlPromptAdd => "base_url (source of the {{baseUrl}} template variable, optional)",
         T::KeyPromptSkip => "API key (press Enter to skip; input is masked)",

@@ -669,6 +669,7 @@ pub fn show_main(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
     use quota_core::UsageData;
 
     fn data(remaining: Option<f64>, unit: Option<&str>) -> UsageData {
@@ -739,6 +740,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -1114,6 +1116,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         let cfg = AppConfig {
             custom_models: Default::default(),
@@ -1163,6 +1166,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         let cfg = AppConfig {
             custom_models: Default::default(),

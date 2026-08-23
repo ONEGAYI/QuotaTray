@@ -5,7 +5,7 @@
 //! 模板引用 `{{apiKey}}` 时经 tty 交互输入（仅本次测试，不落盘）。
 
 use quota_core::AppConfig;
-use quota_core::config::{ProviderEntry, ProviderKind};
+use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::model::{QueryError, UsageData};
 use quota_core::template::{self, TemplateConfig};
 use zeroize::Zeroizing;
@@ -102,6 +102,7 @@ pub async fn run(
                 api_key_enc: None,
                 base_url,
                 pricing: None,
+                plan_variant: PlanVariant::Auto,
             };
             if let Err(err) = e.set_api_key(&vault, api_key.trim()) {
                 eprintln!(

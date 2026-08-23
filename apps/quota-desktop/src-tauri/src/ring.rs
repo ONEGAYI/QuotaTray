@@ -456,6 +456,7 @@ pub fn icon_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
 
     fn feq(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
@@ -747,6 +748,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         let cfg = AppConfig {
             custom_models: Default::default(),

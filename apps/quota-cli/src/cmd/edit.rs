@@ -2,7 +2,7 @@
 
 use dialoguer::{Confirm, Input, theme::ColorfulTheme};
 use quota_core::AppConfig;
-use quota_core::config::{ProviderEntry, ProviderKind};
+use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::template::{self, TemplateConfig};
 
 use crate::ctx::Ctx;
@@ -23,6 +23,8 @@ pub struct EditInput {
     pub base_url: BaseUrlEdit,
     /// None = 保持当前模板。
     pub template: Option<TemplateConfig>,
+    /// None = 保持当前套餐变体。
+    pub plan_variant: Option<PlanVariant>,
     pub enabled: bool,
 }
 
@@ -45,6 +47,9 @@ pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
                 **tpl = new_tpl.clone();
             }
         }
+    }
+    if let Some(variant) = input.plan_variant {
+        entry.plan_variant = variant;
     }
     entry.enabled = input.enabled;
 }
@@ -141,6 +146,16 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         (BaseUrlEdit::Keep, None)
     };
 
+    // 订阅型平台（智谱系）问套餐变体，默认高亮当前值（回车即保持）
+    let plan_variant = match &current.kind {
+        ProviderKind::Native { provider }
+            if quota_core::provider::supports_plan_variant(provider) =>
+        {
+            Some(crate::cmd::add::prompt_plan_variant(current.plan_variant, lang)?)
+        }
+        _ => None,
+    };
+
     let enabled = Confirm::with_theme(&theme)
         .with_prompt(t(lang, T::EnabledConfirm))
         .default(current.enabled)
@@ -151,6 +166,7 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         name: Some(name),
         base_url,
         template,
+        plan_variant,
         enabled,
     })
 }
@@ -170,6 +186,7 @@ fn parse_replacement_template(text: &str, lang: Lang) -> Result<TemplateConfig, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
 
     fn template_entry() -> ProviderEntry {
         let tpl: TemplateConfig = serde_json::from_value(serde_json::json!({
@@ -185,6 +202,7 @@ mod tests {
             api_key_enc: None,
             base_url: Some("https://old.com".into()),
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -198,6 +216,7 @@ mod tests {
                 name: None,
                 base_url: BaseUrlEdit::Keep,
                 template: None,
+                plan_variant: None,
                 enabled: true,
             },
         );
@@ -219,6 +238,7 @@ mod tests {
                 name: Some("新名".into()),
                 base_url: BaseUrlEdit::Clear,
                 template: Some(new_tpl),
+                plan_variant: None,
                 enabled: false,
             },
         );
@@ -241,6 +261,7 @@ mod tests {
                 name: Some("  ".into()),
                 base_url: BaseUrlEdit::Keep,
                 template: None,
+                plan_variant: None,
                 enabled: true,
             },
         );
@@ -276,6 +297,7 @@ mod tests {
 
 #[cfg(test)]
 mod run_tests {
+    use quota_core::PlanVariant;
     use super::*;
     use crate::ctx::Ctx;
     use quota_core::InMemoryStore;
@@ -300,6 +322,7 @@ mod run_tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 

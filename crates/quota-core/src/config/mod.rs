@@ -13,7 +13,7 @@ use crate::vault::Vault;
 
 mod provider;
 
-pub use provider::{Credentials, ProviderKind};
+pub use provider::{Credentials, PlanVariant, ProviderKind};
 
 /// 单个供应商条目。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +34,9 @@ pub struct ProviderEntry {
     /// 峰谷定价自定义（None/字段缺省 = 回退预置；见 `pricing::resolve`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pricing: Option<PricingConfig>,
+    /// 订阅套餐变体（默认 Auto 不落盘，旧配置天然兼容；语义见定义处）。
+    #[serde(default, skip_serializing_if = "PlanVariant::is_auto")]
+    pub plan_variant: PlanVariant,
 }
 
 fn default_true() -> bool {
@@ -208,6 +211,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
@@ -239,6 +243,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
         assert_eq!(
@@ -261,6 +266,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         let err = entry.credentials(&vault).unwrap_err();
         assert!(!err.is_transient());
@@ -280,6 +286,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         a.set_api_key(&vault, "sk-abc").unwrap();
         let mut b = a.clone();

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use quota_core::template::{TemplateConfig, TemplateError};
-use quota_core::{AppConfig, ProviderEntry, ProviderKind, Vault};
+use quota_core::{AppConfig, PlanVariant, ProviderEntry, ProviderKind, Vault};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -36,6 +36,9 @@ pub struct NativeMetaDto {
     pub pricing: Option<PresetPricingDto>,
     /// 按余额币种选择的预置套（当前仅 DeepSeek 同时提供 CNY/USD）。
     pub pricing_by_currency: BTreeMap<String, PresetPricingDto>,
+    /// 是否支持套餐变体声明（智谱系订阅套餐：v1 无周限 / v2+ 有周限），
+    /// 编辑表单据此决定是否展示变体选择。
+    pub supports_plan_variant: bool,
     /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
     pub custom_models: Vec<quota_core::CustomModelDef>,
 }
@@ -276,6 +279,7 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
             NativeMetaDto {
                 id: m.id.into(),
                 name: m.name.into(),
+                supports_plan_variant: quota_core::provider::supports_plan_variant(m.id),
                 pricing,
                 pricing_by_currency,
                 custom_models: cfg.custom_models.get(m.id).cloned().unwrap_or_default(),
@@ -339,6 +343,7 @@ pub async fn test_template(
         api_key_enc: None,
         base_url,
         pricing: None,
+        plan_variant: PlanVariant::Auto,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -591,6 +596,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -729,6 +735,12 @@ mod tests {
             "subscription"
         );
         assert_eq!(coding.windows.as_ref().map(Vec::len), Some(1));
+
+        // 套餐变体支持标记：仅智谱系
+        assert!(!ds.supports_plan_variant);
+        let zai = metas.iter().find(|m| m.id == "zai").unwrap();
+        assert!(zai.supports_plan_variant);
+        assert!(!metas.iter().find(|m| m.id == "openrouter").unwrap().supports_plan_variant);
 
         // 聚合平台与无预置平台为 None
         for other in metas.iter().filter(|m| {

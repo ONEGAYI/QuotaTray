@@ -42,6 +42,30 @@ pub enum ProviderKind {
     // M4：Script（QuickJS 沙箱脚本）。
 }
 
+/// 订阅套餐变体：某些平台的套餐版本决定限额窗口结构，查询解析据此
+/// 过滤窗口行（当前智谱 GLM Coding Plan 使用：v1 无周限额、v2/v3 有）。
+/// 其他订阅型平台（如 Kimi/MiniMax）可复用同一语义。
+///
+/// - [`PlanVariant::Auto`]：按响应自动推断（默认，缺省字段等价于 Auto）；
+/// - [`PlanVariant::NoWeekly`]：声明无周限额——只保留短窗（5h）行，
+///   其余窗口（周/MCP 等）一律不显示；
+/// - [`PlanVariant::Weekly`]：声明有周限额——unit 未标注的窗口条目可
+///   兜底填入周槽（用户声明背书，比 Auto 的宁缺毋错更宽松）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanVariant {
+    #[default]
+    Auto,
+    NoWeekly,
+    Weekly,
+}
+
+impl PlanVariant {
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -156,6 +156,7 @@ pub async fn run_queries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
     use quota_core::InMemoryStore;
     use quota_core::config::ProviderKind;
     use quota_core::http::{HttpClient, HttpError, HttpRequest, HttpResponse};
@@ -205,6 +206,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -222,6 +224,7 @@ mod tests {
             api_key_enc: None,
             base_url: Some("https://tpl.demo.com".into()),
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 

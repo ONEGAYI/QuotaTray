@@ -45,6 +45,7 @@ pub fn run(ctx: &Ctx, id: String, yes: bool) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
     use crate::ctx::Ctx;
     use quota_core::InMemoryStore;
     use quota_core::config::{ProviderEntry, ProviderKind};
@@ -69,6 +70,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 

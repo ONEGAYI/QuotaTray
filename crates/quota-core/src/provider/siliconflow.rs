@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 
 use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
-use crate::config::Credentials;
+use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
@@ -49,6 +49,7 @@ impl NativeProvider for SiliconFlow {
         &self,
         creds: &Credentials,
         http: &dyn HttpClient,
+        _variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = HttpRequest::get(format!("{}/v1/user/info", self.base_url))
             .bearer(&creds.api_key)
@@ -99,7 +100,7 @@ mod tests {
     }
 
     async fn query_with(mock: MockHttp) -> Result<Vec<UsageData>, QueryError> {
-        SILICONFLOW_CN.query(&creds(), &mock).await
+        SILICONFLOW_CN.query(&creds(), &mock, PlanVariant::Auto).await
     }
 
     /// 正常响应：totalBalance（字符串数字）→ remaining，unit 按站点币种。
@@ -126,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn global_variant_hits_com_domain_in_usd() {
         let mock = MockHttp::ok(r#"{"code":20000,"data":{"totalBalance":"1.25"}}"#);
-        let data = SILICONFLOW_GLOBAL.query(&creds(), &mock).await.unwrap();
+        let data = SILICONFLOW_GLOBAL.query(&creds(), &mock, PlanVariant::Auto).await.unwrap();
         assert_eq!(data[0].remaining, Some(1.25));
         assert_eq!(data[0].unit.as_deref(), Some("USD"));
         assert_eq!(

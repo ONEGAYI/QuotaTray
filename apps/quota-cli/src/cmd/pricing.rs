@@ -292,6 +292,7 @@ pub fn run_clear(ctx: &Ctx, id: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quota_core::PlanVariant;
     use quota_core::config::ProviderKind;
     use quota_core::pricing::Weekday;
     use quota_core::template::TemplateRequest;
@@ -312,6 +313,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -336,6 +338,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -577,6 +580,7 @@ mod tests {
                 model: Some("coding-plan".into()),
                 ..Default::default()
             }),
+            plan_variant: PlanVariant::Auto,
         };
         let resolved = pricing::resolve(&entry).unwrap();
         let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
@@ -604,6 +608,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         AppConfig {
             custom_models: Default::default(),

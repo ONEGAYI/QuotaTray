@@ -45,7 +45,7 @@ impl QueryEngine {
             ProviderKind::Native { provider: id } => {
                 let native = provider::find(id)
                     .ok_or_else(|| QueryError::deterministic(format!("未知的预置平台 id：{id}")))?;
-                let fut = native.query(&creds, self.http.as_ref());
+                let fut = native.query(&creds, self.http.as_ref(), entry.plan_variant);
                 self.with_timeout(fut).await
             }
             ProviderKind::Template(config) => {
@@ -77,6 +77,7 @@ impl QueryEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PlanVariant;
     use crate::config::ProviderEntry;
     use crate::provider::testing::MockHttp;
     use crate::vault::InMemoryStore;
@@ -92,6 +93,7 @@ mod tests {
             api_key_enc: None,
             base_url: None,
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         }
     }
 
@@ -179,6 +181,7 @@ mod tests {
             api_key_enc: None,
             base_url: Some("https://api.demo.com".into()),
             pricing: None,
+            plan_variant: PlanVariant::Auto,
         };
         e.set_api_key(&vault, "sk-tpl").unwrap();
 

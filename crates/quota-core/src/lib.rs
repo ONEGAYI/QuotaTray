@@ -18,7 +18,7 @@ pub mod template;
 pub mod update;
 pub mod vault;
 
-pub use config::{AppConfig, Credentials, ProviderEntry, ProviderKind};
+pub use config::{AppConfig, Credentials, PlanVariant, ProviderEntry, ProviderKind};
 pub use model::{QueryError, UsageData};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,

@@ -71,7 +71,12 @@ export interface ProviderEntry {
   base_url?: string;
   /** 峰谷定价自定义（缺省 = 回退预置，见 core pricing::resolve） */
   pricing?: PricingConfig;
+  /** 订阅套餐变体（缺省 = auto 自动推断；智谱系 v1 无周限 / v2+ 有周限） */
+  plan_variant?: PlanVariant;
 }
+
+/** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */
+export type PlanVariant = "auto" | "no_weekly" | "weekly";
 
 // ---- 峰谷定价（core pricing 模块镜像，snake_case 与宿主一致） ----
 
@@ -200,6 +205,8 @@ export interface NativeMeta {
   pricing_by_currency: Record<string, PresetPricing>;
   /** 该 native id 下由 CLI/config 定义的用户模型，只读展示与选择。 */
   custom_models: CustomModelDef[];
+  /** 是否支持套餐变体声明（智谱系订阅套餐），编辑表单据此展示选择。 */
+  supports_plan_variant: boolean;
 }
 
 export interface TemplateErrorDto {
