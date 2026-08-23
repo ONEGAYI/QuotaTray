@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+/* Tailwind 4 CSS-first：dark variant 跟随根 .dark class（而非媒体查询），
+   主题由 ThemeProvider 挂/摘，支持用户强制覆盖系统偏好。 */
+@custom-variant dark (&:where(.dark, .dark *));

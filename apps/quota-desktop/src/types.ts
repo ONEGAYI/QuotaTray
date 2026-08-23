@@ -71,12 +71,19 @@ export interface ProviderEntry {
   base_url?: string;
 }
 
-/** 桌面端设置（settings.json）。 */
+/** 桌面端设置（settings.json，字段与 Rust 侧 Settings 一一对应）。 */
 export interface Settings {
   refresh_interval_minutes: number;
   low_balance_threshold_percent: number;
   autostart: boolean;
+  /** "zh" | "en" | "system" */
   language: string;
+  /** "light" | "dark" | "system" */
+  theme: string;
+  /** 托盘圆环每圈代表的余额数值 */
+  ring_units_per_circle: number;
+  /** 托盘图标显示的条目 id（null = 第一个启用条目） */
+  tray_icon_entry_id: string | null;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

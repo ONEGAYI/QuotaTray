@@ -1,7 +1,9 @@
-// 设置对话框：刷新间隔 / 低额度阈值 / 开机自启 / 语言（占位）。
+// 设置对话框：刷新间隔 / 低额度阈值 / 开机自启 / 语言（三态）/ 主题（三态）/
+// 托盘圆环每圈单位。保存走既有 save_settings 链路（磁盘权威）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useLang } from "../i18n";
 import { useSettings } from "../queries";
 import type { Settings } from "../types";
 
@@ -10,8 +12,15 @@ interface Props {
   onClose: () => void;
 }
 
+const inputCls =
+  "w-24 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
+const selectCls =
+  "w-36 rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
+const labelCls = "text-sm text-slate-600 dark:text-slate-300";
+
 export function SettingsDialog({ open, onClose }: Props) {
   const qc = useQueryClient();
+  const { t } = useLang();
   const settings = useSettings();
   const [draft, setDraft] = useState<Settings | null>(null);
 
@@ -33,9 +42,9 @@ export function SettingsDialog({ open, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl">
-        <div className="border-b border-slate-200 px-5 py-3">
-          <h2 className="font-medium">设置</h2>
+      <div className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-800">
+        <div className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
+          <h2 className="font-medium">{t("settings.title")}</h2>
         </div>
         <form
           className="space-y-4 px-5 py-4"
@@ -45,7 +54,7 @@ export function SettingsDialog({ open, onClose }: Props) {
           }}
         >
           <label className="flex items-center justify-between gap-4">
-            <span className="text-sm text-slate-600">自动刷新间隔（分钟）</span>
+            <span className={labelCls}>{t("settings.interval")}</span>
             <input
               type="number"
               min={1}
@@ -54,12 +63,12 @@ export function SettingsDialog({ open, onClose }: Props) {
               onChange={(e) =>
                 setDraft({ ...draft, refresh_interval_minutes: Number(e.target.value) })
               }
-              className="w-24 rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              className={inputCls}
             />
           </label>
 
           <label className="flex items-center justify-between gap-4">
-            <span className="text-sm text-slate-600">低额度提醒阈值（已用 %）</span>
+            <span className={labelCls}>{t("settings.threshold")}</span>
             <input
               type="number"
               min={0}
@@ -68,12 +77,12 @@ export function SettingsDialog({ open, onClose }: Props) {
               onChange={(e) =>
                 setDraft({ ...draft, low_balance_threshold_percent: Number(e.target.value) })
               }
-              className="w-24 rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
+              className={inputCls}
             />
           </label>
 
           <label className="flex items-center justify-between gap-4">
-            <span className="text-sm text-slate-600">开机自启</span>
+            <span className={labelCls}>{t("settings.autostart")}</span>
             <input
               type="checkbox"
               checked={draft.autostart}
@@ -82,28 +91,65 @@ export function SettingsDialog({ open, onClose }: Props) {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 opacity-40">
-            <span className="text-sm text-slate-600">语言</span>
-            <select disabled value={draft.language} className="w-24 rounded border border-slate-300 px-2 py-1.5 text-sm">
-              <option value="zh">中文</option>
-              <option value="en">English</option>
+          <label className="flex items-center justify-between gap-4">
+            <span className={labelCls}>{t("settings.language")}</span>
+            <select
+              value={draft.language}
+              onChange={(e) => setDraft({ ...draft, language: e.target.value })}
+              className={selectCls}
+            >
+              <option value="zh">{t("settings.langZh")}</option>
+              <option value="en">{t("settings.langEn")}</option>
+              <option value="system">{t("settings.langSystem")}</option>
             </select>
           </label>
 
+          <label className="flex items-center justify-between gap-4">
+            <span className={labelCls}>{t("settings.theme")}</span>
+            <select
+              value={draft.theme}
+              onChange={(e) => setDraft({ ...draft, theme: e.target.value })}
+              className={selectCls}
+            >
+              <option value="light">{t("settings.themeLight")}</option>
+              <option value="dark">{t("settings.themeDark")}</option>
+              <option value="system">{t("settings.themeSystem")}</option>
+            </select>
+          </label>
+
+          <label className="flex items-center justify-between gap-4">
+            <span className={labelCls}>{t("settings.ringUnits")}</span>
+            <input
+              type="number"
+              min={1}
+              step="any"
+              value={draft.ring_units_per_circle}
+              onChange={(e) =>
+                setDraft({ ...draft, ring_units_per_circle: Number(e.target.value) })
+              }
+              className={inputCls}
+            />
+          </label>
+
           {save.isError && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600">{String(save.error)}</p>
+            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
+              {String(save.error)}
+            </p>
           )}
         </form>
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
-          <button onClick={onClose} className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
-            取消
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-700">
+          <button
+            onClick={onClose}
+            className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            {t("common.cancel")}
           </button>
           <button
             onClick={() => save.mutate(draft)}
             disabled={save.isPending}
-            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
-            {save.isPending ? "保存中…" : "保存"}
+            {save.isPending ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </div>

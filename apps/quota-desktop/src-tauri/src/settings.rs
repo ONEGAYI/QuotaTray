@@ -19,9 +19,18 @@ pub struct Settings {
     /// 开机自启（实际状态由 autostart 插件落系统，此处存用户意图）。
     #[serde(default)]
     pub autostart: bool,
-    /// 界面语言（M3 仅占位，zh/en 后续版本）。
+    /// 界面语言：`zh` / `en` / `system`（跟随系统 locale）。
     #[serde(default = "default_language")]
     pub language: String,
+    /// 界面主题：`light` / `dark` / `system`（跟随系统偏好）。
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// 托盘圆环图标的「每圈单位」（余额型一整圈代表的数值）。
+    #[serde(default = "default_ring_units")]
+    pub ring_units_per_circle: f64,
+    /// 托盘图标显示的条目 id（None = 第一个 enabled 条目；失效 id 回退同左）。
+    #[serde(default)]
+    pub tray_icon_entry_id: Option<String>,
 }
 
 fn default_interval() -> u32 {
@@ -33,7 +42,15 @@ fn default_threshold() -> u8 {
 }
 
 fn default_language() -> String {
-    "zh".into()
+    "system".into()
+}
+
+fn default_theme() -> String {
+    "system".into()
+}
+
+fn default_ring_units() -> f64 {
+    100.0
 }
 
 impl Default for Settings {
@@ -43,18 +60,29 @@ impl Default for Settings {
             low_balance_threshold_percent: default_threshold(),
             autostart: false,
             language: default_language(),
+            theme: default_theme(),
+            ring_units_per_circle: default_ring_units(),
+            tray_icon_entry_id: None,
         }
     }
 }
 
 impl Settings {
-    /// 合法性收口：间隔 1..=1440 分钟、阈值 0..=100、语言白名单。
+    /// 合法性收口：间隔 1..=1440 分钟、阈值 0..=100、语言/主题白名单、
+    /// 每圈单位 1.0..=1e6（NaN/无穷回默认——JSON 正常解析不会产生，双保险）。
     pub fn sanitize(&mut self) {
         self.refresh_interval_minutes = self.refresh_interval_minutes.clamp(1, 1440);
         self.low_balance_threshold_percent = self.low_balance_threshold_percent.min(100);
-        if !matches!(self.language.as_str(), "zh" | "en") {
+        if !matches!(self.language.as_str(), "zh" | "en" | "system") {
             self.language = default_language();
         }
+        if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
+            self.theme = default_theme();
+        }
+        if !self.ring_units_per_circle.is_finite() {
+            self.ring_units_per_circle = default_ring_units();
+        }
+        self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
     }
 
     /// 加载设置；文件缺失或损坏返回默认值（非关键数据，容错优先）。
@@ -96,7 +124,7 @@ mod tests {
         p
     }
 
-    /// 契约：保存后加载 roundtrip 无损。
+    /// 契约：保存后加载 roundtrip 无损（含 M4 新增四字段）。
     #[test]
     fn save_load_roundtrip() {
         let path = temp_path("roundtrip");
@@ -105,20 +133,27 @@ mod tests {
             low_balance_threshold_percent: 70,
             autostart: true,
             language: "en".into(),
+            theme: "dark".into(),
+            ring_units_per_circle: 500.0,
+            tray_icon_entry_id: Some("AB2C3D".into()),
         };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s);
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 契约：默认值——间隔 5 分钟、阈值 80%、中文、不自启。
+    /// 契约：默认值——间隔 5 分钟、阈值 80%、语言/主题跟随系统、
+    /// 每圈单位 100、图标条目自动（None）、不自启。
     #[test]
     fn defaults() {
         let s = Settings::default();
         assert_eq!(s.refresh_interval_minutes, 5);
         assert_eq!(s.low_balance_threshold_percent, 80);
         assert!(!s.autostart);
-        assert_eq!(s.language, "zh");
+        assert_eq!(s.language, "system");
+        assert_eq!(s.theme, "system");
+        assert_eq!(s.ring_units_per_circle, 100.0);
+        assert_eq!(s.tray_icon_entry_id, None);
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -129,6 +164,10 @@ mod tests {
         let s = Settings::load(&path);
         assert_eq!(s.refresh_interval_minutes, 30);
         assert_eq!(s.low_balance_threshold_percent, 80);
+        assert_eq!(s.language, "system");
+        assert_eq!(s.theme, "system");
+        assert_eq!(s.ring_units_per_circle, 100.0);
+        assert_eq!(s.tray_icon_entry_id, None);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -141,7 +180,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 契约：sanitize 收口越界值。
+    /// 契约：sanitize 收口越界值（语言/主题白名单、每圈单位 clamp）。
     #[test]
     fn sanitize_clamps_out_of_range() {
         let mut s = Settings {
@@ -149,10 +188,43 @@ mod tests {
             low_balance_threshold_percent: 150,
             autostart: false,
             language: "fr".into(),
+            theme: "blue".into(),
+            ring_units_per_circle: 0.5,
+            tray_icon_entry_id: Some("X".into()),
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
         assert_eq!(s.low_balance_threshold_percent, 100);
-        assert_eq!(s.language, "zh");
+        assert_eq!(s.language, "system");
+        assert_eq!(s.theme, "system");
+        assert_eq!(s.ring_units_per_circle, 1.0, "低于下限应收到 1.0");
+        s.ring_units_per_circle = 2e6;
+        s.sanitize();
+        assert_eq!(s.ring_units_per_circle, 1e6, "高于上限应收到 1e6");
+        s.ring_units_per_circle = f64::NAN;
+        s.sanitize();
+        assert_eq!(
+            s.ring_units_per_circle, 100.0,
+            "NaN 应回默认而非 clamp panic"
+        );
+        // id 是自由字符串（失效 id 的回退语义由托盘侧处理），sanitize 不动它
+        assert_eq!(s.tray_icon_entry_id, Some("X".into()));
+    }
+
+    /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。
+    #[test]
+    fn legacy_config_without_m4_fields() {
+        let path = temp_path("legacy");
+        std::fs::write(
+            &path,
+            r#"{"refresh_interval_minutes":15,"low_balance_threshold_percent":90,"autostart":true,"language":"zh"}"#,
+        )
+        .unwrap();
+        let s = Settings::load(&path);
+        assert_eq!(s.language, "zh", "旧文件已存语言应保留");
+        assert_eq!(s.theme, "system");
+        assert_eq!(s.ring_units_per_circle, 100.0);
+        assert_eq!(s.tray_icon_entry_id, None);
+        let _ = std::fs::remove_file(&path);
     }
 }

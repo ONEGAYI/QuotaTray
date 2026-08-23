@@ -11,6 +11,7 @@ use quota_core::{AppConfig, ProviderEntry, ProviderKind, Vault};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::i18n::Lang;
 use crate::settings::Settings;
 use crate::snapshot::{SnapshotEntry, Snapshots};
 use crate::state::{AppState, EntryState, ErrorInfo, QueryOutcome, now_ms};
@@ -43,17 +44,23 @@ pub fn apply_key_policy(
     existing: Option<&ProviderEntry>,
     new_api_key: Option<&str>,
     vault: &Vault,
+    lang: Lang,
 ) -> Result<(), String> {
     let trimmed = new_api_key.map(str::trim).filter(|s| !s.is_empty());
     match trimmed {
         Some(key) => entry
             .set_api_key(vault, key)
-            .map_err(|e| format!("凭据加密失败：{e}")),
+            .map_err(|e| lang.err_encrypt_failed(&e)),
         None => {
             entry.api_key_enc = existing.and_then(|e| e.api_key_enc.clone());
             Ok(())
         }
     }
+}
+
+/// 当前界面语言（按 settings.language 解析，system 折叠为具体语言）。
+fn lang_of(state: &AppState) -> Lang {
+    Lang::parse(&state.settings.read().unwrap().language)
 }
 
 /// 模板是否引用了 `{{apiKey}}`（决定试查时 key 是否必填）。
@@ -117,8 +124,9 @@ pub fn upsert_provider(
     entry: ProviderEntry,
     new_api_key: Option<String>,
 ) -> Result<(), String> {
+    let lang = lang_of(&state);
     if entry.id.trim().is_empty() || entry.name.trim().is_empty() {
-        return Err("id 与名称不能为空".into());
+        return Err(lang.err_id_name_empty());
     }
     // 保存前校验：模板静态校验（带字段定位）、native id 存在性
     match &entry.kind {
@@ -127,7 +135,7 @@ pub fn upsert_provider(
         }
         ProviderKind::Native { provider } => {
             if quota_core::provider::find(provider).is_none() {
-                return Err(format!("未知的预置平台 id：{provider}"));
+                return Err(lang.err_unknown_native(provider));
             }
         }
     }
@@ -140,6 +148,7 @@ pub fn upsert_provider(
         existing.as_ref(),
         new_api_key.as_deref(),
         &state.vault,
+        lang,
     )?;
 
     // 编辑保位 / 新增追加（entry 随后 move 进配置，id 先行拷出）
@@ -162,11 +171,12 @@ pub fn remove_provider(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
+    let lang = lang_of(&state);
     let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     let before = cfg.providers.len();
     cfg.providers.retain(|p| p.id != id);
     if cfg.providers.len() == before {
-        return Err(format!("条目 {id} 不存在"));
+        return Err(lang.err_entry_not_found(&id));
     }
     cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
     state.results.write().unwrap().remove(&id);
@@ -206,8 +216,9 @@ pub async fn test_template(
     api_key: Option<String>,
     base_url: Option<String>,
 ) -> Result<QueryOutcome, String> {
+    let lang = lang_of(&state);
     let config: TemplateConfig =
-        serde_json::from_str(&config_json).map_err(|e| format!("模板 JSON 解析失败：{e}"))?;
+        serde_json::from_str(&config_json).map_err(|e| lang.err_template_json(&e))?;
     let key = match api_key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(k) => k.to_string(),
         None if template_needs_api_key(&config) => {
@@ -216,7 +227,7 @@ pub async fn test_template(
                 data: None,
                 error: Some(ErrorInfo {
                     kind: "deterministic".into(),
-                    message: "模板引用了 {{apiKey}}，试查前请填写 API key".into(),
+                    message: lang.err_template_needs_key(),
                 }),
                 at: None,
             });
@@ -234,7 +245,7 @@ pub async fn test_template(
     };
     entry
         .set_api_key(&state.vault, &key)
-        .map_err(|e| format!("凭据加密失败：{e}"))?;
+        .map_err(|e| lang.err_encrypt_failed(&e))?;
     entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
 
     let outcome = match state.engine.query(&state.vault, &entry).await {
@@ -262,12 +273,13 @@ pub async fn query_provider(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<QueryOutcome, String> {
+    let lang = lang_of(&state);
     let cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     let entry = cfg
         .providers
         .iter()
         .find(|p| p.id == id && p.enabled)
-        .ok_or_else(|| format!("条目 {id} 不存在或未启用"))?
+        .ok_or_else(|| lang.err_entry_not_enabled(&id))?
         .clone();
 
     let result = state.engine.query(&state.vault, &entry).await;
@@ -325,43 +337,73 @@ pub fn save_settings(
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<(), String> {
+    let lang = lang_of(&state);
     let mut settings = settings;
     settings.sanitize();
     let old_autostart = state.settings.read().unwrap().autostart;
 
     settings
         .save(&state.paths.settings())
-        .map_err(|e| format!("设置写入失败：{e}"))?;
+        .map_err(|e| lang.err_settings_save(&e))?;
     *state.settings.write().unwrap() = settings.clone();
-    tray::rebuild(&app, &state); // 阈值变化影响告警图标
+    tray::rebuild(&app, &state); // 阈值/语言/主题/每圈单位变化即时反映
 
     if old_autostart != settings.autostart {
-        if let Err(e) = apply_autostart(&app, settings.autostart) {
+        if let Err(e) = apply_autostart(&app, settings.autostart, lang) {
             // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
             settings.autostart = old_autostart;
             if let Err(io) = settings.save(&state.paths.settings()) {
                 eprintln!("自启失败后回滚 settings.json 失败：{io}");
             }
             *state.settings.write().unwrap() = settings;
-            return Err(format!(
-                "其余设置已保存，但开机自启未能应用：{e}（请重试保存，或重新切换一次自启开关）"
-            ));
+            return Err(lang.err_autostart_apply(&e));
         }
     }
     Ok(())
 }
 
-fn apply_autostart(app: &AppHandle, enable: bool) -> Result<(), String> {
+/// 前端推送解析后的实际主题（theme context 解析三态的结果）。
+///
+/// 为什么走前端推送而非 Rust 侧监听 `WindowEvent::ThemeChanged`：
+/// 该事件反映窗口当前主题，在前端 `setTheme` 强制 light/dark 后不再随
+/// 系统变化，语义与「托盘圆环该用什么配色」不完全一致；前端 matchMedia
+/// 是 system 跟随的统一真源（主动设置与系统变化都汇入同一路径），
+/// 实现成本与跨平台一致性均更优。主题推送若缺失，托盘停留浅色
+/// （`AppState::resolved_theme` 初始 false），影响仅限图标配色。
+#[tauri::command]
+pub fn set_resolved_theme(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    theme: String,
+) -> Result<(), String> {
+    let dark = match theme.as_str() {
+        "dark" => true,
+        "light" => false,
+        _ => return Ok(()), // 未知值忽略（前端契约内不出现）
+    };
+    let changed = {
+        let mut guard = state.resolved_theme.write().unwrap();
+        let changed = *guard != dark;
+        *guard = dark;
+        changed
+    }; // 写锁先释放——rebuild 内部要读同字段
+    if changed {
+        tray::rebuild(&app, &state);
+    }
+    Ok(())
+}
+
+fn apply_autostart(app: &AppHandle, enable: bool, lang: Lang) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let autolaunch = app.autolaunch();
     if enable {
         autolaunch
             .enable()
-            .map_err(|e| format!("开启开机自启失败：{e}"))
+            .map_err(|e| lang.err_autostart_toggle(true, &e))
     } else {
         autolaunch
             .disable()
-            .map_err(|e| format!("关闭开机自启失败：{e}"))
+            .map_err(|e| lang.err_autostart_toggle(false, &e))
     }
 }
 
@@ -399,7 +441,7 @@ mod tests {
         let vault = Vault::open(&InMemoryStore::new()).unwrap();
         let mut e = entry("p1");
         let existing = None;
-        apply_key_policy(&mut e, existing, Some("sk-plain"), &vault).unwrap();
+        apply_key_policy(&mut e, existing, Some("sk-plain"), &vault, Lang::Zh).unwrap();
         let enc = e.api_key_enc.expect("应有密文");
         assert!(enc.starts_with("v1:"));
         assert!(!enc.contains("sk-plain"), "密文不得含明文");
@@ -416,10 +458,10 @@ mod tests {
 
         let mut e = entry("p1");
         e.api_key_enc = Some("v1:forged-by-frontend".into()); // 伪造密文应被忽略
-        apply_key_policy(&mut e, Some(&old), Some("   "), &vault).unwrap();
+        apply_key_policy(&mut e, Some(&old), Some("   "), &vault, Lang::Zh).unwrap();
         assert_eq!(e.api_key_enc, old_enc, "空 key 应保留旧密文");
 
-        apply_key_policy(&mut e, Some(&old), None, &vault).unwrap();
+        apply_key_policy(&mut e, Some(&old), None, &vault, Lang::Zh).unwrap();
         assert_eq!(e.api_key_enc, old_enc, "缺省 key 应保留旧密文");
     }
 
@@ -429,7 +471,7 @@ mod tests {
         let vault = Vault::open(&InMemoryStore::new()).unwrap();
         let mut e = entry("new");
         e.api_key_enc = Some("v1:forged".into());
-        apply_key_policy(&mut e, None, Some(""), &vault).unwrap();
+        apply_key_policy(&mut e, None, Some(""), &vault, Lang::Zh).unwrap();
         assert!(e.api_key_enc.is_none());
     }
 

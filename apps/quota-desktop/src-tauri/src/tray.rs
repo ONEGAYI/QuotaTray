@@ -1,15 +1,19 @@
-//! 托盘：菜单构建/重建、图标切换、悬停节流刷新。
+//! 托盘：菜单构建/重建、圆环图标渲染、悬停节流刷新。
 //!
-//! 展示文本生成是纯函数（本模块上半部），由契约测试锁定形状；
-//! Tauri 交互部分（下半部）依赖运行时，行为由烟测覆盖。
+//! 展示文本生成是纯函数（本模块上半部，带 [`Lang`] 参数），由契约测试
+//! 以中英双语锁定形状；Tauri 交互部分（下半部）依赖运行时，行为由烟测覆盖。
+//! 前端 `src/display.ts` 是平行双实现（成对注释约定），文案语义保持成对。
+//! 圆环图标本体在 [`crate::ring`]（视觉规格 docs/design/tray-ring-demo.html）。
 
 use std::collections::HashMap;
 
 use quota_core::{AppConfig, UsageData};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::i18n::Lang;
+use crate::ring;
 use crate::settings::Settings;
 use crate::state::{AppState, EntryState, now_ms};
 
@@ -20,6 +24,9 @@ const HOVER_THROTTLE_MS: u64 = 10_000;
 
 /// 错误文案截断长度（托盘菜单行宽有限）。
 const MESSAGE_LIMIT: usize = 60;
+
+/// 「图标显示」子菜单项 id 前缀（后接条目 id；`-auto` 为自动项）。
+const ICON_SRC_PREFIX: &str = "icon-src-";
 
 // ---- 展示纯函数 -----------------------------------------------------------
 
@@ -37,16 +44,10 @@ pub fn used_percent(d: &UsageData) -> Option<f64> {
     }
 }
 
-/// 相对时间文案："刚刚" / "N 秒前" / "N 分钟前" / "N 小时前" / "N 天前"。
-pub fn relative_time(at_ms: u64, now_ms: u64) -> String {
+/// 相对时间文案（分档见 [`Lang::relative_time`]，与前端 display.ts 成对）。
+pub fn relative_time(at_ms: u64, now_ms: u64, lang: Lang) -> String {
     let secs = now_ms.saturating_sub(at_ms) / 1000;
-    match secs {
-        0..=9 => "刚刚".into(),
-        10..=59 => format!("{secs} 秒前"),
-        60..=3599 => format!("{} 分钟前", secs / 60),
-        3600..=86_399 => format!("{} 小时前", secs / 3600),
-        _ => format!("{} 天前", secs / 86_400),
-    }
+    lang.relative_time(secs)
 }
 
 /// 数值文案：余额保留两位小数，百分比取整。
@@ -61,7 +62,7 @@ fn percent_text(v: f64) -> String {
 /// keep-last-good 窗口（GUI-spec §3）：瞬时失败后保留旧值展示的时限，
 /// 超窗后按网络波动态展示（旧值过旧，不再作为展示依据）。
 /// 前端同值定义在 `src/types.ts` 的 `KEEP_LAST_GOOD_MS`——两端同步修改。
-const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
+pub(crate) const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
 
 /// 条目展示行（多窗口一窗口一行）。
 ///
@@ -78,12 +79,14 @@ pub fn entry_lines(
     state: &EntryState,
     threshold_percent: u8,
     now_ms: u64,
+    lang: Lang,
 ) -> Vec<String> {
+    let t = lang.texts();
     let warn = |line: String, over: bool| {
         if over { format!("⚠ {line}") } else { line }
     };
     let time_suffix = |line: String, at: Option<u64>| match at {
-        Some(at) => format!("{line} · {}", relative_time(at, now_ms)),
+        Some(at) => format!("{line} · {}", relative_time(at, now_ms, lang)),
         None => line,
     };
 
@@ -100,9 +103,9 @@ pub fn entry_lines(
             let reason = d
                 .invalid_message
                 .clone()
-                .unwrap_or_else(|| "未说明原因".into());
+                .unwrap_or_else(|| t.no_invalid_reason.into());
             let msg: String = reason.chars().take(MESSAGE_LIMIT).collect();
-            return vec![format!("{name} · ⚠ 已失效：{msg}")];
+            return vec![format!("{name} · ⚠ {}{msg}", t.invalid_prefix)];
         }
     }
 
@@ -113,22 +116,24 @@ pub fn entry_lines(
                 .at
                 .is_none_or(|at| now_ms.saturating_sub(at) > KEEP_LAST_GOOD_MS)
         {
-            return vec![format!("{name} · ⟳ 网络波动")];
+            return vec![format!("{name} · ⟳ {}", t.network_fluctuation)];
         }
     }
 
     let Some(data) = &state.data else {
         // 无旧值：瞬时错误或尚未查询
         return match &state.error {
-            Some(err) if err.kind == "transient" => vec![format!("{name} · ⟳ 网络波动")],
-            _ => vec![format!("{name} · 尚无数据")],
+            Some(err) if err.kind == "transient" => {
+                vec![format!("{name} · ⟳ {}", t.network_fluctuation)]
+            }
+            _ => vec![format!("{name} · {}", t.no_data)],
         };
     };
 
     // 成功数据（瞬时失败但在窗口内 → keep-last-good 附加 ⟳）
     let transient_mark = match &state.error {
-        Some(err) if err.kind == "transient" => " · ⟳ 暂不可达",
-        _ => "",
+        Some(err) if err.kind == "transient" => format!(" · ⟳ {}", t.unreachable),
+        _ => String::new(),
     };
     let mut lines = Vec::with_capacity(data.len().max(1));
     for (i, d) in data.iter().enumerate() {
@@ -138,31 +143,39 @@ pub fn entry_lines(
                 "{} ",
                 d.plan_name
                     .clone()
-                    .unwrap_or_else(|| format!("窗口{}", i + 1))
+                    .unwrap_or_else(|| lang.window_name(i + 1))
             ),
         };
         let body = if let Some(pct) = used_percent(d) {
-            format!("{name} · {window}已用 {}", percent_text(pct))
+            format!("{name} · {window}{}", lang.used_text(&percent_text(pct)))
         } else if let (Some(rem), unit) = (d.remaining, d.unit.clone()) {
             match unit {
                 Some(u) if !u.is_empty() => {
-                    format!("{name} · {window}剩余 {} {u}", amount_text(rem))
+                    format!(
+                        "{name} · {window}{}",
+                        lang.remaining_text(&amount_text(rem), Some(&u))
+                    )
                 }
-                Some(_) | None => format!("{name} · {window}剩余 {}", amount_text(rem)),
+                Some(_) | None => {
+                    format!(
+                        "{name} · {window}{}",
+                        lang.remaining_text(&amount_text(rem), None)
+                    )
+                }
             }
         } else {
-            format!("{name} · {window}已获取")
+            format!("{name} · {window}{}", t.fetched)
         };
         let over = used_percent(d).is_some_and(|p| p >= f64::from(threshold_percent));
-        lines.push(warn(time_suffix(body, state.at), over) + transient_mark);
+        lines.push(warn(time_suffix(body, state.at), over) + &transient_mark);
     }
     if lines.is_empty() {
-        lines.push(format!("{name} · 尚无数据"));
+        lines.push(format!("{name} · {}", t.no_data));
     }
     lines
 }
 
-/// 是否有条目超过低额度阈值（切换警示图标的依据）。
+/// 是否有条目超过低额度阈值（圆环右上角红点的依据）。
 pub fn any_alert(
     cfg: &AppConfig,
     results: &HashMap<String, EntryState>,
@@ -183,26 +196,24 @@ pub fn any_alert(
 
 // ---- Tauri 交互 -----------------------------------------------------------
 
-/// 警示托盘图标（构建期嵌入，运行时零开销切换）。
-static ALERT_ICON: std::sync::LazyLock<tauri::image::Image<'static>> =
-    std::sync::LazyLock::new(|| {
-        tauri::image::Image::from_bytes(include_bytes!("../icons/tray-alert.png"))
-            .expect("嵌入的警示图标解码失败")
-    });
-
 /// 创建托盘（setup 阶段调用一次）。
 ///
 /// 首次启动配置文件不存在是正常路径（load 返回空配置，非 Err）；
 /// 真正读盘失败时给诚实提示菜单而非空菜单。
 pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
     let menu = match snapshot_views(state) {
-        Some((cfg, results, settings)) => build_menu(app, &cfg, &results, &settings)?,
+        Some((cfg, results, settings)) => {
+            let lang = Lang::parse(&settings.language);
+            build_menu(app, &cfg, &results, &settings, lang)?
+        }
         None => {
+            // 配置读盘失败，但设置仍可读（语言跟随用户选择）
+            let t = Lang::parse(&state.settings.read().unwrap().language).texts();
             let menu = Menu::new(app)?;
             menu.append(&MenuItem::with_id(
                 app,
                 "info-config-error",
-                "配置读取失败，请检查 config.json",
+                t.config_error,
                 false,
                 None::<&str>,
             )?)?;
@@ -210,16 +221,31 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
             menu.append(&MenuItem::with_id(
                 app,
                 "show",
-                "打开主窗口",
+                t.open_main,
                 true,
                 None::<&str>,
             )?)?;
-            menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
+            menu.append(&MenuItem::with_id(app, "quit", t.quit, true, None::<&str>)?)?;
             menu
         }
     };
+    // 首屏图标：无数据时为灰空环（快照数据由后续 rebuild 反映）
+    let dark = *state.resolved_theme.read().unwrap();
+    let icon = match snapshot_views(state) {
+        Some((cfg, results, settings)) => {
+            let alert = any_alert(&cfg, &results, &settings);
+            ring::icon_image(&cfg, &results, &settings, dark, alert)
+        }
+        None => ring::icon_image(
+            &AppConfig::default(),
+            &HashMap::new(),
+            &Settings::default(),
+            dark,
+            false,
+        ),
+    };
     tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
-        .icon(app.default_window_icon().expect("窗口图标缺失").clone())
+        .icon(icon)
         .tooltip("QuotaTray")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -241,7 +267,8 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
         eprintln!("配置读取失败，托盘保留既有菜单");
         return;
     };
-    let menu = match build_menu(app, &cfg, &results, &settings) {
+    let lang = Lang::parse(&settings.language);
+    let menu = match build_menu(app, &cfg, &results, &settings, lang) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("托盘菜单重建失败：{e}");
@@ -251,13 +278,9 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
     if let Err(e) = tray.set_menu(Some(menu)) {
         eprintln!("托盘菜单应用失败：{e}");
     }
-    let icon = if any_alert(&cfg, &results, &settings) {
-        ALERT_ICON.clone()
-    } else {
-        app.default_window_icon()
-            .cloned()
-            .unwrap_or_else(|| ALERT_ICON.clone())
-    };
+    let dark = *state.resolved_theme.read().unwrap();
+    let alert = any_alert(&cfg, &results, &settings);
+    let icon = ring::icon_image(&cfg, &results, &settings, dark, alert);
     if let Err(e) = tray.set_icon(Some(icon)) {
         eprintln!("托盘图标切换失败：{e}");
     }
@@ -279,7 +302,9 @@ fn build_menu(
     cfg: &AppConfig,
     results: &HashMap<String, EntryState>,
     settings: &Settings,
+    lang: Lang,
 ) -> tauri::Result<Menu<Wry>> {
+    let t = lang.texts();
     let now = now_ms();
     let menu = Menu::new(app)?;
     let entries: Vec<_> = cfg.providers.iter().filter(|p| p.enabled).collect();
@@ -287,15 +312,21 @@ fn build_menu(
         menu.append(&MenuItem::with_id(
             app,
             "info-empty",
-            "暂无启用的供应商",
+            t.no_enabled_providers,
             false,
             None::<&str>,
         )?)?;
     }
     for entry in entries {
         let lines = match results.get(&entry.id) {
-            Some(st) => entry_lines(&entry.name, st, settings.low_balance_threshold_percent, now),
-            None => vec![format!("{} · 尚无数据", entry.name)],
+            Some(st) => entry_lines(
+                &entry.name,
+                st,
+                settings.low_balance_threshold_percent,
+                now,
+                lang,
+            ),
+            None => vec![format!("{} · {}", entry.name, t.no_data)],
         };
         for (i, line) in lines.iter().enumerate() {
             menu.append(&MenuItem::with_id(
@@ -311,19 +342,83 @@ fn build_menu(
     menu.append(&MenuItem::with_id(
         app,
         "refresh",
-        "立即刷新",
+        t.refresh_now,
         true,
         None::<&str>,
     )?)?;
+
+    // 「图标显示」子菜单：当前生效数据源打勾（stale id 回退项也如实反映）
+    let icon_submenu = build_icon_source_submenu(app, cfg, settings, lang)?;
+    menu.append(&icon_submenu)?;
+
     menu.append(&MenuItem::with_id(
         app,
         "show",
-        "打开主窗口",
+        t.open_main,
         true,
         None::<&str>,
     )?)?;
-    menu.append(&MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", t.quit, true, None::<&str>)?)?;
     Ok(menu)
+}
+
+/// 构造「图标显示」子菜单：自动项 + 全部 enabled 条目。
+///
+/// 打勾依据是「当前实际生效的数据源」（`ring::icon_entry` 的回退结果），
+/// 与图标渲染同源——stale id（条目已删除）时自动项打勾，选择不落盘清除，
+/// 用户重新选择时自然覆盖。
+fn build_icon_source_submenu(
+    app: &AppHandle,
+    cfg: &AppConfig,
+    settings: &Settings,
+    lang: Lang,
+) -> tauri::Result<Submenu<Wry>> {
+    let t = lang.texts();
+    let submenu = Submenu::with_id(app, "icon-source", t.icon_source, true)?;
+    let effective = ring::icon_entry(cfg, settings).map(|e| e.id.clone());
+    // 自动项打勾：未指定，或指定 id 已失效（实际生效的是回退结果）
+    let auto_checked = match &settings.tray_icon_entry_id {
+        None => true,
+        Some(specified) => effective.as_deref() != Some(specified.as_str()),
+    };
+    submenu.append(&CheckMenuItem::with_id(
+        app,
+        format!("{ICON_SRC_PREFIX}auto"),
+        t.icon_source_auto,
+        true,
+        auto_checked,
+        None::<&str>,
+    )?)?;
+    let has_entries = cfg.providers.iter().any(|p| p.enabled);
+    if has_entries {
+        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+        for entry in cfg.providers.iter().filter(|p| p.enabled) {
+            let checked = effective.as_deref() == Some(entry.id.as_str());
+            submenu.append(&CheckMenuItem::with_id(
+                app,
+                format!("{ICON_SRC_PREFIX}{}", entry.id),
+                entry.name.clone(),
+                true,
+                checked,
+                None::<&str>,
+            )?)?;
+        }
+    }
+    Ok(submenu)
+}
+
+/// 切换图标数据源：写 settings（磁盘权威）后重建托盘。
+fn set_icon_entry(app: &AppHandle, id: Option<String>) {
+    let state = app.state::<AppState>();
+    {
+        let mut settings = state.settings.write().unwrap();
+        settings.tray_icon_entry_id = id;
+        if let Err(e) = settings.save(&state.paths.settings()) {
+            eprintln!("图标显示设置写入失败：{e}");
+            return;
+        }
+    } // 写锁在此释放——rebuild 内部要读 settings，避免同线程死锁
+    rebuild(app, &state);
 }
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
@@ -336,7 +431,15 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
             app.exit(0);
         }
-        _ => {}
+        _ => {
+            if let Some(entry) = id.strip_prefix(ICON_SRC_PREFIX) {
+                if entry == "auto" {
+                    set_icon_entry(app, None);
+                } else if !entry.is_empty() {
+                    set_icon_entry(app, Some(entry.to_string()));
+                }
+            }
+        }
     }
 }
 
@@ -391,7 +494,7 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-// ---- 契约测试 -------------------------------------------------------------
+// ---- 契约测试（中英双语参数化） -------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -424,13 +527,27 @@ mod tests {
 
     const NOW: u64 = 1_755_000_000_000;
 
+    /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行。
+    fn assert_both(name: &str, st: &EntryState, zh: Vec<&str>, en: Vec<&str>) {
+        assert_eq!(
+            entry_lines(name, st, 80, NOW, Lang::Zh),
+            zh.into_iter().map(String::from).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            entry_lines(name, st, 80, NOW, Lang::En),
+            en.into_iter().map(String::from).collect::<Vec<_>>()
+        );
+    }
+
     /// 契约：余额型行——`名称 · 剩余 62.97 CNY · 3 分钟前`。
     #[test]
     fn balance_line_shape() {
         let st = ok_state(vec![data(Some(62.97), Some("CNY"))], NOW - 180_000);
-        assert_eq!(
-            entry_lines("DeepSeek", &st, 80, NOW),
-            vec!["DeepSeek · 剩余 62.97 CNY · 3 分钟前"]
+        assert_both(
+            "DeepSeek",
+            &st,
+            vec!["DeepSeek · 剩余 62.97 CNY · 3 分钟前"],
+            vec!["DeepSeek · Left 62.97 CNY · 3m ago"],
         );
     }
 
@@ -438,13 +555,15 @@ mod tests {
     #[test]
     fn percent_line_shape() {
         let st = ok_state(vec![percent_data(Some(42.0))], NOW - 180_000);
-        assert_eq!(
-            entry_lines("GLM", &st, 80, NOW),
-            vec!["GLM · 已用 42% · 3 分钟前"]
+        assert_both(
+            "GLM",
+            &st,
+            vec!["GLM · 已用 42% · 3 分钟前"],
+            vec!["GLM · Used 42% · 3m ago"],
         );
     }
 
-    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退"窗口N"。
+    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」。
     #[test]
     fn multi_window_lines() {
         let d1 = UsageData {
@@ -460,12 +579,17 @@ mod tests {
             ..Default::default()
         };
         let st = ok_state(vec![d1, d2], NOW - 300_000);
-        assert_eq!(
-            entry_lines("GLM", &st, 80, NOW),
+        assert_both(
+            "GLM",
+            &st,
             vec![
                 "GLM · five_hour 已用 42% · 5 分钟前",
                 "GLM · 窗口2 已用 10% · 5 分钟前",
-            ]
+            ],
+            vec![
+                "GLM · five_hour Used 42% · 5m ago",
+                "GLM · Window 2 Used 10% · 5m ago",
+            ],
         );
     }
 
@@ -480,9 +604,11 @@ mod tests {
                 message: "timeout".into(),
             }),
         };
-        assert_eq!(
-            entry_lines("X", &st, 80, NOW),
-            vec!["X · 剩余 88.00 CNY · 2 分钟前 · ⟳ 暂不可达"]
+        assert_both(
+            "X",
+            &st,
+            vec!["X · 剩余 88.00 CNY · 2 分钟前 · ⟳ 暂不可达"],
+            vec!["X · Left 88.00 CNY · 2m ago · ⟳ Unreachable"],
         );
     }
 
@@ -502,20 +628,23 @@ mod tests {
                 message: "timeout".into(),
             }),
         };
-        assert_eq!(
-            entry_lines("X", &st(in_window), 80, NOW),
+        assert_both(
+            "X",
+            &st(in_window),
             vec!["X · 剩余 88.00 CNY · 9 分钟前 · ⟳ 暂不可达"],
-            "窗口内应保留旧值"
+            vec!["X · Left 88.00 CNY · 9m ago · ⟳ Unreachable"],
         );
-        assert_eq!(
-            entry_lines("X", &st(exactly), 80, NOW),
+        assert_both(
+            "X",
+            &st(exactly),
             vec!["X · 剩余 88.00 CNY · 10 分钟前 · ⟳ 暂不可达"],
-            "恰 10 分钟应在窗口内（前端同语义）"
+            vec!["X · Left 88.00 CNY · 10m ago · ⟳ Unreachable"],
         );
-        assert_eq!(
-            entry_lines("X", &st(beyond), 80, NOW),
+        assert_both(
+            "X",
+            &st(beyond),
             vec!["X · ⟳ 网络波动"],
-            "超窗应丢弃旧值"
+            vec!["X · ⟳ Network issue"],
         );
     }
 
@@ -530,10 +659,12 @@ mod tests {
             }),
             ..Default::default()
         };
-        let line = &entry_lines("X", &st, 80, NOW)[0];
-        // X · ⚠ + 60 字符
-        assert!(line.chars().count() < 70, "应截断：{line}");
-        assert!(!line.contains(&"错".repeat(61)), "不得超出截断上限");
+        for lang in [Lang::Zh, Lang::En] {
+            let line = &entry_lines("X", &st, 80, NOW, lang)[0];
+            // X · ⚠ + 60 字符
+            assert!(line.chars().count() < 70, "应截断：{line}");
+            assert!(!line.contains(&"错".repeat(61)), "不得超出截断上限");
+        }
     }
 
     /// 契约：瞬时失败无旧值 → ⟳ 网络波动；确定性失败 → ⚠ 立即透出（覆盖旧值）。
@@ -546,9 +677,11 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(
-            entry_lines("X", &transient, 80, NOW),
-            vec!["X · ⟳ 网络波动"]
+        assert_both(
+            "X",
+            &transient,
+            vec!["X · ⟳ 网络波动"],
+            vec!["X · ⟳ Network issue"],
         );
 
         let deterministic = EntryState {
@@ -559,9 +692,11 @@ mod tests {
                 message: "HTTP 401: Unauthorized".into(),
             }),
         };
-        assert_eq!(
-            entry_lines("X", &deterministic, 80, NOW),
-            vec!["X · ⚠ HTTP 401: Unauthorized"]
+        assert_both(
+            "X",
+            &deterministic,
+            vec!["X · ⚠ HTTP 401: Unauthorized"],
+            vec!["X · ⚠ HTTP 401: Unauthorized"],
         );
     }
 
@@ -574,9 +709,11 @@ mod tests {
             ..Default::default()
         };
         let st = ok_state(vec![d], NOW);
-        assert_eq!(
-            entry_lines("X", &st, 80, NOW),
-            vec!["X · ⚠ 已失效：key 已过期"]
+        assert_both(
+            "X",
+            &st,
+            vec!["X · ⚠ 已失效：key 已过期"],
+            vec!["X · ⚠ Invalid: key 已过期"],
         );
     }
 
@@ -584,14 +721,18 @@ mod tests {
     #[test]
     fn threshold_adds_warning_prefix() {
         let st = ok_state(vec![percent_data(Some(80.0))], NOW);
-        assert_eq!(
-            entry_lines("X", &st, 80, NOW),
-            vec!["⚠ X · 已用 80% · 刚刚"]
+        assert_both(
+            "X",
+            &st,
+            vec!["⚠ X · 已用 80% · 刚刚"],
+            vec!["⚠ X · Used 80% · just now"],
         );
         let below = ok_state(vec![percent_data(Some(79.9))], NOW);
-        assert_eq!(
-            entry_lines("X", &below, 80, NOW),
-            vec!["X · 已用 80% · 刚刚"]
+        assert_both(
+            "X",
+            &below,
+            vec!["X · 已用 80% · 刚刚"],
+            vec!["X · Used 80% · just now"],
         );
     }
 
@@ -613,14 +754,19 @@ mod tests {
         assert_eq!(used_percent(&UsageData::default()), None);
     }
 
-    /// 契约：相对时间分档。
+    /// 契约：相对时间分档（双语委托 i18n，此处锁端到端形状）。
     #[test]
     fn relative_time_buckets() {
-        assert_eq!(relative_time(NOW - 5_000, NOW), "刚刚");
-        assert_eq!(relative_time(NOW - 30_000, NOW), "30 秒前");
-        assert_eq!(relative_time(NOW - 180_000, NOW), "3 分钟前");
-        assert_eq!(relative_time(NOW - 7_200_000, NOW), "2 小时前");
-        assert_eq!(relative_time(NOW - 172_800_000, NOW), "2 天前");
+        assert_eq!(relative_time(NOW - 5_000, NOW, Lang::Zh), "刚刚");
+        assert_eq!(relative_time(NOW - 30_000, NOW, Lang::Zh), "30 秒前");
+        assert_eq!(relative_time(NOW - 180_000, NOW, Lang::Zh), "3 分钟前");
+        assert_eq!(relative_time(NOW - 7_200_000, NOW, Lang::Zh), "2 小时前");
+        assert_eq!(relative_time(NOW - 172_800_000, NOW, Lang::Zh), "2 天前");
+        assert_eq!(relative_time(NOW - 5_000, NOW, Lang::En), "just now");
+        assert_eq!(relative_time(NOW - 30_000, NOW, Lang::En), "30s ago");
+        assert_eq!(relative_time(NOW - 180_000, NOW, Lang::En), "3m ago");
+        assert_eq!(relative_time(NOW - 7_200_000, NOW, Lang::En), "2h ago");
+        assert_eq!(relative_time(NOW - 172_800_000, NOW, Lang::En), "2d ago");
     }
 
     /// 契约：any_alert——enabled + 超阈值才触发；disabled / 失效条目不触发。

@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { dataSummary, relativeTime, usedPercent } from "../display";
+import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import { KEEP_LAST_GOOD_MS, type ProviderEntry, type QueryOutcome, type SnapshotEntry } from "../types";
 
@@ -38,6 +39,7 @@ function cardView(outcome: QueryOutcome | undefined) {
 
 export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapshot, onEdit }: Props) {
   const qc = useQueryClient();
+  const { t, lang } = useLang();
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
   const outcome = query.data;
   const view = cardView(outcome);
@@ -67,17 +69,29 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
 
   const badgeEl = (() => {
     if (!entry.enabled) {
-      return <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500">已停用</span>;
+      return (
+        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+          {t("card.disabled")}
+        </span>
+      );
     }
     switch (view.badge) {
       case "deterministic":
-        return <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">确定性失败</span>;
+        return (
+          <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-950/60 dark:text-red-300">
+            {t("card.deterministic")}
+          </span>
+        );
       case "invalid":
-        return <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700">已失效</span>;
+        return (
+          <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-950/60 dark:text-red-300">
+            {t("card.invalid")}
+          </span>
+        );
       case "transient":
         return (
-          <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
-            {view.stale ? "暂不可达 · 保留旧值" : "网络波动"}
+          <span className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+            {view.stale ? t("card.staleKeep") : t("card.network")}
           </span>
         );
       default:
@@ -86,40 +100,44 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
   })();
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex items-center gap-2">
-        <span className={`font-medium ${entry.enabled ? "" : "text-slate-400"}`}>{entry.name}</span>
-        <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700">{kindBadge}</span>
+        <span className={`font-medium ${entry.enabled ? "" : "text-slate-400 dark:text-slate-500"}`}>
+          {entry.name}
+        </span>
+        <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+          {kindBadge}
+        </span>
         {badgeEl}
         <span className="ml-auto flex items-center gap-1">
           <button
-            title="手动刷新"
+            title={t("card.refresh")}
             disabled={!entry.enabled}
             onClick={invalidate}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             ⟳
           </button>
           <button
-            title={entry.enabled ? "停用" : "启用"}
+            title={entry.enabled ? t("card.disable") : t("card.enable")}
             onClick={() => toggleEnabled.mutate()}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
+            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             {entry.enabled ? "⏸" : "▶"}
           </button>
           <button
-            title="编辑"
+            title={t("card.edit")}
             onClick={() => onEdit(entry)}
-            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100"
+            className="rounded px-2 py-1 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
           >
             ✎
           </button>
           <button
-            title="删除"
+            title={t("card.remove")}
             onClick={() => {
-              if (window.confirm(`确定删除「${entry.name}」？`)) remove.mutate();
+              if (window.confirm(t("card.confirmRemove", { name: entry.name }))) remove.mutate();
             }}
-            className="rounded px-2 py-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+            className="rounded px-2 py-1 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:text-slate-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
           >
             ✕
           </button>
@@ -128,18 +146,21 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
 
       <div className="mt-2 space-y-1">
         {!entry.enabled ? (
-          <p className="text-sm text-slate-400">条目已停用，不参与查询</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">{t("card.disabledNote")}</p>
         ) : view.badge === "deterministic" ? (
-          <p className="text-sm text-red-600">{outcome?.error?.message}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{outcome?.error?.message}</p>
         ) : view.badge === "transient" && !view.stale ? (
           // 瞬时失败且旧值超窗/无旧值 → 错误立即透出
-          <p className="text-sm text-slate-600">{outcome?.error?.message}</p>
+          <p className="text-sm text-slate-600 dark:text-slate-300">{outcome?.error?.message}</p>
         ) : view.badge === "invalid" ? (
-          <p className="text-sm text-red-600">
-            已失效：{outcome?.data?.find((d) => d.is_valid === false)?.invalid_message ?? "未说明原因"}
+          <p className="text-sm text-red-600 dark:text-red-400">
+            {t("card.invalidPrefix")}
+            {outcome?.data?.find((d) => d.is_valid === false)?.invalid_message ?? t("card.noReason")}
           </p>
         ) : outcome?.data == null && snapshot == null ? (
-          <p className="text-sm text-slate-400">{query.isFetching ? "查询中…" : "尚无数据"}</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">
+            {query.isFetching ? t("card.querying") : t("card.noData")}
+          </p>
         ) : (
           (outcome?.data ?? snapshot?.data ?? []).map((d, i) => {
             const rows = outcome?.data ?? snapshot?.data ?? [];
@@ -148,14 +169,18 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
             return (
               <div key={i} className="flex items-baseline gap-2 text-sm">
                 {rows.length > 1 && (
-                  <span className="text-slate-500">{d.plan_name ?? `窗口${i + 1}`}</span>
+                  <span className="text-slate-500 dark:text-slate-400">
+                    {d.plan_name ?? t("card.windowN", { n: i + 1 })}
+                  </span>
                 )}
-                <span className={over ? "font-semibold text-red-600" : "text-slate-800"}>
-                  {dataSummary(d)}
+                <span className={over ? "font-semibold text-red-600 dark:text-red-400" : "text-slate-800 dark:text-slate-200"}>
+                  {dataSummary(d, lang)}
                   {over && " ⚠"}
                 </span>
                 {d.total != null && pct == null && (
-                  <span className="text-xs text-slate-400">总额度 {d.total}</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500">
+                    {t("card.totalQuota", { total: d.total })}
+                  </span>
                 )}
               </div>
             );
@@ -163,15 +188,15 @@ export function ProviderCard({ entry, intervalMinutes, thresholdPercent, snapsho
         )}
       </div>
 
-      <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
-        <span>{configured ? "已配置 key" : "未配置 key"}</span>
+      <div className="mt-2 flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+        <span>{configured ? t("card.keyConfigured") : t("card.keyMissing")}</span>
         <span>·</span>
         {/* outcome 为空（首次查询未返回）时回落到启动快照时间 */}
-        <span>{relativeTime(outcome?.at ?? snapshot?.at)}</span>
+        <span>{relativeTime(outcome?.at ?? snapshot?.at, lang)}</span>
         {outcome?.data == null && snapshot != null && !query.isFetching && (
-          <span>上次于 {relativeTime(snapshot.at)}（启动快照）</span>
+          <span>{t("card.snapshotAt", { time: relativeTime(snapshot.at, lang) })}</span>
         )}
-        {query.isFetching && <span className="animate-pulse">刷新中…</span>}
+        {query.isFetching && <span className="animate-pulse">{t("card.refreshing")}</span>}
         {view.stale && outcome?.error && <span>· {outcome.error.message}</span>}
       </div>
     </div>

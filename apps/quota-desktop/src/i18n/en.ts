@@ -1,0 +1,85 @@
+// 英文文案字典：键集合与 zh.ts 完全一致（Record<TextKey, string> 保证编译期完整）。
+import type { TextKey } from "./zh";
+
+export const en: Record<TextKey, string> = {
+  // ---- 通用 ----
+  "common.cancel": "Cancel",
+  "common.save": "Save",
+  "common.saving": "Saving…",
+
+  // ---- 主窗口 ----
+  "app.subtitle": "AI account balance monitor",
+  "app.add": "+ Add",
+  "app.settings": "Settings",
+  "app.loading": "Loading…",
+  "app.configError": "Failed to read config: {msg}",
+  "app.emptyTitle": "No provider entries yet",
+  "app.emptyHint":
+    "Click \"Add\" for a built-in provider, or use a template JSON for any platform",
+
+  // ---- 供应商卡片 ----
+  "card.disabled": "Disabled",
+  "card.deterministic": "Deterministic failure",
+  "card.invalid": "Invalid",
+  "card.staleKeep": "Unreachable · showing last value",
+  "card.network": "Network issue",
+  "card.refresh": "Refresh",
+  "card.disable": "Disable",
+  "card.enable": "Enable",
+  "card.edit": "Edit",
+  "card.remove": "Remove",
+  "card.confirmRemove": "Remove \"{name}\"?",
+  "card.disabledNote": "Entry is disabled and not queried",
+  "card.invalidPrefix": "Invalid: ",
+  "card.noReason": "No reason given",
+  "card.noData": "No data yet",
+  "card.querying": "Querying…",
+  "card.windowN": "Window {n}",
+  "card.totalQuota": "Total {total}",
+  "card.keyConfigured": "API key set",
+  "card.keyMissing": "No API key",
+  "card.snapshotAt": "Last at {time} (startup snapshot)",
+  "card.refreshing": "Refreshing…",
+
+  // ---- 添加/编辑对话框 ----
+  "edit.titleEdit": "Edit provider",
+  "edit.titleAdd": "Add provider",
+  "edit.tabNative": "Built-in",
+  "edit.tabTemplate": "Template",
+  "edit.tabScript": "Script (M4)",
+  "edit.name": "Name",
+  "edit.namePlaceholder": "e.g. DeepSeek main",
+  "edit.nameRequired": "Name is required",
+  "edit.platform": "Platform",
+  "edit.platformPlaceholder": "Select…",
+  "edit.nativeRequired": "Select a built-in provider",
+  "edit.templateJson": "Template JSON",
+  "edit.baseUrl": "baseUrl (source of the {{baseUrl}} variable)",
+  "edit.jsonError": "JSON parse error: {msg}",
+  "edit.templateJsonError": "Failed to parse template JSON",
+  "edit.insecureWarn":
+    "⚠ allowInsecure is enabled: requests may go over plaintext http and the API key could be intercepted",
+  "edit.validate": "Validate",
+  "edit.test": "Test",
+  "edit.testing": "Testing…",
+  "edit.validated": "Validation passed",
+  "edit.testOk": "Test succeeded",
+  "edit.apiKey": "API key",
+  "edit.keyConfigured": "Configured (leave blank to keep)",
+  "edit.keyMissing": "Not configured",
+
+  // ---- 设置对话框 ----
+  "settings.title": "Settings",
+  "settings.interval": "Refresh interval (min)",
+  "settings.threshold": "Low-balance alert threshold (used %)",
+  "settings.autostart": "Launch at startup",
+  "settings.language": "Language",
+  "settings.langZh": "中文",
+  "settings.langEn": "English",
+  "settings.langSystem": "Follow system",
+  "settings.theme": "Theme",
+  "settings.themeLight": "Light",
+  "settings.themeDark": "Dark",
+  "settings.themeSystem": "Follow system",
+  "settings.ringUnits": "Tray ring units per circle",
+};

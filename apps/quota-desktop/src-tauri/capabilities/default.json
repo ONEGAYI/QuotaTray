@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "主窗口基础权限：事件监听（托盘「立即刷新」与悬停刷新链路依赖）",
+  "description": "主窗口基础权限：事件监听（托盘「立即刷新」与悬停刷新链路）+ 主题设置（三态主题联动原生 titlebar）",
   "windows": ["main"],
-  "permissions": ["core:event:default"]
+  "permissions": ["core:event:default", "core:window:allow-set-theme"]
 }

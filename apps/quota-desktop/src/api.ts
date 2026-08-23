@@ -31,6 +31,9 @@ export const api = {
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
   getSettings: (): Promise<Settings> => invoke("get_settings"),
   saveSettings: (settings: Settings): Promise<void> => invoke("save_settings", { settings }),
+  /** 推送解析后的实际主题（ThemeProvider 调用，托盘圆环图标配色取用）。 */
+  setResolvedTheme: (theme: "light" | "dark"): Promise<void> =>
+    invoke("set_resolved_theme", { theme }),
   getSnapshots: (): Promise<Record<string, SnapshotEntry>> => invoke("get_snapshots"),
 };
 
