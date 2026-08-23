@@ -15,6 +15,7 @@ import {
 import { ThemeProvider } from "../theme";
 import type { ProviderEntry, Settings } from "../types";
 import { hoverRingView, resolveHoverProvider } from "./hoverPanelView";
+import { BrandMark } from "./BrandMark";
 import { deriveProviderCardState } from "./providerCardView";
 import {
   pricingModelChoices,
@@ -193,7 +194,7 @@ function HoverPanelInner() {
     >
       <header className="qt-hover-header">
         <div className="qt-hover-brand">
-          <span className="qt-hover-mark">Q</span>
+          <BrandMark className="qt-hover-mark" />
           <div>
             <strong>QuotaTray</strong>
             <small><i />{view.at ? relativeTime(view.at, lang) : t("card.neverSucceeded")}</small>

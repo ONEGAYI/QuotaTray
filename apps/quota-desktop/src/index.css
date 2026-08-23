@@ -75,7 +75,7 @@ button:disabled { cursor: not-allowed; }
 
 .qt-titlebar { display: flex; height: 45px; flex: none; align-items: center; justify-content: space-between; border-bottom: 1px solid color-mix(in srgb, var(--qt-border) 74%, transparent); background: color-mix(in srgb, var(--qt-shell-highlight) 88%, transparent); user-select: none; }
 .qt-titlebar-drag { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 9px; padding-left: 13px; }
-.qt-app-mark { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: var(--qt-accent); color: var(--qt-on-accent); font-weight: 700; }
+.qt-app-mark { display: block; width: 24px; height: 24px; flex: none; object-fit: contain; }
 .qt-titlebar-name { font-size: 14px; font-weight: 650; }
 .qt-titlebar-subtitle { overflow: hidden; color: var(--qt-text-faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .qt-titlebar-actions { display: flex; height: 100%; align-items: center; }
@@ -268,7 +268,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 }
 .qt-hover-header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 13px 9px; }
 .qt-hover-brand { display: flex; min-width: 0; align-items: center; gap: 10px; }
-.qt-hover-mark { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 9px; background: var(--qt-accent); color: var(--qt-on-accent); font-weight: 700; }
+.qt-hover-mark { display: block; width: 32px; height: 32px; flex: none; object-fit: contain; }
 .qt-hover-brand > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .qt-hover-brand strong { font-size: 14px; font-weight: 650; }
 .qt-hover-brand small { display: flex; align-items: center; gap: 6px; color: var(--qt-text-faint); font-size: 11px; }

@@ -1,0 +1,37 @@
+{
+  "name": "QuotaTray segmented Q",
+  "master": "../../src/assets/brand-mark.png",
+  "concept": "四段额度圆环，右下段自然延伸为 Q 形拖尾",
+  "palette": {
+    "indigo": "#5B5CE2",
+    "mint": "#35DDB0"
+  },
+  "provenance": {
+    "shape": "ImageGen 按项目所有者确认的概念稿忠实重绘透明通道",
+    "cleanup": "保留四个最大主体连通块；删除散点；非透明像素映射至最近品牌色；保留抗锯齿 alpha",
+    "alpha_floor": 8
+  },
+  "export": {
+    "tool": "@tauri-apps/cli icon",
+    "command": "pnpm tauri icon src/assets/brand-mark.png --output src-tauri/icons",
+    "tracked_outputs": [
+      "32x32.png",
+      "64x64.png",
+      "128x128.png",
+      "128x128@2x.png",
+      "icon.png",
+      "icon.ico",
+      "icon.icns",
+      "StoreLogo.png",
+      "Square30x30Logo.png",
+      "Square44x44Logo.png",
+      "Square71x71Logo.png",
+      "Square89x89Logo.png",
+      "Square107x107Logo.png",
+      "Square142x142Logo.png",
+      "Square150x150Logo.png",
+      "Square284x284Logo.png",
+      "Square310x310Logo.png"
+    ]
+  }
+}

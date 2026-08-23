@@ -17,6 +17,7 @@ import { useLang, type TextKey } from "../i18n";
 import { useSettings } from "../queries";
 import { useTheme } from "../theme";
 import type { Settings } from "../types";
+import { BrandMark } from "./BrandMark";
 import { DropdownMenu, IconButton, MenuItem } from "./ui";
 
 type MenuKind = "language" | "theme" | null;
@@ -71,7 +72,7 @@ export function TitleBar() {
         onDoubleClick={() => void win.toggleMaximize()}
         className="qt-titlebar-drag"
       >
-        <span data-tauri-drag-region className="qt-app-mark">Q</span>
+        <BrandMark data-tauri-drag-region className="qt-app-mark" />
         <span data-tauri-drag-region className="qt-titlebar-name">QuotaTray</span>
         <span data-tauri-drag-region className="qt-titlebar-subtitle">
           {t("app.subtitle")}

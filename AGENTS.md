@@ -124,7 +124,10 @@ QuotaTray/
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
 │       │   │                              #   （标题栏/账户摘要/列表），编辑时传递查询币种
+│       │   ├── vite-env.d.ts   # Vite 静态资源（品牌 PNG 等）模块类型声明
 │       │   ├── index.css       # 明暗设计令牌、Mica-like 基底、主窗响应式系统 + 悬停面板样式
+│       │   ├── assets/
+│       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   自定义模型库/按币种预置 DTO、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
@@ -142,6 +145,7 @@ QuotaTray/
 │       │       │                       #   （Dialog 含 Escape、焦点圈定与关闭后焦点恢复）
 │       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
+│       │       ├── BrandMark.tsx       # 标题栏/悬停面板共用的静态品牌标志薄组件
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口告警+
 │       │       │                       #   短时反馈、启停/编辑/删除确认
@@ -169,7 +173,8 @@ QuotaTray/
 │           ├── capabilities/
 │           │   ├── default.json        # 主窗口事件/主题/无装饰窗口控制 ACL
 │           │   └── hover-panel.json    # 悬停窗口事件与主题最小 ACL
-│           ├── icons/          # 应用图标（托盘圆环为运行时动态渲染，无静态托盘资源）
+│           ├── icons/          # 品牌主图导出的 PNG/ICO/ICNS/Windows 尺寸集 + manifest；
+│           │                   #   运行时托盘圆环仍由 ring.rs 动态渲染
 │           ├── examples/
 │           │   └── smoke_setup.rs # GUI 冒烟注入器（沙箱 config.json，手动跑）
 │           └── src/
