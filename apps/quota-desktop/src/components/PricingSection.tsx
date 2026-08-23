@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { HelpCircle } from "lucide-react";
 import { useLang } from "../i18n";
 import type {
   PeakWindow,
@@ -16,13 +17,12 @@ import {
   selectedPresetModel,
   type PricingDraft,
 } from "./pricingDraft";
+import { Badge, Tooltip } from "./ui";
 
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-const fieldCls =
-  "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const compactFieldCls =
-  "min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const subduedTextCls = "text-xs text-slate-500 dark:text-slate-400";
+const fieldCls = "qt-input";
+const compactFieldCls = "qt-input qt-input-compact";
+const subduedTextCls = "qt-text-subdued";
 
 interface Props {
   preset: PresetPricing | null;
@@ -94,15 +94,15 @@ export function PricingSection(props: Props) {
   const updateWindows = (windows: PeakWindow[]) => patch({ windows });
 
   return (
-    <fieldset className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+    <fieldset className="qt-pricing-section">
       <legend className="sr-only">{t("pricing.section")}</legend>
 
-      <div className="flex items-start justify-between gap-4 px-4 py-4">
+      <div className="qt-pricing-section-header">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">
+          <h3>
             {t("pricing.section")}
           </h3>
-          <p className={`mt-1 ${subduedTextCls}`}>
+          <p className={subduedTextCls}>
             {draft.custom
               ? t("pricing.summaryCustom", { model: modelLabel })
               : props.preset
@@ -114,22 +114,16 @@ export function PricingSection(props: Props) {
                 : t("pricing.summaryOff")}
           </p>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-            draft.custom
-              ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300"
-              : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-          }`}
-        >
+        <Badge tone={draft.custom ? "accent" : "neutral"}>
           {draft.custom
             ? t("pricing.statusCustom")
             : props.preset
               ? t("pricing.statusPreset")
               : t("pricing.statusOff")}
-        </span>
+        </Badge>
       </div>
 
-      <div className="mx-4 mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900/70">
+      <div className="qt-pricing-mode">
         <ModeButton active={!draft.custom} onClick={() => setMode(false)}>
           {props.preset ? t("pricing.modePreset") : t("pricing.modeOff")}
         </ModeButton>
@@ -139,8 +133,8 @@ export function PricingSection(props: Props) {
       </div>
 
       {props.preset && (
-        <div className="grid gap-2 border-y border-slate-200 px-4 py-3 sm:grid-cols-[auto_minmax(12rem,1fr)_auto] sm:items-center dark:border-slate-700">
-          <label htmlFor="pricing-model" className="text-sm font-medium text-slate-700 dark:text-slate-200">
+        <div className="qt-pricing-model-row">
+          <label htmlFor="pricing-model">
             {t("pricing.presetModel")}
           </label>
           <select
@@ -170,7 +164,7 @@ export function PricingSection(props: Props) {
       {draft.custom && (
         <div>
           {props.preset && (
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-indigo-50 px-4 py-2.5 text-xs text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+            <div className="qt-inherit-banner">
               <span>{t("pricing.inheritNote")}</span>
               <button type="button" onClick={clearOverrides} className="font-medium hover:underline">
                 {t("pricing.clearOverrides")}
@@ -345,7 +339,7 @@ function ModeButton(props: {
 function PresetPreview(props: { preset: PresetPricing; model: PresetModel }) {
   const { t } = useLang();
   return (
-    <div className="grid gap-px bg-slate-200 sm:grid-cols-2 dark:bg-slate-700">
+    <div className="qt-preset-preview">
       <PreviewItem
         label={t("pricing.windowsTitle")}
         value={t("pricing.windowCount", { count: props.preset.windows.length })}
@@ -354,25 +348,33 @@ function PresetPreview(props: { preset: PresetPricing; model: PresetModel }) {
         label={t("pricing.timezoneCurrency")}
         value={`${formatUtcOffset(props.preset.timezone_offset_minutes)} · ${props.preset.currency}`}
       />
-      <PreviewItem label={t("pricing.peak")} value={tierSummary(props.model.peak, t("pricing.noValue"))} />
-      <PreviewItem label={t("pricing.offPeak")} value={tierSummary(props.model.off_peak, t("pricing.noValue"))} />
+      <PresetTierPreview label={t("pricing.peak")} tier={props.model.peak} />
+      <PresetTierPreview label={t("pricing.offPeak")} tier={props.model.off_peak} />
     </div>
   );
 }
 
 function PreviewItem(props: { label: string; value: string }) {
   return (
-    <div className="bg-white px-4 py-3 dark:bg-slate-800">
+    <div className="qt-preview-item">
       <span className={subduedTextCls}>{props.label}</span>
-      <p className="mt-1 text-sm font-medium text-slate-800 dark:text-slate-100">{props.value}</p>
+      <p>{props.value}</p>
     </div>
   );
 }
 
-function tierSummary(tier: PriceTier, fallback: string): string {
-  return [tier.cache_hit_input, tier.cache_miss_input, tier.output]
-    .map((value) => (value == null ? fallback : formatPrice(value)))
-    .join(" · ");
+function PresetTierPreview(props: { label: string; tier: PriceTier }) {
+  const { t } = useLang();
+  return (
+    <div className="qt-preview-item qt-preview-tier">
+      <span className={subduedTextCls}>{props.label}</span>
+      <dl>
+        <div><dt>{t("pricing.hit")}</dt><dd>{formatPrice(props.tier.cache_hit_input)}</dd></div>
+        <div><dt>{t("pricing.miss")}</dt><dd>{formatPrice(props.tier.cache_miss_input)}</dd></div>
+        <div><dt>{t("pricing.out")}</dt><dd>{formatPrice(props.tier.output)}</dd></div>
+      </dl>
+    </div>
+  );
 }
 
 function WindowEditor(props: {
@@ -494,7 +496,20 @@ function PriceTierEditor(props: {
           const inherited = props.presetTier?.[presetKey];
           return (
             <label key={draftKey} className="grid grid-cols-[minmax(8rem,1fr)_minmax(5rem,7rem)] items-center gap-x-2 py-1">
-              <span className="text-xs text-slate-700 dark:text-slate-300">{label}</span>
+              <span className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-300">
+                {label}
+                <Tooltip
+                  text={
+                    presetKey === "cache_hit_input"
+                      ? t("pricing.hitExplain")
+                      : presetKey === "cache_miss_input"
+                        ? t("pricing.missExplain")
+                        : t("pricing.outExplain")
+                  }
+                >
+                  <HelpCircle size={13} aria-hidden="true" />
+                </Tooltip>
+              </span>
               <input
                 type="number"
                 step="any"

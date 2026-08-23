@@ -1,0 +1,326 @@
+import { Check, X, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+
+export function Button({
+  variant = "secondary",
+  icon: Icon,
+  children,
+  className = "",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  icon?: LucideIcon;
+}) {
+  return (
+    <button className={`qt-btn qt-btn-${variant} ${className}`} {...props}>
+      {Icon && <Icon size={16} aria-hidden="true" />}
+      {children}
+    </button>
+  );
+}
+
+export function IconButton({
+  label,
+  icon: Icon,
+  danger = false,
+  className = "",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  icon: LucideIcon;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      aria-label={label}
+      data-tooltip={label}
+      className={`qt-icon-btn ${danger ? "qt-icon-btn-danger" : ""} ${className}`}
+      {...props}
+    >
+      <Icon size={16} aria-hidden="true" />
+    </button>
+  );
+}
+
+export function Badge({
+  tone = "neutral",
+  dot = false,
+  children,
+}: {
+  tone?: "neutral" | "accent" | "success" | "warning" | "danger";
+  dot?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <span className={`qt-badge qt-badge-${tone}`}>
+      {dot && <span className="qt-badge-dot" />}
+      {children}
+    </span>
+  );
+}
+
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  compact = false,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`qt-segmented ${compact ? "qt-segmented-compact" : ""}`}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="qt-switch">
+      <span className="sr-only">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="qt-switch-track" />
+    </label>
+  );
+}
+
+export function Tooltip({ text, children }: { text: string; children: ReactNode }) {
+  return (
+    <span className="qt-tooltip-anchor" data-tooltip={text} aria-label={text}>
+      {children}
+    </span>
+  );
+}
+
+export function DropdownMenu({
+  open,
+  onClose,
+  children,
+  className = "",
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div ref={ref} className={`qt-dropdown ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+export function MenuItem({
+  checked,
+  icon: Icon,
+  children,
+  onClick,
+}: {
+  checked?: boolean;
+  icon?: LucideIcon;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className="qt-menu-item" onClick={onClick}>
+      <span className="qt-menu-item-main">
+        {Icon && <Icon size={15} aria-hidden="true" />}
+        {children}
+      </span>
+      <span className="qt-menu-check">{checked && <Check size={14} aria-hidden="true" />}</span>
+    </button>
+  );
+}
+
+export function DialogShell({
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  size = "md",
+  closeLabel = "Close",
+}: {
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer: ReactNode;
+  size?: "sm" | "md" | "lg";
+  closeLabel?: string;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusableSelector = [
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "a[href]",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+    const focusable = () =>
+      Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true",
+      );
+    (focusable()[0] ?? dialog).focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, []);
+
+  return (
+    <div className="qt-dialog-backdrop">
+      <section
+        ref={dialogRef}
+        className={`qt-dialog qt-dialog-${size}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+      >
+        <header className="qt-dialog-header">
+          <div>
+            <h2>{title}</h2>
+            {description && <p>{description}</p>}
+          </div>
+          <IconButton icon={X} label={closeLabel} onClick={onClose} />
+        </header>
+        <div className="qt-dialog-body">{children}</div>
+        <footer className="qt-dialog-footer">{footer}</footer>
+      </section>
+    </div>
+  );
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel,
+  cancelLabel,
+  pending,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  pending?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <DialogShell
+      title={title}
+      onClose={onClose}
+      size="sm"
+      closeLabel={cancelLabel}
+      footer={
+        <>
+          <Button onClick={onClose}>{cancelLabel}</Button>
+          <Button variant="danger" disabled={pending} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <p className="qt-confirm-message">{message}</p>
+    </DialogShell>
+  );
+}
+
+export function SettingRow({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="qt-setting-row">
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <div className="qt-setting-control">{children}</div>
+    </div>
+  );
+}

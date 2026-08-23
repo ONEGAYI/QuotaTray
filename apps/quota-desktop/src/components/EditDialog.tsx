@@ -17,6 +17,7 @@ import type {
   TemplateErrorDto,
 } from "../types";
 import { PricingSection } from "./PricingSection";
+import { Button, DialogShell } from "./ui";
 
 interface Props {
   open: boolean;
@@ -45,9 +46,8 @@ function toTemplateError(e: unknown): TemplateErrorDto | null {
   return null;
 }
 
-const inputCls =
-  "mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-const labelCls = "text-sm text-slate-600 dark:text-slate-300";
+const inputCls = "qt-input";
+const labelCls = "qt-field-label";
 
 export function EditDialog({ open, initial, onClose }: Props) {
   const qc = useQueryClient();
@@ -137,124 +137,118 @@ export function EditDialog({ open, initial, onClose }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/30 p-4">
-      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-xl dark:bg-slate-800">
-        <div className="border-b border-slate-200 px-5 py-3 dark:border-slate-700">
-          <h2 className="font-medium">{initial ? t("edit.titleEdit") : t("edit.titleAdd")}</h2>
-        </div>
+    <DialogShell
+      title={initial ? t("edit.titleEdit") : t("edit.titleAdd")}
+      description={initial?.name ?? t("edit.descriptionAdd")}
+      onClose={onClose}
+      closeLabel={t("titlebar.close")}
+      size="lg"
+      footer={
+        <>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="provider-edit-form"
+            disabled={save.isPending}
+          >
+            {save.isPending ? t("common.saving") : t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="qt-edit-tabs">
+        {(["native", "template", "script"] as Tab[]).map((tabId) => (
+          <button
+            type="button"
+            key={tabId}
+            disabled={tabId === "script"}
+            aria-pressed={tab === tabId}
+            onClick={() => setTab(tabId)}
+          >
+            {tabId === "native"
+              ? t("edit.tabNative")
+              : tabId === "template"
+                ? t("edit.tabTemplate")
+                : t("edit.tabScript")}
+          </button>
+        ))}
+      </div>
 
-        <div className="flex gap-1 border-b border-slate-200 px-5 pt-2 dark:border-slate-700">
-          {(["native", "template", "script"] as Tab[]).map((tabId) => (
-            <button
-              key={tabId}
-              disabled={tabId === "script"}
-              onClick={() => setTab(tabId)}
-              className={`rounded-t px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-40 ${
-                tab === tabId
-                  ? "border border-b-white border-slate-200 bg-white font-medium dark:border-slate-700 dark:border-b-slate-800 dark:bg-slate-800"
-                  : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700/60"
-              }`}
-            >
-              {tabId === "native"
-                ? t("edit.tabNative")
-                : tabId === "template"
-                  ? t("edit.tabTemplate")
-                  : t("edit.tabScript")}
-            </button>
-          ))}
-        </div>
-
-        <form
-          className="flex-1 space-y-4 overflow-y-auto px-5 py-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate();
-          }}
-        >
-          <label className="block">
-            <span className={labelCls}>{t("edit.name")}</span>
+      <form
+        id="provider-edit-form"
+        className="qt-edit-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save.mutate();
+        }}
+      >
+        <div className="qt-edit-basics">
+          <label className="qt-field">
+            <span>{t("edit.name")}</span>
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(event) => setName(event.target.value)}
               placeholder={t("edit.namePlaceholder")}
               className={inputCls}
             />
           </label>
 
           {tab === "native" && (
-            <label className="block">
-              <span className={labelCls}>{t("edit.platform")}</span>
+            <label className="qt-field">
+              <span>{t("edit.platform")}</span>
               <select
                 value={nativeProvider}
-                onChange={(e) => setNativeProvider(e.target.value)}
-                className={inputCls}
+                onChange={(event) => setNativeProvider(event.target.value)}
+                className="qt-select"
               >
                 <option value="">{t("edit.platformPlaceholder")}</option>
-                {(natives.data ?? []).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {t("edit.platformOption", { name: m.name, id: m.id })}
+                {(natives.data ?? []).map((meta) => (
+                  <option key={meta.id} value={meta.id}>
+                    {t("edit.platformOption", { name: meta.name, id: meta.id })}
                   </option>
                 ))}
               </select>
             </label>
           )}
-
-          {tab === "template" && (
-            <TemplateForm
-              templateJson={templateJson}
-              setTemplateJson={setTemplateJson}
-              baseUrl={baseUrl}
-              setBaseUrl={setBaseUrl}
-              apiKey={apiKey}
-              setApiKey={setApiKey}
-            />
-          )}
-
-          <PricingSection
-            key={`${tab}:${nativeProvider}`}
-            preset={selectedPreset}
-            initial={tab === initialTab ? initial?.pricing : undefined}
-            onChange={(p) => {
-              pricingRef.current = p;
-            }}
-          />
-
-          <label className="block">
-            <span className={labelCls}>{t("edit.apiKey")}</span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              autoComplete="new-password"
-              placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
-              className={inputCls}
-            />
-          </label>
-
-          {error && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-              {error}
-            </p>
-          )}
-        </form>
-
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3 dark:border-slate-700">
-          <button
-            onClick={onClose}
-            className="rounded px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            onClick={() => save.mutate()}
-            disabled={save.isPending}
-            className="rounded bg-indigo-600 px-4 py-1.5 text-sm text-white hover:bg-indigo-500 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-400"
-          >
-            {save.isPending ? t("common.saving") : t("common.save")}
-          </button>
         </div>
-      </div>
-    </div>
+
+        {tab === "template" && (
+          <TemplateForm
+            templateJson={templateJson}
+            setTemplateJson={setTemplateJson}
+            baseUrl={baseUrl}
+            setBaseUrl={setBaseUrl}
+            apiKey={apiKey}
+            setApiKey={setApiKey}
+          />
+        )}
+
+        <PricingSection
+          key={`${tab}:${nativeProvider}`}
+          preset={selectedPreset}
+          initial={tab === initialTab ? initial?.pricing : undefined}
+          onChange={(pricing) => {
+            pricingRef.current = pricing;
+          }}
+        />
+
+        <label className="qt-field qt-credential-field">
+          <span>{t("edit.apiKey")}</span>
+          <small>{t("edit.apiKeyHint")}</small>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            autoComplete="new-password"
+            placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
+            className={inputCls}
+          />
+        </label>
+
+        {error && <p className="qt-inline-error">{error}</p>}
+      </form>
+    </DialogShell>
   );
 }
 
@@ -315,15 +309,13 @@ function TemplateForm(props: {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="qt-template-form">
       {/"allowInsecure"\s*:\s*true/.test(props.templateJson) && (
-        <p className="rounded bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          {t("edit.insecureWarn")}
-        </p>
+        <p className="qt-inline-warning">{t("edit.insecureWarn")}</p>
       )}
-      <label className="block">
+      <label className="qt-field">
         <span className={labelCls}>{t("edit.templateJson")}</span>
-        <div className="mt-1 overflow-hidden rounded border border-slate-300 dark:border-slate-600">
+        <div className="qt-code-editor">
           <CodeMirror
             value={props.templateJson}
             onChange={(v) => {
@@ -339,7 +331,7 @@ function TemplateForm(props: {
         </div>
       </label>
 
-      <label className="block">
+      <label className="qt-field">
         <span className={labelCls}>{t("edit.baseUrl")}</span>
         <input
           value={props.baseUrl}
@@ -349,39 +341,25 @@ function TemplateForm(props: {
         />
       </label>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => validate.mutate()}
-          disabled={validate.isPending}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
+      <div className="qt-template-actions">
+        <Button type="button" onClick={() => validate.mutate()} disabled={validate.isPending}>
           {t("edit.validate")}
-        </button>
-        <button
-          type="button"
-          onClick={() => void test()}
-          disabled={testing}
-          className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-        >
+        </Button>
+        <Button type="button" onClick={() => void test()} disabled={testing}>
           {testing ? t("edit.testing") : t("edit.test")}
-        </button>
+        </Button>
         {validateOk && !validateMsg && (
-          <span className="text-xs text-green-600 dark:text-green-400">{t("edit.validated")}</span>
+          <span className="qt-text-success">{t("edit.validated")}</span>
         )}
       </div>
 
-      {validateMsg && (
-        <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40 dark:text-red-400">
-          {validateMsg}
-        </p>
-      )}
+      {validateMsg && <p className="qt-inline-error">{validateMsg}</p>}
 
       {testResult && (
-        <div className="rounded bg-slate-50 p-3 text-sm dark:bg-slate-900/60 dark:text-slate-200">
+        <div className="qt-template-result">
           {testResult.ok ? (
             <div>
-              <p className="mb-1 text-xs text-green-600 dark:text-green-400">{t("edit.testOk")}</p>
+              <p className="qt-text-success">{t("edit.testOk")}</p>
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
@@ -390,14 +368,8 @@ function TemplateForm(props: {
               ))}
             </div>
           ) : (
-            <p
-              className={
-                testResult.error?.kind === "transient"
-                  ? "text-slate-600 dark:text-slate-300"
-                  : "text-red-600 dark:text-red-400"
-              }
-            >
-              {testResult.error?.kind === "transient" ? "⟳" : "⚠"} {testResult.error?.message}
+            <p className={testResult.error?.kind === "transient" ? "qt-text-subdued" : "qt-text-danger"}>
+              {testResult.error?.message}
             </p>
           )}
         </div>
