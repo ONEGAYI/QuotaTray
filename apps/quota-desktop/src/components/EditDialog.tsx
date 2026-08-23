@@ -17,6 +17,7 @@ import type {
   QueryOutcome,
   TemplateErrorDto,
 } from "../types";
+import { NativeProviderPicker } from "./NativeProviderPicker";
 import { PricingSection } from "./PricingSection";
 import { Button, DialogShell } from "./ui";
 
@@ -207,21 +208,24 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
           </label>
 
           {tab === "native" && (
-            <label className="qt-field">
+            <div className="qt-field">
               <span>{t("edit.platform")}</span>
-              <select
+              <NativeProviderPicker
+                metas={natives.data ?? []}
                 value={nativeProvider}
-                onChange={(event) => setNativeProvider(event.target.value)}
-                className="qt-select"
-              >
-                <option value="">{t("edit.platformPlaceholder")}</option>
-                {(natives.data ?? []).map((meta) => (
-                  <option key={meta.id} value={meta.id}>
-                    {t("edit.platformOption", { name: meta.name, id: meta.id })}
-                  </option>
-                ))}
-              </select>
-            </label>
+                ariaLabel={t("edit.platform")}
+                placeholder={t("edit.platformPlaceholder")}
+                groupLabels={{
+                  deepseek: "DeepSeek",
+                  siliconflow: "SiliconFlow",
+                  openrouter: "OpenRouter",
+                  kimi: "Kimi",
+                  zhipu: t("edit.platformGroupZhipu"),
+                  zai: "Z.ai",
+                }}
+                onChange={setNativeProvider}
+              />
+            </div>
           )}
 
           {tab === "native" && selectedNativeMeta?.supports_plan_variant && (

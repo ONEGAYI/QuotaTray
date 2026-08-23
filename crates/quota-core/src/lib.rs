@@ -32,5 +32,8 @@ pub use pricing::{
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use template::{TemplateConfig, TemplateError};
-pub use update::{AssetDownloader, ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION};
+pub use update::{
+    AssetDownloader, DownloadProgress, DownloadProgressReporter, ReqwestAssetDownloader,
+    UpdateError, UpdateStatus, VERSION,
+};
 pub use vault::{InMemoryStore, KeyringStore, SecretStore, Vault};

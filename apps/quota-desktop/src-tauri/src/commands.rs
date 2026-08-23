@@ -570,9 +570,9 @@ pub async fn check_update_now(
 /// 下载安装包到系统下载目录，返回完整路径（前端展示路径文本，
 /// 用户自行运行安装包；打开文件夹属后续增强，暂不引 opener 插件）。
 #[tauri::command]
-pub async fn download_update(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let lang = lang_of(&state);
-    crate::update_ctl::download_installer(&state, lang).await
+    crate::update_ctl::download_installer(&app, &state, lang).await
 }
 
 // ---- 契约测试 -------------------------------------------------------------
@@ -679,7 +679,8 @@ mod tests {
     }
 
     /// 契约：list_native_metas 携带峰谷预置——deepseek 有（三模型/默认 flash/
-    /// UTC+8 双窗口），kimi/智谱系各站有预置，聚合与无预置平台为 None；
+    /// UTC+8 双窗口），Kimi 开放平台、Kimi Code 与智谱系各站有预置，
+    /// 聚合与无预置平台为 None；
     /// 订阅项 DTO 带 plan/windows 字段（前端类型镜像依据）。
     #[test]
     fn native_metas_carry_pricing_preset() {
@@ -715,9 +716,28 @@ mod tests {
         assert_eq!(ds.custom_models[0].display, "V4 Flash（自算）");
 
         // 有预置的平台（新批次）
-        for id in ["kimi_cn", "kimi_global", "zhipu", "zai"] {
+        for id in [
+            "kimi_cn",
+            "kimi_global",
+            "kimi_code_cn",
+            "kimi_code_global",
+            "zhipu",
+            "zai",
+        ] {
             let m = metas.iter().find(|m| m.id == id).unwrap();
             assert!(m.pricing.is_some(), "{id} 应有预置");
+        }
+        // Kimi Code 是独立订阅 Provider：默认模型即订阅额度，且不展示
+        // 智谱专属的套餐变体选择。
+        for id in ["kimi_code_cn", "kimi_code_global"] {
+            let m = metas.iter().find(|m| m.id == id).unwrap();
+            let p = m.pricing.as_ref().unwrap();
+            assert_eq!(p.default_model, "coding-plan");
+            assert_eq!(
+                serde_json::to_value(&p.models[0]).unwrap()["plan"],
+                "subscription"
+            );
+            assert!(!m.supports_plan_variant);
         }
         // 智谱订阅项：plan=subscription、模型级窗口
         let zhipu = metas.iter().find(|m| m.id == "zhipu").unwrap();
@@ -747,7 +767,16 @@ mod tests {
 
         // 聚合平台与无预置平台为 None
         for other in metas.iter().filter(|m| {
-            !["deepseek", "kimi_cn", "kimi_global", "zhipu", "zai"].contains(&m.id.as_str())
+            ![
+                "deepseek",
+                "kimi_cn",
+                "kimi_global",
+                "kimi_code_cn",
+                "kimi_code_global",
+                "zhipu",
+                "zai",
+            ]
+            .contains(&m.id.as_str())
         }) {
             assert!(other.pricing.is_none(), "{} 不应有预置", other.id);
         }

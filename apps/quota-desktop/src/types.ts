@@ -190,6 +190,15 @@ export interface UpdateStateDto {
   last_error: string | null;
 }
 
+/** 后端下载器推送的实时安装包下载状态。 */
+export interface DownloadProgress {
+  downloaded_bytes: number;
+  /** null 表示服务器未返回 Content-Length。 */
+  total_bytes: number | null;
+  /** 从下载开始计算的平均字节/秒。 */
+  bytes_per_second: number;
+}
+
 /** 查询结果（含 keep-last-good 保留的旧值）。 */
 export interface QueryOutcome {
   ok: boolean;

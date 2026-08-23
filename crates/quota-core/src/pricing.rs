@@ -369,7 +369,7 @@ pub struct PresetProvider {
 /// OpenRouter 虽无峰谷预置但按量计价为 USD，一并给出以防误兜底。
 pub fn default_currency(native_id: &str) -> &'static str {
     match native_id {
-        "kimi_global" | "zai" | "siliconflow_global" | "openrouter" => "USD",
+        "kimi_global" | "kimi_code_global" | "zai" | "siliconflow_global" | "openrouter" => "USD",
         _ => "CNY",
     }
 }
@@ -417,6 +417,8 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
             ],
             "k3",
         )),
+        "kimi_code_cn" => Some(kimi_code_preset("kimi_code_cn", "CNY")),
+        "kimi_code_global" => Some(kimi_code_preset("kimi_code_global", "USD")),
         "zhipu" => Some(zhipu_preset(
             "zhipu",
             "CNY",
@@ -489,6 +491,25 @@ fn kimi_preset(
             })
             .collect(),
         default_model,
+    }
+}
+
+/// Kimi Code 预置：订阅额度模式，无每 token 三档价，也无峰谷折扣窗口。
+fn kimi_code_preset(native_id: &'static str, currency: &'static str) -> PresetProvider {
+    PresetProvider {
+        native_id,
+        currency,
+        timezone_offset_minutes: 480,
+        windows: vec![],
+        models: vec![PresetModel {
+            id: "coding-plan",
+            display: "Kimi Code（订阅额度）",
+            plan: PlanKind::Subscription,
+            windows: Some(vec![]),
+            peak: PriceTier::default(),
+            off_peak: PriceTier::default(),
+        }],
+        default_model: "coding-plan",
     }
 }
 
@@ -1336,6 +1357,26 @@ mod tests {
         assert!(preset("openrouter").is_none());
     }
 
+    /// 契约：Kimi Code 是独立订阅 Provider，不复用开放平台按量模型；
+    /// 国内/国际仅币种不同，订阅模型无三档价、无折扣窗口。
+    #[test]
+    fn kimi_code_subscription_presets_snapshot() {
+        for (id, currency) in [("kimi_code_cn", "CNY"), ("kimi_code_global", "USD")] {
+            let p = preset(id).unwrap();
+            assert_eq!(p.native_id, id);
+            assert_eq!(p.currency, currency);
+            assert_eq!(p.default_model, "coding-plan");
+            assert!(p.windows.is_empty());
+            assert_eq!(p.models.len(), 1);
+            let model = &p.models[0];
+            assert_eq!(model.id, "coding-plan");
+            assert_eq!(model.display, "Kimi Code（订阅额度）");
+            assert_eq!(model.plan, PlanKind::Subscription);
+            assert_eq!(model.windows, Some(vec![]));
+            assert!(model.peak.is_empty() && model.off_peak.is_empty());
+        }
+    }
+
     /// 契约：DeepSeek 单站双币——余额 API 的 currency 决定取哪套预置；
     /// USD 套同样满足「空闲 = 高峰减半」。
     #[test]
@@ -1405,6 +1446,8 @@ mod tests {
             ("openrouter", "USD"),
             ("kimi_cn", "CNY"),
             ("kimi_global", "USD"),
+            ("kimi_code_cn", "CNY"),
+            ("kimi_code_global", "USD"),
             ("zhipu", "CNY"),
             ("zai", "USD"),
         ] {
@@ -1417,6 +1460,8 @@ mod tests {
             "openrouter",
             "kimi_cn",
             "kimi_global",
+            "kimi_code_cn",
+            "kimi_code_global",
             "zhipu",
             "zai",
         ]

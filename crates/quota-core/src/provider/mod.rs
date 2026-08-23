@@ -4,12 +4,14 @@
 
 pub mod deepseek;
 pub mod kimi;
+pub mod kimi_coding;
 pub mod openrouter;
 pub mod siliconflow;
 pub mod zhipu;
 
 pub use deepseek::DeepSeek;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
+pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
 pub use openrouter::OpenRouter;
 pub use siliconflow::{SILICONFLOW_CN, SILICONFLOW_GLOBAL, SiliconFlow};
 pub use zhipu::{ZAI, ZHIPU, ZhipuApi};
@@ -55,6 +57,8 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(OpenRouter),
         Arc::new(KIMI_CN),
         Arc::new(KIMI_GLOBAL),
+        Arc::new(KIMI_CODE_CN),
+        Arc::new(KIMI_CODE_GLOBAL),
         Arc::new(ZHIPU),
         Arc::new(ZAI),
     ]
@@ -329,6 +333,15 @@ mod tests {
         assert_eq!(ids.len(), total, "存在重复的平台 id");
         for id in ids {
             assert!(find(id).is_some(), "id {id} 应能在注册表中找到");
+        }
+    }
+
+    /// Kimi Code 使用固定的 5h + 周窗口协议，不复用 GLM 套餐变体开关。
+    #[test]
+    fn registry_contains_kimi_code_without_plan_variant() {
+        for id in ["kimi_code_cn", "kimi_code_global"] {
+            assert!(find(id).is_some(), "注册表缺少 {id}");
+            assert!(!supports_plan_variant(id), "{id} 不应展示 GLM 套餐变体");
         }
     }
 }

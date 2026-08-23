@@ -64,10 +64,11 @@ quota update --check           # 检测新版本
 | DeepSeek | — | 单站双币，余额接口返回币种 |
 | SiliconFlow | 国内站 / 国际站 | CNY / USD |
 | OpenRouter | — | remaining = credits − usage |
-| Kimi（Moonshot） | 国内站 / 国际站 | 余额 + 代金券/现金拆分展示 |
+| Kimi Open Platform | 国内站 / 国际站 | 余额 + 代金券/现金拆分展示 |
+| Kimi Code | kimi.com/code / kimi.ai/code | 5 小时 + 周额度窗口，RFC3339 重置时间 |
 | 智谱 / Z.ai | 双站 | GLM Coding Plan 用量（多窗口），裸 key |
 
-以上均为官方公开接口，测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
+Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai 使用非公开文档端点，其余为官方公开接口。自动化测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
 
 ## 自定义查询：声明式模板
 
@@ -92,7 +93,7 @@ quota update --check           # 检测新版本
 
 - `extract` 用 JSONPath 子集（`$.a.b[0]`）取值或直接给常量
 - `transforms` 提供受限算术（乘/除/加/减/取整），执行期无 eval
-- `windows` 支持多套餐展开（如 Kimi 的 5 小时窗 + 周窗）
+- `windows` 支持从同构额度数组展开多窗口；Kimi Code 这类异构响应由预置平台实现处理
 - 保存时静态校验；URL 仅允许 HTTPS 且须与 `{{baseUrl}}` 同源（loopback 除外）
 
 可运行示例见 [examples/templates/](examples/templates/)：覆盖单对象取数（字符串数字）、双站 `{{baseUrl}}`、总额/已用展示、多窗口展开等形态，均可用 `quota template test` 试查验证。
@@ -118,6 +119,21 @@ pnpm tauri build
 # 仅 CLI
 cargo build -p quota-cli --release
 ```
+
+### 清理开发目录
+
+Windows 在仓库根目录运行 `clean`，不传级别时可交互选择：
+
+```powershell
+.\clean 1              # 轻量：增量/Vite 缓存与生成物
+.\clean 2              # 标准：再清理完整 target/debug，保留 release
+.\clean 3              # 深度：完整 target + node_modules + 生成物
+.\clean 3 -WhatIf      # 只预览目标，不删除
+```
+
+清理器只操作仓库内的固定白名单路径，不会删除源码、`.git`、开发密钥、
+`.zcode` 或未提交文件。Level 3 后需在 `apps/quota-desktop` 重新执行
+`pnpm install`，Rust 依赖也会在下次构建时完整重编译。
 
 ## 安全设计
 

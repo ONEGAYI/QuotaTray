@@ -27,6 +27,7 @@ import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { deriveProviderCardState } from "./providerCardView";
+import { providerIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
   resolveProviderPricingView,
@@ -119,6 +120,8 @@ export function ProviderCard({
   );
   const platformName =
     entry.kind.type === "native" ? (nativeMeta?.name ?? entry.kind.provider) : t("card.templateKind");
+  const platformIconUrl =
+    entry.kind.type === "native" ? providerIconUrl(entry.kind.provider) : null;
   const explicitModelChoice = entry.pricing?.model
     ? modelChoices.find(
         (choice) => choice.modelId?.toLowerCase() === entry.pricing?.model?.toLowerCase(),
@@ -225,7 +228,13 @@ export function ProviderCard({
     >
       <div className="qt-provider-primary">
         <div className="qt-provider-identity">
-          <span className="qt-provider-avatar">{providerInitials(platformName)}</span>
+          <span className="qt-provider-avatar">
+            {platformIconUrl ? (
+              <img src={platformIconUrl} alt="" aria-hidden="true" draggable={false} />
+            ) : (
+              providerInitials(platformName)
+            )}
+          </span>
           <div className="qt-provider-heading">
             <div className="qt-provider-name-row">
               <h2>{entry.name}</h2>

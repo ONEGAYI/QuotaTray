@@ -29,6 +29,10 @@ QuotaTray/
 ├── README.en.md               # 英文版自述，与中文版结构对齐，顶部互链
 ├── CHANGELOG.md               # 版本变更记录（Keep a CHANGELOG，按 PR 归纳）
 ├── LICENSE                    # MIT 许可证全文（参考项目 cc-switch 同为 MIT）
+├── clean.cmd                  # Windows 开发目录清理入口：交互或 Level 1/2/3
+├── scripts/
+│   ├── clean.ps1             # 固定白名单分级清理器（仓库边界校验 + WhatIf）
+│   └── clean.tests.ps1       # 隔离沙箱契约测试：三级目标/预览/受保护文件
 ├── Cargo.toml                 # workspace 根：成员、共享依赖版本、release 配置
 ├── rust-toolchain.toml        # 锁定 stable 工具链
 ├── .gitignore                 # 含 .DevApiKey.json / 前端与 gen/schemas 生成物
@@ -43,7 +47,8 @@ QuotaTray/
 │           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
 │           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
-│           │                  #   预置：DeepSeek 单站双币 + Kimi 国内/国际 + 智谱/Z.ai
+│           │                  #   预置：DeepSeek 单站双币 + Kimi 开放平台国内/国际 +
+│           │                  #   Kimi Code 国内/国际订阅额度 + 智谱/Z.ai
 │           │                  #   （按量模型 + Coding Plan 订阅项，模型级窗口）、
 │           │                  #   自定义校验与预置/自定义模型库字段级合并
 │           │                  #   （resolve/resolve_with、preset/preset_with_currency）
@@ -62,13 +67,15 @@ QuotaTray/
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（8 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（10 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具 + MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
 │           │   ├── kimi.rs           # /v1/users/me/balance（国内/国际双站，
 │           │   │                     #   余额+代金券/现金拆分进 extra）
+│           │   ├── kimi_coding.rs    # Kimi Code 国内/国际双站 /coding/v1/usages：
+│           │   │                     #   5h+周额度、RFC3339 重置时间、remaining 本地推导
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
 │           │                         #   端点、裸 key、已用百分比多窗口：type
 │           │                         #   过滤 + unit 归类 5h/周 + 未知条目仅填
@@ -84,7 +91,8 @@ QuotaTray/
 │           │   └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
-│                              #   独立下载通道（10min 超时 + 256MB 上限）、字节原子落盘
+│                              #   独立下载通道（10min 超时 + 256MB 上限、分块进度/速率
+│                              #   回调且兼容旧实现）、字节原子落盘
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
@@ -123,7 +131,8 @@ QuotaTray/
 │   │           │              #   管理（表格价格对照/同 id 覆盖/删空移键，纯函数可测）
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
-│   │           │              #   --output；http 与 downloader 可注入测试；退出码三分）
+│   │           │              #   --output；交互终端实时进度/速率；http 与 downloader
+│   │           │              #   可注入测试；退出码三分）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（OK 行带
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
@@ -141,12 +150,13 @@ QuotaTray/
 │       │   │                    #   随主题；全局 webkit 滚动条暗色 #2e2e2e）、
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
-│       │   │   └── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
+│       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
+│       │   │   └── providers/     # 六组官方 Provider SVG（国内/国际及余额/订阅复用品牌）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
-│       │   │                    #   KEEP_LAST_GOOD_MS）
+│       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + set_resolved_theme + 更新三命令
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/更新状态+
+│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
 │       │   │                    #   可被 CLI 更新的 native/custom model 元信息短缓存
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
@@ -176,6 +186,12 @@ QuotaTray/
 │       │       │                       # 判定（联动后端缩窗）纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
+│       │       ├── providerIcon.ts / providerIcon.test.ts
+│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
+│       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
+│       │       │                       #   悬停/键盘展开二级 Provider 选单
+│       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
+│       │       │                       # native id 的平台分组、稳定顺序与未知项兜底
 │       │       ├── providerPricing.ts / providerPricing.test.ts
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
@@ -187,9 +203,10 @@ QuotaTray/
 │       │       ├── pricingDraft.ts / pricingDraft.test.ts
 │       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
 │       │       │                       #   完整自定义判定纯逻辑
-│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡与检查/下载
+│       │       ├── SettingsDialog.tsx  # 分类导航：自由数值常规设置行 + 更新状态卡（有更新
+│       │       │                       #   时原位下载）+ 实时进度/速率
 │       │       └── settingsView.ts / settingsView.test.ts
-│       │                               # 更新错误优先级与状态结论纯逻辑
+│       │                               # 更新错误优先级、状态结论、进度格式化纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
 │           ├── tauri.conf.json # 版本经 crate 继承 workspace；CSP 基线；decorations:false；NSIS 安装包
 │           ├── capabilities/
@@ -238,8 +255,9 @@ QuotaTray/
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测三字段）
 │               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
-│               │               #   下载目录 + 每分钟调度（due_check，设置变更自然生效；
-│               │               #   同 tick 顺带峰谷翻转检测）
+│               │               #   下载目录并向前端推送进度/速率 + 每分钟调度（due_check，
+│               │               #   完成后推送状态事件；设置变更自然生效；同 tick 顺带
+│               │               #   峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
 │   └── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
@@ -281,6 +299,8 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
     无 vite dev server 时窗口空白——运行/分发一律走 tauri CLI
   - GUI 冒烟：`cargo run -p quota-desktop --example smoke_setup -- --data-dir <沙箱>
     --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
+  - 开发目录清理：仓库根执行 `.\clean 1|2|3`；先预览用 `.\clean 3 -WhatIf`
+  - 清理器契约测试：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean.tests.ps1`
 - 文档用中文编写。
 
 ## 安全红线（凭据处理）

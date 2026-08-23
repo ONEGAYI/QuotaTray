@@ -61,6 +61,8 @@ describe("多窗口短标签", () => {
     expect(windowShortLabel("GLM Coding Plan（MCP）", 2, "en")).toBe("MCP");
     expect(windowShortLabel("GLM Coding Plan（week）", 1, "zh")).toBe("周限");
     expect(windowShortLabel("GLM Coding Plan（week）", 1, "en")).toBe("weekly");
+    expect(windowShortLabel("Kimi Code（5h）", 0, "zh")).toBe("5h");
+    expect(windowShortLabel("Kimi Code（week）", 1, "en")).toBe("weekly");
   });
 
   it("无括号用全名，无名回退窗口序号", () => {

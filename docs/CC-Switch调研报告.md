@@ -97,6 +97,8 @@ cc-switch 把安全预算花在"凭据离开存储之后的每一条出口"上�
 | 火山方舟 | `POST open.volcengineapi.com`（GetAFPUsage） | **V4 AK/SK 签名**（非推理 key） | `Result.AFPFiveHour.{Quota,Used,ResetTime}` | coding_plan.rs:702-1175 |
 | NewAPI 系中转 | `GET {base}/api/user/self` | Bearer accessToken + `New-Api-User` 头 | `quota / 500000` = USD | UsageScriptModal.tsx:91-117 |
 
+> **Kimi 字段更新（2026-08-23）**：MoonshotAI 官方 `kimi-code` 已将当前响应契约收紧为周窗口 `usage.used/limit/resetTime`，以及 5 小时窗口 `limits[].detail.used/limit/resetTime`（窗口由 `duration=300`、`timeUnit=TIME_UNIT_MINUTE` 识别）。响应没有 `remaining`，需由 `limit - used` 计算；`resetTime` 为 RFC3339 字符串。cc-switch v3.20.0 的 `remaining` 读取方式不应直接移植。
+
 订阅类（Claude/Codex/Gemini）走各 CLI 本地 OAuth 文件取 token，端点分别为 `api.anthropic.com/api/oauth/usage`、`chatgpt.com/backend-api/wham/usage`、`cloudcode-pa.googleapis.com` 两段式（subscription.rs:344-1184）。
 
 ### 4.3 JS 脚本协议（QuotaTray 脚本兜底的蓝本）
