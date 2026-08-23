@@ -115,15 +115,18 @@ fn rect_is_trusted(cursor: PhysicalPosition<i32>, work_area: PhysicalBox) -> boo
 /// rect 不可信（隐藏托盘场景）的兜底定位：面板出现在光标（即 flyout 内
 /// 图标）**上方**，水平以光标为中心；光标上方空间不足时回退到下方。
 ///
-/// 硬约束：面板不得覆盖光标点——覆盖会顶掉托盘图标区的鼠标命中，
-/// 触发 Leave/Enter 连锁闪烁。上方放得下面板高 + gap 就放上方
-/// （y = 光标 − 面板高 − gap，底边与光标留 gap），否则放下方
-/// （y = 光标 + gap）；水平垂直均 clamp 进工作区兜底。
+/// 垂直避让 `icon_extent`（取自 rect 高度）：光标悬停在图标内任意位置
+/// 时，图标顶部最多高出光标一个图标高——面板底边与光标间垂直让开
+/// `icon_extent` + gap，保证**图标整体**不被面板遮挡（仅避开光标点时
+/// 图标上半截仍会被盖住）。上方放得下面板高 + 避让 + gap 就放上方
+/// （y = 光标 − 避让 − 面板高 − gap），否则放下方（y = 光标 + 避让 +
+/// gap）；水平垂直均 clamp 进工作区兜底。
 fn cursor_anchored_position(
     cursor: PhysicalPosition<i32>,
     work_area: PhysicalBox,
     panel_width: u32,
     panel_height: u32,
+    icon_extent: i32,
     gap: i32,
 ) -> PhysicalPosition<i32> {
     let work_right = work_area.x + work_area.width as i32;
@@ -132,10 +135,10 @@ fn cursor_anchored_position(
     let panel_height = panel_height as i32;
 
     let x = cursor.x - panel_width / 2;
-    let y = if cursor.y - work_area.y >= panel_height + gap {
-        cursor.y - panel_height - gap
+    let y = if cursor.y - work_area.y >= panel_height + icon_extent + gap {
+        cursor.y - icon_extent - panel_height - gap
     } else {
-        cursor.y + gap
+        cursor.y + icon_extent + gap
     };
     let max_x = (work_right - panel_width).max(work_area.x);
     let max_y = (work_bottom - panel_height).max(work_area.y);
@@ -219,15 +222,18 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
     if let (Some(work_area), Ok(panel_size)) =
         (work_area_at(app, anchor_x, anchor_y), window.outer_size())
     {
+        // 垂直避让量：图标高度估计（rect 高度，下限 16 防 rect 尺寸异常）
+        let icon_extent = (tray.height as i32).max(16);
         let position = match cursor {
             // 光标严格在工作区内部 = 悬停的是隐藏托盘 flyout 内的图标
             // （此时无论 rect 报 chevron 还是 flyout 坐标都不可作锚），
-            // 面板出现在图标上方
+            // 面板出现在图标上方（垂直让开整个图标高度，不遮挡图标）
             Some(c) if !rect_is_trusted(c, work_area) => cursor_anchored_position(
                 c,
                 work_area,
                 panel_size.width,
                 panel_size.height,
+                icon_extent,
                 PANEL_GAP,
             ),
             // 正常任务栏（光标在工作区之外）；光标取不到时保守按 rect
@@ -432,45 +438,47 @@ mod tests {
         assert!(!rect_is_trusted(PhysicalPosition::new(100, 100), work));
     }
 
-    /// 契约：光标锚点兜底定位——面板出现在光标（图标）上方、水平以光标
-    /// 为中心（clamp 进工作区）；光标上方空间不足回退到下方；且面板
-    /// 矩形不覆盖光标点。
+    /// 契约：光标锚定兜底定位——面板出现在光标（图标）上方、水平以光标
+    /// 为中心（clamp 进工作区）；垂直让开整个图标高度（不遮挡图标本身，
+    /// 光标悬停在图标内任意位置时其顶部最多高出光标一个图标高）；光标
+    /// 上方空间不足回退到下方（顶边同样让开图标高度）。
     #[test]
-    fn cursor_anchor_places_panel_above_cursor_without_covering_it() {
+    fn cursor_anchor_places_panel_above_icon_without_covering_it() {
         let work = PhysicalBox {
             x: 0,
             y: 0,
             width: 1920,
             height: 1040,
         };
+        let icon = 32; // 图标避让高度
 
-        // 典型隐藏托盘：光标在屏幕右下的 flyout 图标上（上方空间 900 ≥ 528），
-        // 水平 clamp 到工作区（1800-187=1613 > 1546）
+        // 典型隐藏托盘：光标在屏幕右下的 flyout 图标上（上方空间 900 ≥
+        // 520+32+8），水平 clamp 到工作区（1800-187=1613 > 1546）
         let cursor = PhysicalPosition::new(1800, 900);
-        let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
-        assert_eq!(pos, PhysicalPosition::new(1546, 900 - 520 - 8));
+        let pos = cursor_anchored_position(cursor, work, 374, 520, icon, 8);
+        assert_eq!(pos, PhysicalPosition::new(1546, 900 - 32 - 520 - 8));
 
-        // 上方空间不足（400 < 528）：回退到光标下方
-        let cursor = PhysicalPosition::new(960, 400);
-        let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
-        assert_eq!(pos, PhysicalPosition::new(960 - 374 / 2, 400 + 8));
-
-        // 上方恰好放得下（边界 == 面板高 + gap）：贴工作区顶部
-        let cursor = PhysicalPosition::new(960, 528);
-        let pos = cursor_anchored_position(cursor, work, 374, 520, 8);
+        // 上方恰好放得下（边界 == 面板高 + 避让 + gap）：贴工作区顶部
+        let cursor = PhysicalPosition::new(960, 560);
+        let pos = cursor_anchored_position(cursor, work, 374, 520, icon, 8);
         assert_eq!(pos, PhysicalPosition::new(960 - 374 / 2, 0));
 
-        // 各场景面板矩形均不包含光标点
+        // 上方空间不足（400 < 560）：回退到图标下方（顶边让开图标高度）
+        let cursor = PhysicalPosition::new(960, 400);
+        let pos = cursor_anchored_position(cursor, work, 374, 520, icon, 8);
+        assert_eq!(pos, PhysicalPosition::new(960 - 374 / 2, 400 + 32 + 8));
+
+        // 各场景面板垂直范围均避开图标带（光标 ± 图标高度）
         for (cursor, pos) in [
-            (PhysicalPosition::new(1800, 900), PhysicalPosition::new(1546, 372)),
-            (PhysicalPosition::new(960, 400), PhysicalPosition::new(773, 408)),
-            (PhysicalPosition::new(960, 528), PhysicalPosition::new(773, 0)),
+            (PhysicalPosition::new(1800, 900), PhysicalPosition::new(1546, 340)),
+            (PhysicalPosition::new(960, 560), PhysicalPosition::new(773, 0)),
+            (PhysicalPosition::new(960, 400), PhysicalPosition::new(773, 440)),
         ] {
-            let covers_x = pos.x <= cursor.x && cursor.x < pos.x + 374;
-            let covers_y = pos.y <= cursor.y && cursor.y < pos.y + 520;
+            let panel_top = pos.y;
+            let panel_bottom = pos.y + 520;
             assert!(
-                !(covers_x && covers_y),
-                "面板({pos:?})不得覆盖光标({cursor:?})"
+                panel_bottom <= cursor.y - icon || panel_top >= cursor.y + icon,
+                "面板({pos:?})垂直范围 [{panel_top},{panel_bottom}] 不得覆盖图标带（光标 {cursor:?} ± {icon}）"
             );
         }
     }

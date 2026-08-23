@@ -198,7 +198,7 @@ QuotaTray/
 │               ├── hover_panel.rs # 悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令；
 │               │               #   隐藏托盘兜底：光标严格在工作区内（=悬停 flyout
 │               │               #   图标，任务栏图标必在工作区外）时改以光标锚定
-│               │               #   （面板出现在图标上方、不覆盖鼠标点），
+│               │               #   （面板出现在图标上方、垂直让开整个图标高度），
 │               │               #   show 后 SetWindowPos 重插 topmost 压过 flyout（不激活）。
 │               │               #   架构备忘：悬停自动刷新链依赖主窗「关闭=隐藏不销毁」
 │               │               #   （refresh-now 由主窗响应查询后经 provider-state-changed
