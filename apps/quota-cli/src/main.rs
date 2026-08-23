@@ -14,6 +14,7 @@ mod idgen;
 mod io;
 mod lang;
 mod render;
+mod settings_io;
 mod texts;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -102,6 +103,18 @@ enum Command {
     /// 凭据保险库
     #[command(subcommand)]
     Vault(VaultCmd),
+    /// 检测 GitHub release 新版本，可选下载安装包
+    Update {
+        /// 只检测不下载
+        #[arg(long)]
+        check: bool,
+        /// 跳过下载确认
+        #[arg(long)]
+        yes: bool,
+        /// 安装包保存目录（默认当前目录）
+        #[arg(long, value_name = "DIR")]
+        output: Option<PathBuf>,
+    },
     /// 真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）
     #[cfg(debug_assertions)]
     DevSmoke {
@@ -180,7 +193,17 @@ async fn run(cli: Cli) -> i32 {
     let lang = lang::resolve_lang(cli.lang, &config_path).resolve();
     let ctx = Ctx::production(config_path, lang);
 
-    match cli.command {
+    // 启动更新提示的两个豁免：--json 输出模式（stdout 是机器可读流，
+    // 提示只能走 stderr 也会干扰脚本日志）；update 子命令自身（避免重复检测）。
+    let json_mode = matches!(
+        &cli.command,
+        Command::List { json: true }
+            | Command::Query { json: true, .. }
+            | Command::Add { json: true }
+    );
+    let is_update_cmd = matches!(&cli.command, Command::Update { .. });
+
+    let code = match cli.command {
         Command::List { json } => cmd::list::run(&ctx, json),
         Command::Query {
             ids,
@@ -203,8 +226,55 @@ async fn run(cli: Cli) -> i32 {
             base_url,
         }) => cmd::template::run(&ctx, entry, json, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
+        Command::Update { check, yes, output } => {
+            cmd::update::run(
+                &ctx,
+                cmd::update::UpdateArgs {
+                    check_only: check,
+                    yes,
+                    output,
+                },
+            )
+            .await
+        }
         #[cfg(debug_assertions)]
         Command::DevSmoke { key_file } => cmd::devsmoke::run(key_file, ctx.lang).await,
+    };
+
+    if !json_mode && !is_update_cmd {
+        auto_update_hint(&ctx).await;
+    }
+    code
+}
+
+/// 启动时后台更新提示：与 GUI 同语义的 `due_check` 判定（24h 节流 +
+/// 每日到点），5s 超时静默失败，仅 stderr 一行。检测过（含失败）即写回
+/// `update_last_check`——否则断网期间每条命令都要白等 5 秒。
+async fn auto_update_hint(ctx: &Ctx) {
+    use quota_core::update::{self, VERSION};
+
+    let prefs = settings_io::load_prefs(&ctx.config_path);
+    let now = settings_io::now_ms();
+    if !update::due_check(
+        prefs.update_check_enabled,
+        prefs.update_last_check,
+        &prefs.update_check_time,
+        now,
+    ) {
+        return;
+    }
+    let Ok(http) = quota_core::http::ReqwestHttpClient::new(std::time::Duration::from_secs(4))
+    else {
+        return;
+    };
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        update::check_update(&http, VERSION),
+    )
+    .await;
+    let _ = settings_io::write_last_check(&ctx.config_path, now);
+    if let Ok(Ok(update::UpdateStatus::Available { version, .. })) = result {
+        eprintln!("{}", texts::update_hint_available(ctx.lang, &version));
     }
 }
 

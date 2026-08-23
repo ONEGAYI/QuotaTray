@@ -169,6 +169,18 @@ pub enum T {
     HelpTemplateBaseUrl,
     HelpVault,
     HelpVaultStatus,
+    HelpUpdate,
+    HelpUpdateCheck,
+    HelpUpdateYes,
+    HelpUpdateOutput,
+    UpdateCheckFail,
+    UpdateNoRelease,
+    UpdateManualUrl,
+    UpdateDownloading,
+    UpdateDownloadFail,
+    UpdateSaveFail,
+    UpdateRunHint,
+    UpdateClientFail,
     HelpDevSmoke,
     HelpDevSmokeKeyFile,
 }
@@ -315,6 +327,18 @@ fn zh(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "覆盖 baseUrl 变量",
         T::HelpVault => "凭据保险库",
         T::HelpVaultStatus => "主密钥健康检查（系统凭据库可读性）",
+        T::HelpUpdate => "检测 GitHub release 新版本，可选下载安装包",
+        T::HelpUpdateCheck => "只检测不下载",
+        T::HelpUpdateYes => "跳过下载确认",
+        T::HelpUpdateOutput => "安装包保存目录（默认当前目录）",
+        T::UpdateCheckFail => "检测失败：",
+        T::UpdateNoRelease => "仓库暂无发布版本",
+        T::UpdateManualUrl => "该版本没有可下载的安装包，请到发布页手动获取：",
+        T::UpdateDownloading => "下载中…",
+        T::UpdateDownloadFail => "下载失败：",
+        T::UpdateSaveFail => "安装包写入失败：",
+        T::UpdateRunHint => "下载完成，请手动运行安装包完成更新",
+        T::UpdateClientFail => "无法构造 HTTP 客户端",
         T::HelpDevSmoke => "真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）",
         T::HelpDevSmokeKeyFile => "key 文件路径（默认当前目录 .DevApiKey.json）",
     }
@@ -474,6 +498,20 @@ fn en(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "Override the baseUrl variable",
         T::HelpVault => "Credential vault",
         T::HelpVaultStatus => "Master key health check (system credential store readability)",
+        T::HelpUpdate => "Check for a new GitHub release, optionally download the installer",
+        T::HelpUpdateCheck => "Check only, do not download",
+        T::HelpUpdateYes => "Skip the download confirmation",
+        T::HelpUpdateOutput => "Directory to save the installer (default: current directory)",
+        T::UpdateCheckFail => "check failed: ",
+        T::UpdateNoRelease => "No release published yet",
+        T::UpdateManualUrl => {
+            "No downloadable installer for this version; get it from the release page:"
+        }
+        T::UpdateDownloading => "Downloading…",
+        T::UpdateDownloadFail => "download failed: ",
+        T::UpdateSaveFail => "failed to write the installer: ",
+        T::UpdateRunHint => "Download complete; run the installer manually to update",
+        T::UpdateClientFail => "failed to build an HTTP client",
         T::HelpDevSmoke => {
             "Live smoke test (debug builds only; runs the full pipeline via .DevApiKey.json)"
         }
@@ -621,6 +659,58 @@ pub fn smoke_total_fail(lang: Lang, n: usize) -> String {
     }
 }
 
+// ---- update（检测/下载/启动提示） ------------------------------------------
+
+/// 已是最新（含当前版本号）。
+pub fn update_up_to_date(lang: Lang) -> String {
+    use quota_core::VERSION;
+    match lang {
+        Lang::En => format!("Already up to date ({VERSION})"),
+        _ => format!("已是最新版本（{VERSION}）"),
+    }
+}
+
+/// 发现新版本（远端 + 当前版本号）。
+pub fn update_found(lang: Lang, version: &str) -> String {
+    use quota_core::VERSION;
+    match lang {
+        Lang::En => format!("New version {version} found (current {VERSION})"),
+        _ => format!("发现新版本 {version}（当前 {VERSION}）"),
+    }
+}
+
+/// --check 模式下的安装包信息行。
+pub fn update_asset_info(lang: Lang, name: &str, size: u64) -> String {
+    match lang {
+        Lang::En => format!("installer: {name} ({size} bytes)"),
+        _ => format!("安装包：{name}（{size} 字节）"),
+    }
+}
+
+/// 下载确认 prompt。
+pub fn update_confirm(lang: Lang, path: &std::path::Path) -> String {
+    match lang {
+        Lang::En => format!("Download to {}?", path.display()),
+        _ => format!("下载到 {}？", path.display()),
+    }
+}
+
+/// 下载完成路径。
+pub fn update_saved(lang: Lang, path: &std::path::Path) -> String {
+    match lang {
+        Lang::En => format!("Saved to {}", path.display()),
+        _ => format!("已保存至 {}", path.display()),
+    }
+}
+
+/// 启动钩子的 stderr 一行提示（所有 stdout 输出完成后）。
+pub fn update_hint_available(lang: Lang, version: &str) -> String {
+    match lang {
+        Lang::En => format!("New version {version} available; run `quota update` to upgrade"),
+        _ => format!("发现新版本 {version}：运行 quota update 更新"),
+    }
+}
+
 // ---- clap help 运行时翻译 --------------------------------------------------
 
 /// 用选定语言覆盖 clap 命令面的 help 文案。
@@ -676,6 +766,12 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
         .mut_subcommand("vault", |c| {
             c.about(tr(T::HelpVault))
                 .mut_subcommand("status", |c| c.about(tr(T::HelpVaultStatus)))
+        })
+        .mut_subcommand("update", |c| {
+            c.about(tr(T::HelpUpdate))
+                .mut_arg("check", |a| a.help(tr(T::HelpUpdateCheck)))
+                .mut_arg("yes", |a| a.help(tr(T::HelpUpdateYes)))
+                .mut_arg("output", |a| a.help(tr(T::HelpUpdateOutput)))
         })
         .mut_subcommand("dev-smoke", |c| {
             c.about(tr(T::HelpDevSmoke))
