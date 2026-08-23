@@ -1,6 +1,6 @@
 # quota-cli 规格（M2b）
 
-> 状态：待开发（并行窗口已开放，见 [AGENTS.md](../../AGENTS.md) 并行开发约定）
+> 状态：已实现（feat/cli-m2b 分支，43af755 起；经两轮子代理审查修复）
 > 依赖：仅使用 quota-core 已冻结的公开 API；本 spec 是 CLI 端的唯一需求来源
 
 ## 1. 定位与边界

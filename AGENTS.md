@@ -32,8 +32,6 @@ QuotaTray/
 │   └── ci.yml                 # CI：Windows/Ubuntu 双矩阵 fmt + clippy + test
 ├── crates/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
-│       ├── examples/
-│       │   └── dev_smoke.rs   # 真机冒烟：读 .DevApiKey.json 走完整链路（手动跑）
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
 │           ├── model.rs       # UsageData / QueryError 双轨分类，附契约单测
@@ -58,9 +56,26 @@ QuotaTray/
 │           └── query/
 │               └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 ├── apps/
-│   └── quota-cli/             # CLI 前端（bin 名 quota，M0 骨架，M2b 按规格开发）
+│   └── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成）
 │       └── src/
-│           └── main.rs        # clap 空壳：--version + 占位输出
+│           ├── main.rs        # clap 定义 10 子命令 + dispatch（dev-smoke 仅 debug）
+│           ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入（生产 keyring / 测试内存）
+│           ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
+│           ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
+│           ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
+│           ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测）
+│           └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx）
+│               ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
+│               ├── list.rs    # 条目列表（表格 / --json providers 数组）
+│               ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
+│               ├── add.rs     # 交互向导 / --json stdin（拒收 api_key_enc）
+│               ├── edit.rs    # 向导（回车保持）+ --enable/--disable 快捷路径
+│               ├── remove.rs  # 确认删除（--yes 跳过）
+│               ├── setkey.rs  # 隐藏读 key → vault 加密写配置
+│               ├── natives.rs # 预置平台表
+│               ├── template.rs# template test：静态校验 + 真实试查
+│               ├── vault.rs   # vault status：主密钥健康检查
+│               └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（原 example 迁入）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
