@@ -271,17 +271,17 @@ export function ProviderCard({
                 <div className="qt-balance-item" key={item.plan_name ?? index}>
                   <span>{itemValue.label}</span>
                   <strong className={thresholdStates[index] ? "is-alert" : ""}>
+                    {itemReset && (
+                      <small
+                        className="qt-balance-reset"
+                        title={t("card.resetIn", { time: itemReset })}
+                      >
+                        {itemReset}
+                      </small>
+                    )}
                     {itemValue.unit && <small>{itemValue.unit}</small>}
                     {itemValue.value}
                   </strong>
-                  {itemReset && (
-                    <small
-                      className="qt-balance-reset"
-                      title={t("card.resetIn", { time: itemReset })}
-                    >
-                      {itemReset}
-                    </small>
-                  )}
                 </div>
               );
             })
@@ -289,14 +289,14 @@ export function ProviderCard({
             <>
               <span>{primary.label}</span>
               <strong className={overThreshold ? "is-alert" : ""}>
+                {mainReset && (
+                  <small className="qt-balance-reset" title={t("card.resetIn", { time: mainReset })}>
+                    {mainReset}
+                  </small>
+                )}
                 {primary.unit && <small>{primary.unit}</small>}
                 {primary.value}
               </strong>
-              {mainReset && (
-                <small className="qt-balance-reset" title={t("card.resetIn", { time: mainReset })}>
-                  {mainReset}
-                </small>
-              )}
             </>
           )}
         </div>

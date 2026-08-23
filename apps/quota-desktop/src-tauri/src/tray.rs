@@ -442,40 +442,31 @@ fn build_menu(
     let t = lang.texts();
     let now = now_ms();
     let menu = Menu::new(app)?;
-    let entries: Vec<_> = cfg.providers.iter().filter(|p| p.enabled).collect();
-    // 峰谷信息行只挂在「当前展示条目」（圆环数据源）名下
-    let icon_entry_id = ring::icon_entry(cfg, settings).map(|e| e.id.as_str());
-    if entries.is_empty() {
-        menu.append(&MenuItem::with_id(
-            app,
-            "info-empty",
-            t.no_enabled_providers,
-            false,
-            None::<&str>,
-        )?)?;
-    }
-    for entry in entries {
-        let lines = match results.get(&entry.id) {
-            Some(st) => entry_lines(
-                &entry.name,
-                st,
-                settings.low_balance_threshold_percent,
-                now,
-                lang,
-            ),
-            None => vec![format!("{} · {}", entry.name, t.no_data)],
-        };
-        for (i, line) in lines.iter().enumerate() {
-            menu.append(&MenuItem::with_id(
-                app,
-                format!("info-{}-{i}", entry.id),
-                line,
-                false,
-                None::<&str>,
-            )?)?;
-        }
-        // 峰谷行（disabled，id 独立前缀避免与数据行混同）
-        if icon_entry_id == Some(entry.id.as_str()) {
+    // 数据/峰谷行只挂「当前展示条目」（圆环数据源，与「图标显示」子菜单
+    // 同一回退语义）：托盘菜单是快捷入口，其余条目在主窗口查看，
+    // 避免灰色信息行随条目数线性膨胀
+    match ring::icon_entry(cfg, settings) {
+        Some(entry) => {
+            let lines = match results.get(&entry.id) {
+                Some(st) => entry_lines(
+                    &entry.name,
+                    st,
+                    settings.low_balance_threshold_percent,
+                    now,
+                    lang,
+                ),
+                None => vec![format!("{} · {}", entry.name, t.no_data)],
+            };
+            for (i, line) in lines.iter().enumerate() {
+                menu.append(&MenuItem::with_id(
+                    app,
+                    format!("info-{}-{i}", entry.id),
+                    line,
+                    false,
+                    None::<&str>,
+                )?)?;
+            }
+            // 峰谷行（disabled，id 独立前缀避免与数据行混同）
             let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
             for (i, line) in pricing_lines_with(entry, &cfg.custom_models, currency_hint, now, lang)
                 .iter()
@@ -489,6 +480,15 @@ fn build_menu(
                     None::<&str>,
                 )?)?;
             }
+        }
+        None => {
+            menu.append(&MenuItem::with_id(
+                app,
+                "info-empty",
+                t.no_enabled_providers,
+                false,
+                None::<&str>,
+            )?)?;
         }
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
