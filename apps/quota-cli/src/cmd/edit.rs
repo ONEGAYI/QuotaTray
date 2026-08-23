@@ -95,6 +95,8 @@ pub fn run(ctx: &Ctx, id: String, enable: bool, disable: bool) -> i32 {
 fn collect_edit_input(current: &ProviderEntry) -> Result<EditInput, String> {
     let theme = ColorfulTheme::default();
 
+    println!("粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）。");
+
     let name = Input::<String>::with_theme(&theme)
         .with_prompt("名称（回车保持）")
         .with_initial_text(&current.name)

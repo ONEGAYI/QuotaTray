@@ -108,6 +108,9 @@ fn template_err(e: TemplateError) -> String {
 fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
     let theme = ColorfulTheme::default();
 
+    println!("粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）；");
+    println!("          API key 输入支持 Ctrl+V 粘贴，回显为星号。");
+
     let name = Input::<String>::with_theme(&theme)
         .with_prompt("名称")
         .validate_with(|s: &String| {
