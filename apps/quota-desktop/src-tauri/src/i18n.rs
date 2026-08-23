@@ -252,6 +252,13 @@ impl Lang {
         }
     }
 
+    pub fn subscription_pricing_line(&self) -> &'static str {
+        match self {
+            Self::Zh => "订阅积分制",
+            Self::En => "Subscription credits",
+        }
+    }
+
     /// 托盘峰谷行 2：当前档三价 `命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok`。
     /// 缺价字段由调用方过滤后传 None；全 None 由调用方决定不显示本行。
     pub fn peak_prices_line(
@@ -410,6 +417,8 @@ mod tests {
         );
         assert_eq!(Lang::Zh.peak_status_line(false, None), "空闲");
         assert_eq!(Lang::En.peak_status_line(true, None), "⚡ Peak");
+        assert_eq!(Lang::Zh.subscription_pricing_line(), "订阅积分制");
+        assert_eq!(Lang::En.subscription_pricing_line(), "Subscription credits");
         assert_eq!(
             Lang::Zh.peak_prices_line(Some("0.3"), Some("9"), Some("27"), Some("CNY")),
             "命中 0.3 · 未命中 9 · 输出 27 CNY/Mtok"

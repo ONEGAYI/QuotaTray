@@ -179,6 +179,7 @@ QuotaTray/
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
 │               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
 │               │               #   /keep-last-good 窗口/峰谷两行（挂当前展示条目，
+│               │               #   resolve_in_currency 接线自定义模型库/查询币种/订阅说明，
 │               │               #   pricing_lines 纯函数）+rebuild_on_peak_flip 每分钟翻转检测
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测三字段）
