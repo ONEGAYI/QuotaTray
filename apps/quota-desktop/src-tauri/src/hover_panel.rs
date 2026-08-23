@@ -11,10 +11,6 @@ const PANEL_HEIGHT: f64 = 520.0;
 const PANEL_GAP: i32 = 8;
 const HIDE_DELAY_MS: u64 = 450;
 
-/// rect 可信判定容差（物理像素）：光标落在 rect 外扩此范围内即认为
-/// rect 描述的是真实图标位置（正常悬停时光标必在图标内）。
-const TRUST_SLACK: i32 = 8;
-
 #[derive(Default)]
 pub struct HoverPanelState {
     generation: AtomicU64,
@@ -100,17 +96,20 @@ fn panel_position(
     PhysicalPosition::new(x, y)
 }
 
-/// 托盘事件 rect 是否描述真实图标位置。
+/// 托盘事件 rect 是否可作为定位锚点。
 ///
-/// Windows 对隐藏托盘（overflow flyout）内的图标会把事件 rect 映射为
-/// 任务栏 chevron 位置——此时光标（悬停在 flyout 内的图标上）必然落在
-/// rect 之外，以此区分两种场景。
-fn rect_is_trusted(tray: PhysicalBox, cursor: PhysicalPosition<i32>) -> bool {
-    let (x, y) = (cursor.x, cursor.y);
-    x >= tray.x - TRUST_SLACK
-        && x <= tray.x + tray.width as i32 + TRUST_SLACK
-        && y >= tray.y - TRUST_SLACK
-        && y <= tray.y + tray.height as i32 + TRUST_SLACK
+/// 判定依据是布局事实而非 rect 数值本身（Windows 对隐藏托盘 overflow
+/// 图元上报的 rect 或是任务栏 chevron、或是 flyout 内图标坐标，版本
+/// 间行为不一，都不可依赖）：任务栏图标必然悬停于**工作区之外**
+/// （任务栏占用的区域已从工作区扣除），而隐藏托盘 flyout 弹出在
+/// **工作区内部**——光标严格落在工作区内即说明悬停的是 flyout 内
+/// 图标。恰落在工作区边界按任务栏处理（DPI 取整毛刺落在边界上）。
+fn rect_is_trusted(cursor: PhysicalPosition<i32>, work_area: PhysicalBox) -> bool {
+    let inside = cursor.x > work_area.x
+        && cursor.x < work_area.x + work_area.width as i32
+        && cursor.y > work_area.y
+        && cursor.y < work_area.y + work_area.height as i32;
+    !inside
 }
 
 /// rect 不可信（隐藏托盘场景）的兜底定位：面板出现在光标（即 flyout 内
@@ -179,11 +178,9 @@ fn physical_box(rect: Rect) -> PhysicalBox {
     }
 }
 
-fn work_area_box(app: &AppHandle, tray: PhysicalBox) -> Option<PhysicalBox> {
-    let center_x = tray.x as f64 + f64::from(tray.width) / 2.0;
-    let center_y = tray.y as f64 + f64::from(tray.height) / 2.0;
+fn work_area_at(app: &AppHandle, x: f64, y: f64) -> Option<PhysicalBox> {
     let monitor = app
-        .monitor_from_point(center_x, center_y)
+        .monitor_from_point(x, y)
         .ok()
         .flatten()
         .or_else(|| app.primary_monitor().ok().flatten())?;
@@ -209,18 +206,31 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
         .cursor_position()
         .ok()
         .map(|p| PhysicalPosition::new(p.x as i32, p.y as i32));
-    if let (Some(work_area), Ok(panel_size)) = (work_area_box(app, tray), window.outer_size()) {
+    // 锚定显示器：优先光标（悬停时光标必在图标/flyout 上），取不到时
+    // 退回 rect 中心
+    let (anchor_x, anchor_y) = cursor
+        .map(|c| (c.x as f64, c.y as f64))
+        .unwrap_or_else(|| {
+            (
+                tray.x as f64 + f64::from(tray.width) / 2.0,
+                tray.y as f64 + f64::from(tray.height) / 2.0,
+            )
+        });
+    if let (Some(work_area), Ok(panel_size)) =
+        (work_area_at(app, anchor_x, anchor_y), window.outer_size())
+    {
         let position = match cursor {
-            // 隐藏托盘：rect 是任务栏 chevron，改以光标（flyout 内图标上）
-            // 锚定——面板出现在图标上方
-            Some(c) if !rect_is_trusted(tray, c) => cursor_anchored_position(
+            // 光标严格在工作区内部 = 悬停的是隐藏托盘 flyout 内的图标
+            // （此时无论 rect 报 chevron 还是 flyout 坐标都不可作锚），
+            // 面板出现在图标上方
+            Some(c) if !rect_is_trusted(c, work_area) => cursor_anchored_position(
                 c,
                 work_area,
                 panel_size.width,
                 panel_size.height,
                 PANEL_GAP,
             ),
-            // 正常任务栏，或光标取不到时保守信任 rect（与历史行为一致）
+            // 正常任务栏（光标在工作区之外）；光标取不到时保守按 rect
             _ => panel_position(
                 tray,
                 work_area,
@@ -398,22 +408,28 @@ mod tests {
         assert!(!should_hide(7, 7, false, true));
     }
 
-    /// 契约：rect 可信判定——光标在 rect（含 8px 容差）内即可信
-    /// （正常任务栏悬停）；光标远离 rect（隐藏托盘：rect 是 chevron，
-    /// 光标在 flyout 图标上）不可信。
+    /// 契约：rect 可信判定——任务栏图标必然悬停于工作区之外（可信，
+    /// 走四边定位）；隐藏托盘 flyout 弹出在工作区内部，悬停其内图标时
+    /// 光标严格落在工作区内（不可信，无论 rect 报 chevron 还是 flyout
+    /// 坐标都改走光标锚定）。恰落在工作区边界按任务栏处理（DPI 毛刺）。
     #[test]
-    fn rect_trust_follows_cursor_containment() {
-        let tray = PhysicalBox {
-            x: 1870,
-            y: 1040,
-            width: 24,
-            height: 24,
+    fn rect_trust_follows_cursor_work_area_containment() {
+        let work = PhysicalBox {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
         };
-        // rect 范围 x∈[1870,1894] y∈[1040,1064]，容差后 x∈[1862,1902] y∈[1032,1072]
-        assert!(rect_is_trusted(tray, PhysicalPosition::new(1882, 1052))); // 图标中心
-        assert!(rect_is_trusted(tray, PhysicalPosition::new(1898, 1066))); // 容差边界内
-        assert!(!rect_is_trusted(tray, PhysicalPosition::new(1898, 1080))); // y 超容差
-        assert!(!rect_is_trusted(tray, PhysicalPosition::new(1820, 990))); // flyout 内图标
+        // 底部/顶部/左侧任务栏图标（工作区之外）
+        assert!(rect_is_trusted(PhysicalPosition::new(1882, 1052), work));
+        assert!(rect_is_trusted(PhysicalPosition::new(960, -12), work));
+        assert!(rect_is_trusted(PhysicalPosition::new(-5, 500), work));
+        // 工作区边界：按任务栏处理
+        assert!(rect_is_trusted(PhysicalPosition::new(0, 500), work));
+        assert!(rect_is_trusted(PhysicalPosition::new(1920, 500), work));
+        // flyout 内图标 / 工作区内部任意点
+        assert!(!rect_is_trusted(PhysicalPosition::new(1800, 900), work));
+        assert!(!rect_is_trusted(PhysicalPosition::new(100, 100), work));
     }
 
     /// 契约：光标锚点兜底定位——面板出现在光标（图标）上方、水平以光标
