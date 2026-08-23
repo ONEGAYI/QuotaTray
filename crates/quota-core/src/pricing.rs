@@ -66,12 +66,14 @@ impl PriceTier {
 }
 
 /// 高峰时段窗口：`days` 上每天的 `[start, end)`（左闭右开，同日不跨日）。
+/// `end` 额外接受 `"24:00"`（当日结束，用于表达全天窗口）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeakWindow {
     #[serde(default)]
     pub days: Vec<Weekday>,
     /// "HH:MM"（24 小时制）。
     pub start: String,
+    /// "HH:MM"（24 小时制；或 "24:00" 表示到当日结束）。
     pub end: String,
 }
 
@@ -145,19 +147,22 @@ pub fn next_change(
         return None;
     }
     let current = classify(windows, timezone_offset_minutes, now_ms);
-    let mut t = now_ms - now_ms % 60_000 + 60_000;
+    let mut t = now_ms - now_ms % 60_000;
     for _ in 0..7 * 24 * 60 {
+        // u64 极值附近溢出视为「找不到翻转」（理论路径，checked 保不 panic）
+        t = t.checked_add(60_000)?;
         let kind = classify(windows, timezone_offset_minutes, t);
         if kind != current {
             return Some((t, kind));
         }
-        t += 60_000;
     }
     None
 }
 
 /// epoch 毫秒 → (时区星期, 当日分钟数)。tz None = 本地；非法偏移/超范围
-/// 按当前本地时间兜底（与 `update::local_datetime` 同策略，不 panic）。
+/// 兜底仍基于**入参时刻**的本地时区（保持纯函数——`next_change` 的扫描
+/// 依赖同一入参的可重判定），仅入参超出 chrono 有效范围才按当前时间兜底
+/// （与 `update::local_datetime` 同策略，不 panic）。
 fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     fn parts<Tz: chrono::TimeZone>(dt: chrono::DateTime<Tz>) -> (chrono::Weekday, u32) {
         (dt.weekday(), dt.hour() * 60 + dt.minute())
@@ -174,23 +179,48 @@ fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     } else if let Some(dt) = chrono::Local.timestamp_millis_opt(now_ms as i64).single() {
         return parts(dt);
     }
-    parts(chrono::Local::now())
+    // 兜底：入参时刻的本地时区（非法偏移 / Local 转换失败时仍基于**入参**，
+    // 保持纯函数——`next_change` 的扫描依赖同一入参的可重判定）；入参超出
+    // chrono 有效范围时取 epoch 0（1970-01-01 周四 00:00 UTC）这个确定性
+    // 值，不读真实时钟。
+    chrono::Local
+        .timestamp_millis_opt(now_ms as i64)
+        .single()
+        .map(parts)
+        .unwrap_or((chrono::Weekday::Thu, 0))
 }
 
 /// "HH:MM" 解析（复用 `update::parse_hhmm`，24 小时制含边界）；非法 → None。
+/// 峰谷特例：接受 `"24:00"`（仅作 end 的全天上界——classify 按 `[start, end)`
+/// 分钟比较，1440 与「当日任何分钟」天然兼容；start 处 24:00 会被
+/// validate 的 start<end 检查拒绝）。
 fn parse_hhmm(s: &str) -> Option<(u8, u8)> {
-    crate::update::parse_hhmm(s)
+    if s.trim() == "24:00" {
+        Some((24, 0))
+    } else {
+        crate::update::parse_hhmm(s)
+    }
 }
 
 // ---- 格式化 ----------------------------------------------------------------
 
-/// 价格展示：最多 2 位小数去尾零（`0.30`→`0.3`、`27.00`→`27`）。
+/// 价格展示：最多 2 位小数去尾零（`0.30`→`0.3`、`27.00`→`27`）；
+/// 小于 0.05 的非零价保留 4 位——美元档峰谷命中价（谷 0.007 / 峰 0.014）
+/// 若按 2 位舍入会同显 "0.01"，两档撞车（阈值取 0.05 而非 0.01：
+/// 0.014 这类值 2 位舍入同样损失信息）。
 /// 非有限值（NaN/∞，未经 validate 的数据）显示 "—"。
 pub fn format_price(v: f64) -> String {
     if !v.is_finite() {
         return "—".into();
     }
-    let s = format!("{v:.2}");
+    if v == 0.0 {
+        return "0".into(); // IEEE 相等覆盖 ±0（-0.0 不显示成 "-0"）
+    }
+    let s = if v.abs() < 0.05 {
+        format!("{v:.4}")
+    } else {
+        format!("{v:.2}")
+    };
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s.is_empty() { "0".into() } else { s.into() }
 }
@@ -379,18 +409,32 @@ impl ResolvedPricing {
     }
 }
 
-/// 解析条目生效定价：无自定义且 native 无预置 → None。
+impl PricingConfig {
+    /// 全字段缺省——空对象 `"pricing": {}` 等价未配置（resolve 视同 None，
+    /// 避免无预置条目落进「有自定义但无任何生效值」的歧义态）。
+    fn is_empty(&self) -> bool {
+        self.model.is_none()
+            && self.timezone_offset_minutes.is_none()
+            && self.windows.is_none()
+            && self.peak.is_none()
+            && self.off_peak.is_none()
+            && self.currency.is_none()
+    }
+}
+
+/// 解析条目生效定价：无可展示内容（无预置，且自定义为空或缺失）→ None。
 ///
 /// 合并规则：`model` 匹配预置模型 id（大小写不敏感）则选定该模型，否则
-/// 仅作展示标签（价格回退默认模型）；`windows`/`peak`/`off_peak`/`currency`
-/// 自定义非空即覆盖，否则回退预置；来源以「是否有任何自定义值生效」判定。
+/// 仅作展示标签（价格回退默认模型）；`windows`/`peak`/`off_peak`/`currency`/
+/// `timezone_offset_minutes` 自定义非空即覆盖，否则回退预置；来源以
+/// 「是否有任何自定义值生效」判定（时区与 model 标签同口径）。
 pub fn resolve(entry: &ProviderEntry) -> Option<ResolvedPricing> {
     let preset = match &entry.kind {
         ProviderKind::Native { provider } => preset(provider),
         _ => None,
     };
     let custom = entry.pricing.as_ref();
-    if custom.is_none() && preset.is_none() {
+    if preset.is_none() && custom.is_none_or(|c| c.is_empty()) {
         return None;
     }
 
@@ -439,24 +483,22 @@ pub fn resolve(entry: &ProviderEntry) -> Option<ResolvedPricing> {
 
     let any_custom = custom.is_some_and(|c| {
         c.windows.is_some()
+            || c.timezone_offset_minutes.is_some()
             || c.peak.as_ref().is_some_and(|t| !t.is_empty())
             || c.off_peak.as_ref().is_some_and(|t| !t.is_empty())
             || c.currency.is_some()
             || model_from_custom
     });
-    let source = if any_custom {
-        PricingSource::Custom
-    } else {
-        let p = preset
-            .as_ref()
-            .expect("无预置时 any_custom 必为 true（custom 非 None）");
-        PricingSource::Preset {
+    let source = match (any_custom, preset.as_ref()) {
+        (false, Some(p)) => PricingSource::Preset {
             native_id: p.native_id.into(),
             model: model
                 .as_ref()
                 .map(|m| m.id.into())
                 .unwrap_or_else(|| p.default_model.into()),
-        }
+        },
+        // 有自定义生效 / 无预置但自定义非空（is_empty 已在入口拦截空对象）
+        _ => PricingSource::Custom,
     };
 
     Some(ResolvedPricing {
@@ -482,8 +524,8 @@ mod tests {
     const WED_0930_BJ_MS: u64 = 1_787_103_000_000;
     /// 北京时间 2026-08-19（周三）04:30 = UTC 前一日（周二）20:30。
     const WED_0430_BJ_MS: u64 = 1_787_085_000_000;
-    /// 北京时间 2026-08-22（周六）10:00 = UTC 02:00。
-    const SAT_1000_BJ_MS: u64 = 1_787_359_200_000;
+    /// 北京时间 2026-08-22（周六）08:40 = UTC 00:40。
+    const SAT_0840_BJ_MS: u64 = 1_787_359_200_000;
 
     /// UTC+8 偏移。
     const BJ: Option<i32> = Some(480);
@@ -543,7 +585,7 @@ mod tests {
     #[test]
     fn classify_weekend_and_night_off_peak() {
         let w = deepseek_windows();
-        // 周六 10:00（北京时间 18:00）
+        // 周六 UTC 02:00 = 北京 10:00
         assert_eq!(
             classify(&w, BJ, parts_ms(chrono::Weekday::Sat, 2, 0)),
             PeakKind::OffPeak
@@ -570,10 +612,10 @@ mod tests {
         let w = deepseek_windows();
         // 周三 UTC 01:30 = 北京 09:30 → 峰（预置真实锚点交叉验证）
         assert_eq!(classify(&w, BJ, WED_0930_BJ_MS), PeakKind::Peak);
-        // 周三 UTC 04:30 = 北京 12:30 午间 → 谷
+        // 北京周三 04:30（夜间）→ 谷
         assert_eq!(classify(&w, BJ, WED_0430_BJ_MS), PeakKind::OffPeak);
-        // 周六 UTC 02:00 → 谷
-        assert_eq!(classify(&w, BJ, SAT_1000_BJ_MS), PeakKind::OffPeak);
+        // 周六 UTC 00:40 → 谷
+        assert_eq!(classify(&w, BJ, SAT_0840_BJ_MS), PeakKind::OffPeak);
     }
 
     /// 契约：无窗口恒空闲；非法时刻窗口不参与判定（防御）。
@@ -592,22 +634,46 @@ mod tests {
     #[test]
     fn classify_local_timezone_default() {
         let w = deepseek_windows();
-        // 构造"本地即北京"的时刻：取当前本地时间下一分钟，两种入法判定一致
-        let now_ms = 1_786_129_800_000u64; // 任意固定时刻
-        let local_kind = classify(&w, None, now_ms);
-        let offset = chrono::Local::now().offset().local_minus_utc();
+        let now_ms = WED_0930_BJ_MS;
+        // 偏移取**入参时刻**的本地偏移（而非运行"此刻"）——DST 时区的
+        // 冬夏偏移不同，用"此刻"会在冬季跑出 flaky
+        let offset = chrono::Local
+            .timestamp_millis_opt(now_ms as i64)
+            .single()
+            .map(|dt| dt.offset().local_minus_utc())
+            .expect("入参在 chrono 有效范围内");
         assert_eq!(
-            local_kind,
+            classify(&w, None, now_ms),
             classify(&w, Some(offset), now_ms),
-            "tz=None 应等价于本地偏移"
+            "tz=None 应等价于入参时刻的本地偏移"
         );
     }
 
-    /// 契约：非法偏移不 panic，按本地兜底。
+    /// 契约：非法偏移不 panic，且等价于**入参时刻**的本地时区判定（保持
+    /// 纯函数——兜底若换成"此刻"，next_change 扫描会恒等于 current 而
+    /// 静默返回 None）。
     #[test]
     fn classify_invalid_offset_falls_back() {
         let w = deepseek_windows();
-        let _ = classify(&w, Some(i32::MAX), WED_0930_BJ_MS);
+        let now = WED_0930_BJ_MS;
+        // 入参时刻的本地偏移（同上，避免 DST 冬季 flaky）
+        let local_offset = chrono::Local
+            .timestamp_millis_opt(now as i64)
+            .single()
+            .map(|dt| dt.offset().local_minus_utc())
+            .expect("入参在 chrono 有效范围内");
+        assert_eq!(
+            classify(&w, Some(i32::MAX), now),
+            classify(&w, Some(local_offset), now),
+            "非法偏移应按入参时刻的本地时区判定"
+        );
+        // 非法偏移下 next_change 仍能找到翻转（而非静默 None）。
+        // 翻转方向动态推导（与当前态相反）——不依赖运行机器时区：
+        // 入参时刻的本地判定在 UTC 机器上是谷，固定断言 OffPeak 会红 CI。
+        let cur = classify(&w, Some(i32::MAX), now);
+        let (t, kind) = next_change(&w, Some(i32::MAX), now).expect("应找到翻转");
+        assert_ne!(kind, cur);
+        assert!(t > now);
     }
 
     // ---- next_change ----
@@ -636,6 +702,25 @@ mod tests {
         assert_eq!(next_change(&[], BJ, WED_0930_BJ_MS), None);
     }
 
+    /// 契约：非空窗口但 7 天内不翻转（全周 00:00–24:00 恒峰）→ None。
+    #[test]
+    fn next_change_none_when_never_flips() {
+        let always_peak = vec![PeakWindow {
+            days: vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+                Weekday::Sat,
+                Weekday::Sun,
+            ],
+            start: "00:00".into(),
+            end: "24:00".into(),
+        }];
+        assert_eq!(next_change(&always_peak, BJ, WED_0930_BJ_MS), None);
+    }
+
     // ---- format_price ----
 
     /// 契约：最多 2 位小数去尾零；非有限值显示 "—"。
@@ -646,8 +731,27 @@ mod tests {
         assert_eq!(format_price(1.5), "1.5");
         assert_eq!(format_price(0.05), "0.05");
         assert_eq!(format_price(0.0), "0");
+        assert_eq!(
+            format_price(-0.0),
+            "0",
+            "负零不显示成 -0（validate 放行 -0.0）"
+        );
         assert_eq!(format_price(f64::NAN), "—");
         assert_eq!(format_price(f64::INFINITY), "—");
+    }
+
+    /// 契约：小于 0.05 的非零价保留 4 位小数——美元档峰谷命中价
+    /// （谷 0.007 / 峰 0.014）不得都舍入成 "0.01"（两档显示撞车）。
+    #[test]
+    fn format_price_keeps_sub_cents_distinct() {
+        assert_eq!(format_price(0.007), "0.007");
+        assert_eq!(format_price(0.014), "0.014");
+        assert_eq!(format_price(0.0001), "0.0001");
+        assert_ne!(
+            format_price(0.007),
+            format_price(0.014),
+            "美元档峰谷命中价不得显示相同"
+        );
     }
 
     // ---- validate ----
@@ -942,9 +1046,101 @@ mod tests {
         );
         assert_eq!(r.windows.len(), 1);
         assert_eq!(r.currency, None);
-        // 判定走本地时区：窗口覆盖周日全天，周日必为峰
+        // 判定用固定偏移 0（tz=None 走本地时区，UTC+12+ 的高偏移时区
+        // 会把 UTC 周日正午翻到周一导致断言不可移植）
         let sunday = parts_ms(chrono::Weekday::Sun, 12, 0);
-        assert_eq!(r.kind(sunday), PeakKind::Peak);
+        assert_eq!(
+            classify(&r.windows, Some(0), sunday),
+            PeakKind::Peak,
+            "窗口覆盖周日全天，UTC 周日正午必为峰"
+        );
+    }
+
+    /// 契约：空对象 `"pricing": {}`（= 全字段缺省）视同未配置 → None
+    /// （回归：曾在此组合 panic——无预置条目 + Some(PricingConfig::default())
+    /// 落进 `preset.expect`）。
+    #[test]
+    fn resolve_empty_custom_is_none() {
+        assert_eq!(
+            resolve(&template_entry(Some(PricingConfig::default()))),
+            None
+        );
+        assert_eq!(
+            resolve(&deepseek_entry(Some(PricingConfig::default())))
+                .unwrap()
+                .source,
+            PricingSource::Preset {
+                native_id: "deepseek".into(),
+                model: "flash".into(),
+            },
+            "有预置时空自定义仍按预置生效"
+        );
+    }
+
+    /// 契约：旧 config.json（无 pricing 字段）反序列化兼容。
+    #[test]
+    fn legacy_config_without_pricing_field_parses() {
+        let json = r#"[{
+            "id": "p1", "name": "DeepSeek",
+            "kind": {"type": "native", "provider": "deepseek"},
+            "enabled": true
+        }]"#;
+        let providers: Vec<ProviderEntry> = serde_json::from_str(json).unwrap();
+        assert_eq!(providers.len(), 1);
+        assert!(providers[0].pricing.is_none());
+        assert!(resolve(&providers[0]).is_some(), "预置仍生效");
+    }
+
+    /// 契约：仅自定义时区也算 Custom（生效时区是用户值，与 model 标签口径一致）。
+    #[test]
+    fn resolve_tz_only_counts_as_custom() {
+        let cfg = PricingConfig {
+            timezone_offset_minutes: Some(0),
+            ..Default::default()
+        };
+        let r = resolve(&deepseek_entry(Some(cfg))).unwrap();
+        assert_eq!(r.source, PricingSource::Custom);
+        assert_eq!(r.timezone_offset_minutes, Some(0));
+        // 价格/时段仍回退预置
+        assert_eq!(r.windows.len(), 2);
+        assert_eq!(r.peak, Some(PriceTier::full(0.10, 3.0, 9.0)));
+    }
+
+    /// 契约：end="24:00" 表达全天窗口——validate 接受、classify 全天命中、
+    /// start 处 24:00 被拒。
+    #[test]
+    fn full_day_window_via_24_00() {
+        let all_day = PeakWindow {
+            days: vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+                Weekday::Sat,
+                Weekday::Sun,
+            ],
+            start: "00:00".into(),
+            end: "24:00".into(),
+        };
+        let cfg = PricingConfig {
+            windows: Some(vec![all_day]),
+            peak: Some(PriceTier::full(1.0, 2.0, 3.0)),
+            ..Default::default()
+        };
+        assert!(validate(&cfg).is_ok(), "24:00 作为 end 应被接受");
+        // 任意时刻命中（含 23:59 与 00:00 边界）
+        for now in [WED_0930_BJ_MS, WED_0430_BJ_MS, SAT_0840_BJ_MS] {
+            assert_eq!(
+                classify(cfg.windows.as_ref().unwrap(), None, now),
+                PeakKind::Peak,
+                "全天窗口应恒峰"
+            );
+        }
+        // start 处 24:00 被拒（start 须早于 end）
+        let mut bad = cfg.clone();
+        bad.windows.as_mut().unwrap()[0].start = "24:00".into();
+        assert!(validate(&bad).is_err());
     }
 
     /// 契约：ResolvedPricing::kind 便利封装与 classify 一致。
