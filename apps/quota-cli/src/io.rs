@@ -98,22 +98,26 @@ fn paste_clipboard(term: &Term, chars: &mut Vec<char>, lang: Lang) -> Result<usi
     Ok(n)
 }
 
-/// 多行读取 JSON 文本，直到单个空行或 EOF。
+/// 多行读取文本（JSON 模板 / JS 脚本代码共用）。
 ///
-/// 两种用法等价：交互粘贴（空行结束）、`< file` 重定向（EOF 结束）。
-/// 返回累积的原始文本（不含结束空行）。
+/// 交互终端：单个空行结束（粘贴场景的用户无法便捷发 EOF）；
+/// 管道/重定向：读到 EOF——**空行不终止**（文件内的空行是内容一部分，
+/// JS 代码与美化 JSON 常含空行，截断会静默丢掉后半段）。
 pub fn read_multiline_json(prompt: &str, lang: Lang) -> std::io::Result<String> {
     // 提示走 stderr：数据流（stdout）保持纯净，管道/重定向场景不被污染
     eprintln!("{prompt}");
-    eprintln!("{}", t(lang, T::MultilineJsonHint));
+    if std::io::stdin().is_terminal() {
+        eprintln!("{}", t(lang, T::MultilineJsonHint));
+    }
 
+    let interactive = std::io::stdin().is_terminal();
     let mut buf = String::new();
     let stdin = std::io::stdin();
     let mut locked = stdin.lock();
     loop {
         let mut line = String::new();
         let n = locked.read_line(&mut line)?;
-        if n == 0 || line.trim().is_empty() {
+        if n == 0 || (interactive && line.trim().is_empty()) {
             break;
         }
         buf.push_str(&line);

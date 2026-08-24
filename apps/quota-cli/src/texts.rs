@@ -94,6 +94,12 @@ pub enum T {
     RetrySuffix,
     /// 「粘贴模板 JSON」多行输入 prompt（add 向导与 template test 共用）。
     PasteTemplateJson,
+    /// 向导类型列表的 script 选项。
+    ScriptOption,
+    /// 「粘贴脚本 JS 代码」多行输入 prompt（add 向导与 script test 共用）。
+    PasteScriptCode,
+    /// 「脚本校验失败：」前缀。
+    ScriptValidateFail,
 
     // ---- edit ----
     PasteHintEdit,
@@ -101,6 +107,10 @@ pub enum T {
     BaseUrlPromptEdit,
     CurrentTemplateLabel,
     PasteNewTplPrompt,
+    /// 编辑 script 条目：当前代码标签 / 重粘贴 prompt / 无效保持前缀。
+    CurrentScriptLabel,
+    PasteNewScriptPrompt,
+    InvalidScriptKeep,
     EnabledConfirm,
     /// 「模板无效（保持原模板）：」前缀。
     InvalidTplKeep,
@@ -116,6 +126,8 @@ pub enum T {
     StaticCheckOk,
     /// 试查临时条目名（不落盘）。
     TestEntryName,
+    /// script 试查临时条目名（不落盘）。
+    ScriptTestEntryName,
     TryQueryEncryptFail,
     TryQueryFail,
     NeedsKeyPrompt,
@@ -339,6 +351,9 @@ fn zh(key: T) -> &'static str {
         T::ValidateFail => "静态校验未通过：",
         T::RetrySuffix => "请修正后重新粘贴（Ctrl+C 放弃）",
         T::PasteTemplateJson => "粘贴模板 JSON",
+        T::ScriptOption => "script —— 自定义 JS 脚本（QuickJS 沙箱）",
+        T::PasteScriptCode => "粘贴脚本 JS 代码",
+        T::ScriptValidateFail => "脚本校验失败：",
 
         T::PasteHintEdit => {
             "粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）。"
@@ -347,6 +362,9 @@ fn zh(key: T) -> &'static str {
         T::BaseUrlPromptEdit => "base_url（回车保持，输入 - 清空）",
         T::CurrentTemplateLabel => "当前模板：",
         T::PasteNewTplPrompt => "粘贴新模板 JSON（直接空行 = 保持不变）",
+        T::CurrentScriptLabel => "当前脚本：",
+        T::PasteNewScriptPrompt => "粘贴新脚本 JS 代码（直接空行 = 保持不变）",
+        T::InvalidScriptKeep => "脚本无效（保持原脚本）：",
         T::EnabledConfirm => "启用该条目",
         T::InvalidTplKeep => "模板无效（保持原模板）：",
         T::EmptyInputKeep => "空输入（保持不变）",
@@ -357,12 +375,13 @@ fn zh(key: T) -> &'static str {
         T::NeedEntryOrJson => "需要 --entry <id> 或 --json 之一（quota template test --help 查看）",
         T::StaticCheckOk => "静态校验通过",
         T::TestEntryName => "模板试查",
+        T::ScriptTestEntryName => "脚本试查",
         T::TryQueryEncryptFail => "试查凭据加密失败：",
         T::TryQueryFail => "试查失败：",
         T::NeedsKeyPrompt => {
-            "该模板引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）"
+            "该查询引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）"
         }
-        T::KeyEmptyHint => "key 为空；无 key 调试请改用 quota template test --entry",
+        T::KeyEmptyHint => "key 为空；stdin 重定向时无法交互输入 key，请改用 --entry 复用已存条目",
         T::LblValid => "有效",
         T::Dash => "——",
 
@@ -550,6 +569,9 @@ fn en(key: T) -> &'static str {
         T::ValidateFail => "static validation failed: ",
         T::RetrySuffix => "fix it and paste again (Ctrl+C to abort)",
         T::PasteTemplateJson => "Paste the template JSON",
+        T::ScriptOption => "script — custom JS script (QuickJS sandbox)",
+        T::PasteScriptCode => "Paste the script JS code",
+        T::ScriptValidateFail => "script validation failed: ",
 
         T::PasteHintEdit => {
             "Paste tip: use Shift+Ctrl+V or right-click in the name / base_url prompts (Ctrl+V does not work there)."
@@ -558,6 +580,9 @@ fn en(key: T) -> &'static str {
         T::BaseUrlPromptEdit => "base_url (Enter = keep, '-' to clear)",
         T::CurrentTemplateLabel => "Current template:",
         T::PasteNewTplPrompt => "Paste the new template JSON (a blank line = keep unchanged)",
+        T::CurrentScriptLabel => "Current script:",
+        T::PasteNewScriptPrompt => "Paste the new script JS code (a blank line = keep unchanged)",
+        T::InvalidScriptKeep => "invalid script (keeping the current one): ",
         T::EnabledConfirm => "Enable this entry",
         T::InvalidTplKeep => "invalid template (keeping the current one): ",
         T::EmptyInputKeep => "empty input (kept unchanged)",
@@ -570,12 +595,15 @@ fn en(key: T) -> &'static str {
         }
         T::StaticCheckOk => "static validation passed",
         T::TestEntryName => "template test",
+        T::ScriptTestEntryName => "script test",
         T::TryQueryEncryptFail => "test credential encryption failed: ",
         T::TryQueryFail => "live query failed: ",
         T::NeedsKeyPrompt => {
-            "this template references {{apiKey}}; enter a test key (this run only, not persisted; input is masked)"
+            "this query references {{apiKey}}; enter a test key (this run only, not persisted; input is masked)"
         }
-        T::KeyEmptyHint => "key is empty; for keyless debugging use quota template test --entry",
+        T::KeyEmptyHint => {
+            "key is empty; stdin redirection cannot prompt for a key — use --entry to reuse a stored entry"
+        }
         T::LblValid => "valid",
         T::Dash => "—",
 
@@ -886,6 +914,14 @@ pub fn not_template_entry(lang: Lang, id: &str) -> String {
     match lang {
         Lang::En => format!("entry {id} is not of the template kind"),
         _ => format!("条目 {id} 不是 template 类型"),
+    }
+}
+
+/// script test：条目不是 script 类型。
+pub fn not_script_entry(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::En => format!("entry {id} is not of the script kind"),
+        _ => format!("条目 {id} 不是 script 类型"),
     }
 }
 

@@ -103,6 +103,9 @@ enum Command {
     /// 模板工具
     #[command(subcommand)]
     Template(TemplateCmd),
+    /// 脚本工具
+    #[command(subcommand)]
+    Script(ScriptCmd),
     /// 凭据保险库
     #[command(subcommand)]
     Vault(VaultCmd),
@@ -187,6 +190,22 @@ enum TemplateCmd {
         #[arg(long, conflicts_with = "json", value_name = "ID")]
         entry: Option<String>,
         /// 从 stdin 读模板 JSON（引用 {{apiKey}} 时经 tty 交互输入 key）
+        #[arg(long)]
+        json: bool,
+        /// 覆盖 baseUrl 变量
+        #[arg(long, value_name = "URL")]
+        base_url: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ScriptCmd {
+    /// 脚本静态校验（干跑）+ 真实试查一次
+    Test {
+        /// 复用已存条目的 key（vault 解密）与 base_url
+        #[arg(long, conflicts_with = "json", value_name = "ID")]
+        entry: Option<String>,
+        /// 从 stdin 读脚本配置 JSON（{code, allowInsecure?}；引用 {{apiKey}} 时经 tty 交互输入 key）
         #[arg(long)]
         json: bool,
         /// 覆盖 baseUrl 变量
@@ -314,6 +333,11 @@ async fn run(cli: Cli) -> i32 {
             json,
             base_url,
         }) => cmd::template::run(&ctx, entry, json, base_url).await,
+        Command::Script(ScriptCmd::Test {
+            entry,
+            json,
+            base_url,
+        }) => cmd::script::run(&ctx, entry, json, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
         Command::Config(ConfigCmd::Export { output, yes }) => {
             cmd::config::run_export(&ctx, output, yes)

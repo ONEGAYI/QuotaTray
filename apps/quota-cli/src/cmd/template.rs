@@ -129,7 +129,7 @@ pub async fn run(
 }
 
 /// 试查失败的退出码：瞬时 → 2（可重试），确定性 → 1（spec §4 三分约定全局适用）。
-fn exit_code_for(e: &QueryError) -> i32 {
+pub(crate) fn exit_code_for(e: &QueryError) -> i32 {
     if e.is_transient() { 2 } else { 1 }
 }
 
@@ -190,7 +190,7 @@ pub fn template_needs_key(tpl: &TemplateConfig) -> bool {
     texts.iter().any(|t| t.contains("{{apiKey}}"))
 }
 
-fn print_usage(rows: &[UsageData], lang: Lang) {
+pub(crate) fn print_usage(rows: &[UsageData], lang: Lang) {
     for d in rows {
         println!(
             "{}={} {}={} {}={} {}={} {}={}",

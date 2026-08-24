@@ -145,11 +145,13 @@ QuotaTray/
 │   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
 │   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
-│   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体）/ --json stdin
-│   │           │              #   （拒收 api_key_enc）
+│   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体；template 粘贴/
+│   │           │              #   script 代码粘贴双形态）/ --json stdin
+│   │           │              #   （拒收 api_key_enc，script 干跑校验）
 │   │           ├── config.rs  # config export/import：高敏感确认、完整配置迁移、
 │   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试
-│   │           ├── edit.rs    # 向导（回车保持，套餐变体可改）+ --enable/--disable 快捷路径
+│   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
+│   │           │              #   各自的 baseUrl 与内容重粘贴）+ --enable/--disable 快捷路径
 │   │           ├── remove.rs  # 确认删除（--yes 跳过）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
@@ -161,6 +163,9 @@ QuotaTray/
 │   │           ├── pricing_models.rs # pricing model list/add/remove：自定义模型库
 │   │           │              #   管理（表格价格对照/同 id 覆盖/删空移键，纯函数可测）
 │   │           ├── template.rs# template test：静态校验 + 真实试查
+│   │           ├── script.rs  # script test：干跑校验先行 + 真实试查（--json
+│   │           │              #   stdin 双形态：config JSON 或纯 JS 文本；key 在
+│   │           │              #   校验通过后按需交互收集）
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；交互终端实时进度/速率；http 与 downloader
 │   │           │              #   可注入测试；退出码三分；更新代理端口读自 settings.json
@@ -303,9 +308,12 @@ QuotaTray/
 │               │               #   峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
-│   └── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
-│                              #   双站 baseUrl/总额已用/多窗口，含 README 使用
-│                              #   说明与已知边界，均经 quota template test 实测）
+│   ├── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
+│   │                          #   双站 baseUrl/总额已用/多窗口，含 README 使用
+│   │                          #   说明与已知边界，均经 quota template test 实测）
+│   └── scripts/               # JS 脚本查询可运行示例（basic 最小闭环/多窗口
+│                              #   字段间运算+reset_at，含 README 协议说明与
+│                              #   已知边界，loopback 端到端实测）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
