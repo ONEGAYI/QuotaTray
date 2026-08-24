@@ -166,7 +166,9 @@ fn secret_values(req: &HttpRequest) -> Vec<String> {
     // 按字符长度降序替换：整值必须先于其前缀（BTreeSet 字典序里前缀
     // 恰好排在整值之前，先替换前缀会打断整值匹配、残留密钥后半段）。
     // 已知边界：服务端主动截断回显（只回显 key 前段）时，截断点之后
-    // 超出前缀长度的片段仍可能残留——不足以重建完整 key，接受。
+    // 的片段残留上界为「回显长度 − 前缀长度 12」——完整回显（现实
+    // 最常见形态）全打码，短前段回显的残留不足以重建完整 key；完美
+    // 闭合需枚举全部前缀长度，误伤不可接受，折中如此。
     let mut values: Vec<String> = set.into_iter().collect();
     values.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
     values

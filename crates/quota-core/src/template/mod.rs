@@ -847,6 +847,11 @@ mod tests {
             "取值错误 message 泄漏回显值：{}",
             err.message()
         );
+        assert!(
+            err.message().contains("<redacted>"),
+            "应含打码占位（防文案不再携带字段值时假通过）：{}",
+            err.message()
+        );
     }
 
     /// 契约：HTTP 层错误分类透传（401 确定性、网络故障瞬时）。
