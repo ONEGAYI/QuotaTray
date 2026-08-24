@@ -40,6 +40,10 @@ pub struct Settings {
     /// 上次自动检测时间（epoch 毫秒；CLI 与 GUI 共写做 24h 节流）。
     #[serde(default)]
     pub update_last_check: Option<u64>,
+    /// 更新通道代理端口（本机 HTTP 代理，如 Clash；None = 直连/环境变量）。
+    /// 检测与下载安装包共用；CLI 读同一 settings.json 自动生效。
+    #[serde(default)]
+    pub update_proxy_port: Option<u16>,
 }
 
 fn default_interval() -> u32 {
@@ -83,6 +87,7 @@ impl Default for Settings {
             update_check_enabled: default_update_enabled(),
             update_check_time: default_update_time(),
             update_last_check: None,
+            update_proxy_port: None,
         }
     }
 }
@@ -107,6 +112,8 @@ impl Settings {
         if quota_core::update::parse_hhmm(&self.update_check_time).is_none() {
             self.update_check_time = default_update_time();
         }
+        // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
+        self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
     }
 
     /// 加载设置；文件缺失或损坏返回默认值（非关键数据，容错优先）。
@@ -163,6 +170,7 @@ mod tests {
             update_check_enabled: false,
             update_check_time: "12:30".into(),
             update_last_check: Some(1_700_000_000_000),
+            update_proxy_port: Some(7897),
         };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s);
@@ -184,6 +192,7 @@ mod tests {
         assert!(s.update_check_enabled, "自动检测默认开启");
         assert_eq!(s.update_check_time, "09:00");
         assert_eq!(s.update_last_check, None);
+        assert_eq!(s.update_proxy_port, None, "默认不走代理");
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -224,6 +233,7 @@ mod tests {
             update_check_enabled: true,
             update_check_time: "09:00".into(),
             update_last_check: None,
+            update_proxy_port: Some(7897),
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
@@ -252,6 +262,16 @@ mod tests {
         s.update_check_time = "23:59".into();
         s.sanitize();
         assert_eq!(s.update_check_time, "23:59", "合法时刻应保留");
+        // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
+        s.update_proxy_port = Some(0);
+        s.sanitize();
+        assert_eq!(s.update_proxy_port, None, "端口 0 视为未配置");
+        s.update_proxy_port = Some(1);
+        s.sanitize();
+        assert_eq!(s.update_proxy_port, Some(1), "合法端口应保留");
+        s.update_proxy_port = Some(u16::MAX);
+        s.sanitize();
+        assert_eq!(s.update_proxy_port, Some(u16::MAX), "上界端口应保留");
     }
 
     /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。

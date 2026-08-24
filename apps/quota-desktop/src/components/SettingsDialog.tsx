@@ -367,6 +367,27 @@ export function SettingsDialog({ open, onClose }: Props) {
                   onChange={(event) => setDraft({ ...draft, update_check_time: event.target.value })}
                 />
               </SettingRow>
+              <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
+                <input
+                  className="qt-input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={draft.update_proxy_port ?? ""}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    const parsed = Number(raw);
+                    // 空/非法输入 → null（直连）；超界收到 1..65535，
+                    // 与后端 sanitize 的兜底同语义
+                    const port =
+                      raw === "" || !Number.isFinite(parsed)
+                        ? null
+                        : Math.min(65535, Math.max(1, Math.round(parsed)));
+                    setDraft({ ...draft, update_proxy_port: port });
+                  }}
+                />
+              </SettingRow>
               {available && !available.downloadable && (
                 <a
                   className="qt-settings-manual-link"

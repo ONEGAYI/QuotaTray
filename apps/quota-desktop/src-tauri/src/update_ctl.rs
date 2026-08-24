@@ -66,6 +66,12 @@ pub const DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
 /// 自动调度完成检测后推送完整状态，已打开的设置页可立即刷新。
 pub const UPDATE_STATE_EVENT: &str = "update-state-changed";
 
+/// 更新通道代理 URL（settings 端口 → `http://127.0.0.1:{port}`；None = 直连）。
+/// 检测与下载共用同一设置项。
+pub(crate) fn proxy_url(state: &AppState) -> Option<String> {
+    quota_core::update::proxy_url_of(state.settings.read().unwrap().update_proxy_port)
+}
+
 struct TauriProgressReporter<'a> {
     app: &'a AppHandle,
 }
@@ -143,7 +149,9 @@ pub async fn download_installer(
         return Err(lang.err_update_no_asset());
     };
     let reporter = TauriProgressReporter { app };
-    let bytes = ReqwestAssetDownloader::new()
+    let downloader = ReqwestAssetDownloader::try_with_proxy(proxy_url(state).as_deref())
+        .map_err(|e| lang.err_update_client(&e))?;
+    let bytes = downloader
         .download_with_progress(&url, &reporter)
         .await
         .map_err(|e| lang.err_update_download(&e))?;
@@ -175,7 +183,10 @@ pub fn spawn_scheduler(app: AppHandle) {
                     )
                 };
                 if quota_core::update::due_check(enabled, last, &time, now_ms()) {
-                    if let Ok(http) = ReqwestHttpClient::new(Duration::from_secs(10)) {
+                    if let Ok(http) = ReqwestHttpClient::new_with_proxy(
+                        Duration::from_secs(10),
+                        proxy_url(&state).as_deref(),
+                    ) {
                         let inner = run_check(&state, &http).await;
                         let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner));
                         tray::rebuild(&app, &state);
