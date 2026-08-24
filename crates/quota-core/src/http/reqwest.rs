@@ -93,8 +93,11 @@ mod tests {
             "None 等价于 new()"
         );
         assert!(
-            ReqwestHttpClient::new_with_proxy(Duration::from_secs(5), Some("http://127.0.0.1:7897"))
-                .is_ok(),
+            ReqwestHttpClient::new_with_proxy(
+                Duration::from_secs(5),
+                Some("http://127.0.0.1:7897")
+            )
+            .is_ok(),
             "合法代理 URL 应构造成功"
         );
         assert!(
