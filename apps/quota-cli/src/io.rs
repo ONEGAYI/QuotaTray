@@ -124,3 +124,28 @@ pub fn read_multiline_json(prompt: &str, lang: Lang) -> std::io::Result<String> 
     }
     Ok(buf)
 }
+
+/// 多行读取脚本 JS 代码。
+///
+/// 交互终端：**单独一行 `.`** 结束——JS 代码常含函数间空行，模板 JSON
+/// 的「空行结束」约定（[`read_multiline_json`]）会截断粘贴内容；
+/// 管道/重定向：读到 EOF。结束符行本身不进入内容（交互与管道同规则，
+/// 管道喂入的 .js 文件不会出现单独 `.` 行，可安全共用）。
+pub fn read_multiline_code(prompt: &str, lang: Lang) -> std::io::Result<String> {
+    eprintln!("{prompt}");
+    if std::io::stdin().is_terminal() {
+        eprintln!("{}", t(lang, T::MultilineCodeHint));
+    }
+    let mut buf = String::new();
+    let stdin = std::io::stdin();
+    let mut locked = stdin.lock();
+    loop {
+        let mut line = String::new();
+        let n = locked.read_line(&mut line)?;
+        if n == 0 || line.trim() == "." {
+            break;
+        }
+        buf.push_str(&line);
+    }
+    Ok(buf)
+}

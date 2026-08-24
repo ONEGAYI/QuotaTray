@@ -25,6 +25,8 @@ pub struct EditInput {
     pub template: Option<TemplateConfig>,
     /// None = 保持当前脚本代码。
     pub script_code: Option<String>,
+    /// None = 保持当前脚本 allowInsecure。
+    pub script_allow_insecure: Option<bool>,
     /// None = 保持当前套餐变体。
     pub plan_variant: Option<PlanVariant>,
     pub enabled: bool,
@@ -60,6 +62,11 @@ pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
             if let Some(new_code) = &input.script_code {
                 if let ProviderKind::Script(s) = &mut entry.kind {
                     s.code = new_code.clone();
+                }
+            }
+            if let Some(allow) = input.script_allow_insecure {
+                if let ProviderKind::Script(s) = &mut entry.kind {
+                    s.allow_insecure = allow;
                 }
             }
         }
@@ -130,67 +137,78 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         .interact_text()
         .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
 
-    let (base_url, template, script_code) = if matches!(current.kind, ProviderKind::Template(_)) {
-        let cur_base = current.base_url.clone().unwrap_or_default();
-        let raw = Input::<String>::with_theme(&theme)
-            .with_prompt(t(lang, T::BaseUrlPromptEdit))
-            .with_initial_text(&cur_base)
-            .allow_empty(true)
-            .interact_text()
-            .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
-        let base = match raw.trim() {
-            "-" => BaseUrlEdit::Clear,
-            "" => BaseUrlEdit::Keep,
-            v => BaseUrlEdit::Set(v.to_string()),
-        };
-        if let ProviderKind::Template(tpl) = &current.kind {
-            println!("{}", t(lang, T::CurrentTemplateLabel));
-            println!("{}", serde_json::to_string_pretty(tpl).unwrap_or_default());
-        }
-        let text = io::read_multiline_json(t(lang, T::PasteNewTplPrompt), lang)
-            .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
-        let template = match parse_replacement_template(&text, lang) {
-            Ok(t) => Some(t),
-            Err(msg) => {
-                if !text.trim().is_empty() {
-                    println!("{}{msg}", t(lang, T::InvalidTplKeep));
-                }
-                None
+    let (base_url, template, script_code, script_allow_insecure) =
+        if matches!(current.kind, ProviderKind::Template(_)) {
+            let cur_base = current.base_url.clone().unwrap_or_default();
+            let raw = Input::<String>::with_theme(&theme)
+                .with_prompt(t(lang, T::BaseUrlPromptEdit))
+                .with_initial_text(&cur_base)
+                .allow_empty(true)
+                .interact_text()
+                .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
+            let base = match raw.trim() {
+                "-" => BaseUrlEdit::Clear,
+                "" => BaseUrlEdit::Keep,
+                v => BaseUrlEdit::Set(v.to_string()),
+            };
+            if let ProviderKind::Template(tpl) = &current.kind {
+                println!("{}", t(lang, T::CurrentTemplateLabel));
+                println!("{}", serde_json::to_string_pretty(tpl).unwrap_or_default());
             }
-        };
-        (base, template, None)
-    } else if matches!(current.kind, ProviderKind::Script(_)) {
-        let cur_base = current.base_url.clone().unwrap_or_default();
-        let raw = Input::<String>::with_theme(&theme)
-            .with_prompt(t(lang, T::BaseUrlPromptEdit))
-            .with_initial_text(&cur_base)
-            .allow_empty(true)
-            .interact_text()
-            .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
-        let base = match raw.trim() {
-            "-" => BaseUrlEdit::Clear,
-            "" => BaseUrlEdit::Keep,
-            v => BaseUrlEdit::Set(v.to_string()),
-        };
-        if let ProviderKind::Script(s) = &current.kind {
-            println!("{}", t(lang, T::CurrentScriptLabel));
-            println!("{}", s.code);
-        }
-        let text = io::read_multiline_json(t(lang, T::PasteNewScriptPrompt), lang)
-            .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
-        let script_code = match parse_replacement_script(&text, lang) {
-            Ok(c) => Some(c),
-            Err(msg) => {
-                if !text.trim().is_empty() {
-                    println!("{}{msg}", t(lang, T::InvalidScriptKeep));
+            let text = io::read_multiline_json(t(lang, T::PasteNewTplPrompt), lang)
+                .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
+            let template = match parse_replacement_template(&text, lang) {
+                Ok(t) => Some(t),
+                Err(msg) => {
+                    if !text.trim().is_empty() {
+                        println!("{}{msg}", t(lang, T::InvalidTplKeep));
+                    }
+                    None
                 }
-                None
+            };
+            (base, template, None, None)
+        } else if matches!(current.kind, ProviderKind::Script(_)) {
+            let cur_base = current.base_url.clone().unwrap_or_default();
+            let raw = Input::<String>::with_theme(&theme)
+                .with_prompt(t(lang, T::BaseUrlPromptEdit))
+                .with_initial_text(&cur_base)
+                .allow_empty(true)
+                .interact_text()
+                .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
+            let base = match raw.trim() {
+                "-" => BaseUrlEdit::Clear,
+                "" => BaseUrlEdit::Keep,
+                v => BaseUrlEdit::Set(v.to_string()),
+            };
+            if let ProviderKind::Script(s) = &current.kind {
+                println!("{}", t(lang, T::CurrentScriptLabel));
+                println!("{}", s.code);
             }
+            let text = io::read_multiline_code(t(lang, T::PasteNewScriptPrompt), lang)
+                .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
+            let script_code = match parse_replacement_script(&text, lang) {
+                Ok(c) => Some(c),
+                Err(msg) => {
+                    if !text.trim().is_empty() {
+                        println!("{}{msg}", t(lang, T::InvalidScriptKeep));
+                    }
+                    None
+                }
+            };
+            // 默认高亮当前值（回车即保持）；与 add 向导同一问询
+            let cur_insecure = match &current.kind {
+                ProviderKind::Script(s) => s.allow_insecure,
+                _ => false,
+            };
+            let allow_insecure = Confirm::with_theme(&theme)
+                .with_prompt(t(lang, T::AllowInsecurePrompt))
+                .default(cur_insecure)
+                .interact()
+                .map_err(|e| format!("{}{e}", t(lang, T::SelectReadFail)))?;
+            (base, None, script_code, Some(allow_insecure))
+        } else {
+            (BaseUrlEdit::Keep, None, None, None)
         };
-        (base, None, script_code)
-    } else {
-        (BaseUrlEdit::Keep, None, None)
-    };
 
     // 订阅型平台（智谱系）问套餐变体，默认高亮当前值（回车即保持）
     let plan_variant = match &current.kind {
@@ -216,6 +234,7 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         base_url,
         template,
         script_code,
+        script_allow_insecure,
         plan_variant,
         enabled,
     })
@@ -282,6 +301,7 @@ mod tests {
                 base_url: BaseUrlEdit::Keep,
                 template: None,
                 script_code: None,
+                script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
             },
@@ -305,6 +325,7 @@ mod tests {
                 base_url: BaseUrlEdit::Clear,
                 template: Some(new_tpl),
                 script_code: None,
+                script_allow_insecure: None,
                 plan_variant: None,
                 enabled: false,
             },
@@ -329,6 +350,7 @@ mod tests {
                 base_url: BaseUrlEdit::Keep,
                 template: None,
                 script_code: None,
+                script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
             },
@@ -336,7 +358,8 @@ mod tests {
         assert_eq!(e.name, "旧名");
     }
 
-    /// 契约：script 条目编辑——换代码生效、模板输入被忽略。
+    /// 契约：script 条目编辑——换代码生效、allowInsecure 独立编辑
+    /// （None = 保持）、模板输入被忽略。
     #[test]
     fn applies_script_code_edit() {
         let mut e = ProviderEntry {
@@ -361,13 +384,35 @@ mod tests {
                 script_code: Some(
                     "function request(){ return { url: \"https://a.com\" }; }".into(),
                 ),
+                script_allow_insecure: Some(true),
                 plan_variant: None,
                 enabled: true,
             },
         );
         assert_eq!(e.base_url.as_deref(), Some("https://new.com"));
         match &e.kind {
-            ProviderKind::Script(s) => assert!(s.code.contains("a.com")),
+            ProviderKind::Script(s) => {
+                assert!(s.code.contains("a.com"));
+                assert!(s.allow_insecure, "allowInsecure 编辑应生效");
+            }
+            _ => panic!("kind 不应变"),
+        }
+
+        // None = 保持当前 allowInsecure
+        apply_edit(
+            &mut e,
+            &EditInput {
+                name: None,
+                base_url: BaseUrlEdit::Keep,
+                template: None,
+                script_code: None,
+                script_allow_insecure: None,
+                plan_variant: None,
+                enabled: true,
+            },
+        );
+        match &e.kind {
+            ProviderKind::Script(s) => assert!(s.allow_insecure),
             _ => panic!("kind 不应变"),
         }
     }

@@ -7,6 +7,7 @@
 use quota_core::AppConfig;
 use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::script::{self, ScriptConfig};
+use std::io::IsTerminal as _;
 use zeroize::Zeroizing;
 
 use crate::cmd::template::{exit_code_for, print_usage};
@@ -100,7 +101,14 @@ pub async fn run(
                     }
                 };
                 if k.trim().is_empty() {
-                    eprintln!("{}{}", t(lang, T::Err), t(lang, T::KeyEmptyHint));
+                    // 终端空输入与 stdin 被重定向占用（读到 EOF）是两种场景，
+                    // 分别引导：重试输入 / 改走 --entry
+                    let hint = if std::io::stdin().is_terminal() {
+                        T::KeyEmptyHint
+                    } else {
+                        T::KeyEmptyRedirect
+                    };
+                    eprintln!("{}{}", t(lang, T::Err), t(lang, hint));
                     return 1;
                 }
                 k
@@ -164,19 +172,47 @@ fn build_from_entry(
     Ok(TestSource::Entry(Box::new(test_entry)))
 }
 
-/// `--json`：stdin 双形态宽容解析——先按脚本配置 JSON（`{code, allowInsecure?}`），
-/// 失败则整段文本视为纯 JS 代码（examples/scripts/ 的 .js 文件可直接重定向试查）。
+/// `--json`：stdin 双形态宽容解析（见 [`parse_script_input`]）；输入以 `{`
+/// 开头却解析失败时提示疑似配置误输入（回退仍生效，仅提示排查方向）。
 fn build_from_stdin(base_url_override: Option<String>, lang: Lang) -> Result<TestSource, String> {
-    let text = io::read_multiline_json(t(lang, T::PasteScriptCode), lang)
+    let text = io::read_multiline_code(t(lang, T::PasteScriptCode), lang)
         .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
-    let config = serde_json::from_str::<ScriptConfig>(&text).unwrap_or(ScriptConfig {
-        code: text,
-        allow_insecure: false,
-    });
+    let config = match parse_script_input(&text) {
+        ScriptInput::Config(cfg) => *cfg,
+        ScriptInput::PlainCode { looks_like_json } => {
+            if looks_like_json {
+                eprintln!("{}", t(lang, T::LooksLikeJsonHint));
+            }
+            ScriptConfig {
+                code: text,
+                allow_insecure: false,
+            }
+        }
+    };
     Ok(TestSource::Stdin {
         config: Box::new(config),
         base_url: base_url_override,
     })
+}
+
+/// stdin 双形态解析结果（纯函数）：配置 JSON 优先，失败回退纯 JS 代码。
+#[derive(Debug)]
+enum ScriptInput {
+    Config(Box<ScriptConfig>),
+    /// 回退为纯 JS 代码；`looks_like_json` 标记「以 `{` 开头却解析失败」
+    /// 的疑似配置误输入（拼错字段名时按 JS 报错会误导排查方向）。
+    PlainCode {
+        looks_like_json: bool,
+    },
+}
+
+fn parse_script_input(text: &str) -> ScriptInput {
+    if let Ok(cfg) = serde_json::from_str::<ScriptConfig>(text) {
+        return ScriptInput::Config(Box::new(cfg));
+    }
+    ScriptInput::PlainCode {
+        looks_like_json: text.trim_start().starts_with('{'),
+    }
 }
 
 #[cfg(test)]
@@ -191,7 +227,8 @@ mod tests {
     }
 
     /// 契约：`--json` 输入双形态——配置 JSON（`{code, allowInsecure?}`）与
-    /// 纯 JS 代码文本都可被收（examples/scripts/ 的 .js 文件直接重定向）。
+    /// 纯 JS 代码文本都可被收（examples/scripts/ 的 .js 文件直接重定向）；
+    /// 以 `{` 开头却解析失败的输入标记疑似配置误输入。
     #[test]
     fn stdin_accepts_config_json_and_plain_js() {
         let raw = serde_json::json!({
@@ -199,18 +236,35 @@ mod tests {
             "allowInsecure": false
         })
         .to_string();
-        let cfg: ScriptConfig = serde_json::from_str(&raw).unwrap();
-        assert!(!cfg.allow_insecure);
-        assert!(cfg.code.contains("request"));
+        match parse_script_input(&raw) {
+            ScriptInput::Config(cfg) => {
+                assert!(!cfg.allow_insecure);
+                assert!(cfg.code.contains("request"));
+            }
+            other => panic!("应按配置 JSON 解析：{other:?}"),
+        }
 
-        // 纯 JS 文本不是合法 JSON → 回退为整段 code
+        // 纯 JS 文本不是合法 JSON → 回退为整段 code，且不误报疑似 JSON
         let plain = "function request(){ return { url: \"https://a.com\" }; }\nfunction extract(r){ return { remaining: 1 }; }";
+        match parse_script_input(plain) {
+            ScriptInput::PlainCode { looks_like_json } => {
+                assert!(!looks_like_json);
+            }
+            other => panic!("纯 JS 应回退：{other:?}"),
+        }
         let cfg = serde_json::from_str::<ScriptConfig>(plain).unwrap_or(ScriptConfig {
             code: plain.to_string(),
             allow_insecure: false,
         });
         assert_eq!(cfg.code, plain);
         assert!(!cfg.allow_insecure);
+
+        // 字段拼错的配置 JSON：回退纯代码，但标记疑似配置（提示排查方向）
+        let broken = r#"{ "cod": "function request(){}", "allowInsecure": false }"#;
+        match parse_script_input(broken) {
+            ScriptInput::PlainCode { looks_like_json } => assert!(looks_like_json),
+            other => panic!("坏配置应回退：{other:?}"),
+        }
     }
 
     /// 契约：uses_api_key 联动 key 收集（{{apiKey}} 占位）。
