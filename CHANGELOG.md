@@ -2,6 +2,32 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.0] - 2026-08-25
+
+本版本落地 JS 脚本查询：在预置平台与声明式模板之外新增第三类查询方式——QuickJS 沙箱内运行 `{request, extractor}` 脚本，覆盖模板表达不了的复杂平台（字段间运算、多窗口聚合、特殊签名），core / CLI / 桌面端三端全链打通；同时修复峰谷标签跨翻转边界停留在旧判定、one-api 系平铺错误体说明丢失两类缺陷。
+
+### 新功能
+
+**JS 脚本查询（core / quota-cli / quota-desktop）**
+
+- 新增 script 条目类型：脚本内定义 `request()` 与 `extract(resp)` 两个全局函数，HTTP 由宿主执行、脚本只做纯计算；`{{apiKey}}` / `{{baseUrl}}` 变量在代码字符串层面注入，脚本作者接触不到真实凭据，脚本可安全分享（#24）
+- 沙箱限制：内存 16MiB、栈 256KiB、单次执行 5 秒 CPU 上限，不注入任何宿主 API（无网络/文件系统），每次执行独立运行时；脚本异常可能回显的凭据在错误消息中统一打码（#24）
+- 保存期干跑校验：假变量替换后执行脚本、验证双函数存在与 `request()` 产物形状（不发 HTTP），错误带行号定位（#24）
+- CLI 新增 `quota script test`：`--entry` 复用已存条目密文试查；`--json` stdin 双形态宽容解析（脚本配置 JSON 或纯 JS 文本，`examples/scripts/*.js` 可直接重定向，形似配置却解析失败时附提示）（#25）
+- `quota add` 向导新增「script」选项（粘贴代码 + 干跑校验重试 + 是否访问非 HTTPS 地址确认）；`quota edit` 支持脚本代码重粘贴与 allowInsecure 修改（#25）
+- 桌面端编辑对话框 script 页签从预留态转为实态：CodeMirror JS 编辑器 + baseUrl + allowInsecure 开关（启用时明示风险）+ 校验/试查 + 内置默认示例（#26）
+- 新增 `examples/scripts/` 可运行示例：`basic.js` 最小闭环、`multi-window.js` 多窗口与字段间运算（含协议说明与已知边界）（#25）
+
+### Bug 修复
+
+- 悬停面板/主窗卡片的峰谷标签跨过翻转边界（如 18:00）后停留在旧判定，而托盘已切换：后端每分钟检测到任一条目峰谷翻转时向全部窗口广播事件，前端判定改锚事件时刻，与托盘菜单保持一致（Close #15，#23）
+- one-api 系少数端点的错误响应体为平铺字符串（`{"error":"..."}`），此前只认嵌套 `error.message`，错误说明被丢弃、只显示裸 HTTP 状态码：现嵌套形态之后回退平铺形态，非字符串形态不误提取（#22）
+- CLI 多行粘贴在管道/重定向喂入时把文件内空行当结束符，含空行的 JS 代码与美化 JSON 后半段被静默丢弃：管道现读到 EOF；交互粘贴脚本代码改为单独一行 `.` 结束（空行照常保留），模板 JSON 保持空行结束（#25）
+
+### 其他改进
+
+- 依赖与兼容边界：引入 rquickjs 0.12（内嵌编译 QuickJS-NG），MSRV 提升至 1.87；旧版本二进制读取含 script 条目的配置会报未知类型，升级为单向（#24）
+
 ## [0.3.2] - 2026-08-24
 
 本版本解决网络受限环境下的更新下载：设置页新增「更新代理端口」（CLI 共用同一设置），检测与下载安装包可经本机 HTTP 代理（如 Clash）完成；同时修复直连不可达时下载长时间零进度无提示、失败后状态仍显示「发现新版本」的静默问题。
@@ -153,3 +179,4 @@
 [0.3.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.2.0...v0.3.0
 [0.3.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.0...v0.3.1
 [0.3.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.1...v0.3.2
+[0.4.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.2...v0.4.0

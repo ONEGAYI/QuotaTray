@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "quota-cli"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "async-trait",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "quota-core"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -3216,7 +3216,7 @@ dependencies = [
 
 [[package]]
 name = "quota-desktop"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "dirs 6.0.0",

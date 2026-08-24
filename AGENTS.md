@@ -77,7 +77,9 @@ QuotaTray/
 │           ├── provider/      # 预置平台
 │           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（12 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
-│           │   │              #   status_error_with_body 错误附脱敏响应体 detail）+ MockHttp
+│           │   │              #   status_error_with_body 错误附脱敏响应体 detail——
+│           │   │              #   error_detail 嵌套 error.message 后回退平铺字符串，
+│           │   │              #   非字符串形态不误提取）+ MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
