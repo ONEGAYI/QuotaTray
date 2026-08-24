@@ -105,7 +105,8 @@ pub async fn run(ctx: &Ctx, args: UpdateArgs) -> i32 {
         println!("{}", texts::update_proxy_note(ctx.lang, port));
     }
     let proxy = quota_core::update::proxy_url_of(prefs.update_proxy_port);
-    let Ok(http) = ReqwestHttpClient::new_with_proxy(Duration::from_secs(10), proxy.as_deref()) else {
+    let Ok(http) = ReqwestHttpClient::new_with_proxy(Duration::from_secs(10), proxy.as_deref())
+    else {
         eprintln!(
             "{}{}",
             t(ctx.lang, T::Err),
