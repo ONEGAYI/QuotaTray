@@ -1,11 +1,14 @@
-//! 错误详情脱敏：响应体片段进入错误 detail 前的凭据清洗。
+//! 错误详情脱敏：响应体片段进入错误 detail/message 前的凭据清洗。
 //!
 //! 清洗方案参考 opencode（`packages/llm/src/route/executor.ts`）的两遍设计：
 //! 1. 结构化正则：按字段名形态打码（`"api_key": "v"` 与 `token=v` 两种形态，
 //!    字段名保留、仅替换值）；
-//! 2. 字面量替换：用本次请求实际携带的密钥值（敏感头含 Bearer 剥壳、
-//!    URL query 敏感参数，及各自的 URL-encoded 形式）做精确替换，
-//!    对抗服务端在错误响应中回显请求凭据。
+//! 2. 字面量替换：用本次请求实际携带的密钥值做精确替换，对抗服务端在
+//!    错误响应中回显请求凭据。密钥来源三路：敏感头（含 Bearer 剥壳）、
+//!    URL query 敏感参数、模板执行器显式登记的 [`HttpRequest::declared_secrets`]
+//!    （模板 DSL 允许把 apiKey 替换进任意自定义头/参数，按名猜不可靠，
+//!    故由执行器从根登记）。各来源均附 URL-encoded 形式与稳定前缀
+//!    （对抗服务端只回显 key 前段的场景）。
 //!
 //! 截断永远发生在清洗之后——保证保留窗口内不残留半截密钥。
 //! 与 opencode 的差异：Rust regex 不支持 lookbehind，`key=` 防误伤
@@ -25,7 +28,13 @@ use super::HttpRequest;
 const SENSITIVE_NAME_SOURCE: &str = "authorization|proxy-authorization|cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|token|secret|credential|signature|x-amz-signature";
 
 /// 错误详情中响应体的最大保留长度（按字符计，中文安全）。
-pub(crate) const DETAIL_BODY_LIMIT: usize = 2048;
+const DETAIL_BODY_LIMIT: usize = 2048;
+
+/// 密钥稳定前缀的最小密钥长度与前缀长度：服务端只回显 key 前段
+/// （如前 20 字符）时，前缀字面量兜底打码。前缀足够长（12+），
+/// 在普通文本中误伤概率可忽略。
+const PREFIX_MIN_SECRET_LEN: usize = 16;
+const PREFIX_LEN: usize = 12;
 
 const REDACTED: &str = "<redacted>";
 
@@ -45,7 +54,7 @@ fn redact_json_fields_re() -> &'static Regex {
     static RE: LazyLock<Regex> = LazyLock::new(|| {
         // 组内含字段名两侧引号（opencode 同构），保证替换后引号完整保留
         Regex::new(&format!(
-            r#"("{}"\s*:\s*)"[^"]*""#,
+            r#"(?i)("{}"\s*:\s*)"[^"]*""#,
             sensitive_body_field_source()
         ))
         .expect("JSON 字段打码正则合法")
@@ -57,7 +66,7 @@ fn redact_query_fields_re() -> &'static Regex {
     static RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(&format!(
             r#"(?i)\b((?:{})=)[^&\s"']+"#,
-            SENSITIVE_NAME_SOURCE
+            sensitive_body_field_source()
         ))
         .expect("query 字段打码正则合法")
     });
@@ -65,6 +74,9 @@ fn redact_query_fields_re() -> &'static Regex {
 }
 
 /// header 名是否敏感：Debug 打码与密钥收集共用的子串判断。
+///
+/// 子串匹配（含 `X-Trace-Token` 等复合头名）是有意的保守放宽：
+/// 宁可多打码不可漏打码，方向上只增不减。
 pub(crate) fn is_sensitive_header(name: &str) -> bool {
     sensitive_name_re().is_match(name)
 }
@@ -99,16 +111,21 @@ pub(crate) fn redact_and_truncate(body: &str, req: &HttpRequest) -> String {
     format!("{prefix}\n…（已截断，响应体共 {total} 字符）")
 }
 
-/// 从本次请求收集真实密钥值（含 Bearer 剥壳与 URL-encoded 形式）。
+/// 从本次请求收集真实密钥值（含 Bearer 剥壳、URL-encoded 与稳定前缀形态）。
 ///
 /// - 敏感名头的值整体 + `Bearer ` 剥壳后的 token（cookie 除外：
 ///   整串 cookie 替换易误伤 body 中的普通子串，且余额类 API 罕用 cookie 认证）；
 /// - URL query 中敏感名参数的值；
-/// - 长度 < 4 字符的值跳过（过短字面量替换会产生大量误伤）。
+/// - 模板执行器显式登记的 [`HttpRequest::declared_secrets`]（模板 DSL
+///   允许把 apiKey 替换进任意自定义头/参数，按名猜不可靠）；
+/// - 长度 < 4 字符的值跳过（过短字面量替换会产生大量误伤）；
+/// - 长度 ≥ [`PREFIX_MIN_SECRET_LEN`] 的值追加稳定前缀（对抗服务端
+///   只回显 key 前段的场景）。
 fn secret_values(req: &HttpRequest) -> Vec<String> {
     let mut set = BTreeSet::new();
     let mut add = |value: &str| {
-        if value.chars().count() < 4 {
+        let chars = value.chars().count();
+        if chars < 4 {
             return;
         }
         set.insert(value.to_string());
@@ -116,6 +133,11 @@ fn secret_values(req: &HttpRequest) -> Vec<String> {
         let encoded: String = url::form_urlencoded::byte_serialize(value.as_bytes()).collect();
         if encoded != value {
             set.insert(encoded);
+        }
+        // 稳定前缀：服务端只回显 key 前段（如前 20 字符）时的兜底
+        if chars >= PREFIX_MIN_SECRET_LEN {
+            let prefix: String = value.chars().take(PREFIX_LEN).collect();
+            set.insert(prefix);
         }
     };
 
@@ -137,15 +159,21 @@ fn secret_values(req: &HttpRequest) -> Vec<String> {
         }
     }
 
+    for declared in &req.declared_secrets {
+        add(declared);
+    }
+
     set.into_iter().collect()
 }
 
-/// `Bearer <token>` 剥壳（大小写不敏感）。
+/// `Bearer <token>` 剥壳（scheme 大小写不敏感）。
 fn bearer_token(header_value: &str) -> Option<&str> {
-    let rest = header_value
-        .strip_prefix("Bearer")
-        .or_else(|| header_value.strip_prefix("bearer"))?;
-    let token = rest.trim_start();
+    let mut parts = header_value.splitn(2, char::is_whitespace);
+    let scheme = parts.next()?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = parts.next()?.trim();
     if token.is_empty() { None } else { Some(token) }
 }
 
@@ -234,5 +262,61 @@ mod tests {
 
         let short = redact_and_truncate("ok", &req);
         assert_eq!(short, "ok", "未超长不应加尾标");
+    }
+
+    /// 契约：大写/混合大小写字段名形态同样打码（PascalCase 风格 API 现实存在）。
+    #[test]
+    fn uppercase_field_shapes_are_redacted() {
+        let req = HttpRequest::get("https://api.example.com");
+        let body = r#"{"API_KEY":"CASESECRET123","Api-Key":"case2secret","Token":"tok"}"#;
+        let out = redact_body(body, &req);
+        assert!(!out.contains("CASESECRET123"), "大写字段值泄漏：{out}");
+        assert!(!out.contains("case2secret"), "混合大小写泄漏：{out}");
+        assert!(!out.contains("\"tok\""), "大写 Token 值泄漏：{out}");
+    }
+
+    /// 契约：裸 `key=` query 形态打码（HTML 错误页回显 `?key=` 链接的常见形态）；
+    /// 词边界仍防 `monkey=` 误伤。
+    #[test]
+    fn bare_key_query_shape_is_redacted() {
+        let req = HttpRequest::get("https://api.example.com");
+        let out = redact_body("see ?key=short1234 & monkey=zzz", &req);
+        assert!(!out.contains("short1234"), "key= 值泄漏：{out}");
+        assert!(out.contains("monkey=zzz"), "非敏感名不应误伤：{out}");
+    }
+
+    /// 契约：服务端只回显密钥前段（如前 20 字符）时，稳定前缀兜底打码。
+    #[test]
+    fn partial_prefix_echo_is_redacted() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000111222333");
+        let out = redact_body("bad key sk-live-secret-00011 (first 20 chars)", &req);
+        assert!(!out.contains("sk-live-secret-00011"), "前段回显泄漏：{out}");
+    }
+
+    /// 契约：Bearer scheme 任意大小写均可剥壳（BEARER/bEaReR）。
+    #[test]
+    fn bearer_scheme_is_case_insensitive() {
+        let req = HttpRequest::get("https://api.example.com")
+            .header("Authorization", "BEARER sk-upper-case-secret");
+        let out = redact_body("echo sk-upper-case-secret", &req);
+        assert!(
+            !out.contains("sk-upper-case-secret"),
+            "BEARER 剥壳失败：{out}"
+        );
+    }
+
+    /// 契约：模板登记的 declared_secrets 参与字面量替换——apiKey 被替换进
+    /// 任意自定义头/参数（敏感名判断覆盖不到）时，整值回显同样打码。
+    #[test]
+    fn declared_secrets_are_redacted() {
+        let mut req =
+            HttpRequest::get("https://api.example.com").header("X-Custom-Auth", "anything");
+        req.declared_secrets
+            .push("custom-position-secret-99".into());
+        let out = redact_body("echo custom-position-secret-99 here", &req);
+        assert!(
+            !out.contains("custom-position-secret-99"),
+            "登记密钥泄漏：{out}"
+        );
     }
 }

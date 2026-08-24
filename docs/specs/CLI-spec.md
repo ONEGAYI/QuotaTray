@@ -45,8 +45,9 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
 - `--watch`：轮询模式，间隔默认取条目配置（M2b 固定 5 分钟，`--interval` 覆盖），
   每轮重绘表格；Ctrl+C 退出。
 - `--json`：输出
-  `[{ "id", "name", "ok": bool, "data": UsageData[] | null, "error": { "kind": "transient|deterministic", "message" } | null }]`，
-  供脚本消费。
+  `[{ "id", "name", "ok": bool, "data": UsageData[] | null, "error": { "kind": "transient|deterministic", "message", "detail"? } | null }]`，
+  供脚本消费。`error.detail` 为可选排查详情（serde 解析位置 + 已脱敏的
+  响应体片段，后端保证不含明文凭据），仅存在时输出（additive）。
 
 ### quota add / edit / remove / set-key
 

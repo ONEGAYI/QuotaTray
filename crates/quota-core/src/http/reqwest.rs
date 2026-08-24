@@ -89,6 +89,7 @@ mod tests {
                     url: format!("https://192.0.2.1:1/x?token={secret}"), // TEST-NET-1，必失败
                     headers: vec![],
                     body: None,
+                    declared_secrets: Vec::new(),
                 })
                 .await
                 .expect_err("TEST-NET-1 请求必须失败")

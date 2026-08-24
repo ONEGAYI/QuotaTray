@@ -31,10 +31,15 @@ pub struct HttpRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
+    /// 执行器显式登记的明文凭据（模板 DSL 允许把 apiKey 替换进任意自定义
+    /// 头/参数，按敏感名猜不可靠，由模板执行器从根登记）。
+    /// 仅供错误详情脱敏的字面量替换使用；不参与 Debug 输出与实际请求。
+    pub(crate) declared_secrets: Vec<String>,
 }
 
 // 手写 Debug：敏感头与 URL query 打码，防止请求日志泄漏凭据
-//（M2 模板支持自定义 URL 后，用户可能把 key 写进 query string）。
+//（M2 模板支持自定义 URL 后，用户可能把 key 写进 query string；
+// declared_secrets 与 body 中的模板替换结果同理不打码清单，均不输出）。
 impl std::fmt::Debug for HttpRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HttpRequest")
@@ -77,6 +82,7 @@ impl HttpRequest {
             url: url.into(),
             headers: Vec::new(),
             body: None,
+            declared_secrets: Vec::new(),
         }
     }
 
@@ -142,5 +148,30 @@ mod tests {
         // 无 query 的 URL 原样输出
         let plain = format!("{:?}", HttpRequest::get("https://example.com/api"));
         assert!(plain.contains("https://example.com/api"), "{plain}");
+    }
+
+    /// 安全契约：敏感名判断为子串匹配的保守放宽——复合头名
+    /// （X-Trace-Token 等）宁可多打码不可漏打码。
+    #[test]
+    fn debug_masks_compound_sensitive_header_names() {
+        let req = HttpRequest::get("https://example.com/api")
+            .header("X-Trace-Token", "trace-value-999")
+            .header("X-Request-Signature", "sig-value-999");
+        let dbg = format!("{req:?}");
+        assert!(!dbg.contains("trace-value-999"), "复合头名漏打码：{dbg}");
+        assert!(!dbg.contains("sig-value-999"), "签名头漏打码：{dbg}");
+    }
+
+    /// 安全契约：declared_secrets 不参与 Debug 输出。
+    #[test]
+    fn debug_never_outputs_declared_secrets() {
+        let mut req = HttpRequest::get("https://example.com/api");
+        req.declared_secrets
+            .push("declared-plaintext-key-000".into());
+        let dbg = format!("{req:?}");
+        assert!(
+            !dbg.contains("declared-plaintext-key-000"),
+            "登记密钥泄漏：{dbg}"
+        );
     }
 }

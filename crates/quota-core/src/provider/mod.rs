@@ -129,12 +129,18 @@ pub(crate) fn parse_success_json(
 /// HTTP 状态码 → 错误双轨分类：
 /// 408（请求超时）/429（限流）/5xx = 瞬时（可重试）；
 /// 其余 4xx（401/403/404/402 等）= 确定性（认证失效、欠费、端点错误，重试无意义）。
-/// 响应体含 `error.message` 时附加到文案（远端内容不含本地凭据，可透出）；
+/// 响应体含 `error.message` 时附加到文案并同样过脱敏（网关可能在错误说明中
+/// 回显请求凭据，message 的传播面比 detail 更广：托盘/表格/卡片）；
 /// detail 携带脱敏后的完整响应体片段（用户显式复制排查用）。
 pub(crate) fn status_error_with_body(status: u16, body: &str, req: &HttpRequest) -> QueryError {
     let transient = status == 408 || status == 429 || (500..600).contains(&status);
     let message = match error_detail(body) {
-        Some(detail) => format!("HTTP {status}: {detail}"),
+        Some(detail) => {
+            format!(
+                "HTTP {status}: {}",
+                crate::http::redact::redact_body(&detail, req)
+            )
+        }
         None => format!("HTTP {status}"),
     };
     let err = if transient {
@@ -152,7 +158,8 @@ pub(crate) fn status_error_with_body(status: u16, body: &str, req: &HttpRequest)
 }
 
 /// 从错误响应体提取说明（OpenRouter/one-api 系惯例为 `error.message`），
-/// 截断到 120 字符；远端返回的内容不含本地凭据，可安全透出。
+/// 截断到 120 字符；调用方须过脱敏后才能拼进 message（网关可能在
+/// 错误说明中回显请求凭据）。
 fn error_detail(body: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(body).ok()?;
     let msg = parsed.get("error")?.get("message")?.as_str()?;
@@ -323,6 +330,25 @@ mod tests {
         // 非 JSON 响应体回退为纯状态码文案
         let plain = status_error_with_body(404, "<html>Not Found</html>", &req);
         assert_eq!(plain.message(), "HTTP 404");
+    }
+
+    /// 安全契约：error.message 中的远端回显凭据在进入 message 前已脱敏
+    /// （message 传播面比 detail 更广：托盘/CLI 表格/卡片）。
+    #[test]
+    fn status_error_message_redacts_echoed_secret() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000");
+        let body = r#"{"error":{"message":"Incorrect API key: sk-live-secret-000 provided"}}"#;
+        let err = status_error_with_body(401, body, &req);
+        assert!(
+            !err.message().contains("sk-live-secret-000"),
+            "message 泄漏明文凭据：{}",
+            err.message()
+        );
+        assert!(
+            err.message().contains("<redacted>"),
+            "应保留打码占位：{}",
+            err.message()
+        );
     }
 
     /// 安全契约：错误 detail 中的响应体已脱敏——服务端回显请求密钥时

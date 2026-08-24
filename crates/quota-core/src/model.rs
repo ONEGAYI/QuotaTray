@@ -163,4 +163,28 @@ mod tests {
         assert!(QueryError::transient("timeout").is_transient());
         assert!(!QueryError::deterministic("401 unauthorized").is_transient());
     }
+
+    /// 契约：detail 排查详情——双变体均可附加、不影响分类与 message、
+    /// Display 不输出 detail（日志/常规展示不携带排查详情的安全契约）。
+    #[test]
+    fn detail_is_optional_and_excluded_from_display() {
+        let err = QueryError::deterministic("响应不是合法 JSON")
+            .with_detail("JSON 解析错误：…\n响应体（已脱敏）：…");
+        assert_eq!(err.detail(), Some("JSON 解析错误：…\n响应体（已脱敏）：…"));
+        assert_eq!(err.message(), "响应不是合法 JSON");
+        assert!(!err.is_transient());
+
+        let transient = QueryError::transient("timeout").with_detail("x".repeat(10));
+        assert!(transient.is_transient());
+        assert_eq!(transient.detail(), Some("xxxxxxxxxx"));
+
+        assert_eq!(QueryError::transient("t").detail(), None);
+
+        let display = format!("{err}");
+        assert_eq!(display, "[确定性] 响应不是合法 JSON");
+        assert!(
+            !display.contains("脱敏"),
+            "Display 不应输出 detail：{display}"
+        );
+    }
 }

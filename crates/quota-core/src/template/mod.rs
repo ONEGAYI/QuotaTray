@@ -360,6 +360,10 @@ pub(crate) async fn execute(
         url,
         headers,
         body,
+        // apiKey 可能被替换进任意自定义头/参数（敏感名判断覆盖不到），
+        // 从根登记供错误详情脱敏做字面量替换；短占位值（如 "-"）在
+        // 收集侧因长度 < 4 自然跳过
+        declared_secrets: vec![api_key.to_string()],
     };
     req.headers
         .push(("Accept".into(), "application/json".into()));
@@ -787,6 +791,37 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// 安全契约：apiKey 被替换进任意自定义头（敏感名判断覆盖不到）时，
+    /// 非 JSON 错误响应的 detail 中回显已被 declared_secrets 字面量打码。
+    #[tokio::test]
+    async fn detail_redacts_apikey_echoed_from_custom_header_template() {
+        let t: TemplateConfig = serde_json::from_value(serde_json::json!({
+            "request": {
+                "url": "{{baseUrl}}/v1/anything",
+                "headers": { "X-Custom-Auth": "{{apiKey}}" }
+            },
+            "extract": { "remaining": "$.data.balance" }
+        }))
+        .unwrap();
+        let mut http = MockHttp::ok("");
+        http.body = "<html>auth failed: custom-echo-secret-99</html>".into();
+        let err = execute(
+            &http,
+            &t,
+            "custom-echo-secret-99",
+            Some("https://api.demo.com"),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.message(), "响应不是合法 JSON");
+        let detail = err.detail().expect("应携带 detail");
+        assert!(
+            !detail.contains("custom-echo-secret-99"),
+            "detail 泄漏模板 apiKey：{detail}"
+        );
+        assert!(detail.contains("<redacted>"), "应含打码占位：{detail}");
     }
 
     /// 契约：HTTP 层错误分类透传（401 确定性、网络故障瞬时）。

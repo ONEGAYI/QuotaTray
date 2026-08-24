@@ -27,7 +27,7 @@ import {
 import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
-import { deriveProviderCardState } from "./providerCardView";
+import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
 import { providerIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
@@ -218,16 +218,17 @@ export function ProviderCard({
   const displayedError = view.kind === "invalid"
     ? `${t("card.invalidPrefix")}${view.errorMessage ?? t("card.noReason")}`
     : view.errorMessage;
-  // invalid 是业务失效（invalid_message），不是查询错误，不提供详情复制
-  const canCopyError = displayedError != null && view.kind !== "invalid";
+  const copyable = canCopyError(view);
   const copyErrorInfo = () => {
-    const kind = view.kind === "deterministic" ? "deterministic" : "transient";
-    const headline = `[${kind}] ${view.errorMessage ?? ""}`;
-    const text = view.errorDetail ? `${headline}\n\n${view.errorDetail}` : headline;
-    navigator.clipboard
-      .writeText(text)
-      .then(() => setFeedback(t("card.copied")))
-      .catch(() => setFeedback(t("card.copyFailed")));
+    // clipboard 在异常环境（非安全上下文）可能为 undefined，同步兜底
+    try {
+      navigator.clipboard
+        ?.writeText(errorCopyText(view))
+        .then(() => setFeedback(t("card.copied")))
+        .catch(() => setFeedback(t("card.copyFailed")));
+    } catch {
+      setFeedback(t("card.copyFailed"));
+    }
   };
 
   return (
@@ -414,7 +415,7 @@ export function ProviderCard({
               }`}
             >
               {displayedError}
-              {canCopyError && (
+              {copyable && (
                 <IconButton
                   icon={ClipboardCopy}
                   label={t("card.copyError")}

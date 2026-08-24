@@ -276,4 +276,25 @@ mod tests {
             .unwrap_err();
         assert!(err.is_transient(), "网络错误应为瞬时");
     }
+
+    /// 契约：402 转 transient 重路由时保留 message 与脱敏 detail
+    /// （排查信息不因分类转换丢失）。
+    #[tokio::test]
+    async fn rerouted_402_keeps_message_and_detail() {
+        let mut http = MockHttp::ok("");
+        http.status = 402;
+        http.body = r#"{"error":{"message":"no available subscription quota"}}"#.into();
+        let err = KIMI_CODE_CN
+            .query(&creds(), &http, PlanVariant::Auto)
+            .await
+            .unwrap_err();
+        assert!(err.is_transient(), "402 应为瞬时");
+        assert!(
+            err.message().contains("no available subscription quota"),
+            "message 应保留远端说明：{}",
+            err.message()
+        );
+        let detail = err.detail().expect("402 带响应体应有 detail");
+        assert!(detail.contains("已脱敏"), "detail 应携带响应体：{detail}");
+    }
 }

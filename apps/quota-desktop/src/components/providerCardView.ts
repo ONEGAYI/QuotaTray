@@ -125,3 +125,16 @@ export function deriveProviderCardState({
     errorDetail: null,
   };
 }
+
+/** 查询错误是否有可复制的排查内容（invalid 业务失效不是查询错误）。 */
+export function canCopyError(state: ProviderCardState): boolean {
+  return state.errorMessage != null && state.kind !== "invalid";
+}
+
+/** 复制到剪贴板的报错全文：headline（kind + message）+ 空行 + 脱敏详情；
+ * 无 detail 时回退纯 headline（与卡片展示文案一致的纯函数，供组件调用）。 */
+export function errorCopyText(state: ProviderCardState): string {
+  const kind = state.kind === "deterministic" ? "deterministic" : "transient";
+  const headline = `[${kind}] ${state.errorMessage ?? ""}`;
+  return state.errorDetail ? `${headline}\n\n${state.errorDetail}` : headline;
+}
