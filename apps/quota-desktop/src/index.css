@@ -168,6 +168,13 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-total { margin: 8px 0 0; color: var(--qt-text-faint); font-size: 12px; }
 .qt-provider-error { margin: 8px 0 0; color: var(--qt-warning); font-size: 12px; }
 .qt-provider-error.is-danger { color: var(--qt-danger); }
+/* 错误行内的详情复制按钮：小号图标，随文案色 */
+.qt-provider-error .qt-provider-error-copy {
+  width: 18px; height: 18px; margin-left: 4px; vertical-align: -3px; border-radius: 5px;
+  display: inline-grid; place-items: center;
+}
+.qt-provider-error .qt-provider-error-copy svg { width: 13px; height: 13px; }
+.qt-provider-error .qt-provider-error-copy:hover { color: var(--qt-text); }
 .qt-provider-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .qt-provider-actions .qt-btn { min-height: 32px; padding: 6px 8px; font-size: 12px; }
 .qt-provider-menu-anchor { position: relative; }

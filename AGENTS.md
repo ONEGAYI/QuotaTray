@@ -43,7 +43,8 @@ QuotaTray/
 │   └── quota-core/            # 业务核心库（无 UI 依赖）
 │       └── src/
 │           ├── lib.rs         # 模块声明与 re-export
-│           ├── model.rs       # UsageData（含窗口重置时刻 reset_at）/ QueryError 双轨分类，附契约单测
+│           ├── model.rs       # UsageData（含窗口重置时刻 reset_at）/ QueryError 双轨分类
+│           │                  #   （可选 detail 排查详情，Display 不输出），附契约单测
 │           ├── pricing.rs     # 峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、
 │           │                  #   UTC 偏移/本地时区）、三档价格（缓存命中/未命中/输出，
 │           │                  #   每 MTokens）、计费模式（按量三档价/订阅积分项）、
@@ -65,11 +66,15 @@ QuotaTray/
 │           │   └── transfer.rs# 完整配置跨机器迁移：一次性迁移密钥转写、私有认证
 │           │                  #   二进制容器、字节 API 与原子文件导入导出
 │           ├── http/          # HTTP 抽象
-│           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码）
+│           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码，
+│           │   │              #   敏感头判断统一走 redact）
+│           │   ├── redact.rs  # 错误详情脱敏（参考 opencode）：结构化正则 + 本次请求
+│           │   │              #   密钥字面量两遍清洗，先清洗后截断（2048 字符）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
 │           ├── provider/      # 预置平台
 │           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（12 项）+
-│           │   │              #   supports_plan_variant 标记 + 解析工具 + MockHttp
+│           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
+│           │   │              #   status_error_with_body 错误附脱敏响应体 detail）+ MockHttp
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
@@ -110,7 +115,8 @@ QuotaTray/
 │   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
 │   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct）+
 │   │       │                  #   last_check 写回（Value 读改写保留未知字段 + 原子写）
-│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语）+
+│   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语；
+│   │       │                  #   error 含 detail 排查详情 additive 透出）+
 │   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
 │   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
@@ -181,7 +187,8 @@ QuotaTray/
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口
 │       │       │                       #   逐窗主数值（短标签）+重置倒计时小字+
-│       │       │                       #   短时反馈、启停/编辑/删除确认
+│       │       │                       #   短时反馈、启停/编辑/删除确认；错误行带
+│       │       │                       #   「复制报错信息」图标（Tooltip，复制脱敏详情）
 │       │       ├── HoverPanel.tsx       # 托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +
 │       │       │                       #   圆环数据源账户与计价模型即时切换、
 │       │       │                       #   头部刷新/关闭按钮、低垂直空间压缩布局、
@@ -191,6 +198,7 @@ QuotaTray/
 │       │       │                       # 判定（联动后端缩窗）纯逻辑
 │       │       ├── providerCardView.ts / providerCardView.test.ts
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
+│       │       │                       #   （errorDetail 排查详情随查询错误态透传）
 │       │       ├── providerIcon.ts / providerIcon.test.ts
 │       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
@@ -229,6 +237,7 @@ QuotaTray/
 │               ├── lib.rs      # Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
+│               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
 │               ├── commands.rs # 主业务 IPC 17 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
 │               │               #   消除悬停面板等只读视图的无数据空窗）、

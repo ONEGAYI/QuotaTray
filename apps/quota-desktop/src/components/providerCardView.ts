@@ -22,6 +22,8 @@ export interface ProviderCardState {
   at: number | null;
   source: "live" | "snapshot" | "none";
   errorMessage: string | null;
+  /** 查询错误的排查详情（已脱敏响应体等）；invalid 业务失效与无错态为 null。 */
+  errorDetail: string | null;
 }
 
 interface Input {
@@ -51,6 +53,7 @@ export function deriveProviderCardState({
       at: fallbackAt,
       source,
       errorMessage: null,
+      errorDetail: null,
     };
   }
 
@@ -62,6 +65,7 @@ export function deriveProviderCardState({
         at: snapshot.at,
         source: "snapshot",
         errorMessage: null,
+        errorDetail: null,
       };
     }
     return {
@@ -70,6 +74,7 @@ export function deriveProviderCardState({
       at: null,
       source: "none",
       errorMessage: null,
+      errorDetail: null,
     };
   }
 
@@ -86,6 +91,7 @@ export function deriveProviderCardState({
         at: outcome.at,
         source: "live",
         errorMessage: outcome.error.message,
+        errorDetail: outcome.error.detail ?? null,
       };
     }
     return {
@@ -94,6 +100,7 @@ export function deriveProviderCardState({
       at: outcome.at,
       source: "none",
       errorMessage: outcome.error.message,
+      errorDetail: outcome.error.detail ?? null,
     };
   }
 
@@ -105,6 +112,7 @@ export function deriveProviderCardState({
       at: outcome.at,
       source: "none",
       errorMessage: invalid.invalid_message ?? null,
+      errorDetail: null,
     };
   }
 
@@ -114,5 +122,6 @@ export function deriveProviderCardState({
     at: outcome.at,
     source: "live",
     errorMessage: null,
+    errorDetail: null,
   };
 }

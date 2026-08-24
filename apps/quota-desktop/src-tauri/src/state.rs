@@ -53,6 +53,10 @@ impl DataPaths {
 pub struct ErrorInfo {
     pub kind: String,
     pub message: String,
+    /// 排查详情（core 已脱敏的响应体片段、serde 解析位置等），
+    /// 仅供用户在卡片上显式复制；仅在存在时序列化。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl ErrorInfo {
@@ -65,6 +69,7 @@ impl ErrorInfo {
             }
             .into(),
             message: e.message().to_string(),
+            detail: e.detail().map(str::to_string),
         }
     }
 }

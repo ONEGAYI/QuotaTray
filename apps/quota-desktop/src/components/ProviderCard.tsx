@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ClipboardCopy,
   Clock3,
   Ellipsis,
   KeyRound,
@@ -217,6 +218,17 @@ export function ProviderCard({
   const displayedError = view.kind === "invalid"
     ? `${t("card.invalidPrefix")}${view.errorMessage ?? t("card.noReason")}`
     : view.errorMessage;
+  // invalid 是业务失效（invalid_message），不是查询错误，不提供详情复制
+  const canCopyError = displayedError != null && view.kind !== "invalid";
+  const copyErrorInfo = () => {
+    const kind = view.kind === "deterministic" ? "deterministic" : "transient";
+    const headline = `[${kind}] ${view.errorMessage ?? ""}`;
+    const text = view.errorDetail ? `${headline}\n\n${view.errorDetail}` : headline;
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setFeedback(t("card.copied")))
+      .catch(() => setFeedback(t("card.copyFailed")));
+  };
 
   return (
     <article
@@ -402,6 +414,14 @@ export function ProviderCard({
               }`}
             >
               {displayedError}
+              {canCopyError && (
+                <IconButton
+                  icon={ClipboardCopy}
+                  label={t("card.copyError")}
+                  className="qt-provider-error-copy"
+                  onClick={copyErrorInfo}
+                />
+              )}
             </p>
           )}
         </div>
