@@ -220,15 +220,16 @@ export function ProviderCard({
     : view.errorMessage;
   const copyable = canCopyError(view);
   const copyErrorInfo = () => {
-    // clipboard 在异常环境（非安全上下文）可能为 undefined，同步兜底
-    try {
-      navigator.clipboard
-        ?.writeText(errorCopyText(view))
-        .then(() => setFeedback(t("card.copied")))
-        .catch(() => setFeedback(t("card.copyFailed")));
-    } catch {
+    // clipboard 在异常环境（非安全上下文）可能为 undefined，显式给出失败反馈
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
       setFeedback(t("card.copyFailed"));
+      return;
     }
+    clipboard
+      .writeText(errorCopyText(view))
+      .then(() => setFeedback(t("card.copied")))
+      .catch(() => setFeedback(t("card.copyFailed")));
   };
 
   return (

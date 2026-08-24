@@ -163,7 +163,13 @@ fn secret_values(req: &HttpRequest) -> Vec<String> {
         add(declared);
     }
 
-    set.into_iter().collect()
+    // 按字符长度降序替换：整值必须先于其前缀（BTreeSet 字典序里前缀
+    // 恰好排在整值之前，先替换前缀会打断整值匹配、残留密钥后半段）。
+    // 已知边界：服务端主动截断回显（只回显 key 前段）时，截断点之后
+    // 超出前缀长度的片段仍可能残留——不足以重建完整 key，接受。
+    let mut values: Vec<String> = set.into_iter().collect();
+    values.sort_by_key(|s| std::cmp::Reverse(s.chars().count()));
+    values
 }
 
 /// `Bearer <token>` 剥壳（scheme 大小写不敏感）。
@@ -291,6 +297,23 @@ mod tests {
         let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000111222333");
         let out = redact_body("bad key sk-live-secret-00011 (first 20 chars)", &req);
         assert!(!out.contains("sk-live-secret-00011"), "前段回显泄漏：{out}");
+    }
+
+    /// 契约（回归）：完整密钥回显时整值先于前缀替换——密钥后半段
+    /// （机密主体）不得因前缀抢先替换而残留。
+    #[test]
+    fn full_echo_redacts_entire_secret_not_prefix_only() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000111222333");
+        let out = redact_body("echo sk-live-secret-000111222333 here", &req);
+        assert!(
+            !out.contains("sk-live-secret-000111222333"),
+            "整值泄漏：{out}"
+        );
+        assert!(
+            !out.contains("-000111222333"),
+            "后半段残留（前缀先替换回归）：{out}"
+        );
+        assert_eq!(out, "echo <redacted> here");
     }
 
     /// 契约：Bearer scheme 任意大小写均可剥壳（BEARER/bEaReR）。

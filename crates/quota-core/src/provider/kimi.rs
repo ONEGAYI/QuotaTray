@@ -7,7 +7,9 @@
 
 use async_trait::async_trait;
 
-use super::{NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num};
+use super::{
+    NativeMeta, NativeProvider, fetch_json, parse_error, parse_int, parse_num, redact_error_message,
+};
 use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
@@ -53,6 +55,7 @@ impl NativeProvider for Kimi {
     ) -> Result<Vec<UsageData>, QueryError> {
         let req = HttpRequest::get(format!("{}/v1/users/me/balance", self.base_url))
             .bearer(&creds.api_key);
+        let snapshot = req.clone();
         let body = fetch_json(http, req).await?;
 
         // code != 0 为业务错误（401 等已由 HTTP 状态码分类处理）
@@ -62,7 +65,10 @@ impl NativeProvider for Kimi {
                     .get("message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("未知业务错误");
-                return Err(QueryError::deterministic(format!("Kimi {code}：{message}")));
+                return Err(redact_error_message(
+                    QueryError::deterministic(format!("Kimi {code}：{message}")),
+                    &snapshot,
+                ));
             }
         }
 
@@ -162,6 +168,24 @@ mod tests {
             .unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("invalid api key"));
+    }
+
+    /// 安全契约：业务错误 message 中的回显凭据在透出前已脱敏
+    /// （2xx 业务错误同样可能回显请求凭据）。
+    #[tokio::test]
+    async fn business_error_message_redacts_echoed_secret() {
+        // 回显串与请求 bearer 密钥一致（字面量替换按请求密钥收集）
+        let body = r#"{"code":401,"message":"invalid key sk-test provided"}"#;
+        let err = KIMI_CN
+            .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
+            .await
+            .unwrap_err();
+        assert!(
+            !err.message().contains("sk-test"),
+            "业务错误 message 泄漏回显凭据：{}",
+            err.message()
+        );
+        assert!(err.message().contains("<redacted>"), "{err}");
     }
 
     /// code 为字符串数字时仍走业务错误检查（与 SiliconFlow 同语义）。

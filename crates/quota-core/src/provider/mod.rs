@@ -112,6 +112,22 @@ pub(crate) async fn fetch_json(
     parse_success_json(&req, &resp)
 }
 
+/// 对错误文案整体过脱敏后重建（保留分类与 detail）。用于 2xx 业务错误/
+/// 取值错误的 message 可能携带响应体内容的场景（网关可能在业务错误
+/// 说明或字段值中回显凭据，message 传播面比 detail 更广）。
+pub(crate) fn redact_error_message(e: QueryError, req: &HttpRequest) -> QueryError {
+    let message = crate::http::redact::redact_body(e.message(), req);
+    let rebuilt = if e.is_transient() {
+        QueryError::transient(message)
+    } else {
+        QueryError::deterministic(message)
+    };
+    match e.detail() {
+        Some(d) => rebuilt.with_detail(d),
+        None => rebuilt,
+    }
+}
+
 /// 2xx 响应体 → JSON：解析失败为确定性错误，detail 携带 serde 位置
 /// （行列，说明"怎么不合法"）与脱敏响应体片段（说明"响应长什么样"）。
 pub(crate) fn parse_success_json(
