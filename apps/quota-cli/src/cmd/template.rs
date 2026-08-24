@@ -8,6 +8,7 @@ use quota_core::AppConfig;
 use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::model::{QueryError, UsageData};
 use quota_core::template::{self, TemplateConfig};
+use std::io::IsTerminal as _;
 use zeroize::Zeroizing;
 
 use crate::ctx::Ctx;
@@ -129,7 +130,7 @@ pub async fn run(
 }
 
 /// 试查失败的退出码：瞬时 → 2（可重试），确定性 → 1（spec §4 三分约定全局适用）。
-fn exit_code_for(e: &QueryError) -> i32 {
+pub(crate) fn exit_code_for(e: &QueryError) -> i32 {
     if e.is_transient() { 2 } else { 1 }
 }
 
@@ -167,7 +168,13 @@ fn build_from_stdin(base_url_override: Option<String>, lang: Lang) -> Result<Tes
         let k = io::read_secret(t(lang, T::NeedsKeyPrompt), lang)
             .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?;
         if k.trim().is_empty() {
-            return Err(t(lang, T::KeyEmptyHint).into());
+            // 终端空输入与 stdin 被重定向占用（读到 EOF）分别引导（与 script test 一致）
+            let hint = if std::io::stdin().is_terminal() {
+                T::KeyEmptyHint
+            } else {
+                T::KeyEmptyRedirect
+            };
+            return Err(t(lang, hint).into());
         }
         k
     } else {
@@ -190,7 +197,7 @@ pub fn template_needs_key(tpl: &TemplateConfig) -> bool {
     texts.iter().any(|t| t.contains("{{apiKey}}"))
 }
 
-fn print_usage(rows: &[UsageData], lang: Lang) {
+pub(crate) fn print_usage(rows: &[UsageData], lang: Lang) {
     for d in rows {
         println!(
             "{}={} {}={} {}={} {}={} {}={}",

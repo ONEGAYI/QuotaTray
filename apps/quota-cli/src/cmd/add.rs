@@ -101,6 +101,10 @@ pub fn parse_entry_json(text: &str, lang: Lang) -> Result<ProviderEntry, String>
     if let ProviderKind::Template(tpl) = &entry.kind {
         template::validate(tpl).map_err(|e| format!("{}{e}", t(lang, T::TplValidateFail)))?;
     }
+    if let ProviderKind::Script(s) = &entry.kind {
+        quota_core::script::validate(s)
+            .map_err(|e| format!("{}{e}", t(lang, T::ScriptValidateFail)))?;
+    }
     Ok(entry)
 }
 
@@ -132,6 +136,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         .map(|m| format!("{} {} {}", m.id, t(lang, T::Dash), m.name))
         .collect();
     items.push(t(lang, T::TemplateOption).into());
+    items.push(t(lang, T::ScriptOption).into());
     let sel = Select::with_theme(&theme)
         .items(&items)
         .default(0)
@@ -153,7 +158,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
             None,
             variant,
         )
-    } else {
+    } else if sel == metas.len() {
         let tpl = prompt_template(lang)?;
         let raw = Input::<String>::with_theme(&theme)
             .with_prompt(t(lang, T::BaseUrlPromptAdd))
@@ -163,6 +168,19 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         let base_url = raw.trim().to_string();
         (
             ProviderKind::Template(Box::new(tpl)),
+            (!base_url.is_empty()).then_some(base_url),
+            PlanVariant::Auto,
+        )
+    } else {
+        let cfg = prompt_script(lang)?;
+        let raw = Input::<String>::with_theme(&theme)
+            .with_prompt(t(lang, T::BaseUrlPromptAdd))
+            .allow_empty(true)
+            .interact_text()
+            .map_err(|e| format!("{}{e}", t(lang, T::InputReadFail)))?;
+        let base_url = raw.trim().to_string();
+        (
+            ProviderKind::Script(Box::new(cfg)),
             (!base_url.is_empty()).then_some(base_url),
             PlanVariant::Auto,
         )
@@ -263,6 +281,38 @@ fn prompt_template(lang: Lang) -> Result<TemplateConfig, String> {
             ),
         }
     }
+}
+
+/// 粘贴脚本 JS 代码（单独一行 `.` 结束），校验（干跑）失败时提示并重试
+/// （Ctrl+C 放弃）；通过后问询 allowInsecure（默认否——仅脚本确需访问
+/// http 非 loopback 地址时放开，与 URL 安全校验同语义）。
+fn prompt_script(lang: Lang) -> Result<quota_core::ScriptConfig, String> {
+    let theme = ColorfulTheme::default();
+    let code = loop {
+        let text = io::read_multiline_code(t(lang, T::PasteScriptCode), lang)
+            .map_err(|e| format!("{}{e}", t(lang, T::StdinReadFail)))?;
+        let cfg = quota_core::ScriptConfig {
+            code: text,
+            allow_insecure: false,
+        };
+        match quota_core::script::validate(&cfg) {
+            Ok(()) => break cfg.code,
+            Err(e) => println!(
+                "{}{e}\n{}",
+                t(lang, T::ValidateFail),
+                t(lang, T::RetrySuffix)
+            ),
+        }
+    };
+    let allow_insecure = dialoguer::Confirm::with_theme(&theme)
+        .with_prompt(t(lang, T::AllowInsecurePrompt))
+        .default(false)
+        .interact()
+        .map_err(|e| format!("{}{e}", t(lang, T::SelectReadFail)))?;
+    Ok(quota_core::ScriptConfig {
+        code,
+        allow_insecure,
+    })
 }
 
 #[cfg(test)]

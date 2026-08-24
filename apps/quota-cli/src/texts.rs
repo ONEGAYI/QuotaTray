@@ -59,6 +59,8 @@ pub enum T {
     ClipboardReadFail,
     /// 多行 JSON 输入方式的第二行提示。
     MultilineJsonHint,
+    /// 多行 JS 代码输入方式的第二行提示（单独一行 `.` 结束）。
+    MultilineCodeHint,
 
     // ---- list / query / natives ----
     ListEmpty,
@@ -94,6 +96,14 @@ pub enum T {
     RetrySuffix,
     /// 「粘贴模板 JSON」多行输入 prompt（add 向导与 template test 共用）。
     PasteTemplateJson,
+    /// 向导类型列表的 script 选项。
+    ScriptOption,
+    /// 「粘贴脚本 JS 代码」多行输入 prompt（add 向导与 script test 共用）。
+    PasteScriptCode,
+    /// 「脚本校验失败：」前缀。
+    ScriptValidateFail,
+    /// 向导：脚本是否访问非 HTTPS 地址的确认项。
+    AllowInsecurePrompt,
 
     // ---- edit ----
     PasteHintEdit,
@@ -101,6 +111,10 @@ pub enum T {
     BaseUrlPromptEdit,
     CurrentTemplateLabel,
     PasteNewTplPrompt,
+    /// 编辑 script 条目：当前代码标签 / 重粘贴 prompt / 无效保持前缀。
+    CurrentScriptLabel,
+    PasteNewScriptPrompt,
+    InvalidScriptKeep,
     EnabledConfirm,
     /// 「模板无效（保持原模板）：」前缀。
     InvalidTplKeep,
@@ -116,10 +130,17 @@ pub enum T {
     StaticCheckOk,
     /// 试查临时条目名（不落盘）。
     TestEntryName,
+    /// script 试查临时条目名（不落盘）。
+    ScriptTestEntryName,
     TryQueryEncryptFail,
     TryQueryFail,
     NeedsKeyPrompt,
+    /// 试查交互输入的 key 为空（终端场景）。
     KeyEmptyHint,
+    /// 试查 key 为空且 stdin 被输入重定向占用（无法交互补输）。
+    KeyEmptyRedirect,
+    /// `--json` 输入以 { 开头却不是合法脚本配置 JSON 的回退提示。
+    LooksLikeJsonHint,
     /// 试查输出的「有效」标签（是/否复用 Yes/No）。
     LblValid,
     /// 向导列表项 id 与名称的排版连接符（zh 全角双破折号 / en 单破折号，
@@ -307,6 +328,7 @@ fn zh(key: T) -> &'static str {
         T::ClipboardOpenFail => "打开失败：",
         T::ClipboardReadFail => "读取失败：",
         T::MultilineJsonHint => "（粘贴多行 JSON，输入单独空行结束；或 Ctrl+Z / Ctrl+D 结束输入）",
+        T::MultilineCodeHint => "（粘贴多行代码，空行照常保留；输入完后在单独一行输入 . 结束）",
 
         T::ListEmpty => "还没有供应商条目；用 quota add 添加。",
         T::QueryNoEntries => {
@@ -339,6 +361,10 @@ fn zh(key: T) -> &'static str {
         T::ValidateFail => "静态校验未通过：",
         T::RetrySuffix => "请修正后重新粘贴（Ctrl+C 放弃）",
         T::PasteTemplateJson => "粘贴模板 JSON",
+        T::ScriptOption => "script —— 自定义 JS 脚本（QuickJS 沙箱）",
+        T::PasteScriptCode => "粘贴脚本 JS 代码",
+        T::ScriptValidateFail => "脚本校验失败：",
+        T::AllowInsecurePrompt => "脚本是否需要访问非 HTTPS（http）地址？",
 
         T::PasteHintEdit => {
             "粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）。"
@@ -347,6 +373,11 @@ fn zh(key: T) -> &'static str {
         T::BaseUrlPromptEdit => "base_url（回车保持，输入 - 清空）",
         T::CurrentTemplateLabel => "当前模板：",
         T::PasteNewTplPrompt => "粘贴新模板 JSON（直接空行 = 保持不变）",
+        T::CurrentScriptLabel => "当前脚本：",
+        T::PasteNewScriptPrompt => {
+            "粘贴新脚本 JS 代码（单独一行 . 结束；保持不变 = 不粘贴直接输入 . ）"
+        }
+        T::InvalidScriptKeep => "脚本无效（保持原脚本）：",
         T::EnabledConfirm => "启用该条目",
         T::InvalidTplKeep => "模板无效（保持原模板）：",
         T::EmptyInputKeep => "空输入（保持不变）",
@@ -354,15 +385,22 @@ fn zh(key: T) -> &'static str {
         T::SetKeyPrompt => "输入新的 API key（输入显示为星号）",
         T::KeyEmptyRejected => "输入为空，key 未变更（如需删除条目请用 quota remove）",
 
-        T::NeedEntryOrJson => "需要 --entry <id> 或 --json 之一（quota template test --help 查看）",
+        T::NeedEntryOrJson => "需要 --entry <id> 或 --json 之一（--help 查看用法）",
         T::StaticCheckOk => "静态校验通过",
         T::TestEntryName => "模板试查",
+        T::ScriptTestEntryName => "脚本试查",
         T::TryQueryEncryptFail => "试查凭据加密失败：",
         T::TryQueryFail => "试查失败：",
         T::NeedsKeyPrompt => {
-            "该模板引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）"
+            "该查询引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）"
         }
-        T::KeyEmptyHint => "key 为空；无 key 调试请改用 quota template test --entry",
+        T::KeyEmptyHint => "key 为空；引用 {{apiKey}} 的查询需要 key，请重新运行并输入",
+        T::KeyEmptyRedirect => {
+            "key 为空；stdin 被输入重定向占用无法交互输入，请改用 --entry 复用已存条目"
+        }
+        T::LooksLikeJsonHint => {
+            "提示：输入以 { 开头但不是合法的脚本配置 JSON，已按纯 JS 代码处理；若为配置请检查字段名（code / allowInsecure）"
+        }
         T::LblValid => "有效",
         T::Dash => "——",
 
@@ -516,6 +554,9 @@ fn en(key: T) -> &'static str {
         T::MultilineJsonHint => {
             "(paste multi-line JSON and finish with a blank line; or Ctrl+Z / Ctrl+D to end input)"
         }
+        T::MultilineCodeHint => {
+            "(paste multi-line code; blank lines are kept. Finish with a single line containing only .)"
+        }
 
         T::ListEmpty => "No provider entries yet; add one with quota add.",
         T::QueryNoEntries => {
@@ -550,6 +591,10 @@ fn en(key: T) -> &'static str {
         T::ValidateFail => "static validation failed: ",
         T::RetrySuffix => "fix it and paste again (Ctrl+C to abort)",
         T::PasteTemplateJson => "Paste the template JSON",
+        T::ScriptOption => "script — custom JS script (QuickJS sandbox)",
+        T::PasteScriptCode => "Paste the script JS code",
+        T::ScriptValidateFail => "script validation failed: ",
+        T::AllowInsecurePrompt => "Does the script need to access non-HTTPS (http) URLs?",
 
         T::PasteHintEdit => {
             "Paste tip: use Shift+Ctrl+V or right-click in the name / base_url prompts (Ctrl+V does not work there)."
@@ -558,6 +603,11 @@ fn en(key: T) -> &'static str {
         T::BaseUrlPromptEdit => "base_url (Enter = keep, '-' to clear)",
         T::CurrentTemplateLabel => "Current template:",
         T::PasteNewTplPrompt => "Paste the new template JSON (a blank line = keep unchanged)",
+        T::CurrentScriptLabel => "Current script:",
+        T::PasteNewScriptPrompt => {
+            "Paste the new script JS code (finish with a single line . ; to keep unchanged, enter . right away)"
+        }
+        T::InvalidScriptKeep => "invalid script (keeping the current one): ",
         T::EnabledConfirm => "Enable this entry",
         T::InvalidTplKeep => "invalid template (keeping the current one): ",
         T::EmptyInputKeep => "empty input (kept unchanged)",
@@ -565,17 +615,24 @@ fn en(key: T) -> &'static str {
         T::SetKeyPrompt => "Enter the new API key (input is masked)",
         T::KeyEmptyRejected => "empty input, key unchanged (use quota remove to delete the entry)",
 
-        T::NeedEntryOrJson => {
-            "either --entry <id> or --json is required (see quota template test --help)"
-        }
+        T::NeedEntryOrJson => "either --entry <id> or --json is required (see --help)",
         T::StaticCheckOk => "static validation passed",
         T::TestEntryName => "template test",
+        T::ScriptTestEntryName => "script test",
         T::TryQueryEncryptFail => "test credential encryption failed: ",
         T::TryQueryFail => "live query failed: ",
         T::NeedsKeyPrompt => {
-            "this template references {{apiKey}}; enter a test key (this run only, not persisted; input is masked)"
+            "this query references {{apiKey}}; enter a test key (this run only, not persisted; input is masked)"
         }
-        T::KeyEmptyHint => "key is empty; for keyless debugging use quota template test --entry",
+        T::KeyEmptyHint => {
+            "key is empty; queries referencing {{apiKey}} need one — rerun and enter it"
+        }
+        T::KeyEmptyRedirect => {
+            "key is empty; stdin is redirected so a key cannot be entered — use --entry to reuse a stored entry"
+        }
+        T::LooksLikeJsonHint => {
+            "note: input starts with { but is not a valid script config JSON; treating it as plain JS code — check the field names (code / allowInsecure) if you meant a config"
+        }
         T::LblValid => "valid",
         T::Dash => "—",
 
@@ -886,6 +943,14 @@ pub fn not_template_entry(lang: Lang, id: &str) -> String {
     match lang {
         Lang::En => format!("entry {id} is not of the template kind"),
         _ => format!("条目 {id} 不是 template 类型"),
+    }
+}
+
+/// script test：条目不是 script 类型。
+pub fn not_script_entry(lang: Lang, id: &str) -> String {
+    match lang {
+        Lang::En => format!("entry {id} is not of the script kind"),
+        _ => format!("条目 {id} 不是 script 类型"),
     }
 }
 

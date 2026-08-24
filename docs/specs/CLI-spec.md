@@ -51,9 +51,10 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
 
 ### quota add / edit / remove / set-key
 
-- `quota add`：向导式依次询问——名称、类型（`natives` 列表选择 / 输入 `template`）、
-  native id 或模板 JSON（粘贴多行，Ctrl+Z/空行结束）、base_url（模板条目）、
-  API key（隐藏输入，直接回车跳过）。
+- `quota add`：向导式依次询问——名称、类型（`natives` 列表选择 / `template` /
+  `script`）、平台或粘贴多行内容（模板 JSON：空行结束；脚本 JS 代码：
+  单独一行 `.` 结束，空行照常保留）、base_url（模板/脚本条目）、
+  脚本条目追加 allowInsecure 确认（默认否）、API key（隐藏输入，直接回车跳过）。
 - 高级用法：`quota add --json < entry.json`（entry.json 为 ProviderEntry 的
   JSON，api_key_enc/base_url 由后续 set-key/edit 维护，密文不经手）。
 - `quota set-key <id>`：隐藏输入读取 key（终端回显关闭），经 vault 加密后写配置。
@@ -119,6 +120,20 @@ quota template test [--base-url <url>] [--entry <id> | --json < template.json]
   静态错误（带字段定位）或 UsageData 结果。
 - `--entry` 复用已存条目的 key（vault 解密）；`--json` 模式配合
   `set-key` 前的调试，key 从 stdin 读取。
+
+### quota script test
+
+```
+quota script test [--base-url <url>] [--entry <id> | --json < script.js]
+```
+
+- 流程与 `template test` 同构：core `script::validate` 干跑校验
+  （假变量替换 + `request()` 产物形状，不发 HTTP）→ 真实试查一次。
+- `--json` 双形态宽容解析：stdin 先按脚本配置 JSON（`{code, allowInsecure?}`），
+  失败则整段视为纯 JS 代码（examples/scripts/ 的 .js 文件可直接重定向）；
+  输入以 `{` 开头却解析失败时提示疑似配置误输入（回退仍生效）。
+- 代码引用 `{{apiKey}}` 时经 tty 交互收 key（仅本次不落盘）；stdin 被
+  重定向占用且 key 为空 → 引导改用 `--entry`（终端场景则提示重输）。
 
 ### quota dev-smoke（仅 debug 构建）
 
