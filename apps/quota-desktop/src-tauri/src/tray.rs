@@ -31,6 +31,10 @@ const MESSAGE_LIMIT: usize = 60;
 const ICON_SRC_AUTO_ID: &str = "icon-src-auto";
 const ICON_SRC_ENTRY_PREFIX: &str = "icon-src-e-";
 
+/// 峰谷翻转广播事件（payload = 后端 epoch 毫秒）：任一条目峰/谷翻转时
+/// 随托盘重建一并发给全部 WebView，前端以此为锚点重算峰谷标签。
+pub const PEAK_FLIP_EVENT: &str = "peak-flip";
+
 // ---- 展示纯函数 -----------------------------------------------------------
 
 /// 已用百分比（0-100）。
@@ -409,25 +413,44 @@ fn pricing_currency_hint<'a>(
         })
 }
 
-/// 每分钟调度调用：图标条目的峰谷状态与上次重建时不一致（含首次）→
-/// 重建托盘。峰谷标签在菜单重建时判定，轮询间隔长时靠本检测兜底刷新；
+/// 全部启用条目的峰谷判定快照（id → 峰/谷）。
+/// 仅收录 resolve 出生效峰谷配置的条目——禁用或无峰谷配置的条目
+/// 无标签可翻转，不参与 [`rebuild_on_peak_flip`] 的缓存比对。
+fn peak_map(
+    cfg: &AppConfig,
+    results: &HashMap<String, EntryState>,
+    now: u64,
+) -> HashMap<String, PeakKind> {
+    cfg.providers
+        .iter()
+        .filter(|entry| entry.enabled)
+        .filter_map(|entry| {
+            let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
+            pricing::resolve_in_currency(entry, &cfg.custom_models, currency_hint)
+                .map(|resolved| (entry.id.clone(), resolved.kind(now)))
+        })
+        .collect()
+}
+
+/// 每分钟调度调用：任一启用条目的峰谷状态与上次检测不一致（含首次）→
+/// 重建托盘并向全部 WebView 广播 [`PEAK_FLIP_EVENT`]（payload = 后端
+/// epoch 毫秒）。前端常驻面板/卡片以事件为锚点重算峰谷标签——与托盘
+/// 菜单同 tick 同源，修复悬停面板标签停留在上次渲染判定的问题（#15）；
 /// 读盘失败静默保留缓存（下次再比）。
 pub fn rebuild_on_peak_flip(app: &AppHandle, state: &AppState) {
-    let Some((cfg, results, settings)) = snapshot_views(state) else {
+    let Some((cfg, results, _settings)) = snapshot_views(state) else {
         return;
     };
     let now = now_ms();
-    let current = ring::icon_entry(&cfg, &settings).and_then(|entry| {
-        let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
-        pricing::resolve_in_currency(entry, &cfg.custom_models, currency_hint)
-            .map(|resolved| (entry.id.clone(), resolved.kind(now)))
-    });
+    let current = peak_map(&cfg, &results, now);
     let mut last = state.last_peak.write().unwrap();
     if *last == current {
         return;
     }
     *last = current;
     drop(last);
+    // 广播失败不打断托盘重建（窗口退出途中无监听者是正常态）
+    let _ = app.emit(PEAK_FLIP_EVENT, now);
     rebuild(app, state);
 }
 
@@ -857,6 +880,45 @@ mod tests {
         };
         assert_eq!(pricing_lines(&e, PEAK_NOW, Lang::Zh), Vec::<String>::new());
         assert_eq!(pricing_lines(&e, PEAK_NOW, Lang::En), Vec::<String>::new());
+    }
+
+    /// 契约：翻转检测的判定快照 peak_map 只收「启用且 resolve 出生效峰谷
+    /// 配置」的条目（id → 峰/谷）——禁用或无峰谷配置的条目不参与，
+    /// 锚点时刻跨过翻转边界时判定随之时变（rebuild_on_peak_flip 与
+    /// last_peak 缓存比对的数据源）。
+    #[test]
+    fn peak_map_tracks_enabled_priced_entries_only() {
+        let mut plain = entry_with(None);
+        plain.id = "p2".into();
+        plain.kind = quota_core::ProviderKind::Native {
+            provider: "siliconflow".into(),
+        };
+        let mut disabled = entry_with(None);
+        disabled.id = "p3".into();
+        disabled.enabled = false;
+        let cfg = AppConfig {
+            providers: vec![entry_with(None), plain, disabled],
+            ..Default::default()
+        };
+
+        let map = peak_map(&cfg, &HashMap::new(), PEAK_NOW);
+        assert_eq!(
+            map.len(),
+            1,
+            "只有带峰谷配置的启用条目参与（p1）：{map:?}"
+        );
+        assert_eq!(map.get("p1"), Some(&PeakKind::Peak));
+
+        // 同一条目跨过翻转边界 → 判定翻转（调用方据比对结果广播+重建）
+        let map_off = peak_map(&cfg, &HashMap::new(), OFF_NOW);
+        assert_eq!(map_off.get("p1"), Some(&PeakKind::OffPeak));
+
+        // 条目清空 → 空 map（条目增删触发一次比对差异，无害）
+        let empty = AppConfig {
+            providers: vec![],
+            ..Default::default()
+        };
+        assert!(peak_map(&empty, &HashMap::new(), PEAK_NOW).is_empty());
     }
 
     /// 契约：当前档价格全缺时只显示类型行；部分缺价跳过该字段。

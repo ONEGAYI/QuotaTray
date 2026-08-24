@@ -305,7 +305,7 @@ mod tests {
             last_hover_refresh_ms: std::sync::atomic::AtomicU64::new(0),
             resolved_theme: std::sync::RwLock::new(false),
             update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
-            last_peak: std::sync::RwLock::new(None),
+            last_peak: std::sync::RwLock::new(HashMap::new()),
         };
 
         // 无 release（404）→ last_check 记录、无 info、无错误

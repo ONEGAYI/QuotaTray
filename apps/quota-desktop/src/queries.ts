@@ -1,6 +1,6 @@
 // React Query hooks：轮询调度（GUI-spec §3 查询调度在前端实现）。
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import type { UpdateStateDto } from "./types";
@@ -123,4 +123,24 @@ export function useRefreshNow() {
       void unlisten.then((fn) => fn());
     };
   }, [qc]);
+}
+
+/** 峰谷翻转感知时刻（#15）：后端每分钟检测到任一条目峰/谷翻转时广播，
+ * payload 为后端 epoch 毫秒。常驻 WebView（悬停面板/主窗卡片）的峰谷
+ * 标签锚定渲染时刻的 Date.now()，无重渲染即停留在旧判定——本 hook
+ * 以事件驱动一次重渲染，与托盘菜单同一 tick 判定；初始值为挂载时刻。 */
+export function usePeakFlipTick() {
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    const unlisten = listen<number>("peak-flip", (event) => {
+      setTick(event.payload);
+    }).catch((err) => {
+      console.error("peak-flip 事件监听失败：", err);
+      return () => {};
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+  return tick;
 }

@@ -115,10 +115,11 @@ pub struct AppState {
     /// 更新检测的展示状态（版本信息/上次检测/错误）；
     /// 节流判定权威源是 settings.update_last_check（磁盘），此处为展示镜像。
     pub update_ctl: RwLock<UpdateCtlState>,
-    /// 上次托盘重建时图标条目的峰谷状态（条目 id + 峰/谷）。
-    /// 每分钟调度比对（`tray::rebuild_on_peak_flip`），翻转才重建托盘，
-    /// 避免轮询间隔长时峰谷标签过期。
-    pub last_peak: RwLock<Option<(String, PeakKind)>>,
+    /// 上次峰谷检测时全部启用条目的判定快照（条目 id → 峰/谷）。
+    /// 每分钟调度比对（`tray::rebuild_on_peak_flip`，覆盖全部有峰谷配置
+    /// 的条目而非仅图标条目——主窗卡片与悬停面板同样消费该判定），
+    /// 翻转才重建托盘并向 WebView 广播，避免轮询间隔长时标签过期。
+    pub last_peak: RwLock<HashMap<String, PeakKind>>,
 }
 
 /// 当前 epoch 毫秒。
@@ -164,7 +165,7 @@ impl AppState {
                 last_check,
                 ..Default::default()
             }),
-            last_peak: RwLock::new(None),
+            last_peak: RwLock::new(HashMap::new()),
         })
     }
 }

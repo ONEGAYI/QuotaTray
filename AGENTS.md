@@ -173,7 +173,8 @@ QuotaTray/
 │       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
-│       │   │                    #   配置导入跨窗口失效 + CLI 可改 native/custom model 短缓存
+│       │   │                    #   配置导入跨窗口失效 + CLI 可改 native/custom model 短缓存 +
+│       │   │                    #   usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
 │       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）
@@ -274,6 +275,8 @@ QuotaTray/
 │               │               #   条目，其余条目不进菜单防信息行膨胀；峰谷行
 │               │               #   resolve_in_currency 接线自定义模型库/查询币种/订阅说明，
 │               │               #   pricing_lines 纯函数）+rebuild_on_peak_flip 每分钟翻转检测
+│               │               #   （peak_map 全启用条目快照比对，非仅图标条目；翻转时
+│               │               #   重建并向 WebView 广播 peak-flip 事件，前端锚点重算 #15）
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测字段组——开关/时刻/
 │               │               #   时间戳/代理端口，CLI 共读同一文件）
