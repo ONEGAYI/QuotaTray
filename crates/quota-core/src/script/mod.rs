@@ -201,10 +201,11 @@ fn parse_request_desc(json: &str, api_key: &str) -> Result<HttpRequest, QueryErr
     {
         None | Some("GET") => Method::Get,
         Some("POST") => Method::Post,
-        Some(other) => {
-            return Err(QueryError::deterministic(format!(
-                "request().method 仅支持 GET/POST，收到 {other}"
-            )));
+        // 不回显原值：method 是脚本产物字段，可能携带注入的明文凭据
+        Some(_) => {
+            return Err(QueryError::deterministic(
+                "request().method 仅支持 GET/POST（收到其他值）",
+            ));
         }
     };
     Ok(HttpRequest {
@@ -308,8 +309,10 @@ pub(crate) async fn execute_with_eval_budget(
         .map_err(|e| QueryError::transient(format!("脚本线程异常：{e}")))?
         .map_err(|e| eval_error_to_query(e, &redact_anchor))?;
 
-    // ③④ 产物解析（含从根登记脱敏）+ URL 校验 + 发送
-    let req = parse_request_desc(&req_json, api_key)?;
+    // ③④ 产物解析（含从根登记脱敏）+ URL 校验 + 发送。
+    // 解析错误统一过脱敏：产物任何字段都可能携带注入的明文凭据
+    let req = parse_request_desc(&req_json, api_key)
+        .map_err(|e| crate::provider::redact_error_message(e, &redact_anchor))?;
     template::check_url_safety(&req.url, config.allow_insecure)?;
     let resp_root = crate::provider::fetch_json(http, req.clone()).await?;
 
@@ -596,6 +599,92 @@ mod tests {
             assert!(!err.is_transient(), "应确定性：{err}");
             assert!(err.message().contains(frag), "文案应含 {frag}：{err}");
         }
+    }
+
+    /// 安全契约：method 字段携带 `{{apiKey}}` 替换后的明文 → 错误消息与
+    /// detail 都不回显（method 是脚本产物，值不可信）。
+    #[tokio::test]
+    async fn method_value_not_leaked() {
+        let script = r#"
+            function request(){ return { url: "https://a.com", method: "{{apiKey}}" }; }
+            function extract(r){ return {remaining: 1}; }
+        "#;
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &config(script),
+            "sk-live-secret-000",
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(
+            !err.message().contains("sk-live-secret-000"),
+            "message 泄漏明文凭据：{}",
+            err.message()
+        );
+        let detail = err.detail().unwrap_or_default().to_string();
+        assert!(
+            !detail.contains("sk-live-secret-000"),
+            "detail 泄漏明文凭据：{detail}"
+        );
+    }
+
+    /// 契约：reset_at 整数毫秒与字符串数字透传（parse_int 语义）；
+    /// 浮点形态安静落 None（宁缺毋错——倒计时缺失优于错值）。
+    #[tokio::test]
+    async fn reset_at_integer_kept_fractional_dropped() {
+        let mk = |expr: &str| {
+            format!(
+                r#"
+                function request(){{ return {{ url: "https://a.com" }}; }}
+                function extract(r){{ return {{ remaining: 1, reset_at: {expr} }}; }}
+                "#
+            )
+        };
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(&mk("1893456000000")),
+            "k",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(data[0].reset_at, Some(1893456000000));
+
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(&mk("\"1893456000000\"")),
+            "k",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(data[0].reset_at, Some(1893456000000));
+
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(&mk("1893456000000.5")),
+            "k",
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(data[0].reset_at, None, "浮点载体应安静落 None");
+    }
+
+    /// 契约：产物循环引用 → JSON 序列化失败 → 确定性错误（固定文案，无泄漏）。
+    #[tokio::test]
+    async fn circular_output_rejected() {
+        let script = r#"
+            function request(){ return { url: "https://a.com" }; }
+            function extract(r){ const a = {}; a.self = a; return a; }
+        "#;
+        let err = execute(&MockHttp::ok(RESP), &config(script), "k", None)
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("序列化"), "应指明序列化失败：{err}");
     }
 
     /// 契约：extract() 产物形状错误 → 确定性失败（空数组/无数值字段/
