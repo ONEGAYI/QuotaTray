@@ -172,6 +172,9 @@ pub fn validate_entry(entry: &ProviderEntry, lang: Lang) -> Result<(), String> {
         ProviderKind::Template(t) => {
             quota_core::template::validate(t).map_err(|e| e.to_string())?;
         }
+        ProviderKind::Script(s) => {
+            quota_core::script::validate(s).map_err(|e| e.to_string())?;
+        }
         ProviderKind::Native { provider } => {
             if quota_core::provider::find(provider).is_none() {
                 return Err(lang.err_unknown_native(provider));

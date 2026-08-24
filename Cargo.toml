@@ -5,7 +5,7 @@ members = ["crates/quota-core", "apps/quota-cli", "apps/quota-desktop/src-tauri"
 [workspace.package]
 version = "0.3.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 license = "MIT"
 
 [workspace.dependencies]
@@ -30,6 +30,8 @@ getrandom = "0.3"
 futures = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 regex = "1"
+# QuickJS 沙箱（M4 script provider）：默认内嵌编译 QuickJS-NG 源码（MSRV 1.87）
+rquickjs = "0.12"
 
 [profile.release]
 lto = "thin"

@@ -21,3 +21,4 @@ url = { workspace = true }
 zeroize = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
+rquickjs = { workspace = true }
