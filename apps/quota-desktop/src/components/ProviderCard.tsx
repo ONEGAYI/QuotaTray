@@ -25,7 +25,7 @@ import {
   windowShortLabel,
 } from "../display";
 import { useLang } from "../i18n";
-import { useProviderQuery } from "../queries";
+import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
 import { providerIconUrl } from "./providerIcon";
@@ -94,6 +94,8 @@ export function ProviderCard({
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
+  // 峰谷标签锚点：主窗开着跨过翻转点时以翻转事件驱动重算（#15）
+  const peakTick = usePeakFlipTick();
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -114,7 +116,7 @@ export function ProviderCard({
   const multiWindow = view.data.length > 1;
   const primary = primaryValue(mainData, lang);
   const mainReset = resetCountdown(mainData?.reset_at);
-  const pricingView = resolveProviderPricingView(entry, nativeMeta, Date.now(), mainData?.unit);
+  const pricingView = resolveProviderPricingView(entry, nativeMeta, peakTick, mainData?.unit);
   const modelChoices = pricingModelChoices(
     nativeMeta?.pricing ?? null,
     nativeMeta?.custom_models ?? [],

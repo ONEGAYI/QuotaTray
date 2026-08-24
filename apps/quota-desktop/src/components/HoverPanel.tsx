@@ -6,6 +6,7 @@ import { amountText, dataSummary, relativeTime, resetCountdown, usedPercent, win
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
+  usePeakFlipTick,
   useProviderState,
   useProviderStateEvents,
   useProviders,
@@ -69,6 +70,8 @@ function HoverPanelInner() {
   const [actionError, setActionError] = useState<string | null>(null);
   // 压缩布局：后端在垂直空间不足时把窗口缩到压缩高度，前端随之裁剪区块
   const [compact, setCompact] = useState(() => isCompactViewport(window.innerHeight));
+  // 峰谷标签锚点：常驻面板无重渲染时以翻转事件驱动重算（#15）
+  const peakTick = usePeakFlipTick();
 
   useEffect(() => {
     const onResize = () => setCompact(isCompactViewport(window.innerHeight));
@@ -123,7 +126,7 @@ function HoverPanelInner() {
     ? nativeMeta?.name ?? entry.kind.provider
     : t("card.templateKind");
   const pricingView = entry
-    ? resolveProviderPricingView(entry, nativeMeta, Date.now(), mainData?.unit)
+    ? resolveProviderPricingView(entry, nativeMeta, peakTick, mainData?.unit)
     : null;
   const modelChoices = pricingModelChoices(nativeMeta?.pricing ?? null, nativeMeta?.custom_models ?? []);
   const explicitModel = entry?.pricing?.model
