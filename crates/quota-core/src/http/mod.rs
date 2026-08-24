@@ -1,6 +1,7 @@
 //! HTTP 访问抽象：Provider 实现只依赖 [`HttpClient`] trait，
 //! 单测注入 mock，生产使用 reqwest 实现。
 
+pub mod redact;
 pub mod reqwest;
 
 pub use self::reqwest::ReqwestHttpClient;
@@ -47,7 +48,7 @@ impl std::fmt::Debug for HttpRequest {
                     .map(|(k, v)| {
                         (
                             k,
-                            if is_sensitive_header(k) {
+                            if redact::is_sensitive_header(k) {
                                 "***"
                             } else {
                                 v.as_str()
@@ -67,14 +68,6 @@ fn mask_url_query(url: &str) -> String {
         None => url.to_string(),
         Some((base, _)) => format!("{base}?***"),
     }
-}
-
-/// Debug/日志输出中必须打码的请求头（大小写不敏感）。
-fn is_sensitive_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "authorization" | "proxy-authorization" | "cookie" | "x-api-key"
-    )
 }
 
 impl HttpRequest {

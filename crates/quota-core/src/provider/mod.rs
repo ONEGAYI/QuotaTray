@@ -100,33 +100,55 @@ pub(crate) async fn fetch_json(
     http: &dyn HttpClient,
     req: HttpRequest,
 ) -> Result<Value, QueryError> {
-    let resp = http.execute(req).await.map_err(|e| match &e {
+    let resp = http.execute(req.clone()).await.map_err(|e| match &e {
         crate::http::HttpError::Timeout | crate::http::HttpError::Network(_) => {
             QueryError::transient(e.to_string())
         }
         crate::http::HttpError::InvalidRequest(_) => QueryError::deterministic(e.to_string()),
     })?;
     if !resp.is_success() {
-        return Err(status_error_with_body(resp.status, &resp.body));
+        return Err(status_error_with_body(resp.status, &resp.body, &req));
     }
-    serde_json::from_str(&resp.body).map_err(|_| QueryError::deterministic("响应不是合法 JSON"))
+    parse_success_json(&req, &resp)
+}
+
+/// 2xx 响应体 → JSON：解析失败为确定性错误，detail 携带 serde 位置
+/// （行列，说明"怎么不合法"）与脱敏响应体片段（说明"响应长什么样"）。
+pub(crate) fn parse_success_json(
+    req: &HttpRequest,
+    resp: &crate::http::HttpResponse,
+) -> Result<Value, QueryError> {
+    serde_json::from_str(&resp.body).map_err(|e| {
+        QueryError::deterministic("响应不是合法 JSON").with_detail(format!(
+            "JSON 解析错误：{e}\n响应体（已脱敏）：\n{}",
+            crate::http::redact::redact_and_truncate(&resp.body, req)
+        ))
+    })
 }
 
 /// HTTP 状态码 → 错误双轨分类：
 /// 408（请求超时）/429（限流）/5xx = 瞬时（可重试）；
 /// 其余 4xx（401/403/404/402 等）= 确定性（认证失效、欠费、端点错误，重试无意义）。
-/// 响应体含 `error.message` 时附加到文案（远端内容不含本地凭据，可透出）。
-pub(crate) fn status_error_with_body(status: u16, body: &str) -> QueryError {
+/// 响应体含 `error.message` 时附加到文案（远端内容不含本地凭据，可透出）；
+/// detail 携带脱敏后的完整响应体片段（用户显式复制排查用）。
+pub(crate) fn status_error_with_body(status: u16, body: &str, req: &HttpRequest) -> QueryError {
     let transient = status == 408 || status == 429 || (500..600).contains(&status);
     let message = match error_detail(body) {
         Some(detail) => format!("HTTP {status}: {detail}"),
         None => format!("HTTP {status}"),
     };
-    if transient {
+    let err = if transient {
         QueryError::transient(message)
     } else {
         QueryError::deterministic(message)
+    };
+    if body.trim().is_empty() {
+        return err;
     }
+    err.with_detail(format!(
+        "HTTP {status} 响应体（已脱敏）：\n{}",
+        crate::http::redact::redact_and_truncate(body, req)
+    ))
 }
 
 /// 从错误响应体提取说明（OpenRouter/one-api 系惯例为 `error.message`），
@@ -272,15 +294,16 @@ mod tests {
     /// 408/429/5xx 瞬时（请求超时/限流/服务端故障，可重试）。
     #[test]
     fn status_classification() {
+        let req = HttpRequest::get("https://api.example.com");
         for code in [400, 401, 402, 403, 404, 422] {
             assert!(
-                !status_error_with_body(code, "").is_transient(),
+                !status_error_with_body(code, "", &req).is_transient(),
                 "{code} 应为确定性"
             );
         }
         for code in [408, 429, 500, 502, 503] {
             assert!(
-                status_error_with_body(code, "").is_transient(),
+                status_error_with_body(code, "", &req).is_transient(),
                 "{code} 应为瞬时"
             );
         }
@@ -289,16 +312,63 @@ mod tests {
     /// 状态码错误透出响应体说明（error.message）契约。
     #[test]
     fn status_error_includes_body_detail() {
+        let req = HttpRequest::get("https://api.example.com");
         let body = r#"{"error":{"message":"Insufficient credits"}}"#;
-        let err = status_error_with_body(402, body);
+        let err = status_error_with_body(402, body, &req);
         assert!(!err.is_transient());
         assert!(
             err.message().contains("Insufficient credits"),
             "实际：{err}"
         );
         // 非 JSON 响应体回退为纯状态码文案
-        let plain = status_error_with_body(404, "<html>Not Found</html>");
+        let plain = status_error_with_body(404, "<html>Not Found</html>", &req);
         assert_eq!(plain.message(), "HTTP 404");
+    }
+
+    /// 安全契约：错误 detail 中的响应体已脱敏——服务端回显请求密钥时
+    /// 只出现 `<redacted>` 占位，明文凭据不得出现。
+    #[test]
+    fn error_detail_body_is_redacted() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000");
+
+        let err = status_error_with_body(403, "Forbidden: key sk-live-secret-000", &req);
+        assert_eq!(err.message(), "HTTP 403");
+        let detail = err.detail().expect("非空 body 应携带 detail");
+        assert!(detail.contains("已脱敏"), "应标注脱敏来源：{detail}");
+        assert!(
+            !detail.contains("sk-live-secret-000"),
+            "detail 泄漏明文凭据：{detail}"
+        );
+
+        // 空 body 不携带 detail
+        assert!(
+            status_error_with_body(500, "", &req).detail().is_none(),
+            "空 body 不应有 detail"
+        );
+    }
+
+    /// 契约：2xx 非 JSON 响应——确定性失败，detail 携带 serde 解析位置
+    /// 与脱敏响应体（回显密钥同样打码）。
+    #[test]
+    fn parse_success_json_detail_includes_position_and_redacted_body() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000");
+        let resp = crate::http::HttpResponse {
+            status: 200,
+            body: "<html>oops sk-live-secret-000</html>".into(),
+        };
+        let err = parse_success_json(&req, &resp).unwrap_err();
+        assert!(!err.is_transient());
+        assert_eq!(err.message(), "响应不是合法 JSON");
+        let detail = err.detail().expect("应携带 detail");
+        assert!(
+            detail.contains("JSON 解析错误"),
+            "应含 serde 位置说明：{detail}"
+        );
+        assert!(
+            !detail.contains("sk-live-secret-000"),
+            "detail 泄漏明文凭据：{detail}"
+        );
+        assert!(detail.contains("<redacted>"), "应含打码占位：{detail}");
     }
 
     /// 数值解析契约：number 与字符串数字均可，其余为 None。
