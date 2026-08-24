@@ -39,7 +39,9 @@ pub enum ProviderKind {
     /// 声明式模板（M2）：零代码接入任意平台。Box 收窄枚举尺寸
     /// （模板配置约 384 字节，远大于 Native 的 24 字节）。
     Template(Box<crate::template::TemplateConfig>),
-    // M4：Script（QuickJS 沙箱脚本）。
+    /// QuickJS 沙箱脚本（M4）：Box 同因。前向边界：旧版二进制读到
+    /// script 条目会因未知 serde tag 报错（升级单向，已知限制）。
+    Script(Box<crate::script::ScriptConfig>),
 }
 
 /// 订阅套餐变体：某些平台的套餐版本决定限额窗口结构，查询解析据此

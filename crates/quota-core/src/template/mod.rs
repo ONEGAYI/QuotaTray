@@ -412,11 +412,16 @@ fn bad_path(e: String) -> QueryError {
 }
 
 /// 字符串变量替换：扫描 `{{ var }}` 占位（容忍内部空白，与 [`validate`] 的
-/// 变量名解析一致），按表替换。
+/// 变量名解析一致），按表替换。模板与 script 查询共用（M4 起提为 crate 内
+/// 公用；错误文案中性化，不提调用方形态）。
 ///
 /// 安全：替换后的文本可能含明文凭据（如 URL query 中的 key），未知或未提供的
 /// 变量报错时只指出变量名，绝不让替换结果进入错误信息。
-fn substitute(s: &str, api_key: &str, base_url: Option<&str>) -> Result<String, QueryError> {
+pub(crate) fn substitute(
+    s: &str,
+    api_key: &str,
+    base_url: Option<&str>,
+) -> Result<String, QueryError> {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(start) = rest.find("{{") {
@@ -431,13 +436,13 @@ fn substitute(s: &str, api_key: &str, base_url: Option<&str>) -> Result<String, 
                         Some(base) => out.push_str(base),
                         None => {
                             return Err(QueryError::deterministic(
-                                "模板变量 {{baseUrl}} 未提供（baseUrl 需在条目配置中填写）",
+                                "变量 {{baseUrl}} 未提供（baseUrl 需在条目配置中填写）",
                             ));
                         }
                     },
                     other => {
                         return Err(QueryError::deterministic(format!(
-                            "未知模板变量 {{{{{other}}}}}（支持 apiKey / baseUrl）"
+                            "未知变量 {{{{{other}}}}}（支持 apiKey / baseUrl）"
                         )));
                     }
                 }
@@ -455,9 +460,10 @@ fn substitute(s: &str, api_key: &str, base_url: Option<&str>) -> Result<String, 
 }
 
 /// URL 安全：默认仅允许 https 与 loopback；`allow_insecure` 显式放开。
+/// 模板与 script 查询共用（M4 起提为 crate 内公用）。
 ///
 /// 安全：拒绝文案不带 URL 全文（key 可能已被替换进 query string）。
-fn check_url_safety(url: &str, allow_insecure: bool) -> Result<(), QueryError> {
+pub(crate) fn check_url_safety(url: &str, allow_insecure: bool) -> Result<(), QueryError> {
     let parsed = url::Url::parse(url)
         .map_err(|e| QueryError::deterministic(format!("URL 无法解析：{e}")))?;
     let is_loopback = matches!(
@@ -471,7 +477,7 @@ fn check_url_safety(url: &str, allow_insecure: bool) -> Result<(), QueryError> {
         Ok(())
     } else {
         Err(QueryError::deterministic(
-            "URL 不是 https 也非 loopback；如确需使用请在模板中显式设置 allowInsecure: true",
+            "URL 不是 https 也非 loopback；如确需使用请显式设置 allowInsecure: true",
         ))
     }
 }

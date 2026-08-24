@@ -61,7 +61,9 @@ QuotaTray/
 │           ├── config/        # 配置层
 │           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
 │           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
-│           │   ├── provider.rs# Credentials / ProviderKind（serde tag 分派）、PlanVariant
+│           │   ├── provider.rs# Credentials / ProviderKind（serde tag 分派：native/
+│           │   │              #   template/script，script 为 M4 新增——旧版二进制
+│           │   │              #   读到会报未知 tag，升级单向）、PlanVariant
 │           │   │              #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
 │           │   └── transfer.rs# 完整配置跨机器迁移：一次性迁移密钥转写、私有认证
 │           │                  #   二进制容器、字节 API 与原子文件导入导出
@@ -94,10 +96,24 @@ QuotaTray/
 │           │                         #   各窗口 nextResetTime 透传 reset_at 供倒计时）
 │           ├── template/      # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs     # DSL 结构/静态校验/执行器（变量替换、URL 安全、
-│           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据）
+│           │   │              #   多窗口、uses_api_key；错误文案不含明文凭据；
+│           │   │              #   substitute/check_url_safety 与 script 查询共用）
 │           │   └── path.rs    # JSONPath 子集（$.a.b[0]，拒绝过滤器/通配符）
+│           ├── script/
+│           │   └── mod.rs     # QuickJS 沙箱脚本查询（M4）：{request, extractor}
+│           │                  #   两阶段协议（rquickjs 默认内嵌编译 QuickJS-NG）；
+│           │                  #   六环节——变量替换（代码字符串层面，脚本可
+│           │                  #   分享）→ 沙箱 eval request 产物（JSON 桥出入箱）
+│           │                  #   → URL 安全校验 → 宿主发请求（fetch_json 收口
+│           │                  #   错误分类与脱敏、apiKey 从根登记）→ 沙箱 eval
+│           │                  #   extract → 产物转 UsageData（parse_num 语义）；
+│           │                  #   沙箱限制：内存 16MiB/栈 256KiB/单次 eval 5s
+│           │                  #   CPU 中断器（eval 在 spawn_blocking 线程）；
+│           │                  #   validate 干跑（假变量+形状校验）；JS 异常
+│           │                  #   消息可能回显注入 key——全错误路径 redact 收口
 │           ├── query/
-│           │   └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
+│           │   └── mod.rs     # QueryEngine：解密→分派（native/template/script）
+│           │                  #   →超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
 │                              #   独立下载通道（10min 总超时 + 15s 连接超时快速失败、
@@ -300,7 +316,7 @@ QuotaTray/
         └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
 ```
 
-（core 的 script 模块（M4）与打包分发（NSIS/updater，M4）随里程碑建立；
+（script 模块的 CLI/GUI 接入随 M4 后续 PR 建立；
 `src-tauri/gen/schemas` 为构建生成物，被 gitignore）
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。

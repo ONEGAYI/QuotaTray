@@ -78,11 +78,12 @@ pub fn fmt_num(v: Option<f64>) -> String {
     v.map(|n| format!("{n}")).unwrap_or_else(|| "-".into())
 }
 
-/// 条目类型标签：`native:deepseek` / `template`。
+/// 条目类型标签：`native:deepseek` / `template` / `script`。
 pub fn kind_label(kind: &ProviderKind) -> String {
     match kind {
         ProviderKind::Native { provider } => format!("native:{provider}"),
         ProviderKind::Template(_) => "template".into(),
+        ProviderKind::Script(_) => "script".into(),
     }
 }
 

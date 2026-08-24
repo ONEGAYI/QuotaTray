@@ -57,6 +57,15 @@ impl QueryEngine {
                 );
                 self.with_timeout(fut).await
             }
+            ProviderKind::Script(config) => {
+                let fut = crate::script::execute(
+                    self.http.as_ref(),
+                    config,
+                    creds.api_key.as_str(),
+                    entry.base_url.as_deref(),
+                );
+                self.with_timeout(fut).await
+            }
         }
     }
 
@@ -191,5 +200,45 @@ mod tests {
         );
         let data = engine.query(&vault, &e).await.unwrap();
         assert_eq!(data[0].remaining, Some(7.5));
+    }
+
+    /// 契约：Script 条目经引擎全链执行（解密→沙箱→mock HTTP→UsageData）。
+    #[tokio::test]
+    async fn engine_executes_script_entry() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let script = crate::ScriptConfig {
+            code: r#"
+                function request() {
+                    return { url: "{{baseUrl}}/v1/balance", headers: { "X-Key": "{{apiKey}}" } };
+                }
+                function extract(resp) { return { remaining: resp.balance }; }
+            "#
+            .into(),
+            allow_insecure: false,
+        };
+        let mut e = ProviderEntry {
+            id: "scr1".into(),
+            name: "脚本测试".into(),
+            kind: ProviderKind::Script(Box::new(script)),
+            enabled: true,
+            api_key_enc: None,
+            base_url: Some("https://api.demo.com".into()),
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+        };
+        e.set_api_key(&vault, "sk-scr").unwrap();
+
+        let http = Arc::new(MockHttp::ok(r#"{"balance":"3.25"}"#));
+        let engine = QueryEngine::new(http.clone(), DEFAULT_TIMEOUT);
+        let data = engine.query(&vault, &e).await.unwrap();
+        assert_eq!(data[0].remaining, Some(3.25));
+        let reqs = http.captured_requests();
+        assert_eq!(reqs[0].url, "https://api.demo.com/v1/balance");
+        assert!(
+            reqs[0]
+                .headers
+                .iter()
+                .any(|(k, v)| k == "X-Key" && v == "sk-scr")
+        );
     }
 }
