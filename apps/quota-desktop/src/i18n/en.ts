@@ -96,6 +96,8 @@ export const en: Record<TextKey, string> = {
   "edit.platformPlaceholder": "Select…",
   "edit.nativeRequired": "Select a built-in provider",
   "edit.templateJson": "Template JSON",
+  "edit.scriptCode": "Script JS code (request() builds the request, extract(resp) parses the response)",
+  "edit.allowInsecure": "Allow non-https endpoints (allowInsecure)",
   "edit.baseUrl": "baseUrl (source of the {{baseUrl}} variable)",
   "edit.jsonError": "JSON parse error: {msg}",
   "edit.fieldError": "{field}: {reason}",

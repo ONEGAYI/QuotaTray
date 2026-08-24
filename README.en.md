@@ -102,7 +102,23 @@ Most balance APIs are "one GET + auth header + field mapping ± arithmetic". A J
 
 Runnable examples live in [examples/templates/](examples/templates/): single-object extraction (string numbers), dual-site `{{baseUrl}}`, total/usage display, and multi-window unfolding — each verifiable with `quota template test`.
 
-More complex platforms (multi-request aggregation, special signing) are planned to be covered by a QuickJS sandbox — see the [roadmap](#roadmap).
+## Custom Queries: JS Scripts
+
+Complex platforms beyond the template DSL's restricted arithmetic (cross-field math, loop aggregation, response reshaping) fall back to JS scripts — a `{request, extractor}` two-phase protocol inside a QuickJS sandbox, with HTTP executed by the host:
+
+```js
+function request() {
+  // Return a request descriptor; {{apiKey}} / {{baseUrl}} are injection placeholders
+  // (string-level substitution — scripts can be shared safely)
+  return { url: "{{baseUrl}}/v1/quota", headers: { "Authorization": "Bearer {{apiKey}}" } };
+}
+function extract(resp) {
+  // resp = the parsed response JSON; return a single object or a multi-window array (UsageData shape)
+  return [{ plan_name: "week", used: resp.week.used, unit: "%", reset_at: Date.parse(resp.week.reset) }];
+}
+```
+
+Sandbox limits: 16 MiB memory, a 5-second CPU cap per execution, no network/filesystem; URL safety and redaction rules match the templates (echoed secrets in error messages are masked). Runnable examples live in [examples/scripts/](examples/scripts/), verifiable with `quota script test`.
 
 ## Install
 
@@ -172,7 +188,7 @@ Known boundaries: reading the OS credential vault from another process of the sa
 
 ## Roadmap
 
-- [ ] QuickJS sandbox script queries (`{request, extractor}` protocol; memory/CPU limits; no network, no filesystem)
+- [x] QuickJS sandbox script queries (`{request, extractor}` protocol; memory/CPU limits; no network, no filesystem)
 - [ ] More built-in platforms
 - [ ] Automatic update installation
 

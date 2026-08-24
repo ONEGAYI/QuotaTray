@@ -35,7 +35,10 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
    - native：平台下拉（`natives` 列表）+ key 输入（password 型，空=保持不变）
    - template：模板 JSON 编辑器（CodeMirror 或等价）+ base_url + key +
      「校验」按钮（调 validate）与「试查」按钮（调 template test）
-   - script（M4 预留 tab，禁用态）
+   - script（M4）：JS 编辑器（CodeMirror javascript 语言包）+ base_url +
+     allowInsecure 开关（启用时显示明文 http 警告）+ key + 「校验」
+     （调 validate_script，干跑）与「试查」（调 test_script，沙箱全链路）；
+     内置最小闭环默认示例
 3. **设置**：常规页含自动刷新间隔、低额度提醒阈值、开机自启；更新页管理
    自动检测与下载安装包；数据迁移页通过系统文件选择器导出/导入完整配置，
    写文件或整体替换前必须显示高敏感风险确认。

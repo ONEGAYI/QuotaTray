@@ -58,10 +58,11 @@ export interface TemplateConfig {
   allowInsecure?: boolean;
 }
 
-/** 查询方式（serde internally tagged：{"type":"native"...} | {"type":"template", ...平铺}）。 */
+/** 查询方式（serde internally tagged：native / template / script，后两者平铺）。 */
 export type ProviderKind =
   | { type: "native"; provider: string }
-  | ({ type: "template" } & TemplateConfig);
+  | ({ type: "template" } & TemplateConfig)
+  | { type: "script"; code: string; allowInsecure?: boolean };
 
 /** 供应商条目（api_key_enc 为密文，仅结构回显；key 写入走单独通道）。 */
 export interface ProviderEntry {

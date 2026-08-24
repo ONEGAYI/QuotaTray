@@ -195,15 +195,15 @@ impl Lang {
 
     pub fn err_template_json(&self, e: &dyn std::fmt::Display) -> String {
         match self {
-            Self::Zh => format!("模板 JSON 解析失败：{e}"),
-            Self::En => format!("Failed to parse template JSON: {e}"),
+            Self::Zh => format!("配置 JSON 解析失败：{e}"),
+            Self::En => format!("Failed to parse config JSON: {e}"),
         }
     }
 
     pub fn err_template_needs_key(&self) -> String {
         match self {
-            Self::Zh => "模板引用了 {{apiKey}}，试查前请填写 API key".into(),
-            Self::En => "Template references {{apiKey}}; fill in the API key first".into(),
+            Self::Zh => "该查询引用了 {{apiKey}}，试查前请填写 API key".into(),
+            Self::En => "This query references {{apiKey}}; fill in the API key first".into(),
         }
     }
 

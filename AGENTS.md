@@ -175,7 +175,8 @@ QuotaTray/
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
-│       │                      #   Lucide/Vitest/opener + dialog（系统文件选择器）
+│       │                      #   （lang-json + lang-javascript）/Lucide/Vitest/opener +
+│       │                      #   dialog（系统文件选择器）
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
@@ -236,7 +237,9 @@ QuotaTray/
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
 │       │       ├── EditDialog.tsx      # Modal：native 下拉（订阅型带套餐变体选择）/
-│       │       │                       #   template 编辑器（校验+试查）/script 预留、
+│       │       │                       #   template 编辑器（校验+试查）/script JS 编辑器
+│       │       │                       #   （M4：校验/试查镜像 template，allowInsecure 开关
+│       │       │                       #   带警告 + 默认最小闭环示例）、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
 │       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
 │       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
@@ -266,11 +269,13 @@ QuotaTray/
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
 │               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
-│               ├── commands.rs # 主业务 IPC 17 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               ├── commands.rs # 主业务 IPC 19 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
 │               │               #   消除悬停面板等只读视图的无数据空窗）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
-│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）；
+│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）+
+│               │               #   script 双命令（validate_script 干跑/test_script 全链路，
+│               │               #   镜像 template 对，key 缺省语义同）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
 │               │               #   list_native_metas 携带模型级 plan/windows 与
 │               │               #   supports_plan_variant、DeepSeek
@@ -324,8 +329,7 @@ QuotaTray/
         └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
 ```
 
-（script 模块的 CLI/GUI 接入随 M4 后续 PR 建立；
-`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
+（`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
