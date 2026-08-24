@@ -192,7 +192,7 @@ pub fn spawn_scheduler(app: AppHandle) {
                         tray::rebuild(&app, &state);
                     }
                 }
-                // 峰谷标签过期兜底：图标条目峰/谷翻转才重建（内部自比对）
+                // 峰谷标签过期兜底：任一启用条目峰/谷翻转才重建并广播（内部自比对）
                 tray::rebuild_on_peak_flip(&app, &state);
             }
             tokio::time::sleep(Duration::from_secs(60)).await;
