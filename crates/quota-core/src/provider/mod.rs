@@ -173,12 +173,17 @@ pub(crate) fn status_error_with_body(status: u16, body: &str, req: &HttpRequest)
     ))
 }
 
-/// 从错误响应体提取说明（OpenRouter/one-api 系惯例为 `error.message`），
-/// 截断到 120 字符；调用方须过脱敏后才能拼进 message（网关可能在
-/// 错误说明中回显请求凭据）。
+/// 从错误响应体提取说明（嵌套 `error.message` 为 OpenRouter/one-api 系
+/// 主流形态；平铺 `{"error":"plain string"}` 为 one-api 系少数端点，作
+/// 回退），截断到 120 字符；调用方须过脱敏后才能拼进 message（网关可能
+/// 在错误说明中回显请求凭据）。
 fn error_detail(body: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(body).ok()?;
-    let msg = parsed.get("error")?.get("message")?.as_str()?;
+    let error = parsed.get("error")?;
+    let msg = error
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| error.as_str())?;
     let trimmed: String = msg.chars().take(120).collect();
     if trimmed.is_empty() {
         None
@@ -346,6 +351,41 @@ mod tests {
         // 非 JSON 响应体回退为纯状态码文案
         let plain = status_error_with_body(404, "<html>Not Found</html>", &req);
         assert_eq!(plain.message(), "HTTP 404");
+    }
+
+    /// 契约：one-api 系少数端点的平铺错误形态 `{"error":"plain string"}`
+    /// 同样进入 message（嵌套 error.message 之后的回退）。
+    #[test]
+    fn status_error_includes_plain_string_error() {
+        let req = HttpRequest::get("https://api.example.com");
+        let body = r#"{"error":"Insufficient credits"}"#;
+        let err = status_error_with_body(402, body, &req);
+        assert!(
+            err.message().contains("Insufficient credits"),
+            "实际：{err}"
+        );
+        // 空串平铺与嵌套空串一致：回退纯状态码文案
+        let empty = status_error_with_body(404, r#"{"error":""}"#, &req);
+        assert_eq!(empty.message(), "HTTP 404");
+    }
+
+    /// 安全契约：平铺形态中的远端回显凭据同样在进入 message 前脱敏
+    /// （脱敏在 status_error_with_body 收口，形态不应成为旁路）。
+    #[test]
+    fn plain_string_error_redacts_echoed_secret() {
+        let req = HttpRequest::get("https://api.example.com").bearer("sk-live-secret-000");
+        let body = r#"{"error":"Incorrect API key: sk-live-secret-000 provided"}"#;
+        let err = status_error_with_body(401, body, &req);
+        assert!(
+            !err.message().contains("sk-live-secret-000"),
+            "message 泄漏明文凭据：{}",
+            err.message()
+        );
+        assert!(
+            err.message().contains("<redacted>"),
+            "应保留打码占位：{}",
+            err.message()
+        );
     }
 
     /// 安全契约：error.message 中的远端回显凭据在进入 message 前已脱敏
