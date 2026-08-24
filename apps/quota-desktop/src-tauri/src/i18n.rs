@@ -195,8 +195,8 @@ impl Lang {
 
     pub fn err_template_json(&self, e: &dyn std::fmt::Display) -> String {
         match self {
-            Self::Zh => format!("配置 JSON 解析失败：{e}"),
-            Self::En => format!("Failed to parse config JSON: {e}"),
+            Self::Zh => format!("模板/脚本 JSON 解析失败：{e}"),
+            Self::En => format!("Failed to parse template/script JSON: {e}"),
         }
     }
 

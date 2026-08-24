@@ -2,7 +2,24 @@
 // 语义与 Rust 侧 tray.rs / i18n.rs 纯函数成对——分档边界、剩余/已用措辞
 // 两端保持一致，修改任一侧须同步另一侧。
 import type { UiLang } from "./i18n/zh";
-import type { UsageData } from "./types";
+import type { ProviderEntry, UsageData } from "./types";
+
+/** 条目类型标签（平台副标题）：native 用平台名，模板/脚本各归各
+ *  （与 CLI render.rs kind_label 成对，script 不得落入模板文案）。 */
+export function kindLabel(
+  kind: ProviderEntry["kind"],
+  nativeName: string | undefined,
+  lang: UiLang,
+): string {
+  switch (kind.type) {
+    case "native":
+      return nativeName ?? kind.provider;
+    case "template":
+      return lang === "zh" ? "模板" : "template";
+    case "script":
+      return lang === "zh" ? "脚本" : "script";
+  }
+}
 
 /** 相对时间："刚刚 / N 秒前 / …"（分档与 tray.rs relative_time 一致）。 */
 export function relativeTime(atMs: number | null | undefined, lang: UiLang): string {

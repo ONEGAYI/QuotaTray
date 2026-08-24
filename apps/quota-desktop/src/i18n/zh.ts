@@ -51,7 +51,6 @@ export const zh = {
   "card.keyMissing": "未配置 key",
   "card.snapshotAt": "上次于 {time}（启动快照）",
   "card.refreshing": "刷新中…",
-  "card.templateKind": "模板",
   "card.lastSuccess": "上次成功 · {time}",
   "card.neverSucceeded": "尚未成功查询",
   "card.moreWindows": "+{count} 个窗口",

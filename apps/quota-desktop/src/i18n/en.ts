@@ -48,7 +48,6 @@ export const en: Record<TextKey, string> = {
   "card.keyMissing": "No API key",
   "card.snapshotAt": "Last at {time} (startup snapshot)",
   "card.refreshing": "Refreshing…",
-  "card.templateKind": "template",
   "card.lastSuccess": "Last success · {time}",
   "card.neverSucceeded": "No successful query yet",
   "card.moreWindows": "+{count} windows",

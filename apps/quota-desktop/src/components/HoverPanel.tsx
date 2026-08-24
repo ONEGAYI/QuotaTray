@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, relativeTime, resetCountdown, usedPercent, windowShortLabel } from "../display";
+import { amountText, dataSummary, kindLabel, relativeTime, resetCountdown, usedPercent, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -122,9 +122,7 @@ function HoverPanelInner() {
   const nativeMeta = nativeProviderId
     ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
     : undefined;
-  const platformName = entry?.kind.type === "native"
-    ? nativeMeta?.name ?? entry.kind.provider
-    : t("card.templateKind");
+  const platformName = entry ? kindLabel(entry.kind, nativeMeta?.name, lang) : "";
   const pricingView = entry
     ? resolveProviderPricingView(entry, nativeMeta, peakTick, mainData?.unit)
     : null;
