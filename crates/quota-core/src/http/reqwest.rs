@@ -15,8 +15,22 @@ impl ReqwestHttpClient {
     /// `fallback_timeout` 是 HTTP 栈内的兜底超时；
     /// 业务级超时（区分瞬时/确定性错误）由 query 引擎的 tokio::time::timeout 承担。
     pub fn new(fallback_timeout: Duration) -> Result<Self, HttpError> {
-        let client = reqwest::Client::builder()
-            .timeout(fallback_timeout)
+        Self::new_with_proxy(fallback_timeout, None)
+    }
+
+    /// 带可选代理构造（更新检测等 GitHub 访问通道；业务查询仍走 [`Self::new`]）。
+    /// 显式设置代理后 reqwest 不再叠加环境变量代理。
+    pub fn new_with_proxy(
+        fallback_timeout: Duration,
+        proxy: Option<&str>,
+    ) -> Result<Self, HttpError> {
+        let mut builder = reqwest::Client::builder().timeout(fallback_timeout);
+        if let Some(url) = proxy {
+            let proxy = reqwest::Proxy::all(url)
+                .map_err(|e| HttpError::Network(format!("代理配置无效：{e}")))?;
+            builder = builder.proxy(proxy);
+        }
+        let client = builder
             .build()
             .map_err(|e| HttpError::Network(e.to_string()))?;
         Ok(Self { client })
@@ -71,6 +85,23 @@ fn map_reqwest_err(e: reqwest::Error) -> HttpError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_with_proxy_builds_or_rejects_url() {
+        assert!(
+            ReqwestHttpClient::new_with_proxy(Duration::from_secs(5), None).is_ok(),
+            "None 等价于 new()"
+        );
+        assert!(
+            ReqwestHttpClient::new_with_proxy(Duration::from_secs(5), Some("http://127.0.0.1:7897"))
+                .is_ok(),
+            "合法代理 URL 应构造成功"
+        );
+        assert!(
+            ReqwestHttpClient::new_with_proxy(Duration::from_secs(5), Some("not a url")).is_err(),
+            "非法 URL（无 scheme）应返回 Err"
+        );
+    }
 
     /// 安全契约：网络错误文案不含请求 URL（key 可能写在 query string 中）。
     #[test]

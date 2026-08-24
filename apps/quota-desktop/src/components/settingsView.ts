@@ -48,8 +48,10 @@ export function resolveUpdateStatus({
   hasAvailable: boolean;
   error: string | null;
 }): UpdateViewStatus {
+  // 操作错误优先于"发现新版本"：下载/检测失败要立即以错误态呈现，
+  // 不能静默维持可下载徽章（错误详情另由 error 行展示）
   if (checking) return "checking";
-  if (hasAvailable) return "available";
   if (error) return "error";
+  if (hasAvailable) return "available";
   return "current";
 }

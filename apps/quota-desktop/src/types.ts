@@ -163,6 +163,8 @@ export interface Settings {
   update_check_time: string;
   /** 上次自动检测时间（epoch 毫秒，null = 从未） */
   update_last_check: number | null;
+  /** 更新通道代理端口（本机 HTTP 代理；null = 直连，CLI 共用） */
+  update_proxy_port: number | null;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

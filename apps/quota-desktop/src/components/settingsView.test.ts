@@ -35,6 +35,11 @@ describe("更新设置视图", () => {
       .toBe("error");
   });
 
+  it("有可用版本时下载失败仍显示错误态（不静默成发现新版本）", () => {
+    expect(resolveUpdateStatus({ checking: false, hasAvailable: true, error: "下载失败" }))
+      .toBe("error");
+  });
+
   it("格式化已知总量的下载进度与速率", () => {
     const progress = {
       downloaded_bytes: 5 * 1024 * 1024,

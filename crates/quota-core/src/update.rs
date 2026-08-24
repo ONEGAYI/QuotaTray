@@ -35,6 +35,10 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 /// 下载大小上限（256MB）：NSIS 安装包为 MB 级，超限视为远端异常，防御性拒绝。
 const MAX_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
 
+/// 建立连接的超时（与 10 分钟总超时独立）：直连不可达时快速失败，
+/// 避免长时间零进度挂起后才报错。
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
 // ---- 类型 -----------------------------------------------------------------
 
 /// 一次检测的结果。
@@ -211,12 +215,18 @@ pub trait AssetDownloader: Send + Sync {
     }
 }
 
+/// 更新通道的代理 URL：设置层只存端口（本机 HTTP 代理，如 Clash），
+/// 此处统一拼接为 `http://127.0.0.1:{port}`，CLI 与 GUI 共用同一口径。
+pub fn proxy_url_of(port: Option<u16>) -> Option<String> {
+    port.map(|p| format!("http://127.0.0.1:{p}"))
+}
+
 /// reqwest 实现的安装包下载器。
 ///
-/// 要点：10 分钟总超时；默认 302 跟随（browser_download_url 会跳转到
-/// objects.githubusercontent.com）；256MB 上限（Content-Length 预检 +
-/// 实际字节数复检）。不依赖 [`crate::http::ReqwestHttpClient`] 的客户端
-/// ——那是查询用的 15s 短超时配置。
+/// 要点：10 分钟总超时 + 15 秒连接超时（不可达快速失败）；默认 302 跟随
+/// （browser_download_url 会跳转到 objects.githubusercontent.com）；
+/// 256MB 上限（Content-Length 预检 + 实际字节数复检）。不依赖
+/// [`crate::http::ReqwestHttpClient`] 的客户端——那是查询用的 15s 短超时配置。
 pub struct ReqwestAssetDownloader {
     client: reqwest::Client,
 }
@@ -229,12 +239,17 @@ impl Default for ReqwestAssetDownloader {
 
 impl ReqwestAssetDownloader {
     pub fn new() -> Self {
+        // builder 仅设超时与代理，失败回退默认客户端（与历史行为一致）
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(600))
-                .build()
-                .unwrap_or_default(), // builder 仅设超时，失败回退默认客户端
+            client: build_client(None).unwrap_or_default(),
         }
+    }
+
+    /// 带可选代理构造。显式设置代理后 reqwest 不再叠加环境变量代理——
+    /// 填了端口就用手动端口，未填走环境变量/直连默认。非法代理 URL
+    /// 返回 Err（不静默回退直连，避免用户以为走了代理实际裸连）。
+    pub fn try_with_proxy(proxy: Option<&str>) -> Result<Self, HttpError> {
+        build_client(proxy).map(|client| Self { client })
     }
 
     async fn download_inner(
@@ -321,6 +336,21 @@ impl AssetDownloader for ReqwestAssetDownloader {
     ) -> Result<Vec<u8>, HttpError> {
         self.download_inner(url, Some(reporter)).await
     }
+}
+
+/// 下载客户端构造：600s 总超时 + 15s 连接超时 + 可选代理。
+fn build_client(proxy: Option<&str>) -> Result<reqwest::Client, HttpError> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .connect_timeout(CONNECT_TIMEOUT);
+    if let Some(url) = proxy {
+        let proxy = reqwest::Proxy::all(url)
+            .map_err(|e| HttpError::Network(format!("代理配置无效：{e}")))?;
+        builder = builder.proxy(proxy);
+    }
+    builder
+        .build()
+        .map_err(|e| HttpError::Network(e.to_string()))
 }
 
 fn calculate_bytes_per_second(downloaded_bytes: u64, elapsed: Duration) -> u64 {
@@ -659,6 +689,38 @@ mod tests {
             3_000
         );
         assert_eq!(calculate_bytes_per_second(1_500, Duration::ZERO), 0);
+    }
+
+    // ---- 代理构造 ----
+
+    #[test]
+    fn proxy_url_of_maps_port_to_local_http_proxy() {
+        assert_eq!(proxy_url_of(None), None, "未配置端口 → 不走代理");
+        assert_eq!(
+            proxy_url_of(Some(7897)),
+            Some("http://127.0.0.1:7897".into())
+        );
+        assert_eq!(proxy_url_of(Some(1)), Some("http://127.0.0.1:1".into()));
+        assert_eq!(
+            proxy_url_of(Some(u16::MAX)),
+            Some(format!("http://127.0.0.1:{}", u16::MAX))
+        );
+    }
+
+    #[test]
+    fn try_with_proxy_builds_or_rejects_url() {
+        assert!(
+            ReqwestAssetDownloader::try_with_proxy(None).is_ok(),
+            "None 等价于 new()"
+        );
+        assert!(
+            ReqwestAssetDownloader::try_with_proxy(Some("http://127.0.0.1:7897")).is_ok(),
+            "合法代理 URL 应构造成功"
+        );
+        assert!(
+            ReqwestAssetDownloader::try_with_proxy(Some("not a url")).is_err(),
+            "非法 URL（无 scheme）应返回 Err 而非静默回退"
+        );
     }
 
     // ---- 节流 / 每日定时 ----

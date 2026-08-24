@@ -1059,6 +1059,14 @@ pub fn update_hint_available(lang: Lang, version: &str) -> String {
     }
 }
 
+/// 读到代理端口时的一行提示（让用户知道更新流量走了代理）。
+pub fn update_proxy_note(lang: Lang, port: u16) -> String {
+    match lang {
+        Lang::En => format!("Using local proxy 127.0.0.1:{port} for update checks and downloads"),
+        _ => format!("检测与下载经本机代理 127.0.0.1:{port}"),
+    }
+}
+
 // ---- clap help 运行时翻译 --------------------------------------------------
 
 /// 用选定语言覆盖 clap 命令面的 help 文案。

@@ -98,8 +98,14 @@ fn format_bytes(value: u64) -> String {
 }
 
 /// 生产入口：reqwest 检测（10s 超时）+ reqwest 下载（10 分钟超时）。
+/// 更新代理端口读自 settings.json（GUI 设置页写入，两端口径一致）。
 pub async fn run(ctx: &Ctx, args: UpdateArgs) -> i32 {
-    let Ok(http) = ReqwestHttpClient::new(Duration::from_secs(10)) else {
+    let prefs = crate::settings_io::load_prefs(&ctx.config_path);
+    if let Some(port) = prefs.update_proxy_port {
+        println!("{}", texts::update_proxy_note(ctx.lang, port));
+    }
+    let proxy = quota_core::update::proxy_url_of(prefs.update_proxy_port);
+    let Ok(http) = ReqwestHttpClient::new_with_proxy(Duration::from_secs(10), proxy.as_deref()) else {
         eprintln!(
             "{}{}",
             t(ctx.lang, T::Err),
@@ -107,7 +113,14 @@ pub async fn run(ctx: &Ctx, args: UpdateArgs) -> i32 {
         );
         return 1;
     };
-    let downloader = update::ReqwestAssetDownloader::new();
+    let Ok(downloader) = update::ReqwestAssetDownloader::try_with_proxy(proxy.as_deref()) else {
+        eprintln!(
+            "{}{}",
+            t(ctx.lang, T::Err),
+            t(ctx.lang, T::UpdateClientFail)
+        );
+        return 1;
+    };
     run_with(&http, &downloader, ctx, args).await
 }
 

@@ -70,7 +70,8 @@ QuotaTray/
 │           │   │              #   敏感头判断统一走 redact）
 │           │   ├── redact.rs  # 错误详情脱敏（参考 opencode）：结构化正则 + 本次请求
 │           │   │              #   密钥字面量两遍清洗，先清洗后截断（2048 字符）
-│           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏）
+│           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏；
+│           │              #   new_with_proxy 供更新通道注入可选代理）
 │           ├── provider/      # 预置平台
 │           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（12 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
@@ -99,8 +100,10 @@ QuotaTray/
 │           │   └── mod.rs     # QueryEngine：解密→分派（native/template）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
-│                              #   独立下载通道（10min 超时 + 256MB 上限、分块进度/速率
-│                              #   回调且兼容旧实现）、字节原子落盘
+│                              #   独立下载通道（10min 总超时 + 15s 连接超时快速失败、
+│                              #   256MB 上限、分块进度/速率回调且兼容旧实现、可选代理
+│                              #   构造——显式代理不叠加环境变量；proxy_url_of 端口→
+│                              #   URL 单一拼接口径）、字节原子落盘
 ├── apps/
 │   ├── quota-cli/             # CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）
 │   │   └── src/
@@ -113,8 +116,9 @@ QuotaTray/
 │   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
 │   │       ├── lang.rs        # Lang 三态（zh/en/system）+ sys-locale 检测 +
 │   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
-│   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct）+
-│   │       │                  #   last_check 写回（Value 读改写保留未知字段 + 原子写）
+│   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct：开关/时刻/
+│   │       │                  #   时间戳/代理端口）+ last_check 写回（Value 读改写保留
+│   │       │                  #   未知字段 + 原子写）
 │   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语；
 │   │       │                  #   error 含 detail 排查详情 additive 透出）+
 │   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
@@ -143,7 +147,8 @@ QuotaTray/
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；交互终端实时进度/速率；http 与 downloader
-│   │           │              #   可注入测试；退出码三分）
+│   │           │              #   可注入测试；退出码三分；更新代理端口读自 settings.json
+│   │           │              #   ——GUI 设置页写入，检测/下载共用并打印提示行）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（OK 行带
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
@@ -217,7 +222,8 @@ QuotaTray/
 │       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
 │       │       │                       #   完整自定义判定纯逻辑
 │       │       ├── SettingsDialog.tsx  # 常规/更新/数据迁移导航：更新下载进度 +
-│       │       │                       #   系统文件选择器导入导出与双重风险确认
+│       │       │                       #   更新代理端口输入（空=直连）+ 系统文件选择器
+│       │       │                       #   导入导出与双重风险确认
 │       │       ├── settingsView.ts / settingsView.test.ts
 │       │       │                       # 更新错误优先级、状态结论、进度格式化纯逻辑
 │       │       └── configTransferView.ts / configTransferView.test.ts
@@ -269,9 +275,11 @@ QuotaTray/
 │               │               #   resolve_in_currency 接线自定义模型库/查询币种/订阅说明，
 │               │               #   pricing_lines 纯函数）+rebuild_on_peak_flip 每分钟翻转检测
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
-│               │               #   每圈单位、图标数据源、更新检测三字段）
+│               │               #   每圈单位、图标数据源、更新检测字段组——开关/时刻/
+│               │               #   时间戳/代理端口，CLI 共读同一文件）
 │               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
-│               │               #   下载目录并向前端推送进度/速率 + 每分钟调度（due_check，
+│               │               #   下载目录并向前端推送进度/速率（检测与下载共用设置
+│               │               #   中的更新代理端口）+ 每分钟调度（due_check，
 │               │               #   完成后推送状态事件；设置变更自然生效；同 tick 顺带
 │               │               #   峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
