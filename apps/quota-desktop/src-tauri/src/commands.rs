@@ -610,9 +610,11 @@ pub async fn check_update_now(
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
     let lang = lang_of(&state);
     let proxy = crate::update_ctl::proxy_url(&state);
-    let http =
-        quota_core::http::ReqwestHttpClient::new_with_proxy(std::time::Duration::from_secs(10), proxy.as_deref())
-            .map_err(|e| lang.err_update_client(&e))?;
+    let http = quota_core::http::ReqwestHttpClient::new_with_proxy(
+        std::time::Duration::from_secs(10),
+        proxy.as_deref(),
+    )
+    .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
     Ok(crate::update_ctl::dto_of(&inner))

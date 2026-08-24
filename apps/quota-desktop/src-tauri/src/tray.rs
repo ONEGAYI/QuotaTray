@@ -902,11 +902,7 @@ mod tests {
         };
 
         let map = peak_map(&cfg, &HashMap::new(), PEAK_NOW);
-        assert_eq!(
-            map.len(),
-            1,
-            "只有带峰谷配置的启用条目参与（p1）：{map:?}"
-        );
+        assert_eq!(map.len(), 1, "只有带峰谷配置的启用条目参与（p1）：{map:?}");
         assert_eq!(map.get("p1"), Some(&PeakKind::Peak));
 
         // 同一条目跨过翻转边界 → 判定翻转（调用方据比对结果广播+重建）
