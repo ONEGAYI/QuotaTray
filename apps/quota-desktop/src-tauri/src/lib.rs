@@ -69,6 +69,8 @@ pub fn run() {
             commands::list_native_metas,
             commands::validate_template,
             commands::test_template,
+            commands::validate_script,
+            commands::test_script,
             commands::query_provider,
             commands::get_provider_state,
             commands::get_settings,

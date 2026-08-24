@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use quota_core::script::ScriptConfig;
 use quota_core::template::{TemplateConfig, TemplateError};
 use quota_core::{AppConfig, PlanVariant, ProviderEntry, ProviderKind, Vault};
 use serde::Serialize;
@@ -391,6 +392,84 @@ pub async fn test_template(
         id: TEMPLATE_TEST_ID.into(),
         name: "模板试查".into(),
         kind: ProviderKind::Template(Box::new(config)),
+        enabled: true,
+        api_key_enc: None,
+        base_url,
+        pricing: None,
+        plan_variant: PlanVariant::Auto,
+    };
+    entry
+        .set_api_key(&state.vault, &key)
+        .map_err(|e| lang.err_encrypt_failed(&e))?;
+    entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
+
+    let outcome = match state.engine.query(&state.vault, &entry).await {
+        Ok(data) => QueryOutcome {
+            ok: true,
+            data: Some(data),
+            error: None,
+            at: Some(now_ms()),
+        },
+        Err(e) => QueryOutcome {
+            ok: false,
+            data: None,
+            error: Some(ErrorInfo::from_query_error(&e)),
+            at: None,
+        },
+    };
+    Ok(outcome)
+}
+
+/// 脚本试查用临时条目 id（不落盘，仅构造引擎入参）。
+const SCRIPT_TEST_ID: &str = "script-test";
+
+/// 静态校验脚本配置 JSON（干跑：假变量替换 + request() 产物形状）。
+#[tauri::command]
+pub fn validate_script(config_json: String) -> Result<(), TemplateErrorDto> {
+    let config: ScriptConfig =
+        serde_json::from_str(&config_json).map_err(|e| TemplateErrorDto {
+            field: "(json)".into(),
+            reason: e.to_string(),
+        })?;
+    quota_core::script::validate(&config).map_err(|e| TemplateErrorDto {
+        field: e.field,
+        reason: e.reason,
+    })
+}
+
+/// 脚本试查：真实走一次完整查询链路（vault 加密 → 沙箱 → 引擎 → HTTP），
+/// 不落持久状态。镜像 test_template 的 key 缺省语义。
+#[tauri::command]
+pub async fn test_script(
+    state: State<'_, AppState>,
+    config_json: String,
+    api_key: Option<String>,
+    base_url: Option<String>,
+) -> Result<QueryOutcome, String> {
+    let lang = lang_of(&state);
+    let config: ScriptConfig =
+        serde_json::from_str(&config_json).map_err(|e| lang.err_template_json(&e))?;
+    let key = match api_key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(k) => k.to_string(),
+        None if quota_core::script::uses_api_key(&config) => {
+            return Ok(QueryOutcome {
+                ok: false,
+                data: None,
+                error: Some(ErrorInfo {
+                    kind: "deterministic".into(),
+                    message: lang.err_template_needs_key(),
+                    detail: None,
+                }),
+                at: None,
+            });
+        }
+        None => "-".into(),
+    };
+
+    let mut entry = ProviderEntry {
+        id: SCRIPT_TEST_ID.into(),
+        name: "脚本试查".into(),
+        kind: ProviderKind::Script(Box::new(config)),
         enabled: true,
         api_key_enc: None,
         base_url,

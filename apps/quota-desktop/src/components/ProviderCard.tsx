@@ -19,6 +19,7 @@ import { api } from "../api";
 import {
   amountText,
   exactTime,
+  kindLabel,
   relativeTime,
   resetCountdown,
   usedPercent,
@@ -121,8 +122,7 @@ export function ProviderCard({
     nativeMeta?.pricing ?? null,
     nativeMeta?.custom_models ?? [],
   );
-  const platformName =
-    entry.kind.type === "native" ? (nativeMeta?.name ?? entry.kind.provider) : t("card.templateKind");
+  const platformName = kindLabel(entry.kind, nativeMeta?.name, lang);
   const platformIconUrl =
     entry.kind.type === "native" ? providerIconUrl(entry.kind.provider) : null;
   const explicitModelChoice = entry.pricing?.model

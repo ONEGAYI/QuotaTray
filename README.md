@@ -102,7 +102,22 @@ Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai
 
 可运行示例见 [examples/templates/](examples/templates/)：覆盖单对象取数（字符串数字）、双站 `{{baseUrl}}`、总额/已用展示、多窗口展开等形态，均可用 `quota template test` 试查验证。
 
-更复杂的平台（多请求聚合、特殊签名）计划由 QuickJS 沙箱脚本兜底，见[路线图](#路线图)。
+## 自定义查询：JS 脚本
+
+模板 DSL 的受限算术覆盖不了的复杂平台（字段间运算、循环聚合、响应重组），用 JS 脚本兜底——QuickJS 沙箱内运行 `{request, extractor}` 两阶段协议，HTTP 由宿主执行：
+
+```js
+function request() {
+  // 返回请求描述；{{apiKey}} / {{baseUrl}} 为注入占位（代码字符串层面替换，脚本可安全分享）
+  return { url: "{{baseUrl}}/v1/quota", headers: { "Authorization": "Bearer {{apiKey}}" } };
+}
+function extract(resp) {
+  // resp = 已解析的响应 JSON；返回单对象或多窗口数组（UsageData 字段形状）
+  return [{ plan_name: "week", used: resp.week.used, unit: "%", reset_at: Date.parse(resp.week.reset) }];
+}
+```
+
+沙箱限制：内存 16MiB、单次执行 5 秒 CPU 上限、无网络/文件系统；URL 安全与脱敏规则与模板一致（错误消息中的回显密钥统一打码）。可运行示例见 [examples/scripts/](examples/scripts/)，`quota script test` 试查验证。
 
 ## 安装
 
@@ -168,7 +183,7 @@ CLI 使用 `quota config export/import`；桌面端入口位于「设置 → 数
 
 ## 路线图
 
-- [ ] QuickJS 沙箱脚本查询（`{request, extractor}` 协议，内存/CPU 限额，无网络无文件系统）
+- [x] QuickJS 沙箱脚本查询（`{request, extractor}` 协议，内存/CPU 限额，无网络无文件系统）
 - [ ] 更多预置平台
 - [ ] 更新自动安装
 

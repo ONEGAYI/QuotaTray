@@ -134,6 +134,9 @@ quota script test [--base-url <url>] [--entry <id> | --json < script.js]
   输入以 `{` 开头却解析失败时提示疑似配置误输入（回退仍生效）。
 - 代码引用 `{{apiKey}}` 时经 tty 交互收 key（仅本次不落盘）；stdin 被
   重定向占用且 key 为空 → 引导改用 `--entry`（终端场景则提示重输）。
+- `quota add` 向导含「script」第三选项（粘贴代码 + 干跑校验重试 +
+  allowInsecure 确认，默认否）；`quota edit` 对 script 条目支持 baseUrl、
+  代码重粘贴（无效保持原码）与 allowInsecure 修改。
 
 ### quota dev-smoke（仅 debug 构建）
 

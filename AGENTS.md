@@ -129,7 +129,9 @@ QuotaTray/
 │   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
-│   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、多行 JSON 粘贴
+│   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、
+│   │       │                  #   多行读取双约定——模板 JSON 空行结束，脚本代码
+│   │       │                  #   单独一行 . 结束（空行照常保留），管道均读到 EOF
 │   │       ├── lang.rs        # Lang 三态（zh/en/system）+ sys-locale 检测 +
 │   │       │                  #   settings.json language 读取（mini struct，容错回退 System）
 │   │       ├── settings_io.rs # settings.json 的 update 字段读取（mini struct：开关/时刻/
@@ -146,12 +148,13 @@ QuotaTray/
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
 │   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
 │   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体；template 粘贴/
-│   │           │              #   script 代码粘贴双形态）/ --json stdin
-│   │           │              #   （拒收 api_key_enc，script 干跑校验）
+│   │           │              #   script 代码粘贴 + allowInsecure 确认双形态）/
+│   │           │              #   --json stdin（拒收 api_key_enc，script 干跑校验）
 │   │           ├── config.rs  # config export/import：高敏感确认、完整配置迁移、
 │   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
-│   │           │              #   各自的 baseUrl 与内容重粘贴）+ --enable/--disable 快捷路径
+│   │           │              #   各自的 baseUrl、内容重粘贴与 script 的
+│   │           │              #   allowInsecure 修改）+ --enable/--disable 快捷路径
 │   │           ├── remove.rs  # 确认删除（--yes 跳过）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
@@ -164,8 +167,9 @@ QuotaTray/
 │   │           │              #   管理（表格价格对照/同 id 覆盖/删空移键，纯函数可测）
 │   │           ├── template.rs# template test：静态校验 + 真实试查
 │   │           ├── script.rs  # script test：干跑校验先行 + 真实试查（--json
-│   │           │              #   stdin 双形态：config JSON 或纯 JS 文本；key 在
-│   │           │              #   校验通过后按需交互收集）
+│   │           │              #   stdin 双形态：config JSON 或纯 JS 文本，{ 开头
+│   │           │              #   解析失败提示疑似误输；key 在校验通过后按需
+│   │           │              #   交互收集，空 key 按终端/重定向分派提示）
 │   │           ├── update.rs  # update：检测 GitHub release + 可选下载（--check/--yes/
 │   │           │              #   --output；交互终端实时进度/速率；http 与 downloader
 │   │           │              #   可注入测试；退出码三分；更新代理端口读自 settings.json
@@ -175,7 +179,8 @@ QuotaTray/
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
-│       │                      #   Lucide/Vitest/opener + dialog（系统文件选择器）
+│       │                      #   （lang-json + lang-javascript）/Lucide/Vitest/opener +
+│       │                      #   dialog（系统文件选择器）
 │       ├── pnpm-workspace.yaml# pnpm 11 构建脚本许可（esbuild）
 │       ├── vite.config.ts     # 端口 1420 固定、chrome110 目标、Tailwind 插件
 │       ├── tsconfig.json / eslint.config.js / index.html
@@ -198,7 +203,8 @@ QuotaTray/
 │       │   │                    #   usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
-│       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）
+│       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）、
+│       │   │                    #   条目类型标签 kindLabel（与 CLI kind_label 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
 │       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
@@ -236,7 +242,9 @@ QuotaTray/
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
 │       │       ├── EditDialog.tsx      # Modal：native 下拉（订阅型带套餐变体选择）/
-│       │       │                       #   template 编辑器（校验+试查）/script 预留、
+│       │       │                       #   template 编辑器（校验+试查）/script JS 编辑器
+│       │       │                       #   （M4：校验/试查镜像 template，allowInsecure 开关
+│       │       │                       #   带警告 + 默认最小闭环示例）、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
 │       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
 │       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
@@ -266,11 +274,13 @@ QuotaTray/
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
 │               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
-│               ├── commands.rs # 主业务 IPC 17 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               ├── commands.rs # 主业务 IPC 19 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
 │               │               #   消除悬停面板等只读视图的无数据空窗）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
-│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）；
+│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）+
+│               │               #   script 双命令（validate_script 干跑/test_script 全链路，
+│               │               #   镜像 template 对，key 缺省语义同）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
 │               │               #   list_native_metas 携带模型级 plan/windows 与
 │               │               #   supports_plan_variant、DeepSeek
@@ -324,8 +334,7 @@ QuotaTray/
         └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
 ```
 
-（script 模块的 CLI/GUI 接入随 M4 后续 PR 建立；
-`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
+（`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { exactTime, kindLabel, relativeTime, resetCountdown, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -69,5 +69,19 @@ describe("多窗口短标签", () => {
     expect(windowShortLabel("five_hour", 0, "zh")).toBe("five_hour");
     expect(windowShortLabel(undefined, 1, "zh")).toBe("窗口 2");
     expect(windowShortLabel(undefined, 0, "en")).toBe("window 1");
+  });
+});
+
+describe("条目类型标签", () => {
+  it("native 用平台名（元数据缺失回退 provider id）", () => {
+    const kind = { type: "native", provider: "deepseek" } as const;
+    expect(kindLabel(kind, "DeepSeek", "zh")).toBe("DeepSeek");
+    expect(kindLabel(kind, undefined, "en")).toBe("deepseek");
+  });
+
+  it("模板与脚本各归各——script 不得落入模板文案", () => {
+    expect(kindLabel({ type: "template", request: { url: "https://a.com" }, extract: {} }, undefined, "zh")).toBe("模板");
+    expect(kindLabel({ type: "script", code: "" }, undefined, "zh")).toBe("脚本");
+    expect(kindLabel({ type: "script", code: "" }, undefined, "en")).toBe("script");
   });
 });

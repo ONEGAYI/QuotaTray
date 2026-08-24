@@ -29,6 +29,18 @@ export const api = {
       apiKey: apiKey ?? undefined,
       baseUrl: baseUrl ?? undefined,
     }),
+  validateScript: (configJson: string): Promise<void> =>
+    invoke("validate_script", { configJson }),
+  testScript: (
+    configJson: string,
+    apiKey: string | null,
+    baseUrl: string | null,
+  ): Promise<QueryOutcome> =>
+    invoke("test_script", {
+      configJson,
+      apiKey: apiKey ?? undefined,
+      baseUrl: baseUrl ?? undefined,
+    }),
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
   /** 只读后端共享结果表，不触发平台网络请求（悬停面板使用）。 */
   getProviderState: (id: string): Promise<QueryOutcome> => invoke("get_provider_state", { id }),
