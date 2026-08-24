@@ -317,6 +317,10 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
     --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
   - 开发目录清理：仓库根执行 `.\clean 1|2|3`；先预览用 `.\clean 3 -WhatIf`
   - 清理器契约测试：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean.tests.ps1`
+- **发布惯例**：每个 Release 必须附带桌面端安装包——先把 workspace `Cargo.toml`
+  版本号改为目标版本，再于 `apps/quota-desktop` 跑 `pnpm tauri build`，
+  产物取 NSIS `target/release/bundle/nsis/*-setup.exe` 随 `gh release create`
+  上传（安装包版本随 crate 继承 workspace，先改版本再构建）。
 - 文档用中文编写。
 
 ## 安全红线（凭据处理）
