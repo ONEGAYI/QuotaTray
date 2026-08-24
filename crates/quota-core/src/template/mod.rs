@@ -360,13 +360,25 @@ pub(crate) async fn execute(
         url,
         headers,
         body,
+        // apiKey 可能被替换进任意自定义头/参数（敏感名判断覆盖不到），
+        // 从根登记供错误详情脱敏做字面量替换；短占位值（如 "-"）在
+        // 收集侧因长度 < 4 自然跳过
+        declared_secrets: vec![api_key.to_string()],
     };
     req.headers
         .push(("Accept".into(), "application/json".into()));
+    let snapshot = req.clone();
     let root = crate::provider::fetch_json(http, req).await?;
 
+    // 取值/算术错误的 message 可能携带响应体字段值（网关可能在业务
+    // 错误说明或字段值中回显凭据），统一过脱敏收口
+    build_usage(config, &root).map_err(|e| crate::provider::redact_error_message(e, &snapshot))
+}
+
+/// 从响应 JSON 按 extract 规则构建 UsageData（单对象或多窗口）。
+fn build_usage(config: &TemplateConfig, root: &Value) -> Result<Vec<UsageData>, QueryError> {
     if let Some(from) = &config.windows_from {
-        let items = path::resolve_path(&root, from)
+        let items = path::resolve_path(root, from)
             .map_err(bad_path)?
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
@@ -389,7 +401,7 @@ pub(crate) async fn execute(
         }
         Ok(result)
     } else {
-        let mut data = extract_usage(&config.extract, &root)?;
+        let mut data = extract_usage(&config.extract, root)?;
         apply_transforms(&mut data, &config.transforms)?;
         Ok(vec![data])
     }
@@ -787,6 +799,59 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!err.is_transient());
+    }
+
+    /// 安全契约：apiKey 被替换进任意自定义头（敏感名判断覆盖不到）时，
+    /// 非 JSON 错误响应的 detail 中回显已被 declared_secrets 字面量打码。
+    #[tokio::test]
+    async fn detail_redacts_apikey_echoed_from_custom_header_template() {
+        let t: TemplateConfig = serde_json::from_value(serde_json::json!({
+            "request": {
+                "url": "{{baseUrl}}/v1/anything",
+                "headers": { "X-Custom-Auth": "{{apiKey}}" }
+            },
+            "extract": { "remaining": "$.data.balance" }
+        }))
+        .unwrap();
+        let mut http = MockHttp::ok("");
+        http.body = "<html>auth failed: custom-echo-secret-99</html>".into();
+        let err = execute(
+            &http,
+            &t,
+            "custom-echo-secret-99",
+            Some("https://api.demo.com"),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.message(), "响应不是合法 JSON");
+        let detail = err.detail().expect("应携带 detail");
+        assert!(
+            !detail.contains("custom-echo-secret-99"),
+            "detail 泄漏模板 apiKey：{detail}"
+        );
+        assert!(detail.contains("<redacted>"), "应含打码占位：{detail}");
+    }
+
+    /// 安全契约：取值错误 message 中的响应字段值（可能回显凭据）已过脱敏。
+    #[tokio::test]
+    async fn extraction_error_message_redacts_echoed_value() {
+        let mut t = simple_template();
+        t.extract.remaining = Some(FieldSource::Path("$.data.name".into()));
+        let body = r#"{"code":20000,"data":{"totalBalance":"42.50","name":"sk-key"}}"#;
+        let err = execute(&MockHttp::ok(body), &t, "sk-key", Some("https://a.com"))
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(
+            !err.message().contains("sk-key"),
+            "取值错误 message 泄漏回显值：{}",
+            err.message()
+        );
+        assert!(
+            err.message().contains("<redacted>"),
+            "应含打码占位（防文案不再携带字段值时假通过）：{}",
+            err.message()
+        );
     }
 
     /// 契约：HTTP 层错误分类透传（401 确定性、网络故障瞬时）。

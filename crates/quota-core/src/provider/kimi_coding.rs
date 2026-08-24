@@ -4,7 +4,9 @@ use async_trait::async_trait;
 
 use serde_json::Value;
 
-use super::{NativeMeta, NativeProvider, parse_error, parse_num, status_error_with_body};
+use super::{
+    NativeMeta, NativeProvider, parse_error, parse_num, parse_success_json, status_error_with_body,
+};
 use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpError, HttpRequest};
 use crate::model::{QueryError, UsageData};
@@ -93,24 +95,32 @@ impl NativeProvider for KimiCode {
         let request = HttpRequest::get(self.endpoint)
             .bearer(&creds.api_key)
             .header("Accept", "application/json");
-        let response = http.execute(request).await.map_err(|error| match &error {
-            HttpError::Timeout | HttpError::Network(_) => QueryError::transient(error.to_string()),
-            HttpError::InvalidRequest(_) => QueryError::deterministic(error.to_string()),
-        })?;
+        let response = http
+            .execute(request.clone())
+            .await
+            .map_err(|error| match &error {
+                HttpError::Timeout | HttpError::Network(_) => {
+                    QueryError::transient(error.to_string())
+                }
+                HttpError::InvalidRequest(_) => QueryError::deterministic(error.to_string()),
+            })?;
 
         if !response.is_success() {
-            let common = status_error_with_body(response.status, &response.body);
+            let common = status_error_with_body(response.status, &response.body, &request);
             // Kimi Code 的 402 表示当前订阅额度暂不可用，按可恢复错误处理；
             // 此特例只属于该端点，不改变其他 Provider 的全局 HTTP 语义。
             return Err(if response.status == 402 {
-                QueryError::transient(common.message())
+                let rerouted = QueryError::transient(common.message());
+                match common.detail() {
+                    Some(d) => rerouted.with_detail(d),
+                    None => rerouted,
+                }
             } else {
                 common
             });
         }
 
-        let body: Value = serde_json::from_str(&response.body)
-            .map_err(|_| QueryError::deterministic("响应不是合法 JSON"))?;
+        let body: Value = parse_success_json(&request, &response)?;
         let rows = parse_rows(&body);
         if rows.is_empty() {
             return Err(parse_error(
@@ -265,5 +275,26 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.is_transient(), "网络错误应为瞬时");
+    }
+
+    /// 契约：402 转 transient 重路由时保留 message 与脱敏 detail
+    /// （排查信息不因分类转换丢失）。
+    #[tokio::test]
+    async fn rerouted_402_keeps_message_and_detail() {
+        let mut http = MockHttp::ok("");
+        http.status = 402;
+        http.body = r#"{"error":{"message":"no available subscription quota"}}"#.into();
+        let err = KIMI_CODE_CN
+            .query(&creds(), &http, PlanVariant::Auto)
+            .await
+            .unwrap_err();
+        assert!(err.is_transient(), "402 应为瞬时");
+        assert!(
+            err.message().contains("no available subscription quota"),
+            "message 应保留远端说明：{}",
+            err.message()
+        );
+        let detail = err.detail().expect("402 带响应体应有 detail");
+        assert!(detail.contains("已脱敏"), "detail 应携带响应体：{detail}");
     }
 }

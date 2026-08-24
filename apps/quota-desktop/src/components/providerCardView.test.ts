@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { KEEP_LAST_GOOD_MS, type QueryOutcome, type SnapshotEntry } from "../types";
-import { deriveProviderCardState } from "./providerCardView";
+import {
+  canCopyError,
+  deriveProviderCardState,
+  errorCopyText,
+} from "./providerCardView";
 
 const NOW = 1_780_000_000_000;
 const balance = [{ remaining: 18.7, unit: "CNY" }];
@@ -71,6 +75,87 @@ describe("Provider 卡片状态契约", () => {
         nowMs: NOW,
       }),
     ).toMatchObject({ kind: "deterministic", data: [], errorMessage: "认证失败" });
+  });
+
+  it("查询错误的排查详情随错误态透传，业务失效与无错态为 null", () => {
+    const detail = "JSON 解析错误：expected value\n响应体（已脱敏）：\n<html/>";
+    expect(
+      deriveProviderCardState({
+        enabled: true,
+        outcome: outcome({
+          ok: false,
+          error: { kind: "deterministic", message: "响应不是合法 JSON", detail },
+        }),
+        nowMs: NOW,
+      }),
+    ).toMatchObject({ kind: "deterministic", errorDetail: detail });
+    // 无 detail 的错误：回退 null
+    expect(
+      deriveProviderCardState({
+        enabled: true,
+        outcome: outcome({
+          ok: false,
+          error: { kind: "transient", message: "网络超时" },
+        }),
+        nowMs: NOW - KEEP_LAST_GOOD_MS - 1,
+      }).errorDetail,
+    ).toBeNull();
+    // invalid 业务失效不是查询错误，不带详情
+    expect(
+      deriveProviderCardState({
+        enabled: true,
+        outcome: outcome({
+          data: [{ remaining: 1, is_valid: false, invalid_message: "key 过期" }],
+        }),
+        nowMs: NOW,
+      }).errorDetail,
+    ).toBeNull();
+  });
+
+  it("复制文案：headline + 空行 + 详情，无详情回退纯 headline；stale 归 transient", () => {
+    const errored = deriveProviderCardState({
+      enabled: true,
+      outcome: outcome({
+        ok: false,
+        error: {
+          kind: "deterministic",
+          message: "响应不是合法 JSON",
+          detail: "JSON 解析错误：…\n响应体（已脱敏）：…",
+        },
+      }),
+      nowMs: NOW,
+    });
+    expect(canCopyError(errored)).toBe(true);
+    expect(errorCopyText(errored)).toBe(
+      "[deterministic] 响应不是合法 JSON\n\nJSON 解析错误：…\n响应体（已脱敏）：…",
+    );
+
+    const noDetail = deriveProviderCardState({
+      enabled: true,
+      outcome: outcome({
+        ok: false,
+        at: NOW - 60_000,
+        error: { kind: "transient", message: "网络超时" },
+      }),
+      nowMs: NOW,
+    });
+    // keep-last-good（stale）归 transient 归类
+    expect(errorCopyText(noDetail)).toBe("[transient] 网络超时");
+
+    const invalid = deriveProviderCardState({
+      enabled: true,
+      outcome: outcome({
+        data: [{ remaining: 1, is_valid: false, invalid_message: "key 过期" }],
+      }),
+      nowMs: NOW,
+    });
+    expect(canCopyError(invalid)).toBe(false);
+    const normal = deriveProviderCardState({
+      enabled: true,
+      outcome: outcome({}),
+      nowMs: NOW,
+    });
+    expect(canCopyError(normal)).toBe(false);
   });
 
   it("无本次结果时使用启动快照并保留快照时间", () => {

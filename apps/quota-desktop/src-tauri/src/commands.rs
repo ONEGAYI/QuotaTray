@@ -376,6 +376,7 @@ pub async fn test_template(
                 error: Some(ErrorInfo {
                     kind: "deterministic".into(),
                     message: lang.err_template_needs_key(),
+                    detail: None,
                 }),
                 at: None,
             });
@@ -956,6 +957,7 @@ mod tests {
                 error: Some(ErrorInfo {
                     kind: "transient".into(),
                     message: "x".into(),
+                    detail: None,
                 }),
             },
         );
@@ -965,6 +967,7 @@ mod tests {
                 error: Some(ErrorInfo {
                     kind: "deterministic".into(),
                     message: "y".into(),
+                    detail: None,
                 }),
                 ..Default::default()
             },

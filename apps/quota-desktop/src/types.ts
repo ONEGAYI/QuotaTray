@@ -169,6 +169,8 @@ export interface Settings {
 export interface ErrorInfo {
   kind: "transient" | "deterministic";
   message: string;
+  /** 排查详情（后端已脱敏的响应体片段等），仅供用户显式复制。 */
+  detail?: string | null;
 }
 
 /** 检测到的可用新版本（IPC 形状，asset_url 仅后端下载用）。 */

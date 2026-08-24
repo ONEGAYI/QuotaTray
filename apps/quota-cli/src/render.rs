@@ -37,6 +37,10 @@ pub struct ErrorJson {
     /// "transient" | "deterministic"
     pub kind: &'static str,
     pub message: String,
+    /// 排查详情（已脱敏的响应体片段等）；仅在存在时输出（additive，
+    /// 不破坏既有 --json 消费方）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl QueryOutcome {
@@ -53,6 +57,7 @@ impl QueryOutcome {
                     "deterministic"
                 },
                 message: e.message().to_string(),
+                detail: e.detail().map(str::to_string),
             }),
         }
     }
@@ -585,6 +590,21 @@ mod tests {
         assert!(j["data"].is_null());
         assert_eq!(j["error"]["kind"], "deterministic");
         assert_eq!(j["error"]["message"], "HTTP 401");
+        // 无 detail 时字段省略（additive：不改变既有输出形状）
+        assert!(j["error"].get("detail").is_none());
+
+        let detailed = QueryOutcome {
+            id: "e4".into(),
+            name: "z".into(),
+            result: Err(QueryError::deterministic("响应不是合法 JSON")
+                .with_detail("JSON 解析错误：expected value\n响应体（已脱敏）：\n<html/>")),
+        }
+        .to_json();
+        let j = serde_json::to_value(&detailed).unwrap();
+        assert_eq!(
+            j["error"]["detail"].as_str().unwrap(),
+            "JSON 解析错误：expected value\n响应体（已脱敏）：\n<html/>"
+        );
 
         let transient = QueryOutcome {
             id: "e3".into(),

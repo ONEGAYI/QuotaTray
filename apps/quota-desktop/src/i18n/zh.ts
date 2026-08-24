@@ -42,6 +42,9 @@ export const zh = {
   "card.noReason": "未说明原因", // 与 tray.rs no_invalid_reason 成对
   "card.noData": "尚无数据", // 与 tray.rs no_data 成对
   "card.querying": "查询中…",
+  "card.copyError": "复制报错信息",
+  "card.copied": "已复制",
+  "card.copyFailed": "复制失败",
   "card.windowN": "窗口{n}", // 与 tray.rs window_name 成对
   "card.totalQuota": "总额度 {total}",
   "card.keyConfigured": "已配置 key",

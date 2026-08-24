@@ -935,6 +935,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "transient".into(),
                 message: "timeout".into(),
+                detail: None,
             }),
         };
         assert_both(
@@ -959,6 +960,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "transient".into(),
                 message: "timeout".into(),
+                detail: None,
             }),
         };
         assert_both(
@@ -989,6 +991,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "deterministic".into(),
                 message: long.clone(),
+                detail: None,
             }),
             ..Default::default()
         };
@@ -1007,6 +1010,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "transient".into(),
                 message: "网络中断".into(),
+                detail: None,
             }),
             ..Default::default()
         };
@@ -1023,6 +1027,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "deterministic".into(),
                 message: "HTTP 401: Unauthorized".into(),
+                detail: None,
             }),
         };
         assert_both(
@@ -1182,6 +1187,7 @@ mod tests {
         deterministic.error = Some(crate::state::ErrorInfo {
             kind: "deterministic".into(),
             message: "401".into(),
+            detail: None,
         });
         results.insert("a".into(), deterministic);
         assert!(
@@ -1194,6 +1200,7 @@ mod tests {
         transient.error = Some(crate::state::ErrorInfo {
             kind: "transient".into(),
             message: "timeout".into(),
+            detail: None,
         });
         transient.at = Some(NOW - 600_000); // 恰 10 分钟：窗口内
         results.insert("a".into(), transient.clone());

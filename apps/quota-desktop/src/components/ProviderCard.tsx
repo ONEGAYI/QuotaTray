@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  ClipboardCopy,
   Clock3,
   Ellipsis,
   KeyRound,
@@ -26,7 +27,7 @@ import {
 import { useLang } from "../i18n";
 import { useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
-import { deriveProviderCardState } from "./providerCardView";
+import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
 import { providerIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
@@ -217,6 +218,19 @@ export function ProviderCard({
   const displayedError = view.kind === "invalid"
     ? `${t("card.invalidPrefix")}${view.errorMessage ?? t("card.noReason")}`
     : view.errorMessage;
+  const copyable = canCopyError(view);
+  const copyErrorInfo = () => {
+    // clipboard 在异常环境（非安全上下文）可能为 undefined，显式给出失败反馈
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      setFeedback(t("card.copyFailed"));
+      return;
+    }
+    clipboard
+      .writeText(errorCopyText(view))
+      .then(() => setFeedback(t("card.copied")))
+      .catch(() => setFeedback(t("card.copyFailed")));
+  };
 
   return (
     <article
@@ -402,6 +416,14 @@ export function ProviderCard({
               }`}
             >
               {displayedError}
+              {copyable && (
+                <IconButton
+                  icon={ClipboardCopy}
+                  label={t("card.copyError")}
+                  className="qt-provider-error-copy"
+                  onClick={copyErrorInfo}
+                />
+              )}
             </p>
           )}
         </div>

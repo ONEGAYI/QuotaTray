@@ -22,6 +22,8 @@ export interface ProviderCardState {
   at: number | null;
   source: "live" | "snapshot" | "none";
   errorMessage: string | null;
+  /** 查询错误的排查详情（已脱敏响应体等）；invalid 业务失效与无错态为 null。 */
+  errorDetail: string | null;
 }
 
 interface Input {
@@ -51,6 +53,7 @@ export function deriveProviderCardState({
       at: fallbackAt,
       source,
       errorMessage: null,
+      errorDetail: null,
     };
   }
 
@@ -62,6 +65,7 @@ export function deriveProviderCardState({
         at: snapshot.at,
         source: "snapshot",
         errorMessage: null,
+        errorDetail: null,
       };
     }
     return {
@@ -70,6 +74,7 @@ export function deriveProviderCardState({
       at: null,
       source: "none",
       errorMessage: null,
+      errorDetail: null,
     };
   }
 
@@ -86,6 +91,7 @@ export function deriveProviderCardState({
         at: outcome.at,
         source: "live",
         errorMessage: outcome.error.message,
+        errorDetail: outcome.error.detail ?? null,
       };
     }
     return {
@@ -94,6 +100,7 @@ export function deriveProviderCardState({
       at: outcome.at,
       source: "none",
       errorMessage: outcome.error.message,
+      errorDetail: outcome.error.detail ?? null,
     };
   }
 
@@ -105,6 +112,7 @@ export function deriveProviderCardState({
       at: outcome.at,
       source: "none",
       errorMessage: invalid.invalid_message ?? null,
+      errorDetail: null,
     };
   }
 
@@ -114,5 +122,19 @@ export function deriveProviderCardState({
     at: outcome.at,
     source: "live",
     errorMessage: null,
+    errorDetail: null,
   };
+}
+
+/** 查询错误是否有可复制的排查内容（invalid 业务失效不是查询错误）。 */
+export function canCopyError(state: ProviderCardState): boolean {
+  return state.errorMessage != null && state.kind !== "invalid";
+}
+
+/** 复制到剪贴板的报错全文：headline（kind + message）+ 空行 + 脱敏详情；
+ * 无 detail 时回退纯 headline（与卡片展示文案一致的纯函数，供组件调用）。 */
+export function errorCopyText(state: ProviderCardState): string {
+  const kind = state.kind === "deterministic" ? "deterministic" : "transient";
+  const headline = `[${kind}] ${state.errorMessage ?? ""}`;
+  return state.errorDetail ? `${headline}\n\n${state.errorDetail}` : headline;
 }

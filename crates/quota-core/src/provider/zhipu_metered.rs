@@ -8,7 +8,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use super::{NativeMeta, NativeProvider, parse_error, parse_num, status_error_with_body};
+use super::{
+    NativeMeta, NativeProvider, parse_error, parse_num, parse_success_json, status_error_with_body,
+};
 use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpError, HttpRequest, HttpResponse};
 use crate::model::{QueryError, UsageData};
@@ -131,21 +133,19 @@ async fn send(
     http: &dyn HttpClient,
     url: String,
     api_key: &str,
-) -> Result<HttpResponse, QueryError> {
-    http.execute(
-        HttpRequest::get(url)
-            .bearer(api_key)
-            .header("Accept", "application/json"),
-    )
-    .await
-    .map_err(map_http_error)
+) -> Result<(HttpRequest, HttpResponse), QueryError> {
+    let req = HttpRequest::get(url)
+        .bearer(api_key)
+        .header("Accept", "application/json");
+    let resp = http.execute(req.clone()).await.map_err(map_http_error)?;
+    Ok((req, resp))
 }
 
-fn decode(response: HttpResponse) -> Result<Value, QueryError> {
+fn decode(req: &HttpRequest, response: HttpResponse) -> Result<Value, QueryError> {
     if !response.is_success() {
-        return Err(status_error_with_body(response.status, &response.body));
+        return Err(status_error_with_body(response.status, &response.body, req));
     }
-    serde_json::from_str(&response.body).map_err(|_| QueryError::deterministic("响应不是合法 JSON"))
+    parse_success_json(req, &response)
 }
 
 #[async_trait]
@@ -164,16 +164,18 @@ impl NativeProvider for ZhipuMetered {
         _variant: PlanVariant,
     ) -> Result<Vec<UsageData>, QueryError> {
         let grants_url = format!("{}/api/paas/v4/user/credit_grants", self.base_url);
-        let mut response = send(http, grants_url, creds.api_key.as_str()).await?;
+        let (mut req, mut response) = send(http, grants_url, creds.api_key.as_str()).await?;
         if matches!(response.status, 404 | 405) {
-            response = send(
+            let (fallback_req, fallback_resp) = send(
                 http,
                 format!("{}/api/paas/v4/balance", self.base_url),
                 creds.api_key.as_str(),
             )
             .await?;
+            req = fallback_req;
+            response = fallback_resp;
         }
-        let body = decode(response)?;
+        let body = decode(&req, response)?;
         let row = parse_credit_grants(&body, self.name, self.currency)
             .or_else(|| parse_balance(&body, self.name, self.currency))
             .ok_or_else(|| {

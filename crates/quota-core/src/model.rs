@@ -47,25 +47,49 @@ pub struct UsageData {
 /// 分类决定调用方行为：[`Transient`](Self::Transient) 可重试且触发
 /// keep-last-good（窗口内继续展示上次成功值）；[`Deterministic`](Self::Deterministic)
 /// 重试无意义，应立即透出错误文案。
+///
+/// `detail` 是供用户显式查询的排查信息（脱敏后的响应体片段等），
+/// 不参与 [`Display`](std::fmt::Display) 与常规展示，避免日志与
+/// 界面膨胀；两变体语义一致，仅随错误类型透传。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
     /// 瞬时失败：网络中断、超时、5xx、429。
-    Transient { message: String },
+    Transient {
+        message: String,
+        detail: Option<String>,
+    },
     /// 确定性失败：401/403 认证失效、响应解析失败、未配置凭据。
-    Deterministic { message: String },
+    Deterministic {
+        message: String,
+        detail: Option<String>,
+    },
 }
 
 impl QueryError {
     pub fn transient(message: impl Into<String>) -> Self {
         Self::Transient {
             message: message.into(),
+            detail: None,
         }
     }
 
     pub fn deterministic(message: impl Into<String>) -> Self {
         Self::Deterministic {
             message: message.into(),
+            detail: None,
         }
+    }
+
+    /// 附加错误详情（脱敏后的响应体片段、serde 解析位置等），不影响
+    /// 分类与 [`message`](Self::message)。链式调用：`deterministic(..).with_detail(..)`。
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        let detail = Some(detail.into());
+        match &mut self {
+            Self::Transient { detail: d, .. } | Self::Deterministic { detail: d, .. } => {
+                *d = detail
+            }
+        }
+        self
     }
 
     /// 是否为瞬时失败（可重试、触发 keep-last-good）。
@@ -76,7 +100,16 @@ impl QueryError {
     /// 错误文案（不含凭据信息，可直接透出给用户）。
     pub fn message(&self) -> &str {
         match self {
-            Self::Transient { message } | Self::Deterministic { message } => message,
+            Self::Transient { message, .. } | Self::Deterministic { message, .. } => message,
+        }
+    }
+
+    /// 排查详情（已脱敏，仅供用户显式复制；日志与常规展示不使用）。
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Transient { detail, .. } | Self::Deterministic { detail, .. } => {
+                detail.as_deref()
+            }
         }
     }
 }
@@ -129,5 +162,29 @@ mod tests {
     fn error_classification_semantics() {
         assert!(QueryError::transient("timeout").is_transient());
         assert!(!QueryError::deterministic("401 unauthorized").is_transient());
+    }
+
+    /// 契约：detail 排查详情——双变体均可附加、不影响分类与 message、
+    /// Display 不输出 detail（日志/常规展示不携带排查详情的安全契约）。
+    #[test]
+    fn detail_is_optional_and_excluded_from_display() {
+        let err = QueryError::deterministic("响应不是合法 JSON")
+            .with_detail("JSON 解析错误：…\n响应体（已脱敏）：…");
+        assert_eq!(err.detail(), Some("JSON 解析错误：…\n响应体（已脱敏）：…"));
+        assert_eq!(err.message(), "响应不是合法 JSON");
+        assert!(!err.is_transient());
+
+        let transient = QueryError::transient("timeout").with_detail("x".repeat(10));
+        assert!(transient.is_transient());
+        assert_eq!(transient.detail(), Some("xxxxxxxxxx"));
+
+        assert_eq!(QueryError::transient("t").detail(), None);
+
+        let display = format!("{err}");
+        assert_eq!(display, "[确定性] 响应不是合法 JSON");
+        assert!(
+            !display.contains("脱敏"),
+            "Display 不应输出 detail：{display}"
+        );
     }
 }

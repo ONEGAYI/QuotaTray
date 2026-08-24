@@ -663,6 +663,7 @@ mod tests {
             error: Some(crate::state::ErrorInfo {
                 kind: "deterministic".into(),
                 message: "401".into(),
+                detail: None,
             }),
             ..good.clone()
         };
@@ -672,6 +673,7 @@ mod tests {
         transient.error = Some(crate::state::ErrorInfo {
             kind: "transient".into(),
             message: "timeout".into(),
+            detail: None,
         });
         assert_eq!(
             entry_ring_input(&transient, now),
