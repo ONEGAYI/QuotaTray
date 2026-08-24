@@ -1,6 +1,23 @@
 # 更新日志
 
-本项目所有显著变更记录于此文件。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
+本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
+
+## [0.3.2] - 2026-08-24
+
+本版本解决网络受限环境下的更新下载：设置页新增「更新代理端口」（CLI 共用同一设置），检测与下载安装包可经本机 HTTP 代理（如 Clash）完成；同时修复直连不可达时下载长时间零进度无提示、失败后状态仍显示「发现新版本」的静默问题。
+
+### 新功能
+
+**更新代理（core / quota-cli / quota-desktop）**
+
+- 设置页「更新」分页新增更新代理端口输入框：填本机 HTTP 代理端口（如 Clash 的 7897），留空直连；越界输入自动收到 1-65535（#21）
+- 检测更新与下载安装包共用该代理设置；CLI `quota update` 自动读取同一 settings.json，生效时输出提示行（#21）
+- core 新增 `proxy_url_of`（端口 → `http://127.0.0.1:{port}` 的单一拼接口径）、`ReqwestAssetDownloader::try_with_proxy` 与 `ReqwestHttpClient::new_with_proxy`：显式代理不叠加环境变量代理，非法代理地址报错而非静默直连（#21）
+
+### Bug 修复
+
+- 安装包下载通道加 15 秒连接超时：直连不可达时快速失败，不再挂满 10 分钟总超时且期间零进度零提示（#21）
+- 桌面端下载失败不再静默：操作错误优先于「发现新版本」徽章，失败立即以错误态呈现完整原因（#21）
 
 ## [0.3.1] - 2026-08-24
 
@@ -135,3 +152,4 @@
 [0.2.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.1.0...v0.2.0
 [0.3.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.2.0...v0.3.0
 [0.3.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.0...v0.3.1
+[0.3.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.1...v0.3.2
