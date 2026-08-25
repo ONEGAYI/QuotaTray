@@ -18,6 +18,7 @@ from tree_tool import (  # noqa: E402
     ToolError,
     TreeTool,
     _cmd_add,
+    _cmd_query,
     default_history_path,
     normalize_data,
     replace_block,
@@ -103,14 +104,35 @@ class NormalizeTest(unittest.TestCase):
         self.assertEqual(out["tree"]["b.rs"]["rel"], ["x/a.rs"])  # rel 去重排序
         self.assertEqual(out["tree"]["b.rs"]["tags"], ["t"])
         self.assertEqual(list(out["tags"]), ["a"])  # 空说明的标签移除
-        # 字段固定顺序：desc, detail, rel, tags, children
+        # 字段固定顺序：kind, desc, detail, rel, tags, collapsed, hidden, children
         keys = list(out["tree"]["a.rs"])
-        self.assertEqual(keys, ["desc", "detail", "children"])
+        self.assertEqual(keys, ["kind", "desc", "detail", "children"])
 
     def test_field_order_canonical(self):
         node = {"children": {}, "tags": ["t"], "rel": ["a.rs"], "detail": ["d"], "desc": "x"}
         out = normalize_data({"tags": {"t": "说明"}, "tree": {"n": node}})
-        self.assertEqual(list(out["tree"]["n"]), ["desc", "detail", "rel", "tags", "children"])
+        self.assertEqual(list(out["tree"]["n"]), ["kind", "desc", "detail", "rel", "tags", "children"])
+
+    def test_render_flags_false_dropped_and_ordered(self):
+        node = {"desc": "x", "collapsed": False, "hidden": False}
+        out = normalize_data({"tags": {}, "tree": {"n": node}})
+        self.assertEqual(list(out["tree"]["n"]), ["kind", "desc"])  # false 默认值不落盘
+        node = {"desc": "x", "hidden": True, "collapsed": True, "children": {}}
+        out = normalize_data({"tags": {}, "tree": {"n": node}})
+        self.assertEqual(list(out["tree"]["n"]), ["kind", "desc", "collapsed", "hidden", "children"])
+
+    def test_render_flags_must_be_bool(self):
+        data = {"tags": {}, "tree": {"n": {"desc": "x", "hidden": "yes"}}}
+        with self.assertRaises(ToolError):
+            normalize_data(data)
+        data = {"tags": {}, "tree": {"n": {"desc": "x", "children": {}, "collapsed": 1}}}
+        with self.assertRaises(ToolError):
+            normalize_data(data)
+
+    def test_collapsed_rejected_on_file_node(self):
+        data = {"tags": {}, "tree": {"f.rs": {"desc": "x", "collapsed": True}}}
+        with self.assertRaises(ToolError):
+            normalize_data(data)
 
 
 class AddRmTest(SandboxTest):
@@ -135,7 +157,7 @@ class AddRmTest(SandboxTest):
     def test_add_dir_entry(self):
         tool = self.make_tool(data={"tags": {}, "tree": {}})
         tool.add("logs", desc="日志", is_dir_entry=True)
-        self.assertEqual(tool.get("logs"), {"desc": "日志", "children": {}})
+        self.assertEqual(tool.get("logs"), {"kind": "dir", "desc": "日志", "children": {}})
 
     def test_add_rejects_unknown_tag(self):
         tool = self.make_tool()
@@ -157,7 +179,8 @@ class CmdAddTagsTest(SandboxTest):
         import types
 
         args = types.SimpleNamespace(
-            path="apps/new.ts", desc="新文件", detail=None, rel=None, tags=tags, dir=False
+            path="apps/new.ts", desc="新文件", detail=None, rel=None, tags=tags, dir=False,
+            collapsed=None, hidden=None,
         )
         _cmd_add(tool, args)
 
@@ -302,6 +325,131 @@ class RenderTest(SandboxTest):
             tool.render()
 
 
+class KindFieldTest(SandboxTest):
+    """kind 派生字段：由 children 判据推导（file/dir），落盘供机器消费，不参与渲染。"""
+
+    def test_kind_derived_and_persisted(self):
+        tool = self.make_tool()
+        self.assertEqual(tool.get("apps")["kind"], "dir")
+        self.assertEqual(tool.get("Cargo.toml")["kind"], "file")
+        self.assertEqual(tool.get("apps/main.tsx")["kind"], "file")
+
+    def test_hand_edited_kind_corrected_on_write(self):
+        tool = self.make_tool()
+        data = tool.load()
+        data["tree"]["Cargo.toml"]["kind"] = "dir"  # 手改成错误值
+        tool.write_data(data)  # 规范化写纠正为推导值
+        self.assertEqual(tool.get("Cargo.toml")["kind"], "file")
+
+    def test_legacy_data_without_kind_migrated_by_write(self):
+        tool = self.make_tool()  # make_tool 经 write_data 已带 kind；手放旧形态数据
+        legacy = {"tags": {}, "tree": {"old.rs": {"desc": "旧", "detail": ["旧数据"]}}}
+        tool.tree_json.write_text(
+            json.dumps(legacy, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8", newline="\n",
+        )
+        tool.write_data(tool.load())
+        self.assertEqual(tool.get("old.rs")["kind"], "file")
+        tool.render()
+        errors, _ = tool.check()
+        self.assertEqual(errors, [])
+
+    def test_kind_in_query_json(self):
+        import contextlib
+        import io
+        import types
+
+        tool = self.make_tool()
+        args = types.SimpleNamespace(kw=None, tag=None, rel_of=None, json=True)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _cmd_query(tool, args)
+        payload = json.loads(buf.getvalue())
+        by_path = {e["path"]: e for e in payload}
+        self.assertEqual(by_path["apps"]["kind"], "dir")
+        self.assertEqual(by_path["Cargo.toml"]["kind"], "file")
+
+    def test_kind_not_rendered(self):
+        tool = self.make_tool()
+        self.assertNotIn("kind", tool.render_brief_tree())
+
+
+class RenderControlTest(SandboxTest):
+    """collapsed / hidden 渲染控制字段：只影响 AGENTS.md 简版树渲染，不影响数据与校验。"""
+
+    def test_collapsed_dir_renders_ellipsis_without_children(self):
+        tool = self.make_tool()
+        tool.add("build", desc="构建产物", is_dir_entry=True)
+        tool.add("build/out.exe", desc="产物", detail=["完整描述"])
+        tool.add("build/tmp.rs", desc="临时", detail=["完整描述"])
+        data = tool.load()
+        data["tree"]["build"]["collapsed"] = True
+        tool.write_data(data)
+        rendered = tool.render_brief_tree()
+        self.assertIn("build/…", rendered)  # 目录名后带省略号
+        self.assertNotIn("out.exe", rendered)  # children 不展开
+        self.assertNotIn("tmp.rs", rendered)
+
+    def test_collapsed_empty_dir_renders_plain(self):
+        tool = self.make_tool()
+        tool.add("empty", desc="空目录", is_dir_entry=True, collapsed=True)
+        rendered = tool.render_brief_tree()
+        self.assertIn("empty/", rendered)
+        self.assertNotIn("…", rendered)  # 空目录无可折叠内容，不加省略号
+
+    def test_hidden_excludes_entry_and_subtree(self):
+        tool = self.make_tool()
+        tool.add("secrets", desc="密钥", is_dir_entry=True)
+        tool.add("secrets/token.rs", desc="令牌", detail=["完整描述"])
+        data = tool.load()
+        data["tree"]["secrets"]["hidden"] = True
+        data["tree"]["Cargo.toml"]["hidden"] = True
+        tool.write_data(data)
+        rendered = tool.render_brief_tree()
+        self.assertNotIn("secrets", rendered)  # 条目及子树整体消失
+        self.assertNotIn("token.rs", rendered)
+        self.assertNotIn("Cargo.toml", rendered)
+        self.assertIn("apps/", rendered)  # 其余照常渲染
+
+    def test_hidden_entries_survive_in_data_and_check(self):
+        tool = self.make_tool(git_files={"apps/main.tsx", "apps/util.ts", "Cargo.toml", "build/out.exe"})
+        tool.add("build", desc="构建产物", is_dir_entry=True)
+        tool.add("build/out.exe", desc="产物", detail=["完整描述"])
+        data = tool.load()
+        data["tree"]["build"]["collapsed"] = True
+        data["tree"]["Cargo.toml"]["hidden"] = True
+        tool.write_data(data)
+        tool.render()
+        # 隐藏/折叠 ≠ 删除：数据完整性、磁盘对照、产物一致性照常
+        errors, warnings = tool.check()
+        self.assertEqual((errors, warnings), ([], []))
+        self.assertEqual([p for p, _ in tool.query(kw="根配置")], ["Cargo.toml"])  # 查询不受 hidden 影响
+        agents = tool.agents_md.read_text(encoding="utf-8")
+        self.assertNotIn("Cargo.toml", agents)
+
+    def test_add_render_flags_and_upsert(self):
+        tool = self.make_tool()
+        tool.add("dist", desc="发布", is_dir_entry=True, collapsed=True)
+        tool.add("Cargo.toml", desc="根配置", hidden=True)
+        self.assertIs(tool.get("dist")["collapsed"], True)
+        self.assertIs(tool.get("Cargo.toml")["hidden"], True)
+        tool.add("Cargo.toml", desc="新描述")  # 未指定的标志保留
+        self.assertIs(tool.get("Cargo.toml")["hidden"], True)
+        tool.add("Cargo.toml", desc="新描述", hidden=False)  # 显式 false 撤销
+        self.assertNotIn("hidden", tool.get("Cargo.toml"))
+        tool.add("dist", desc="发布", is_dir_entry=True, collapsed=False)
+        self.assertNotIn("collapsed", tool.get("dist"))
+
+    def test_collapsed_rejected_on_file_entry(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add("apps/x.rs", desc="x", collapsed=True)  # add 层拒绝
+        data = tool.load()
+        data["tree"]["Cargo.toml"]["collapsed"] = True
+        with self.assertRaises(ToolError):
+            tool.write_data(data)  # 数据层兜底拒绝
+
+
 class ReplaceBlockTest(unittest.TestCase):
     def test_replace_middle(self):
         text = "a\n<!-- b:begin -->\nold\n<!-- b:end -->\nz"
@@ -418,6 +566,26 @@ class CheckTest(SandboxTest):
             [w for w in warnings if "缺 detail" in w],
             ["W: apps/bare.rs 缺 detail（完整描述待补，详版树将回退 desc）"],
         )
+
+    def test_skill_pycache_exempt_from_git_compare(self):
+        # 技能自身测试产生的 __pycache__ 不报"未收录"（运行时缓存，非仓库内容）
+        tool = self.make_tool(git_files={
+            "apps/main.tsx", "apps/util.ts", "Cargo.toml",
+            ".agents/skills/file-tree/scripts/__pycache__/tree_tool.cpython-314.pyc",
+        })
+        tool.render()
+        errors, warnings = tool.check()
+        self.assertEqual((errors, warnings), ([], []))
+
+    def test_other_pycache_still_reported(self):
+        # 技能目录之外的 __pycache__ 是仓库卫生问题，照常告警
+        tool = self.make_tool(git_files={
+            "apps/main.tsx", "apps/util.ts", "Cargo.toml",
+            "vendor/__pycache__/x.cpython-314.pyc",
+        })
+        tool.render()
+        _, warnings = tool.check()
+        self.assertTrue(any("vendor/__pycache__/x.cpython-314.pyc" in w for w in warnings))
 
 
 class GitDirTest(unittest.TestCase):

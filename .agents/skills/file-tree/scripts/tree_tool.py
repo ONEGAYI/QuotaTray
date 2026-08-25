@@ -1,17 +1,23 @@
 """file-tree 技能：项目文件树唯一维护入口。
 
 数据源 tree.json：顶层 {tags, tree}，tree 嵌套 = 目录嵌套（有 children 键即目录）。
-条目字段固定顺序 desc / detail / rel / tags / children；本脚本是唯一写入口，
-所有写命令执行后自动按确定性字典序（casefold + 码点决胜）规范化并重渲染产物。
+条目字段固定顺序 kind / desc / detail / rel / tags / collapsed / hidden / children；
+kind 由 children 判据推导（"file"/"dir"），规范化时无条件落盘供机器消费，
+不参与渲染、手改会被纠正；本脚本是唯一写入口，所有写命令执行后自动按
+确定性字典序（casefold + 码点决胜）规范化并重渲染产物。
 
 渲染目标为 AGENTS.md 的两个标记块（简版树 / 标签词表）：
 块内有标记则替换标记间内容；无标记则附加到文件尾部（带小节标题）；
 AGENTS.md 不存在则生成最小骨架。detail 完整描述只存于 tree.json 供查询，
-不渲染。仓库内其他手写文件树惰性对待：以本技能 tree.json 的查询结果为准，
+不渲染。渲染控制字段只影响 AGENTS.md 简版树：目录 collapsed=true 折叠
+（目录行带 … 不展开 children）；条目 hidden=true 整体隐藏（含子树）；
+两者默认 false（不落盘），数据、查询与 check 校验始终全量不受影响。
+仓库内其他手写文件树惰性对待：以本技能 tree.json 的查询结果为准，
 不主动同步维护它们。
 
 用法：
   python tree_tool.py add <path> -d 描述 [--detail 行]... [--rel 路径]... [--tags a,b] [--dir]
+                         [--collapsed|--no-collapsed] [--hidden|--no-hidden]
   python tree_tool.py rm <path>
   python tree_tool.py get <path>
   python tree_tool.py query [--kw 关键词] [--tag 标签] [--rel-of 路径] [--json]
@@ -36,7 +42,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SKILL_DIR.parents[2]
 
-FIELD_ORDER = ["desc", "detail", "rel", "tags", "children"]
+FIELD_ORDER = ["kind", "desc", "detail", "rel", "tags", "collapsed", "hidden", "children"]
 
 TREE_BEGIN = "<!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->"
 TREE_END = "<!-- file-tree:tree:end -->"
@@ -107,8 +113,8 @@ def _normalize_node(node: dict) -> dict:
     out: dict = {}
     known = set(FIELD_ORDER)
     for field in FIELD_ORDER:
-        if field not in node:
-            continue
+        if field == "kind" or field not in node:
+            continue  # kind 不采信输入值，由 children 判据推导
         value = node[field]
         if field == "desc":
             if not isinstance(value, str):
@@ -125,6 +131,11 @@ def _normalize_node(node: dict) -> dict:
             cleaned = sorted(set(value), key=sort_key)
             if cleaned:
                 out[field] = cleaned
+        elif field in ("collapsed", "hidden"):
+            if not isinstance(value, bool):
+                raise ToolError(f"{field} 必须是布尔值: {value!r}")
+            if value:
+                out[field] = True  # false 为默认值，不落盘
         elif field == "children":
             if not isinstance(value, dict):
                 raise ToolError(f"children 必须是对象: {value!r}")
@@ -132,9 +143,13 @@ def _normalize_node(node: dict) -> dict:
                 name: _normalize_node(child)
                 for name, child in sorted(value.items(), key=lambda kv: sort_key(kv[0]))
             }
+    if "collapsed" in out and "children" not in out:
+        raise ToolError("collapsed 仅用于目录条目（文件条目请用 hidden）")
     for key in sorted((k for k in node if k not in known), key=sort_key):
         out[key] = node[key]  # 未知字段排序附尾，由 check 报错暴露手改
-    return out
+    ordered = {"kind": "dir" if "children" in out else "file"}
+    ordered.update(out)
+    return ordered
 
 
 def normalize_data(data: dict) -> dict:
@@ -198,19 +213,26 @@ def walk_entries(children: dict, prefix: list[str]):
 
 
 def render_tree(root_name: str, tree: dict) -> str:
-    """渲染简版树：注释为 desc 单行。
+    """渲染简版树：注释为 desc 单行；hidden 条目整体跳过，collapsed 目录带 … 折叠。
 
     列对齐：每个父目录的 children 块内按最宽 stem 对齐，'#' 固定在 width+1 列。
     """
 
     def render_children(children: dict, prefix: str) -> list[str]:
-        items = sorted(children.items(), key=lambda kv: sort_key(kv[0]))
+        items = [
+            (name, node)
+            for name, node in sorted(children.items(), key=lambda kv: sort_key(kv[0]))
+            if not node.get("hidden")
+        ]
         if not items:
             return []
         stems = []
         for i, (name, node) in enumerate(items):
             connector = "└── " if i == len(items) - 1 else "├── "
-            stems.append(prefix + connector + name + ("/" if is_dir(node) else ""))
+            suffix = "/" if is_dir(node) else ""
+            if suffix and node.get("collapsed") and node["children"]:
+                suffix = "/…"
+            stems.append(prefix + connector + name + suffix)
         column = max(len(s) for s in stems) + 1  # '#' 所在列
         lines = []
         for i, ((name, node), stem) in enumerate(zip(items, stems)):
@@ -219,7 +241,7 @@ def render_tree(root_name: str, tree: dict) -> str:
                 lines.append(stem + " " * (column - len(stem)) + "# " + node["desc"])
             else:
                 lines.append(stem)
-            if is_dir(node) and node["children"]:
+            if is_dir(node) and node["children"] and not node.get("collapsed"):
                 lines.extend(render_children(node["children"], cont_prefix))
         return lines
 
@@ -370,7 +392,7 @@ class TreeTool:
             node = child
         return parts, node
 
-    def add(self, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False) -> None:
+    def add(self, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> None:
         data = self.load()
         vocab = set(data.get("tags", {}))
         if tags:
@@ -400,6 +422,18 @@ class TreeTool:
             node["rel"] = list(rel)
         if tags is not None:
             node["tags"] = list(tags)
+        if collapsed is not None:
+            if collapsed:
+                if not is_dir(node):
+                    raise ToolError(f"collapsed 仅用于目录条目: {path}")
+                node["collapsed"] = True
+            else:
+                node.pop("collapsed", None)
+        if hidden is not None:
+            if hidden:
+                node["hidden"] = True
+            else:
+                node.pop("hidden", None)
         self._record_undo(f"add {path}")
         self.write_data(data)
 
@@ -527,6 +561,14 @@ class TreeTool:
             return None
         return {line for line in proc.stdout.splitlines() if line.strip()}
 
+    def _is_skill_pycache(self, path: str) -> bool:
+        """技能目录内的 __pycache__（契约测试运行产物）：运行时缓存，豁免未收录告警。"""
+        try:
+            skill_rel = self.tree_json.parent.relative_to(self.repo_root).as_posix()
+        except ValueError:
+            return False
+        return path.startswith(skill_rel + "/") and "__pycache__/" in path
+
     def check(self, strict: bool = False) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         warnings: list[str] = []
@@ -604,7 +646,12 @@ class TreeTool:
                 return True
 
             unrecorded = sorted(
-                (f for f in git_files - file_paths if reported_if(f)), key=sort_key
+                (
+                    f
+                    for f in git_files - file_paths
+                    if reported_if(f) and not self._is_skill_pycache(f)
+                ),
+                key=sort_key,
             )
             for f in unrecorded:
                 warnings.append(f"W: git 文件未收录进树: {f}")
@@ -649,6 +696,8 @@ def _cmd_add(tool: TreeTool, args) -> None:
         rel=args.rel,
         tags=[t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None,
         is_dir_entry=args.dir,
+        collapsed=args.collapsed,
+        hidden=args.hidden,
     )
     tool.render()
     print(f"已写入并重渲染: {args.path}")
@@ -664,6 +713,10 @@ def _cmd_get(tool: TreeTool, args) -> None:
     node = tool.get(args.path)
     print(args.path)
     print(f"  类型: {'目录' if is_dir(node) else '文件'}")
+    if node.get("collapsed"):
+        print("  collapsed: true（简版树折叠渲染，不展开 children）")
+    if node.get("hidden"):
+        print("  hidden: true（简版树隐藏渲染，条目及子树不出现）")
     print(f"  desc: {node.get('desc', '')}")
     if node.get("detail"):
         print("  detail:")
@@ -685,10 +738,13 @@ def _cmd_query(tool: TreeTool, args) -> None:
         payload = [
             {
                 "path": path,
+                "kind": "dir" if is_dir(node) else "file",
                 "desc": node.get("desc", ""),
                 "detail": node.get("detail", []),
                 "rel": node.get("rel", []),
                 "tags": node.get("tags", []),
+                "collapsed": node.get("collapsed", False),
+                "hidden": node.get("hidden", False),
             }
             for path, node in results
         ]
@@ -769,6 +825,16 @@ def main(argv=None) -> int:
     p.add_argument("--rel", action="append", help="相关文件路径，可重复")
     p.add_argument("--tags", help="逗号分隔的受控标签")
     p.add_argument("--dir", action="store_true", help="声明为（空）目录条目")
+    p.add_argument(
+        "--collapsed",
+        action=argparse.BooleanOptionalAction,
+        help="目录折叠渲染（简版树带 … 不展开 children），--no-collapsed 取消",
+    )
+    p.add_argument(
+        "--hidden",
+        action=argparse.BooleanOptionalAction,
+        help="隐藏渲染（简版树中条目及子树不出现），--no-hidden 取消",
+    )
 
     p = sub.add_parser("rm", help="删除条目并修剪空父目录")
     p.add_argument("path")
