@@ -2,6 +2,46 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.2] - 2026-08-25
+
+本版本预置平台从 12 家扩容至 20 家：新增 StepFun / Novita AI / MiniMax Coding Plan 三家按量与套餐平台、NewAPI 系中转站通用预置模板，以及 Claude / Codex（ChatGPT 订阅）/ Gemini / Grok 四家官方订阅用量查询——复用本机官方 CLI 的登录凭据，添加条目无需输入 key；同时配套条目级查询代理开关，chatgpt.com 等被墙站点可按条目走本机 HTTP 代理。
+
+### 新功能
+
+**订阅四家：Claude / Codex / Gemini / Grok（core / quota-cli / quota-desktop）**
+
+- CLI 凭据复用路线：查询时只读本机官方 CLI 的登录文件（`~/.claude/.credentials.json`、`~/.codex/auth.json`、`~/.gemini/oauth_creds.json`、`~/.grok/auth.json`），QuotaTray 不做任何 OAuth 登录、凭据不落明文、用后即弃；添加条目跳过 key 输入，编辑对话框以提示卡说明"凭据来自本机 CLI"（#34 / #35）
+- Claude 订阅：5 小时/周（含 Opus / Sonnet 独立周窗）多窗口用量百分比与重置倒计时，未知窗口 tier 自动兼容扫描（#34）
+- Codex（ChatGPT 订阅）：5 小时/周/30 天多窗口（按窗口秒数自动标注），plan_type（plus / prolite / pro）透传；User-Agent 伪装 codex-cli 防 Cloudflare 拦截（#34，真机验证通过）
+- Gemini Code Assist：OAuth token 过期自动刷新（gemini-cli 公开 client 凭据，不写回 CLI 文件），按 Pro / Flash / Flash Lite 分组取最紧额度与对应重置时间（#35）
+- Grok 订阅：gRPC-web 私有端点，无公开 proto 契约下以 protobuf 启发式扫描提取额度百分比与重置时间（#35）
+- 错误双轨：CLI 凭据文件缺失/未登录 → 确定性错误并引导先登录官方 CLI；网络抖动/被墙 → 瞬时错误（保留旧值）（#34 / #35）
+
+**条目级查询代理（core / quota-cli / quota-desktop）**
+
+- 供应商卡片新增代理开关（Globe 图标）：开启后该条目查询走设置中的网络代理端口，关闭走直连；原「更新代理端口」升级为「网络代理端口」，更新检测/下载/订阅查询共用（#34）
+- 开启代理但未配置端口 → 确定性引导错误；设置中变更端口后查询引擎热重建，无需重启应用（#34）
+- CLI `quota add` / `quota edit` 向导同步询问代理开关；`quota dev-smoke` 新增 `--proxy` 开关用于真机验证代理通道（#34 / #36）
+
+**预置平台扩容（core）**
+
+- 新增 StepFun（阶跃星辰）、Novita AI、MiniMax Coding Plan（国内/国际双站）三家预置平台，含品牌图标接线（#30）
+
+**NewAPI 系通用预置模板（quota-desktop）**
+
+- 模板编辑器预设库新增 NewAPI 系形态：约 40 家 one-api 系中转站复用同一查询结构（`GET {base}/api/user/self`），一键填入（#31）
+- 模板条目按名称启发匹配接入 NewAPI 品牌图（#31）
+
+### Bug 修复
+
+- 添加供应商的平台选择器二级菜单在窄窗口溢出主窗、与右栏联动滚动：改为浮层菜单 + 双栏独立滚动（#32）
+- main 分支 CI 全红：clippy 严格模式三处失败（grok 冗余 let-else 与恒等运算、add 向导函数参数数超限）及 GUI 冒烟示例缺新字段；修复并将 clippy 纳入提交前硬门禁（#36）
+
+### 其他改进
+
+- HTTP 响应新增字节保真通道（raw）：gRPC-web 二进制协议不再受 lossy UTF-8 转换损坏（#35）
+- 预研报告：阿里百炼 API-Key 路线实测证伪留档（Blocked，社区端点全变体 404 + 网关仅认控制台 OAuth）；订阅四家批次勾选完成（#34 / #36）
+
 ## [0.4.1] - 2026-08-25
 
 本版本收口桌面端两处体验断链：更新安装包下载后可直接在设置页一键安装（自动退出应用并启动安装向导），下载位置移至临时目录；添加供应商的「模板」形态重构为「运营商与模型 / 设置模板」二级子页，并附带预设模板库与模板编写说明。
@@ -202,3 +242,4 @@
 [0.3.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.1...v0.3.2
 [0.4.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.2...v0.4.0
 [0.4.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.0...v0.4.1
+[0.4.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.1...v0.4.2
