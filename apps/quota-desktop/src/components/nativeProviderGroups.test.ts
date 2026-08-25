@@ -23,11 +23,15 @@ describe("添加供应商的平台聚合", () => {
       meta("deepseek"),
       meta("kimi_cn"),
       meta("zhipu"),
+      meta("minimax_global"),
       meta("zhipu_api"),
       meta("openrouter"),
       meta("kimi_global"),
       meta("siliconflow"),
+      meta("stepfun"),
       meta("kimi_code_cn"),
+      meta("novita"),
+      meta("minimax"),
     ]);
 
     expect(groups.map((group) => group.key)).toEqual([
@@ -37,6 +41,9 @@ describe("添加供应商的平台聚合", () => {
       "kimi",
       "zhipu",
       "zai",
+      "stepfun",
+      "novita",
+      "minimax",
     ]);
     expect(groups.find((group) => group.key === "siliconflow")?.providers.map((p) => p.id))
       .toEqual(["siliconflow", "siliconflow_global"]);
@@ -46,6 +53,8 @@ describe("添加供应商的平台聚合", () => {
       .toEqual(["zhipu_api", "zhipu"]);
     expect(groups.find((group) => group.key === "zai")?.providers.map((p) => p.id))
       .toEqual(["zai_api", "zai"]);
+    expect(groups.find((group) => group.key === "minimax")?.providers.map((p) => p.id))
+      .toEqual(["minimax", "minimax_global"]);
   });
 
   it("缺失平台不生成空组，未来 native 作为独立兜底组保留", () => {

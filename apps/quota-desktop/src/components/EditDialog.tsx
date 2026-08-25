@@ -352,6 +352,9 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                       kimi: "Kimi",
                       zhipu: t("edit.platformGroupZhipu"),
                       zai: "Z.ai",
+                      stepfun: "StepFun",
+                      novita: "Novita AI",
+                      minimax: "MiniMax",
                     }}
                     onChange={setNativeProvider}
                   />

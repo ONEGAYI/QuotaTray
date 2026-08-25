@@ -437,6 +437,9 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-native-picker-value > span:last-child, .qt-native-picker-group-main > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-native-picker-value.is-placeholder { color: var(--qt-text-faint); }
 .qt-native-picker-value-icon, .qt-native-picker-group-icon { display: grid; flex: none; place-items: center; border: 1px solid color-mix(in srgb, #8c8c86 20%, transparent); background: #f5f5f2; color: #242422; }
+/* 图标容器统一固定浅底（不随主题），保证单色深色 logo 在明暗主题下均可见；
+ * 浅色品牌图（StepFun 纯白）换深底变体（is-light-logo 由 providerIcon 判定加类） */
+.qt-provider-avatar.is-light-logo, .qt-native-picker-value-icon.is-light-logo, .qt-native-picker-group-icon.is-light-logo { background: #1f1f1c; color: #f5f5f2; }
 .qt-native-picker-value-icon { width: 25px; height: 25px; border-radius: 7px; }
 .qt-native-picker-group-icon { width: 29px; height: 29px; border-radius: 8px; }
 .qt-native-picker-value-icon img { width: 18px; height: 18px; object-fit: contain; }

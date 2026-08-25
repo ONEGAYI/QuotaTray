@@ -75,7 +75,7 @@ QuotaTray/
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏；
 │           │              #   new_with_proxy 供更新通道注入可选代理）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（12 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（16 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
 │           │   │              #   status_error_with_body 错误附脱敏响应体 detail——
 │           │   │              #   error_detail 嵌套 error.message 后回退平铺字符串，
@@ -87,6 +87,11 @@ QuotaTray/
 │           │   │                     #   余额+代金券/现金拆分进 extra）
 │           │   ├── kimi_coding.rs    # Kimi Code 国内/国际双站 /coding/v1/usages：
 │           │   │                     #   5h+周额度、RFC3339 重置时间、remaining 本地推导
+│           │   ├── minimax.rs       # MiniMax Coding Plan 国内/国际双站 coding_plan/
+│           │   │                     #   remains：仅 general 条目、5h+周剩余% 归一已用%、
+│           │   │                     #   周桶仅 weekly_status==1 展示（==3 无周限防假窗口）
+│           │   ├── novita.rs        # /v3/user/balance（availableBalance÷10000=USD）
+│           │   ├── stepfun.rs       # /v1/accounts（顶层 balance，CNY）
 │           │   ├── zhipu_metered.rs  # 智谱/Z.ai 通用 API 按量余额：Bearer、credit grants
 │           │   │                     #   优先，404/405 回退 balance；两站 CNY/USD
 │           │   └── zhipu.rs          # GLM Coding Plan 用量（智谱/Z.ai 双站，非文档
@@ -195,7 +200,9 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 六组官方 Provider SVG（国内/国际及余额/订阅复用品牌）
+│       │   │   └── providers/     # 九张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax；图标容器固定浅底不随主题——单色深色 logo
+│       │   │                    #   明暗主题均可见，浅色底图形（StepFun 白色圆盘）走深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
@@ -235,7 +242,8 @@ QuotaTray/
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       │                       #   （errorDetail 排查详情随查询错误态透传）
 │       │       ├── providerIcon.ts / providerIcon.test.ts
-│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
+│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约 +
+│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
 │       │       │                       #   悬停/键盘展开二级 Provider 选单
 │       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
@@ -346,6 +354,8 @@ QuotaTray/
 │                              #   已知边界，loopback 端到端实测）
 └── docs/
     ├── CC-Switch调研报告.md    # cc-switch 代码级调研（技术栈/密钥安全/余额查询）
+    ├── 预置Provider缺口预研.md  # 预置平台缺口对照 cc-switch（A/B/C 分层、批次标记与
+│                              #   StepFun/Novita/MiniMax/NewAPI 模板移植参考）
     ├── 项目方案预研.md         # 架构、凭据安全、查询体系、CLI/GUI 设计与里程碑
     ├── design/
     │   └── tray-ring-demo.html # 托盘圆环视觉规格（层结构/颜色/溢出/红点定案）

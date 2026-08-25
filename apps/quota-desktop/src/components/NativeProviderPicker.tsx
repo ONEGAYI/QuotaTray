@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import type { NativeMeta } from "../types";
 import { groupNativeProviders, type NativeProviderGroup } from "./nativeProviderGroups";
-import { providerIconUrl } from "./providerIcon";
+import { isLightLogo, providerIconUrl } from "./providerIcon";
 
 interface Props {
   metas: NativeMeta[];
@@ -185,7 +185,9 @@ export function NativeProviderPicker({
   const renderIcon = (providerId: string, className: string) => {
     const iconUrl = providerIconUrl(providerId);
     return iconUrl
-      ? <span className={className}><img src={iconUrl} alt="" aria-hidden="true" /></span>
+      ? <span className={`${className}${isLightLogo(providerId) ? " is-light-logo" : ""}`}>
+          <img src={iconUrl} alt="" aria-hidden="true" />
+        </span>
       : <span className={`${className} is-fallback`} aria-hidden="true">{providerId.slice(0, 1).toUpperCase()}</span>;
   };
 
