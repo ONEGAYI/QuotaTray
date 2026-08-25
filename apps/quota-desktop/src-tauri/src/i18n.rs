@@ -342,6 +342,22 @@ impl Lang {
         }
     }
 
+    pub fn err_update_bad_asset(&self) -> String {
+        match self {
+            Self::Zh => "安装包资产名异常（含路径成分或非 exe），已拒绝保存".into(),
+            Self::En => {
+                "Suspicious installer asset name (path parts or non-exe); refused to save".into()
+            }
+        }
+    }
+
+    pub fn err_update_unsafe_dir(&self) -> String {
+        match self {
+            Self::Zh => "下载目录异常（可能被替换为链接指向他处），已中止".into(),
+            Self::En => "The download directory appears to be a link to elsewhere; aborted".into(),
+        }
+    }
+
     pub fn err_update_save(&self, e: &dyn std::fmt::Display) -> String {
         match self {
             Self::Zh => format!("安装包写入失败：{e}"),

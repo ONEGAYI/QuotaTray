@@ -62,8 +62,8 @@ pub struct UpdateStateDto {
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
-    /// 已下载安装包的完整路径（仅当与当前 available 资产匹配时非空；
-    /// 前端据此展示「立即安装」入口）。
+    /// 后端自记录的已下载安装包路径；能否安装以其与当前 available
+    /// 资产匹配为准（检测到不同版本时由失效逻辑清空）。
     pub downloaded_path: Option<String>,
 }
 
@@ -201,10 +201,20 @@ pub async fn download_installer(
         .download_with_progress(&url, &reporter)
         .await
         .map_err(|e| lang.err_update_download(&e))?;
-    let name = info
-        .asset_name
-        .unwrap_or_else(|| "QuotaTray-setup.exe".into());
+    // asset_name 与 asset_url 同源（downloadable 判定），None 属防御分支
+    let Some(name) = info.asset_name else {
+        return Err(lang.err_update_no_asset());
+    };
     save_installer(state, &name, &bytes, lang)
+}
+
+/// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe` 结尾——防恶意
+/// 资产名使落盘位置逃出下载目录（运行侧另有 validate_installer_path）。
+fn validate_asset_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\', ':'])
+        && name.to_ascii_lowercase().ends_with(".exe")
 }
 
 /// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
@@ -214,8 +224,16 @@ fn save_installer(
     bytes: &[u8],
     lang: Lang,
 ) -> Result<String, String> {
+    if !validate_asset_name(name) {
+        return Err(lang.err_update_bad_asset());
+    }
     let dir = installer_dir();
     std::fs::create_dir_all(&dir).map_err(|e| lang.err_update_mkdir(&e))?;
+    // 纵深防御：%TEMP% 为用户态任意进程可写区，目录若被预置为指向
+    // 他处的 symlink/junction，写入会跟随逃逸——检测到即拒绝
+    if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(lang.err_update_unsafe_dir());
+    }
     let path = dir.join(name);
     update::write_atomic_bytes(&path, bytes).map_err(|e| lang.err_update_save(&e))?;
     let path_str = path.to_string_lossy().into_owned();
@@ -517,6 +535,48 @@ mod tests {
             carry_downloaded(None, info(Some("setup.exe")).as_ref()).is_none(),
             "本来就没有记录"
         );
+        assert!(
+            carry_downloaded(d(), info(None).as_ref()).is_none(),
+            "新版本无资产名（downloadable=false）同样清空"
+        );
+    }
+
+    /// 契约：资产名仅放行纯文件名 .exe——路径分隔符/盘符冒号/
+    /// ADS 形态/非 exe 一律拒绝（写入侧防御，运行侧见路径校验）。
+    #[test]
+    fn validate_asset_name_contract() {
+        assert!(validate_asset_name("QuotaTray_0.4.1_x64-setup.exe"));
+        assert!(validate_asset_name("setup.EXE"), "扩展名大小写不敏感");
+        assert!(!validate_asset_name(""));
+        assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
+        assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");
+        assert!(!validate_asset_name("C:x.exe"), "盘符冒号");
+        assert!(!validate_asset_name("setup.exe:ads"), "NTFS ADS 冒号");
+        assert!(!validate_asset_name("setup.zip"), "非 exe");
+        assert!(!validate_asset_name(".."), "目录上跳");
+    }
+
+    /// 契约：恶意/非法资产名在落盘前被拒——不产生文件也不写状态。
+    #[test]
+    fn save_installer_rejects_bad_asset_name() {
+        let dir = std::env::temp_dir().join(format!("qt-savebad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+        for bad in ["..\\..\\evil.exe", "a/b.exe", "setup.zip"] {
+            assert!(
+                save_installer(&state, bad, b"x", Lang::Zh).is_err(),
+                "{bad} 应被拒绝"
+            );
+            assert!(
+                !installer_dir().join(bad).exists(),
+                "{bad} 不得落盘（越界路径本就不应存在）"
+            );
+        }
+        assert!(
+            state.update_ctl.read().unwrap().downloaded.is_none(),
+            "拒绝时不写状态表"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 契约：安装包字节落盘到下载目录（原子写语义由 core 覆盖）并记录
@@ -535,6 +595,50 @@ mod tests {
         assert_eq!(d.path, path);
         assert_eq!(d.asset_name, name);
         std::fs::remove_file(&expected).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：dto_of 透传已下载路径。
+    #[test]
+    fn dto_of_exposes_downloaded_path() {
+        let mut inner = UpdateCtlState::default();
+        assert!(dto_of(&inner).downloaded_path.is_none());
+        inner.downloaded = Some(DownloadedInstaller {
+            path: "p".into(),
+            asset_name: "setup.exe".into(),
+        });
+        assert_eq!(dto_of(&inner).downloaded_path.as_deref(), Some("p"));
+    }
+
+    /// 契约：安装包文件丢失或路径越界时，run_installer 清记录并报错
+    /// （不进入 spawn 分支——文件不存在时提前返回）。
+    #[test]
+    fn run_installer_clears_record_on_missing_or_invalid() {
+        let dir = std::env::temp_dir().join(format!("qt-run-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+
+        // 记录存在但文件已被清理（临时目录场景）
+        state.update_ctl.write().unwrap().downloaded = Some(DownloadedInstaller {
+            path: installer_dir()
+                .join("qt-missing.exe")
+                .to_string_lossy()
+                .into_owned(),
+            asset_name: "qt-missing.exe".into(),
+        });
+        assert!(run_installer(&state, Lang::Zh).is_err(), "文件丢失应报错");
+        assert!(
+            state.update_ctl.read().unwrap().downloaded.is_none(),
+            "记录被清，前端回到可重下状态"
+        );
+
+        // 路径越界（不在下载目录内）：同样清记录并报错
+        state.update_ctl.write().unwrap().downloaded = Some(DownloadedInstaller {
+            path: "C:\\Windows\\notepad.exe".into(),
+            asset_name: "notepad.exe".into(),
+        });
+        assert!(run_installer(&state, Lang::Zh).is_err(), "越界路径应报错");
+        assert!(state.update_ctl.read().unwrap().downloaded.is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
