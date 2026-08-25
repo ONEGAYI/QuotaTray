@@ -1,5 +1,6 @@
 import { Check, X, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -242,7 +243,7 @@ export function DialogShell({
     };
   }, []);
 
-  return (
+  return createPortal(
     <div className="qt-dialog-backdrop">
       <section
         ref={dialogRef}
@@ -262,7 +263,8 @@ export function DialogShell({
         <div className="qt-dialog-body">{children}</div>
         <footer className="qt-dialog-footer">{footer}</footer>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

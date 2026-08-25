@@ -20,6 +20,8 @@ use crate::tray;
 
 /// 模板试查临时条目 id（AAD 绑定值，试查不落任何持久状态）。
 const TEMPLATE_TEST_ID: &str = "template-test";
+/// Provider 列表跨 WebView 失效事件（与前端 queries.ts 同名常量成对）。
+const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 
 /// 校验错误的定位信息（前端按字段高亮展示）。
 #[derive(Debug, Clone, Serialize)]
@@ -166,6 +168,12 @@ fn after_state_change(app: &AppHandle, state: &AppState) {
     tray::rebuild(app, state);
 }
 
+fn emit_providers_changed(app: &AppHandle) {
+    if let Err(e) = app.emit(PROVIDERS_CHANGED_EVENT, ()) {
+        eprintln!("Provider 变更事件发送失败：{e}");
+    }
+}
+
 /// 保存前统一校验（upsert 用，纯函数可测）：id/name 非空、模板静态校验、
 /// native id 存在性、峰谷定价配置校验（core validate，带字段定位）。
 pub fn validate_entry(entry: &ProviderEntry, lang: Lang) -> Result<(), String> {
@@ -279,6 +287,7 @@ pub fn upsert_provider(
     // 条目已变，作废该条目的旧查询结果（其他条目的 keep-last-good 数据与快照保留）
     state.results.write().unwrap().remove(&entry_id);
     after_state_change(&app, &state);
+    emit_providers_changed(&app);
     // 立即补查一次：悬停面板只读共享结果表（不发查询），清结果后若无人
     // 补查，面板会停留「无数据」直到下次轮询——补查完成后经
     // provider-state-changed 广播回流。条目被禁用时补查自然报错，仅记日志。
@@ -311,6 +320,7 @@ pub fn remove_provider(
     cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
     state.results.write().unwrap().remove(&id);
     after_state_change(&app, &state);
+    emit_providers_changed(&app);
     Ok(())
 }
 
