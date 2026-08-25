@@ -335,10 +335,10 @@ impl Lang {
         }
     }
 
-    pub fn err_update_no_dir(&self) -> String {
+    pub fn err_update_mkdir(&self, e: &dyn std::fmt::Display) -> String {
         match self {
-            Self::Zh => "无法定位下载目录".into(),
-            Self::En => "Cannot locate the downloads directory".into(),
+            Self::Zh => format!("下载目录创建失败：{e}"),
+            Self::En => format!("Failed to create the download directory: {e}"),
         }
     }
 
@@ -346,6 +346,31 @@ impl Lang {
         match self {
             Self::Zh => format!("安装包写入失败：{e}"),
             Self::En => format!("Failed to write the installer: {e}"),
+        }
+    }
+
+    pub fn err_update_not_downloaded(&self) -> String {
+        match self {
+            Self::Zh => "尚未下载安装包（先点「下载安装包」）".into(),
+            Self::En => "Installer not downloaded yet (click \"Download installer\" first)".into(),
+        }
+    }
+
+    pub fn err_update_installer_missing(&self) -> String {
+        match self {
+            Self::Zh => "安装包文件已丢失（临时目录可能被清理），请重新下载".into(),
+            Self::En => {
+                "The installer file is missing (the temp directory may have been cleaned); \
+please download again"
+                    .into()
+            }
+        }
+    }
+
+    pub fn err_update_run(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("安装包启动失败：{e}"),
+            Self::En => format!("Failed to launch the installer: {e}"),
         }
     }
 }

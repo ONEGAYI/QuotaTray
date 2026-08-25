@@ -702,12 +702,24 @@ pub async fn check_update_now(
     Ok(crate::update_ctl::dto_of(&inner))
 }
 
-/// 下载安装包到系统下载目录，返回完整路径（前端展示路径文本，
-/// 用户自行运行安装包；打开文件夹属后续增强，暂不引 opener 插件）。
+/// 下载安装包到 %TEMP%/QuotaTray/Downloads 并记录进状态表，返回完整路径。
 #[tauri::command]
 pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let lang = lang_of(&state);
     crate::update_ctl::download_installer(&app, &state, lang).await
+}
+
+/// 运行已下载的安装包（NSIS 向导由用户交互完成）。启动成功后应用自动
+/// 退出——覆盖安装需先解锁自身文件；留 400ms 让 IPC 响应送达前端。
+#[tauri::command]
+pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let lang = lang_of(&state);
+    crate::update_ctl::run_installer(&state, lang)?;
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        app.exit(0);
+    });
+    Ok(())
 }
 
 // ---- 契约测试 -------------------------------------------------------------

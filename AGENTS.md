@@ -198,7 +198,7 @@ QuotaTray/
 │       │   │   └── providers/     # 六组官方 Provider SVG（国内/国际及余额/订阅复用品牌）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
-│       │   │                    #   更新下载进度、KEEP_LAST_GOOD_MS）
+│       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令
 │       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
 │       │   │                    #   配置导入跨窗口失效 + CLI 可改 native/custom model 短缓存 +
@@ -254,10 +254,12 @@ QuotaTray/
 │       │       │                       # 编辑草稿转换、撞名模型显式选择、小额价格精度与
 │       │       │                       #   完整自定义判定纯逻辑
 │       │       ├── SettingsDialog.tsx  # 常规/更新/数据迁移导航：更新下载进度 +
-│       │       │                       #   更新代理端口输入（空=直连）+ 系统文件选择器
-│       │       │                       #   导入导出与双重风险确认
+│       │       │                       #   下载完成后「立即安装」（确认后运行安装包
+│       │       │                       #   并退出应用）+ 更新代理端口输入（空=直连）+
+│       │       │                       #   系统文件选择器导入导出与双重风险确认
 │       │       ├── settingsView.ts / settingsView.test.ts
-│       │       │                       # 更新错误优先级、状态结论、进度格式化纯逻辑
+│       │       │                       # 更新错误优先级、状态结论、进度格式化、
+│       │       │                       #   主按钮动作分派（下载中/安装/下载/检查）纯逻辑
 │       │       └── configTransferView.ts / configTransferView.test.ts
 │       │                               # 迁移默认文件名、扩展名与错误归一化纯逻辑
 │       └── src-tauri/          # Rust 后端（crate quota-desktop，入 workspace）
@@ -276,11 +278,12 @@ QuotaTray/
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
 │               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
-│               ├── commands.rs # 主业务 IPC 19 命令：key 写入策略（空=保持不变）、试查经引擎、
+│               ├── commands.rs # 主业务 IPC 20 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
 │               │               #   消除悬停面板等只读视图的无数据空窗）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
-│               │               #   更新三命令 + 配置导入导出（导入清结果/快照并广播）+
+│               │               #   更新四命令（检测/下载/install_update 运行安装包后
+│               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播）+
 │               │               #   script 双命令（validate_script 干跑/test_script 全链路，
 │               │               #   镜像 template 对，key 缺省语义同）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
@@ -313,11 +316,14 @@ QuotaTray/
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测字段组——开关/时刻/
 │               │               #   时间戳/代理端口，CLI 共读同一文件）
-│               ├── update_ctl.rs # 更新检测控制：状态表 + 手动/自动检测 + 下载到系统
-│               │               #   下载目录并向前端推送进度/速率（检测与下载共用设置
-│               │               #   中的更新代理端口）+ 每分钟调度（due_check，
-│               │               #   完成后推送状态事件；设置变更自然生效；同 tick 顺带
-│               │               #   峰谷翻转检测）
+│               ├── update_ctl.rs # 更新检测控制：状态表（含已下载安装包记录，
+│               │               #   资产名随版本变化自动失效；检测失败不丢记录）+
+│               │               #   手动/自动检测 + 下载到 %TEMP%/QuotaTray/Downloads
+│               │               #   并向前端推送进度/速率（检测与下载共用设置
+│               │               #   中的更新代理端口）+ run_installer 运行安装包
+│               │               #   （路径防御校验：限下载目录内 .exe）+ 每分钟调度
+│               │               #   （due_check，完成后推送状态事件；设置变更自然
+│               │               #   生效；同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
 │   ├── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/

@@ -80,6 +80,7 @@ pub fn run() {
             commands::get_update_state,
             commands::check_update_now,
             commands::download_update,
+            commands::install_update,
             hover_panel::set_hover_panel_pointer_inside,
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,

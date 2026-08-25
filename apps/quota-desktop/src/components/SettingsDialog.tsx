@@ -24,6 +24,7 @@ import type { DownloadProgress, Settings } from "../types";
 import {
   downloadPercent,
   formatDownloadProgress,
+  resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateStatus,
 } from "./settingsView";
@@ -49,7 +50,6 @@ export function SettingsDialog({ open, onClose }: Props) {
   const updateState = useUpdateState();
   const [tab, setTab] = useState<Tab>("general");
   const [draft, setDraft] = useState<Settings | null>(null);
-  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
 
@@ -86,7 +86,14 @@ export function SettingsDialog({ open, onClose }: Props) {
 
   const download = useMutation({
     mutationFn: api.downloadUpdate,
-    onSuccess: (path) => setDownloadedPath(path),
+    // 已下载路径由后端状态表记录，失效缓存即刷新出「立即安装」入口
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
+  });
+
+  const install = useMutation({
+    mutationFn: api.installUpdate,
+    // 文件丢失等失败场景后端已清记录：刷新状态让按钮回到「下载安装包」
+    onError: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
   });
 
   const exportConfiguration = useMutation({
@@ -157,12 +164,25 @@ export function SettingsDialog({ open, onClose }: Props) {
     if (confirmed) importConfiguration.mutate(path);
   };
 
+  // 安装会退出应用（NSIS 覆盖安装需先解锁自身文件），确认后再触发
+  const beginInstall = async () => {
+    const confirmed = await confirmDialog(t("settings.installConfirm"), {
+      title: t("settings.installConfirmTitle"),
+      kind: "info",
+      okLabel: t("settings.installConfirmButton"),
+      cancelLabel: t("common.cancel"),
+    });
+    if (confirmed) install.mutate();
+  };
+
   if (!open || !draft) return null;
   const update = updateState.data;
   const available = update?.available ?? null;
+  const downloadedPath = update?.downloaded_path ?? null;
   const operationError = resolveUpdateError({
     checkError: checkNow.isError ? checkNow.error : null,
     downloadError: download.isError ? download.error : null,
+    installError: install.isError ? install.error : null,
     backendError: update?.last_error,
     hasAvailable: Boolean(available),
   });
@@ -172,6 +192,11 @@ export function SettingsDialog({ open, onClose }: Props) {
     error: operationError,
   });
   const canDownload = Boolean(available?.downloadable);
+  const updateAction = resolveUpdateAction({
+    downloading: download.isPending,
+    canDownload,
+    hasDownloaded: downloadedPath != null,
+  });
   const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
   return (
@@ -308,12 +333,17 @@ export function SettingsDialog({ open, onClose }: Props) {
                   </p>
                 </div>
                 <Button
-                  variant={canDownload ? "primary" : undefined}
-                  disabled={checkNow.isPending || download.isPending}
+                  variant={updateAction === "install" || updateAction === "download" ? "primary" : undefined}
+                  disabled={checkNow.isPending || download.isPending || install.isPending}
                   onClick={() => {
-                    setDownloadedPath(null);
+                    if (updateAction === "install") {
+                      download.reset();
+                      checkNow.reset();
+                      void beginInstall();
+                      return;
+                    }
                     setDownloadProgress(
-                      canDownload
+                      updateAction === "download"
                         ? {
                             downloaded_bytes: 0,
                             total_bytes: available?.asset_size ?? null,
@@ -321,20 +351,24 @@ export function SettingsDialog({ open, onClose }: Props) {
                           }
                         : null,
                     );
-                    if (canDownload) {
+                    if (updateAction === "download") {
                       checkNow.reset();
+                      install.reset();
                       download.mutate();
                     } else {
                       download.reset();
+                      install.reset();
                       checkNow.mutate();
                     }
                   }}
                 >
-                  {download.isPending
+                  {updateAction === "downloading"
                     ? t("settings.downloading")
-                    : canDownload
-                      ? t("settings.download")
-                      : t("settings.checkNow")}
+                    : updateAction === "install"
+                      ? t("settings.install")
+                      : updateAction === "download"
+                        ? t("settings.download")
+                        : t("settings.checkNow")}
                 </Button>
               </div>
               {download.isPending && downloadProgress && (

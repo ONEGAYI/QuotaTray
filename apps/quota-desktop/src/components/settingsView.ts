@@ -26,16 +26,20 @@ export function formatDownloadProgress(progress: DownloadProgress): string {
 export function resolveUpdateError({
   checkError,
   downloadError,
+  installError,
   backendError,
   hasAvailable,
 }: {
   checkError: unknown;
   downloadError: unknown;
+  /** 运行安装包失败（文件丢失等），可选——后端清记录后前端刷新即恢复。 */
+  installError?: unknown;
   backendError: string | null | undefined;
   hasAvailable: boolean;
 }): string | null {
   if (checkError != null) return String(checkError);
   if (downloadError != null) return String(downloadError);
+  if (installError != null) return String(installError);
   return !hasAvailable ? backendError ?? null : null;
 }
 
@@ -54,4 +58,22 @@ export function resolveUpdateStatus({
   if (error) return "error";
   if (hasAvailable) return "available";
   return "current";
+}
+
+/** 设置页更新主按钮的动作分派（决定文案与点击行为）。 */
+export type UpdateAction = "downloading" | "install" | "download" | "check";
+
+export function resolveUpdateAction({
+  downloading,
+  canDownload,
+  hasDownloaded,
+}: {
+  downloading: boolean;
+  canDownload: boolean;
+  hasDownloaded: boolean;
+}): UpdateAction {
+  if (downloading) return "downloading";
+  // 安装态要求仍有可下载的新版本：换版本/检测失败时后端已清记录
+  if (canDownload) return hasDownloaded ? "install" : "download";
+  return "check";
 }
