@@ -6,6 +6,7 @@ import {
   ClipboardCopy,
   Clock3,
   Ellipsis,
+  Globe,
   KeyRound,
   Pause,
   Pencil,
@@ -113,6 +114,9 @@ export function ProviderCard({
     isFetching: query.isFetching,
   });
   const configured = Boolean(entry.api_key_enc);
+  // CLI 凭据型（订阅四家）：凭据来自本机官方 CLI，不存在「配置 key」概念
+  const cliCredential =
+    entry.kind.type === "native" && nativeMeta?.uses_cli_credentials === true;
   const mainData = view.data[0];
   const multiWindow = view.data.length > 1;
   const primary = primaryValue(mainData, lang);
@@ -165,6 +169,17 @@ export function ProviderCard({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
       setFeedback(entry.enabled ? t("card.disabled") : t("card.enable"));
+    },
+    onError: (error) => setFeedback(String(error)),
+  });
+
+  // 条目级查询代理开关（chatgpt.com 等被墙站点用；端口在设置中统一配置）
+  const toggleProxy = useMutation({
+    mutationFn: () => api.upsertProvider({ ...entry, use_proxy: !entry.use_proxy }, null),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["providers"] });
+      void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
+      setFeedback(entry.use_proxy ? t("card.proxyOffFeedback") : t("card.proxyOnFeedback"));
     },
     onError: (error) => setFeedback(String(error)),
   });
@@ -406,7 +421,11 @@ export function ProviderCard({
           ) : (
             <div className="qt-provider-security">
               <KeyRound size={15} aria-hidden="true" />
-              {configured ? t("card.keyConfigured") : t("card.keyMissing")}
+              {cliCredential
+                ? t("card.cliCredential")
+                : configured
+                  ? t("card.keyConfigured")
+                  : t("card.keyMissing")}
               <span>·</span>
               {t("card.refreshEvery", { minutes: intervalMinutes })}
             </div>
@@ -436,19 +455,36 @@ export function ProviderCard({
         </div>
 
         <div className="qt-provider-actions">
-          <Button variant="ghost" icon={RefreshCw} disabled={!entry.enabled} onClick={invalidate}>
+          <Button
+            variant="ghost"
+            icon={RefreshCw}
+            disabled={!entry.enabled || toggleEnabled.isPending || toggleProxy.isPending}
+            onClick={invalidate}
+          >
             {view.kind === "transient" ? t("card.retry") : t("card.refresh")}
           </Button>
           <Button
             variant="ghost"
             icon={entry.enabled ? Pause : Play}
-            disabled={toggleEnabled.isPending}
+            disabled={toggleEnabled.isPending || toggleProxy.isPending}
             onClick={() => {
               setFeedback(null);
               toggleEnabled.mutate();
             }}
           >
             {entry.enabled ? t("card.disable") : t("card.enable")}
+          </Button>
+          <Button
+            variant="ghost"
+            icon={Globe}
+            className={entry.use_proxy ? "is-active" : undefined}
+            disabled={toggleProxy.isPending || toggleEnabled.isPending}
+            onClick={() => {
+              setFeedback(null);
+              toggleProxy.mutate();
+            }}
+          >
+            {entry.use_proxy ? t("card.proxyOn") : t("card.proxyOff")}
           </Button>
           <Button variant="ghost" icon={Pencil} onClick={() => onEdit(entry, mainData?.unit)}>
             {t("card.edit")}

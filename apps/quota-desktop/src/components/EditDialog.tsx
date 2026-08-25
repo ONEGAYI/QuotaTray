@@ -186,8 +186,18 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         pricing: pricingRef.current,
         // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
         plan_variant: planVariant,
+        // 编辑无代理表单字段：保留卡片 Globe 开关的当前值
+        //（缺失会被后端 serde 读成 false，静默重置用户开关）
+        use_proxy: initial?.use_proxy,
       };
-      await api.upsertProvider(entry, apiKey.trim() ? apiKey : null);
+      // CLI 凭据型平台永不写 key：残留输入（跨平台切换的 state）不落 vault
+      const saveKey =
+        tab === "native" && selectedNativeMeta?.uses_cli_credentials
+          ? null
+          : apiKey.trim()
+            ? apiKey
+            : null;
+      await api.upsertProvider(entry, saveKey);
     },
     onSuccess: () => {
       invalidateAll();
@@ -233,6 +243,14 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
         className={inputCls}
       />
+    </label>
+  );
+  // CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
+  // 以提示卡替代 key 输入框（apiKey 恒空，保存走「空=保持」路径）
+  const cliCredentialField = (
+    <label className="qt-field qt-credential-field">
+      <span>{t("edit.apiKey")}</span>
+      <small>{t("edit.cliCredentialHint")}</small>
     </label>
   );
   const pricingSection = (
@@ -355,6 +373,10 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                       stepfun: "StepFun",
                       novita: "Novita AI",
                       minimax: "MiniMax",
+                      claude: "Claude",
+                      codex: "Codex",
+                      gemini: "Gemini",
+                      grok: "Grok",
                     }}
                     onChange={setNativeProvider}
                   />
@@ -390,7 +412,9 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
             )}
 
             {pricingSection}
-            {credentialField}
+            {tab === "native" && selectedNativeMeta?.uses_cli_credentials
+              ? cliCredentialField
+              : credentialField}
           </>
         )}
 

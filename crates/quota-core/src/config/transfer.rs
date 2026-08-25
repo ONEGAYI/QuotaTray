@@ -244,6 +244,7 @@ mod tests {
                 ..Default::default()
             }),
             plan_variant: PlanVariant::Weekly,
+            use_proxy: false,
         };
         native.set_api_key(vault, SECRET_A).unwrap();
 
@@ -267,6 +268,7 @@ mod tests {
             base_url: Some("https://template.example.test".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         custom.set_api_key(vault, SECRET_B).unwrap();
 

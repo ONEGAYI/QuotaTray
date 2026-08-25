@@ -314,6 +314,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -339,6 +340,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -581,6 +583,7 @@ mod tests {
                 ..Default::default()
             }),
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         let resolved = pricing::resolve(&entry).unwrap();
         let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
@@ -609,6 +612,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         AppConfig {
             custom_models: Default::default(),

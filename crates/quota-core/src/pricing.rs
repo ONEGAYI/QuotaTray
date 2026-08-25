@@ -1503,6 +1503,8 @@ mod tests {
             ("novita", "USD"),
             ("minimax", "CNY"),
             ("minimax_global", "USD"),
+            ("claude", "CNY"),
+            ("codex", "CNY"),
         ] {
             assert_eq!(default_currency(id), expect, "{id}");
         }
@@ -1523,6 +1525,8 @@ mod tests {
             "novita",
             "minimax",
             "minimax_global",
+            "claude",
+            "codex",
         ]
         .into_iter()
         .collect();
@@ -1547,6 +1551,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -1808,6 +1813,7 @@ mod tests {
             base_url: None,
             pricing,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -1834,6 +1840,7 @@ mod tests {
             base_url: None,
             pricing,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 

@@ -109,6 +109,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         entry.set_api_key(&vault, SECRET).unwrap();
         AppConfig {

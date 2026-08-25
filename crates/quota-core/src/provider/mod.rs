@@ -2,6 +2,8 @@
 //!
 //! 平台实现的端点与字段映射依据 `docs/CC-Switch调研报告.md` §4.2。
 
+pub mod claude;
+pub mod codex;
 pub mod deepseek;
 pub mod kimi;
 pub mod kimi_coding;
@@ -13,6 +15,8 @@ pub mod stepfun;
 pub mod zhipu;
 pub mod zhipu_metered;
 
+pub use claude::Claude;
+pub use codex::Codex;
 pub use deepseek::DeepSeek;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
@@ -75,6 +79,8 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(Novita),
         Arc::new(MINIMAX_CN),
         Arc::new(MINIMAX_GLOBAL),
+        Arc::new(Claude),
+        Arc::new(Codex),
     ]
 });
 
@@ -93,6 +99,13 @@ pub fn find(id: &str) -> Option<Arc<dyn NativeProvider>> {
 /// 忽略该字段；UI/向导据此决定是否展示变体选择。
 pub fn supports_plan_variant(id: &str) -> bool {
     matches!(id, "zhipu" | "zai")
+}
+
+/// 该平台是否为「CLI 凭据型」：凭据在查询时从本机官方 CLI 的登录
+/// 文件只读获取（订阅四家），条目无需也不应配置 api_key——引擎跳过
+/// 解密前置，凭据文件读写与过期引导均由 provider 内部收口。
+pub fn uses_cli_credentials(id: &str) -> bool {
+    matches!(id, "claude" | "codex" | "gemini" | "grok")
 }
 
 /// 全部平台元信息。
@@ -136,6 +149,39 @@ pub(crate) fn redact_error_message(e: QueryError, req: &HttpRequest) -> QueryErr
         Some(d) => rebuilt.with_detail(d),
         None => rebuilt,
     }
+}
+
+/// CLI 凭据型平台（订阅四家）的取数入口：同 [`fetch_json`]，但
+/// 401/403 的确定性错误直接透出「重新登录官方 CLI」引导文案，
+/// 并把 token 登记进脱敏清单（错误响应体若回显 token 一并打码）。
+pub(crate) async fn fetch_json_relogin(
+    http: &dyn HttpClient,
+    mut req: HttpRequest,
+    token: &str,
+    relogin_hint: &str,
+) -> Result<Value, QueryError> {
+    req.declared_secrets.push(token.to_string());
+    let resp = http.execute(req.clone()).await.map_err(|e| match &e {
+        crate::http::HttpError::Timeout | crate::http::HttpError::Network(_) => {
+            QueryError::transient(e.to_string())
+        }
+        crate::http::HttpError::InvalidRequest(_) => QueryError::deterministic(e.to_string()),
+    })?;
+    if resp.status == 401 || resp.status == 403 {
+        return Err(QueryError::deterministic(relogin_hint.to_string()));
+    }
+    if !resp.is_success() {
+        return Err(status_error_with_body(resp.status, &resp.body, &req));
+    }
+    parse_success_json(&req, &resp)
+}
+
+/// RFC3339 字符串 → epoch 毫秒（订阅四家的重置时间透传）。
+/// 格式非法返回 None，不伪造时间戳（kimi_coding 同款语义）。
+pub(crate) fn rfc3339_to_epoch_ms(raw: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|time| time.timestamp_millis())
 }
 
 /// 2xx 响应体 → JSON：解析失败为确定性错误，detail 携带 serde 位置
@@ -558,6 +604,25 @@ mod tests {
         for id in ["stepfun", "novita", "minimax", "minimax_global"] {
             assert!(find(id).is_some(), "注册表缺少 {id}");
             assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
+        }
+    }
+
+    /// 订阅批次（CLI 凭据型）：标记与注册表对齐；非订阅平台不受影响。
+    /// gemini/grok 随后续 PR 注册（uses_cli_credentials 已预先声明四家）。
+    #[test]
+    fn registry_contains_cli_credential_providers() {
+        for id in ["claude", "codex"] {
+            assert!(find(id).is_some(), "注册表缺少 {id}");
+            assert!(uses_cli_credentials(id), "{id} 应为 CLI 凭据型");
+            assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
+        }
+        assert!(
+            uses_cli_credentials("gemini"),
+            "gemini 应预先声明为 CLI 凭据型"
+        );
+        assert!(uses_cli_credentials("grok"), "grok 应预先声明为 CLI 凭据型");
+        for id in ["deepseek", "stepfun", "novita"] {
+            assert!(!uses_cli_credentials(id), "{id} 不应为 CLI 凭据型");
         }
     }
 }

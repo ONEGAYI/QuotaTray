@@ -76,6 +76,8 @@ export interface ProviderEntry {
   pricing?: PricingConfig;
   /** 订阅套餐变体（缺省 = auto 自动推断；智谱系 v1 无周限 / v2+ 有周限） */
   plan_variant?: PlanVariant;
+  /** 查询走代理（条目级开关，缺省 false；端口取设置的网络代理端口） */
+  use_proxy?: boolean;
 }
 
 /** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */
@@ -225,6 +227,9 @@ export interface NativeMeta {
   custom_models: CustomModelDef[];
   /** 是否支持套餐变体声明（智谱系订阅套餐），编辑表单据此展示选择。 */
   supports_plan_variant: boolean;
+  /** CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
+   *  编辑表单隐藏 key 输入框并展示提示卡。 */
+  uses_cli_credentials: boolean;
 }
 
 export interface TemplateErrorDto {

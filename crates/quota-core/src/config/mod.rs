@@ -42,6 +42,11 @@ pub struct ProviderEntry {
     /// 订阅套餐变体（默认 Auto 不落盘，旧配置天然兼容；语义见定义处）。
     #[serde(default, skip_serializing_if = "PlanVariant::is_auto")]
     pub plan_variant: PlanVariant,
+    /// 查询是否走代理（条目级开关，默认 false 直连）。代理端口来自
+    /// settings.json 的全局网络代理端口——开启但未配端口时查询报
+    /// 确定性引导错误。旧配置无此字段天然兼容。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub use_proxy: bool,
 }
 
 fn default_true() -> bool {
@@ -217,6 +222,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
@@ -249,6 +255,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
         assert_eq!(
@@ -272,6 +279,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         let err = entry.credentials(&vault).unwrap_err();
         assert!(!err.is_transient());
@@ -292,6 +300,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         a.set_api_key(&vault, "sk-abc").unwrap();
         let mut b = a.clone();

@@ -30,6 +30,8 @@ pub struct EditInput {
     /// None = 保持当前套餐变体。
     pub plan_variant: Option<PlanVariant>,
     pub enabled: bool,
+    /// 查询代理条目级开关（当前值快照可直接覆写）。
+    pub use_proxy: bool,
 }
 
 /// 将编辑输入应用到条目（纯函数，向导逻辑的可测内核）。
@@ -76,6 +78,7 @@ pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
         entry.plan_variant = variant;
     }
     entry.enabled = input.enabled;
+    entry.use_proxy = input.use_proxy;
 }
 
 pub fn run(ctx: &Ctx, id: String, enable: bool, disable: bool) -> i32 {
@@ -229,6 +232,12 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         .interact()
         .unwrap_or(current.enabled);
 
+    let use_proxy = Confirm::with_theme(&theme)
+        .with_prompt(t(lang, T::UseProxyPrompt))
+        .default(current.use_proxy)
+        .interact()
+        .unwrap_or(current.use_proxy);
+
     Ok(EditInput {
         name: Some(name),
         base_url,
@@ -237,6 +246,7 @@ fn collect_edit_input(current: &ProviderEntry, lang: Lang) -> Result<EditInput, 
         script_allow_insecure,
         plan_variant,
         enabled,
+        use_proxy,
     })
 }
 
@@ -287,6 +297,7 @@ mod tests {
             base_url: Some("https://old.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -304,6 +315,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e, template_entry());
@@ -328,6 +340,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: false,
+                use_proxy: false,
             },
         );
         assert_eq!(e.name, "新名");
@@ -353,6 +366,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e.name, "旧名");
@@ -374,6 +388,7 @@ mod tests {
             base_url: Some("https://old.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         apply_edit(
             &mut e,
@@ -387,6 +402,7 @@ mod tests {
                 script_allow_insecure: Some(true),
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e.base_url.as_deref(), Some("https://new.com"));
@@ -409,6 +425,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         match &e.kind {
@@ -472,6 +489,7 @@ mod run_tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 

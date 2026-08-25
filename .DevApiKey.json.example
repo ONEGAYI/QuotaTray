@@ -9,5 +9,11 @@
   "zhipu_api": "你的-智谱-bigmodel-通用 API 密钥（Bearer，按量计费）",
   "zai_api": "你的-Z.ai-通用 API 密钥（Bearer，按量计费）",
   "zhipu": "你的-智谱-bigmodel-密钥（GLM Coding Plan，裸 key 无前缀）",
-  "zai": "你的-Z.ai-密钥（国际站 GLM Coding Plan，裸 key 无前缀）"
+  "zai": "你的-Z.ai-密钥（国际站 GLM Coding Plan，裸 key 无前缀）",
+  "stepfun": "sk-你的-stepfun-密钥",
+  "novita": "sk-你的-novita-密钥",
+  "minimax": "sk-你的-minimax-密钥（国内站 api.minimaxi.com）",
+  "minimax_global": "sk-你的-minimax-密钥（国际站 api.minimax.io）",
+  "claude": "cli（订阅凭据自动读本机 ~/.claude/.credentials.json，本条目仅作 dev-smoke 开关）",
+  "codex": "cli（订阅凭据自动读本机 ~/.codex/auth.json，本条目仅作 dev-smoke 开关）"
 }

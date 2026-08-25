@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::{ProviderEntry, ProviderKind};
+use crate::config::{Credentials, ProviderEntry, ProviderKind};
 use crate::http::{HttpClient, ReqwestHttpClient};
 use crate::model::QueryError;
 use crate::model::UsageData;
@@ -16,14 +16,36 @@ use crate::vault::Vault;
 /// 业务级默认超时（取 cc-switch clamp(2,30) 区间内的 15 秒）。
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[derive(Clone)]
 pub struct QueryEngine {
+    /// 直连通道（默认路由）。
     http: Arc<dyn HttpClient>,
+    /// 代理通道：条目 `use_proxy` 开启且设置中配了全局代理端口时构造；
+    /// None = 引擎无代理能力（条目开代理 → 确定性引导错误）。
+    http_proxied: Option<Arc<dyn HttpClient>>,
     timeout: Duration,
 }
 
 impl QueryEngine {
     pub fn new(http: Arc<dyn HttpClient>, timeout: Duration) -> Self {
-        Self { http, timeout }
+        Self {
+            http,
+            http_proxied: None,
+            timeout,
+        }
+    }
+
+    /// 双通道构造（GUI/CLI 按 settings 代理端口装配）。
+    pub fn with_proxied(
+        http: Arc<dyn HttpClient>,
+        http_proxied: Option<Arc<dyn HttpClient>>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            http,
+            http_proxied,
+            timeout,
+        }
     }
 
     /// 生产默认构造：reqwest 客户端（rustls）+ 15 秒业务超时。
@@ -34,23 +56,46 @@ impl QueryEngine {
         Ok(Self::new(Arc::new(http), DEFAULT_TIMEOUT))
     }
 
+    /// 按条目的代理开关选择通道：开启但引擎无代理通道（未配全局
+    /// 端口）→ 确定性引导；其余走直连。
+    fn route_http(&self, entry: &ProviderEntry) -> Result<&dyn HttpClient, QueryError> {
+        if entry.use_proxy {
+            self.http_proxied.as_deref().ok_or_else(|| {
+                QueryError::deterministic(
+                    "该条目开启了查询代理，但设置中未配置网络代理端口——请前往设置填写或在条目上关闭代理",
+                )
+            })
+        } else {
+            Ok(self.http.as_ref())
+        }
+    }
+
     /// 查询单个供应商条目：解密凭据 → 按 kind 分派 → 超时包裹。
     pub async fn query(
         &self,
         vault: &Vault,
         entry: &ProviderEntry,
     ) -> Result<Vec<UsageData>, QueryError> {
-        let creds = entry.credentials(vault)?;
+        let http = self.route_http(entry)?;
         match &entry.kind {
             ProviderKind::Native { provider: id } => {
                 let native = provider::find(id)
                     .ok_or_else(|| QueryError::deterministic(format!("未知的预置平台 id：{id}")))?;
-                let fut = native.query(&creds, self.http.as_ref(), entry.plan_variant);
+                // CLI 凭据型平台（订阅四家）：凭据由 provider 查询时从本机
+                // 官方 CLI 的登录文件只读获取，跳过 api_key 解密前置——
+                // api_key_enc 为 None 不再是错误
+                let creds = if provider::uses_cli_credentials(id) {
+                    Credentials::new("")
+                } else {
+                    entry.credentials(vault)?
+                };
+                let fut = native.query(&creds, http, entry.plan_variant);
                 self.with_timeout(fut).await
             }
             ProviderKind::Template(config) => {
+                let creds = entry.credentials(vault)?;
                 let fut = crate::template::execute(
-                    self.http.as_ref(),
+                    http,
                     config,
                     creds.api_key.as_str(),
                     entry.base_url.as_deref(),
@@ -58,8 +103,9 @@ impl QueryEngine {
                 self.with_timeout(fut).await
             }
             ProviderKind::Script(config) => {
+                let creds = entry.credentials(vault)?;
                 let fut = crate::script::execute(
-                    self.http.as_ref(),
+                    http,
                     config,
                     creds.api_key.as_str(),
                     entry.base_url.as_deref(),
@@ -103,6 +149,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -161,6 +208,66 @@ mod tests {
         );
     }
 
+    /// 契约：CLI 凭据型平台（订阅四家）api_key_enc 为 None 也不在
+    /// 解密前置报「未配置 API key」——凭据由 provider 从本机 CLI 登录
+    /// 文件获取（本机文件缺失时是 provider 层的确定性引导错误）。
+    #[tokio::test]
+    async fn cli_credential_platform_runs_without_api_key() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let engine = QueryEngine::new(Arc::new(MockHttp::ok("{}")), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &entry("claude")).await.unwrap_err();
+        assert!(!err.is_transient(), "凭据缺失属确定性失败");
+        let message = err.message();
+        assert!(
+            !message.contains("未配置 API key"),
+            "CLI 凭据型平台不应报缺 key：{message}"
+        );
+    }
+
+    /// 契约：条目 use_proxy 开启时路由代理通道；引擎无代理通道
+    /// （未配全局端口）→ 确定性引导错误。
+    #[tokio::test]
+    async fn proxy_routing_per_entry() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("deepseek");
+        e.set_api_key(&vault, "sk-k").unwrap();
+
+        // 无代理通道 + use_proxy → 确定性引导（不触网）
+        e.use_proxy = true;
+        let engine = QueryEngine::new(Arc::new(MockHttp::ok("{}")), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &e).await.unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("代理端口"), "{}", err.message());
+        assert!(
+            engine
+                .query(&vault, &e)
+                .await
+                .unwrap_err()
+                .message()
+                .contains("代理端口"),
+            "MockHttp 也不该被触达（错误在路由层短路）"
+        );
+
+        // 双通道：use_proxy 走代理 mock、关闭走直连 mock（响应体可区分）
+        let direct = MockHttp::ok(
+            r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"1.00"}]}"#,
+        );
+        let proxied = MockHttp::ok(
+            r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"2.00"}]}"#,
+        );
+        let engine = QueryEngine::with_proxied(
+            Arc::new(direct.clone()),
+            Some(Arc::new(proxied.clone())),
+            DEFAULT_TIMEOUT,
+        );
+        e.use_proxy = true;
+        let via_proxy = engine.query(&vault, &e).await.unwrap();
+        assert_eq!(via_proxy[0].remaining, Some(2.0), "use_proxy 走代理通道");
+        e.use_proxy = false;
+        let via_direct = engine.query(&vault, &e).await.unwrap();
+        assert_eq!(via_direct[0].remaining, Some(1.0), "关闭走直连通道");
+    }
+
     /// 契约：引擎层透传 provider 的 401 → 确定性失败。
     #[tokio::test]
     async fn engine_passes_through_401_as_deterministic() {
@@ -191,6 +298,7 @@ mod tests {
             base_url: Some("https://api.demo.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         e.set_api_key(&vault, "sk-tpl").unwrap();
 
@@ -225,6 +333,7 @@ mod tests {
             base_url: Some("https://api.demo.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         e.set_api_key(&vault, "sk-scr").unwrap();
 

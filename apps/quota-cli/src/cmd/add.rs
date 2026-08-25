@@ -1,6 +1,6 @@
 //! `quota add`：添加供应商——交互向导或 `--json` 从 stdin 读入。
 
-use dialoguer::{Input, Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use quota_core::AppConfig;
 use quota_core::config::{PlanVariant, ProviderEntry, ProviderKind};
 use quota_core::template::{self, TemplateConfig};
@@ -52,7 +52,10 @@ pub fn run(ctx: &Ctx, json_mode: bool) -> i32 {
 
     let id = entry.id.clone();
     let name = entry.name.clone();
-    let key_missing = entry.api_key_enc.is_none();
+    // CLI 凭据型平台无需 key，不提示 set-key（向导已打印过说明）
+    let key_missing = entry.api_key_enc.is_none()
+        && !matches!(&entry.kind, ProviderKind::Native { provider }
+            if quota_core::provider::uses_cli_credentials(provider));
     cfg.providers.push(entry);
     if let Err(e) = cfg.save(&ctx.config_path) {
         eprintln!("{}{e}", t(lang, T::Err));
@@ -186,9 +189,26 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         )
     };
 
-    // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
-    let key = io::read_secret(t(lang, T::KeyPromptSkip), lang)
-        .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?;
+    // CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的登录
+    // 文件只读获取，跳过 key 输入并打印提示行
+    let cli_cred = matches!(&kind, ProviderKind::Native { provider }
+        if quota_core::provider::uses_cli_credentials(provider));
+    let key = if cli_cred {
+        println!("{}", t(lang, T::CliCredentialNote));
+        String::new()
+    } else {
+        // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
+        io::read_secret(t(lang, T::KeyPromptSkip), lang)
+            .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?
+            .to_string()
+    };
+    // 代理是条目级开关：目标站点被墙（如 chatgpt.com）时开启，
+    // 端口在设置的网络代理中统一配置
+    let use_proxy = Confirm::with_theme(&theme)
+        .with_prompt(t(lang, T::UseProxyPrompt))
+        .default(false)
+        .interact()
+        .map_err(|e| format!("{}{e}", t(lang, T::SelectReadFail)))?;
     assemble_entry(
         ctx,
         name.trim().to_string(),
@@ -197,6 +217,7 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         Some(key.trim().to_string()),
         existing_ids,
         variant,
+        use_proxy,
     )
 }
 
@@ -213,6 +234,7 @@ pub fn assemble_entry(
     key: Option<String>,
     existing_ids: &[String],
     plan_variant: PlanVariant,
+    use_proxy: bool,
 ) -> Result<ProviderEntry, String> {
     let lang = ctx.lang;
     let mut entry = ProviderEntry {
@@ -224,6 +246,7 @@ pub fn assemble_entry(
         base_url,
         pricing: None,
         plan_variant,
+        use_proxy,
     };
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
@@ -421,6 +444,7 @@ mod tests {
             Some("sk-wizard-key".into()),
             &[],
             PlanVariant::Auto,
+            false,
         )
         .unwrap();
 
@@ -440,6 +464,7 @@ mod tests {
             None,
             &[],
             PlanVariant::Auto,
+            false,
         )
         .unwrap();
         assert!(no_key.api_key_enc.is_none());
@@ -460,6 +485,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         });
 
         for lang in [Lang::Zh, Lang::En] {
@@ -488,6 +514,7 @@ mod tests {
                 base_url: None,
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
+                use_proxy: false,
             };
             assert_eq!(
                 check_entry(&e2, &cfg, lang).unwrap_err(),

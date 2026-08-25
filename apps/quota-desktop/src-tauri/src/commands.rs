@@ -40,6 +40,9 @@ pub struct NativeMetaDto {
     /// 是否支持套餐变体声明（智谱系订阅套餐：v1 无周限 / v2+ 有周限），
     /// 编辑表单据此决定是否展示变体选择。
     pub supports_plan_variant: bool,
+    /// CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的
+    /// 登录文件只读获取——编辑表单隐藏 key 输入框并展示提示卡。
+    pub uses_cli_credentials: bool,
     /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
     pub custom_models: Vec<quota_core::CustomModelDef>,
 }
@@ -332,6 +335,7 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
                 id: m.id.into(),
                 name: m.name.into(),
                 supports_plan_variant: quota_core::provider::supports_plan_variant(m.id),
+                uses_cli_credentials: quota_core::provider::uses_cli_credentials(m.id),
                 pricing,
                 pricing_by_currency,
                 custom_models: cfg.custom_models.get(m.id).cloned().unwrap_or_default(),
@@ -397,13 +401,16 @@ pub async fn test_template(
         base_url,
         pricing: None,
         plan_variant: PlanVariant::Auto,
+        use_proxy: false,
     };
     entry
         .set_api_key(&state.vault, &key)
         .map_err(|e| lang.err_encrypt_failed(&e))?;
     entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
 
-    let outcome = match state.engine.query(&state.vault, &entry).await {
+    // clone（Arc 浅拷贝）后立即释放读锁，避免 guard 跨 await 破坏 Send
+    let engine = state.engine.read().unwrap().clone();
+    let outcome = match engine.query(&state.vault, &entry).await {
         Ok(data) => QueryOutcome {
             ok: true,
             data: Some(data),
@@ -475,13 +482,16 @@ pub async fn test_script(
         base_url,
         pricing: None,
         plan_variant: PlanVariant::Auto,
+        use_proxy: false,
     };
     entry
         .set_api_key(&state.vault, &key)
         .map_err(|e| lang.err_encrypt_failed(&e))?;
     entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
 
-    let outcome = match state.engine.query(&state.vault, &entry).await {
+    // clone（Arc 浅拷贝）后立即释放读锁，避免 guard 跨 await 破坏 Send
+    let engine = state.engine.read().unwrap().clone();
+    let outcome = match engine.query(&state.vault, &entry).await {
         Ok(data) => QueryOutcome {
             ok: true,
             data: Some(data),
@@ -512,7 +522,8 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         .ok_or_else(|| lang.err_entry_not_enabled(&id))?
         .clone();
 
-    let result = state.engine.query(&state.vault, &entry).await;
+    let engine = state.engine.read().unwrap().clone();
+    let result = engine.query(&state.vault, &entry).await;
     let outcome = {
         let mut results = state.results.write().unwrap();
         match result {
@@ -600,11 +611,19 @@ pub fn save_settings(
     settings.sanitize();
     let old_autostart = state.settings.read().unwrap().autostart;
 
+    let old_proxy_port = state.settings.read().unwrap().update_proxy_port;
     settings
         .save(&state.paths.settings())
         .map_err(|e| lang.err_settings_save(&e))?;
     *state.settings.write().unwrap() = settings.clone();
     tray::rebuild(&app, &state); // 阈值/语言/主题/每圈单位变化即时反映
+    // 网络代理端口变更即时生效：热重建查询引擎（读锁内查询继续用旧
+    // 客户端跑完，写锁仅在换新实例的瞬间持有）
+    if old_proxy_port != settings.update_proxy_port {
+        if let Err(e) = crate::state::rebuild_engine(&state) {
+            eprintln!("代理变更后重建查询引擎失败：{e}");
+        }
+    }
 
     if old_autostart != settings.autostart {
         if let Err(e) = apply_autostart(&app, settings.autostart, lang) {
@@ -741,6 +760,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 

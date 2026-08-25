@@ -71,8 +71,13 @@ quota update --check           # 检测新版本
 | Kimi Code | kimi.com/code / kimi.ai/code | 5 小时 + 周额度窗口，RFC3339 重置时间 |
 | 智谱 / Z.ai 通用 API | 国内站 / 国际站 | 按量计费余额，Bearer API key |
 | 智谱 / Z.ai Coding Plan | 国内站 / 国际站 | 套餐用量（多窗口），裸 key |
+| StepFun | — | 顶层 balance，CNY |
+| Novita AI | — | availableBalance ÷ 10000 = USD |
+| MiniMax Coding Plan | 国内站 / 国际站 | 5h+周剩余百分比归一已用 |
+| Claude 订阅 | — | Pro/Max 多窗口用量，凭据读本机 Claude Code 登录 |
+| Codex（ChatGPT 订阅） | — | Plus/Pro 双窗口用量，凭据读本机 Codex CLI 登录 |
 
-Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai 的余额和 Coding Plan 查询端点未收入公开 API 文档，其余为官方公开接口。自动化测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
+订阅型平台（Claude/Codex）**无需填写 API key**：查询时自动只读本机已登录官方 CLI 的凭据文件，不写入、不导出。Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai 与订阅两家的查询端点及凭据文件格式均未收入公开 API 文档（社区广泛使用的稳定契约），其余为官方公开接口。自动化测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
 
 ## 自定义查询：声明式模板
 

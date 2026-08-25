@@ -75,11 +75,24 @@ QuotaTray/
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏；
 │           │              #   new_with_proxy 供更新通道注入可选代理）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（16 项）+
-│           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（18 项）+
+│           │   │              #   supports_plan_variant/uses_cli_credentials 标记（订阅
+│           │   │              #   四家 CLI 凭据型：查询时读本机官方 CLI 登录文件）+
+│           │   │              #   解析工具（parse_success_json/
 │           │   │              #   status_error_with_body 错误附脱敏响应体 detail——
 │           │   │              #   error_detail 嵌套 error.message 后回退平铺字符串，
 │           │   │              #   非字符串形态不误提取）+ MockHttp
+│           │   ├── claude.rs         # Claude 订阅（Pro/Max）：CLI 凭据复用——只读
+│           │   │                     #   ~/.claude/.credentials.json（claudeAiOauth.
+│           │   │                     #   accessToken，双拼写兼容）→ GET oauth/usage
+│           │   │                     #   （anthropic-beta 头）；已知四窗口固定顺序 +
+│           │   │                     #   未知窗口自动兼容、extra_usage 透传 extra；
+│           │   │                     #   401/403 → 重登引导（fetch_json_relogin）
+│           │   ├── codex.rs          # Codex（ChatGPT 订阅）：CLI 凭据复用——只读
+│           │   │                     #   ~/.codex/auth.json（auth_mode==chatgpt 门禁，
+│           │   │                     #   API key 模式确定性引导）→ GET wham/usage
+│           │   │                     #   （UA codex-cli 防拦 + ChatGPT-Account-Id 头）；
+│           │   │                     #   primary/secondary 双窗口按秒数标注、reset 秒→毫秒
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
@@ -119,8 +132,9 @@ QuotaTray/
 │           │                  #   validate 干跑（假变量+形状校验）；JS 异常
 │           │                  #   消息可能回显注入 key——全错误路径 redact 收口
 │           ├── query/
-│           │   └── mod.rs     # QueryEngine：解密→分派（native/template/script）
-│           │                  #   →超时（15s）
+│           │   └── mod.rs     # QueryEngine：解密→分派（native/template/script；
+│           │                  #   CLI 凭据型 native 跳过解密前置，api_key_enc
+│           │                  #   可为 None）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
 │                              #   独立下载通道（10min 总超时 + 15s 连接超时快速失败、
@@ -182,7 +196,8 @@ QuotaTray/
 │   │           │              #   可注入测试；退出码三分；更新代理端口读自 settings.json
 │   │           │              #   ——GUI 设置页写入，检测/下载共用并打印提示行）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
-│   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（OK 行带
+│   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（CLI 凭据型
+│   │           │              #   平台条目仅作开关、跳过 set_api_key；OK 行带
 │   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
@@ -200,7 +215,8 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 十张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │   └── providers/     # 十四张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax + 订阅四家 claude/openai(codex 用)/gemini/grok；
 │       │   │                    #   minimax + newapi 供模板条目启发匹配；图标容器固定浅底
 │       │   │                    #   不随主题——单色深色 logo 明暗主题均可见，浅色底图形
 │       │   │                    #   （StepFun 白色圆盘）走 is-light-logo 深底变体）
