@@ -254,7 +254,8 @@ QuotaTray/
 │       │       ├── presetTemplates.ts / presetTemplates.test.ts
 │       │       │                       # 模板编辑器预设库（5 形态：通用/单对象余额/
 │       │       │                       #   站点可变/总额已用/多窗口，与 examples/templates
-│       │       │                       #   对齐）+ matchedPresetId 高亮判定纯函数
+│       │       │                       #   同构）+ matchedPresetId 语义等价高亮判定
+│       │       │                       #   （serde 往返补全键不算改动）纯函数
 │       │       ├── TemplateHelpCard.tsx # 模板编写说明折叠卡：变量、字段速查、
 │       │       │                       #   最小示例（设置模板子页底部，默认收起）
 │       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
@@ -329,8 +330,10 @@ QuotaTray/
 │               │               #   资产名随版本变化自动失效；检测失败不丢记录）+
 │               │               #   手动/自动检测 + 下载到 %TEMP%/QuotaTray/Downloads
 │               │               #   并向前端推送进度/速率（检测与下载共用设置
-│               │               #   中的更新代理端口）+ run_installer 运行安装包
-│               │               #   （路径防御校验：限下载目录内 .exe）+ 每分钟调度
+│               │               #   中的更新代理端口；写入侧校验资产名为纯
+│               │               #   文件名 .exe、下载目录 symlink/junction 防御）+
+│               │               #   run_installer 运行安装包（运行侧路径防御校验：
+│               │               #   限下载目录内 .exe）+ 每分钟调度
 │               │               #   （due_check，完成后推送状态事件；设置变更自然
 │               │               #   生效；同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
