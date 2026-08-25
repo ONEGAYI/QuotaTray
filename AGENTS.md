@@ -365,14 +365,19 @@ QuotaTray/
 │               ├── lib.rs      # Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
-│               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
+│               │               #   （IPC 错误形状，含脱敏 detail 排查详情）+
+│               │               #   history 历史库句柄（M5，Mutex<HistoryStore>，打开
+│               │               #   失败降级内存库不阻断启动；DataPaths.history()）
 │               ├── commands.rs # 主业务 IPC 20 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
-│               │               #   消除悬停面板等只读视图的无数据空窗）+ Provider
+│               │               #   消除悬停面板等只读视图的无数据空窗；成功分支顺写
+│               │               #   历史库 M5，结果表锁外执行、失败仅告警）+ Provider
 │               │               #   增删改跨 WebView 失效事件、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新四命令（检测/下载/install_update 运行安装包后
-│               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播）+
+│               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播；
+│               │               #   M5 起随迁移包携带历史——导出全量带出、导入幂等
+│               │               #   合并；remove_provider 同步清条目历史）+
 │               │               #   script 双命令（validate_script 干跑/test_script 全链路，
 │               │               #   镜像 template 对，key 缺省语义同）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、

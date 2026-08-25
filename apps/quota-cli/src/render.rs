@@ -445,11 +445,11 @@ pub fn total_pages(len: usize, page_size: u64) -> u64 {
 }
 
 /// 切出第 `page` 页（1 起）；超界返回空片。
-pub fn page_slice<'a>(
-    rows: &'a [quota_core::HistoryPoint],
+pub fn page_slice(
+    rows: &[quota_core::HistoryPoint],
     page: u64,
     page_size: u64,
-) -> &'a [quota_core::HistoryPoint] {
+) -> &[quota_core::HistoryPoint] {
     let start = page.saturating_sub(1).saturating_mul(page_size) as usize;
     let end = start.saturating_add(page_size as usize).min(rows.len());
     if start >= rows.len() {

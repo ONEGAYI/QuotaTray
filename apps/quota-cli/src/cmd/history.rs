@@ -72,7 +72,9 @@ pub fn run_show(
             return 1;
         }
     };
-    if let Err(missing) = crate::cmd::query::select_entries(&cfg.providers, &[id.clone()]) {
+    if let Err(missing) =
+        crate::cmd::query::select_entries(&cfg.providers, std::slice::from_ref(&id))
+    {
         for miss in missing {
             eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, &miss));
         }
@@ -186,7 +188,9 @@ pub fn run_clear(ctx: &Ctx, id: Option<String>, yes: bool) -> i32 {
                 return 1;
             }
         };
-        if let Err(missing) = crate::cmd::query::select_entries(&cfg.providers, &[id.clone()]) {
+        if let Err(missing) =
+            crate::cmd::query::select_entries(&cfg.providers, std::slice::from_ref(id))
+        {
             for miss in missing {
                 eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, &miss));
             }

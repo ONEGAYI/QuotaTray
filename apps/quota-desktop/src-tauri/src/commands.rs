@@ -205,47 +205,63 @@ fn export_configuration_at(
     config_path: &std::path::Path,
     export_path: &std::path::Path,
     vault: &Vault,
+    history: Option<&[quota_core::HistoryExportRow]>,
 ) -> Result<(), String> {
     let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
-    quota_core::export_config_to_path(&config, vault, None, export_path).map_err(|e| e.to_string())
+    quota_core::export_config_to_path(&config, vault, history, export_path)
+        .map_err(|e| e.to_string())
 }
 
 fn import_configuration_at(
     export_path: &std::path::Path,
     config_path: &std::path::Path,
     vault: &Vault,
-) -> Result<AppConfig, String> {
-    // 历史数据接线在 M5-a 桌面端 PR 跟进，此处仅解码配置。
-    let bundle = quota_core::import_config_to_path(export_path, vault, config_path)
-        .map_err(|e| e.to_string())?;
-    Ok(bundle.config)
+) -> Result<quota_core::TransferBundle, String> {
+    quota_core::import_config_to_path(export_path, vault, config_path).map_err(|e| e.to_string())
 }
 
-/// 导出完整配置到用户通过系统对话框选定的路径。
+/// 导出完整配置（含查询历史）到用户通过系统对话框选定的路径。
 #[tauri::command]
 pub fn export_configuration(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    // 历史读取失败降级为不带历史，导出主任务继续
+    let history = match state.history.lock().unwrap().export_rows() {
+        Ok(rows) => Some(rows),
+        Err(e) => {
+            eprintln!("导出携带历史失败（将不含历史数据）：{e}");
+            None
+        }
+    };
     export_configuration_at(
         &state.paths.config(),
         std::path::Path::new(&path),
         &state.vault,
+        history.as_deref(),
     )
 }
 
-/// 从迁移包整体替换配置，清除旧查询快照并通知所有窗口刷新。
+/// 从迁移包整体替换配置（历史幂等合并），清除旧查询快照并通知所有窗口刷新。
 #[tauri::command]
 pub fn import_configuration(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<usize, String> {
-    let config = import_configuration_at(
+    let bundle = import_configuration_at(
         std::path::Path::new(&path),
         &state.paths.config(),
         &state.vault,
     )?;
+    // 迁移包携带的历史行合并进本机历史库（配置已导入成功，失败仅告警）
+    if let Some(rows) = &bundle.history {
+        if !rows.is_empty() {
+            if let Err(e) = state.history.lock().unwrap().merge_rows(rows) {
+                eprintln!("导入历史合并失败：{e}");
+            }
+        }
+    }
     state.results.write().unwrap().clear();
     after_state_change(&app, &state);
-    let provider_count = config.providers.len();
+    let provider_count = bundle.config.providers.len();
     if let Err(e) = app.emit("configuration-imported", provider_count) {
         eprintln!("配置导入事件发送失败：{e}");
     }
@@ -321,6 +337,10 @@ pub fn remove_provider(
         return Err(lang.err_entry_not_found(&id));
     }
     cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+    // 条目已删，历史随删（与快照孤儿过滤语义对齐）；失败仅告警
+    if let Err(e) = state.history.lock().unwrap().clear(Some(&id)) {
+        eprintln!("清除条目历史失败：{e}");
+    }
     state.results.write().unwrap().remove(&id);
     after_state_change(&app, &state);
     emit_providers_changed(&app);
@@ -570,6 +590,15 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
             }
         }
     };
+    // M5：成功查询写入历史库（非关键数据，失败仅告警不阻断主链路；
+    // 在结果表写锁外执行，避免锁内做磁盘 IO）
+    if outcome.ok {
+        if let (Some(data), Some(at)) = (outcome.data.as_ref(), outcome.at) {
+            if let Err(e) = state.history.lock().unwrap().record(&id, data, at) {
+                eprintln!("历史记录写入失败：{e}");
+            }
+        }
+    }
     after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
     Ok(outcome)
@@ -804,19 +833,59 @@ mod tests {
         .save(&source_path)
         .unwrap();
 
-        export_configuration_at(&source_path, &bundle, &source_vault).unwrap();
+        export_configuration_at(&source_path, &bundle, &source_vault, None).unwrap();
         let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
-        assert_eq!(imported.providers.len(), 1);
+        assert_eq!(imported.config.providers.len(), 1);
         assert_eq!(
-            imported.providers[0]
+            imported.config.providers[0]
                 .credentials(&target_vault)
                 .unwrap()
                 .api_key
                 .as_str(),
             "sk-desktop-transfer"
         );
-        assert_eq!(AppConfig::load(&target_path).unwrap(), imported);
+        assert_eq!(AppConfig::load(&target_path).unwrap(), imported.config);
         let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
+    }
+
+    /// 契约：迁移包携带历史行（v2 信封），导出→导入后由调用方合并进
+    /// 目标库（IPC 层 import_configuration 接线）。
+    #[test]
+    fn transfer_helpers_carry_history_rows() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let source_path = transfer_path("history", "source.json");
+        let target_path = transfer_path("history", "target.json");
+        let bundle = transfer_path("history", "backup.qtray-export");
+        AppConfig {
+            providers: vec![entry("p1")],
+            custom_models: Default::default(),
+        }
+        .save(&source_path)
+        .unwrap();
+
+        let rows = vec![quota_core::HistoryExportRow {
+            provider_id: "p1".into(),
+            window_key: "five_hour".into(),
+            sampled_at: 1_700_000_000_000,
+            used: Some(10.0),
+            remaining: Some(90.0),
+            total: Some(100.0),
+            unit: Some("%".into()),
+        }];
+        export_configuration_at(&source_path, &bundle, &source_vault, Some(&rows)).unwrap();
+        let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
+        assert_eq!(imported.history.as_deref(), Some(rows.as_slice()));
+
+        // 模拟 IPC 层合并：临时历史库 merge 后可查
+        let db = transfer_path("history", "history.db");
+        let store = quota_core::HistoryStore::open(&db).unwrap();
+        store
+            .merge_rows(imported.history.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(store.range("p1", 0).unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(target_path.parent().unwrap());
     }
 
     #[test]

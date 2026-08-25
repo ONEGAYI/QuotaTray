@@ -8,7 +8,9 @@
 Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。**GUI 是薄层**——
 全部业务在 core，前端事件只消费结果；快照持久化在本端实现（core 冻结期不动 core）。
 
-**不做**：CLI 已覆盖的批量管理功能不再重复设计；用量趋势图表等留待后续版本。
+**不做**：CLI 已覆盖的批量管理功能不再重复设计；用量趋势图表（走势图 UI 与
+`get_history` IPC）留待 M5-b——M5-a 已完成历史存储写入接线（core
+`history` 模块 + 迁移包携带，详见 history-spec），GUI 查询轮询自动积累数据。
 
 ## 2. 技术选型
 
@@ -98,6 +100,10 @@ core 冻结期内由本端实现：查询成功后把 `{ id: { data, at } }` 写
 `~/.quotatray/cache.json`（tauri-plugin-store 或直接 fs，原子写）；
 启动时先渲染快照（标注"上次于 N 分钟前"）再异步刷新——消除重启空窗
 （cc-switch 的已知短板，方案预研 §5.3 改良项）。
+
+M5-a 起同一成功链路另行写入查询历史库（`~/.quotatray/history.db`，
+30 天滚动，core `HistoryStore`）；条目删除同步清其历史，config
+导入导出随迁移包携带（幂等合并），详见 history-spec.md。
 
 ## 6. 打包与分发
 
