@@ -310,8 +310,12 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         {tab === "template" ? (
           <>
             {/* 子页「运营商与模型」：CSS 隐藏切换（不卸载）——
-                PricingSection 内聚草稿态，卸载重挂会丢未保存的定价改动 */}
-            <div className={templateSub === "provider" ? undefined : "qt-hidden"}>
+                PricingSection 内聚草稿态，卸载重挂会丢未保存的定价改动；
+                容器自带 grid gap（qt-edit-subpage），否则内部元素失去
+                form grid 的行距退化为零间距堆叠 */}
+            <div
+              className={`qt-edit-subpage ${templateSub === "provider" ? "" : "qt-hidden"}`}
+            >
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
               {pricingSection}
