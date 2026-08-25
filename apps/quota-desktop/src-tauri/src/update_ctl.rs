@@ -326,7 +326,7 @@ mod tests {
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
-            engine,
+            engine: std::sync::RwLock::new(engine),
             vault,
             paths,
             settings: std::sync::RwLock::new(Settings::default()),

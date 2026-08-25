@@ -187,7 +187,14 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
         plan_variant: planVariant,
       };
-      await api.upsertProvider(entry, apiKey.trim() ? apiKey : null);
+      // CLI 凭据型平台永不写 key：残留输入（跨平台切换的 state）不落 vault
+    const saveKey =
+      tab === "native" && selectedNativeMeta?.uses_cli_credentials
+        ? null
+        : apiKey.trim()
+          ? apiKey
+          : null;
+    await api.upsertProvider(entry, saveKey);
     },
     onSuccess: () => {
       invalidateAll();

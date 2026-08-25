@@ -544,6 +544,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }];
         for lang in [Lang::Zh, Lang::En] {
             let table = list_table(&entries, lang);

@@ -112,7 +112,8 @@ fn parse_usage(body: &Value) -> Result<Vec<UsageData>, QueryError> {
     }
 
     let known: Vec<&str> = KNOWN_TIERS.iter().map(|(k, _)| *k).collect();
-    // 已知窗口（固定顺序）在前，未知顶层 key 按出现顺序补后
+    // 已知窗口（固定顺序）在前，未知顶层 key 按键序补后
+    // （serde_json Map 为 BTreeMap，未开 preserve_order）
     let keys: Vec<&str> = body
         .as_object()
         .map(|map| {
@@ -150,11 +151,13 @@ fn parse_usage(body: &Value) -> Result<Vec<UsageData>, QueryError> {
 }
 
 fn window_row(utilization: f64, label: &str, window: &Value) -> UsageData {
+    // 与 zhipu 对齐：钳制防远端异常值把 remaining 顶成负数
+    let used = utilization.clamp(0.0, 100.0);
     UsageData {
         plan_name: Some(format!("Claude 订阅（{label}）")),
         total: Some(100.0),
-        used: Some(utilization),
-        remaining: Some(100.0 - utilization),
+        used: Some(used),
+        remaining: Some(100.0 - used),
         unit: Some("%".into()),
         reset_at: window
             .get("resets_at")
@@ -233,6 +236,15 @@ mod tests {
                 .unwrap_err();
             assert!(!err.is_transient(), "body {body} 应为确定性失败");
         }
+    }
+
+    /// utilization 越界钳制（>100 不产负 remaining）。
+    #[tokio::test]
+    async fn clamps_out_of_range_utilization() {
+        let body = r#"{"five_hour": {"utilization": 120.0}}"#;
+        let data = query_with_token(TOKEN, &MockHttp::ok(body)).await.unwrap();
+        assert_eq!(data[0].used, Some(100.0));
+        assert_eq!(data[0].remaining, Some(0.0));
     }
 
     /// 401/403 → 确定性 + 重新登录引导；429 → 瞬时。

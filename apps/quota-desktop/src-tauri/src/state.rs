@@ -100,7 +100,9 @@ pub struct QueryOutcome {
 
 /// 全局应用状态（Tauri manage 托管）。
 pub struct AppState {
-    pub engine: QueryEngine,
+    /// 查询引擎：代理端口设置变更时热重建（save_settings），
+    /// 读多写少用 RwLock。
+    pub engine: std::sync::RwLock<QueryEngine>,
     pub vault: Vault,
     pub paths: DataPaths,
     pub settings: RwLock<Settings>,
@@ -130,15 +132,44 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// 网络代理端口变更后热重建查询引擎（save_settings 调用）。
+pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpError> {
+    let proxy_port = state.settings.read().unwrap().update_proxy_port;
+    let engine = build_engine(proxy_port)?;
+    *state.engine.write().unwrap() = engine;
+    Ok(())
+}
+
+/// 按代理端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
+/// 全局网络代理端口时装配（条目 use_proxy 决定路由，未配端口而条目
+/// 开代理 → 引擎路由层确定性引导）。
+fn build_engine(proxy_port: Option<u16>) -> Result<QueryEngine, quota_core::http::HttpError> {
+    let direct = quota_core::http::ReqwestHttpClient::new(quota_core::DEFAULT_TIMEOUT)?;
+    let proxied = match quota_core::update::proxy_url_of(proxy_port).as_deref() {
+        Some(url) => Some(quota_core::http::ReqwestHttpClient::new_with_proxy(
+            quota_core::DEFAULT_TIMEOUT,
+            Some(url),
+        )?),
+        None => None,
+    };
+    Ok(QueryEngine::with_proxied(
+        std::sync::Arc::new(direct),
+        proxied.map(|c| std::sync::Arc::new(c) as std::sync::Arc<dyn quota_core::http::HttpClient>),
+        quota_core::DEFAULT_TIMEOUT,
+    ))
+}
+
 impl AppState {
     /// 初始化：打开保险库（系统凭据库）、构造引擎、恢复设置与快照。
     pub fn init(data_dir: Option<PathBuf>) -> Result<Self, String> {
         let paths = DataPaths::new(data_dir)?;
         let store = quota_core::KeyringStore::new();
         let vault = Vault::open(&store).map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
-        let engine = QueryEngine::with_default_client()
-            .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
+        // 查询通道代理：复用设置中的网络代理端口（chatgpt.com 等被墙
+        // 站点的订阅查询必需），proxy_url_of 与更新通道同口径
+        let engine = build_engine(settings.update_proxy_port)
+            .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
         // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
         let last_check = settings.update_last_check;
         let mut results = HashMap::new();
@@ -153,7 +184,7 @@ impl AppState {
             );
         }
         Ok(Self {
-            engine,
+            engine: std::sync::RwLock::new(engine),
             vault,
             settings: RwLock::new(settings),
             results: RwLock::new(results),

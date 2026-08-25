@@ -83,6 +83,8 @@ pub enum T {
     KeyPromptSkip,
     /// 订阅四家：凭据来自本机官方 CLI 登录文件的提示行。
     CliCredentialNote,
+    /// 条目级查询代理开关的向导问题。
+    UseProxyPrompt,
     IdEmptyHint,
     NameEmpty,
     IdGenFail,
@@ -354,6 +356,7 @@ fn zh(key: T) -> &'static str {
         T::CliCredentialNote => {
             "该平台凭据来自本机已登录的官方 CLI，无需输入 API key（查询时自动读取）"
         }
+        T::UseProxyPrompt => "查询走代理？（目标站点被墙时开启，端口在设置中统一配置）",
         T::IdEmptyHint => "id 不能为空（--json 模式需提供非空 id 字段）",
         T::NameEmpty => "名称不能为空",
         T::IdGenFail => "id 生成失败：",
@@ -586,6 +589,9 @@ fn en(key: T) -> &'static str {
         T::KeyPromptSkip => "API key (press Enter to skip; input is masked)",
         T::CliCredentialNote => {
             "This platform reads credentials from the locally signed-in official CLI; no API key needed"
+        }
+        T::UseProxyPrompt => {
+            "Route queries through a proxy? (enable for blocked sites; port is configured in settings)"
         }
         T::IdEmptyHint => "id must not be empty (--json mode requires a non-empty id field)",
         T::NameEmpty => "name must not be empty",

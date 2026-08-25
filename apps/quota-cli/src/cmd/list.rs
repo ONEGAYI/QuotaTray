@@ -62,6 +62,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         let j = serde_json::to_value(&[entry]).unwrap();
         assert_eq!(j[0]["kind"]["type"], "native");

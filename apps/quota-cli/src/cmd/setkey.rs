@@ -4,6 +4,7 @@
 //! 管道 stdin 允许（`echo $KEY | quota set-key id`）。
 
 use quota_core::AppConfig;
+use quota_core::config::ProviderKind;
 
 use crate::ctx::Ctx;
 use crate::io;
@@ -22,6 +23,13 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
         eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, &id));
         return 1;
     };
+    // CLI 凭据型平台（订阅四家）凭据来自本机官方 CLI，set-key 无意义
+    if matches!(&entry.kind, ProviderKind::Native { provider }
+        if quota_core::provider::uses_cli_credentials(provider))
+    {
+        println!("{}", t(lang, T::CliCredentialNote));
+        return 0;
+    }
 
     let key = match io::read_secret(t(lang, T::SetKeyPrompt), lang) {
         Ok(k) => k,

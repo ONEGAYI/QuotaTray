@@ -136,7 +136,7 @@ fn window_label(seconds: i64) -> String {
         604_800 => "week".into(),
         2_592_000 => "30d".into(),
         _ if seconds >= 86_400 => format!("{}d", seconds / 86_400),
-        _ if seconds > 0 => format!("{}h", seconds / 3_600),
+        _ if seconds > 0 => format!("{}h", (seconds / 3_600).max(1)),
         _ => "window".into(),
     }
 }
@@ -153,15 +153,21 @@ fn parse_usage(body: &Value) -> Result<Vec<UsageData>, QueryError> {
         let Some(used) = parse_num(window.get("used_percent")) else {
             continue;
         };
-        // 窗口长度缺失属异常响应：跳过该窗口而非伪造标签（宁缺毋错）
-        let Some(seconds) = window.get("limit_window_seconds").and_then(Value::as_i64) else {
+        // 窗口长度缺失属异常响应：跳过该窗口而非伪造标签（宁缺毋错）；
+        // parse_int 与 used_percent 的 parse_num 宽度对齐（数字/字符串兼容）
+        let Some(seconds) = window
+            .get("limit_window_seconds")
+            .and_then(super::parse_int)
+        else {
             continue;
         };
         let label = window_label(seconds);
         let reset_at = window
             .get("reset_at")
-            .and_then(Value::as_i64)
+            .and_then(super::parse_int)
             .map(|secs| secs * 1000);
+        // 与 zhipu 对齐：钳制防远端异常值把 remaining 顶成负数
+        let used = used.clamp(0.0, 100.0);
         rows.push(UsageData {
             plan_name: Some(format!("Codex（{label}）")),
             total: Some(100.0),
@@ -213,6 +219,17 @@ mod tests {
         assert_eq!(data[0].remaining, Some(58.0));
         assert_eq!(data[0].reset_at, Some(1787659200000));
         assert_eq!(data[1].plan_name.as_deref(), Some("Codex（week）"));
+    }
+
+    /// used_percent 越界钳制（>100 不产负 remaining）。
+    #[tokio::test]
+    async fn clamps_out_of_range_percent() {
+        let body = r#"{"rate_limit": {"primary_window": {"used_percent": 250.0, "limit_window_seconds": 18000}}}"#;
+        let data = query_with_token(&token(), &MockHttp::ok(body))
+            .await
+            .unwrap();
+        assert_eq!(data[0].used, Some(100.0));
+        assert_eq!(data[0].remaining, Some(0.0));
     }
 
     /// plan_type 透传 extra（真机响应含 plus/prolite/pro 区分订阅档）。

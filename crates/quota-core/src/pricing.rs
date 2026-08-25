@@ -1551,6 +1551,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -1812,6 +1813,7 @@ mod tests {
             base_url: None,
             pricing,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
@@ -1838,6 +1840,7 @@ mod tests {
             base_url: None,
             pricing,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         }
     }
 
