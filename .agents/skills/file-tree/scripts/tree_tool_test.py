@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from tree_tool import (  # noqa: E402
     ToolError,
     TreeTool,
+    _cmd_add,
     default_history_path,
     normalize_data,
     replace_block,
@@ -147,6 +148,38 @@ class AddRmTest(SandboxTest):
             tool.add("../escape.rs", desc="x")
         with self.assertRaises(ToolError):
             tool.add("apps/x.rs", desc="x", rel=["not/in/tree.rs"])
+
+
+class CmdAddTagsTest(SandboxTest):
+    """CLI 层 _cmd_add 的 --tags 解析契约：逗号分隔、去空白、None 直通。"""
+
+    def run_cmd_add(self, tool: TreeTool, tags):
+        import types
+
+        args = types.SimpleNamespace(
+            path="apps/new.ts", desc="新文件", detail=None, rel=None, tags=tags, dir=False
+        )
+        _cmd_add(tool, args)
+
+    def test_comma_separated_split_into_list(self):
+        tool = self.make_tool()
+        self.run_cmd_add(tool, "pure,test")
+        self.assertEqual(tool.get("apps/new.ts")["tags"], ["pure", "test"])
+
+    def test_trims_whitespace_and_drops_empty_segments(self):
+        tool = self.make_tool()
+        self.run_cmd_add(tool, " pure , , test ")
+        self.assertEqual(tool.get("apps/new.ts")["tags"], ["pure", "test"])
+
+    def test_none_keeps_field_absent(self):
+        tool = self.make_tool()
+        self.run_cmd_add(tool, None)
+        self.assertNotIn("tags", tool.get("apps/new.ts"))
+
+    def test_single_tag_not_split_into_chars(self):
+        tool = self.make_tool()
+        self.run_cmd_add(tool, "pure")
+        self.assertEqual(tool.get("apps/new.ts")["tags"], ["pure"])
 
     def test_rm_prunes_empty_parents(self):
         tool = self.make_tool(data={"tags": {}, "tree": {}})

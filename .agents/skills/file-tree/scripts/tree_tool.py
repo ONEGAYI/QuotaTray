@@ -647,7 +647,7 @@ def _cmd_add(tool: TreeTool, args) -> None:
         desc=args.desc,
         detail=args.detail,
         rel=args.rel,
-        tags=args.tags,
+        tags=[t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None,
         is_dir_entry=args.dir,
     )
     tool.render()
