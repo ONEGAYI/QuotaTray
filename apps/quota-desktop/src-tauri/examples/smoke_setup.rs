@@ -61,6 +61,7 @@ fn main() {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            use_proxy: false,
         };
         entry
             .set_api_key(&vault, key)
@@ -92,6 +93,7 @@ fn main() {
         base_url: Some(mock_url),
         pricing: None,
         plan_variant: PlanVariant::Auto,
+        use_proxy: false,
     };
     mock_entry
         .set_api_key(&vault, "sk-mock-smoke")

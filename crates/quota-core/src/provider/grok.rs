@@ -219,9 +219,7 @@ fn grpc_trailer_status(bytes: &[u8]) -> Option<(u32, Option<String>)> {
         let len =
             u32::from_be_bytes([bytes[i + 1], bytes[i + 2], bytes[i + 3], bytes[i + 4]]) as usize;
         let start = i + 5;
-        let Some(end) = start.checked_add(len) else {
-            return None;
-        };
+        let end = start.checked_add(len)?;
         if end > bytes.len() {
             return None;
         }
@@ -473,7 +471,8 @@ mod tests {
         out
     }
     fn f_varint(field: u32, v: u64) -> Vec<u8> {
-        let mut b = vec![((field << 3) | 0) as u8];
+        // tag = field << 3 | wire_type（varint 的 wire type 为 0）
+        let mut b = vec![(field << 3) as u8];
         b.extend(varint(v));
         b
     }

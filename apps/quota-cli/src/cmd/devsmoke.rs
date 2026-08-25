@@ -46,7 +46,7 @@ pub fn classify_keys(raw: &str, lang: Lang) -> Result<Classified, String> {
     Ok(out)
 }
 
-pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
+pub async fn run(key_file: Option<PathBuf>, proxy: bool, lang: Lang) -> i32 {
     let path = key_file.unwrap_or_else(|| PathBuf::from(".DevApiKey.json"));
     let raw = match std::fs::read_to_string(&path) {
         Ok(t) => t,
@@ -104,7 +104,7 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
-            use_proxy: false,
+            use_proxy: proxy,
         };
         // CLI 凭据型平台（订阅四家）：key 文件条目只是「要测这个」的
         // 开关（占位值即可），凭据实际来自本机官方 CLI 登录文件

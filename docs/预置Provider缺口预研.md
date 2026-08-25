@@ -34,7 +34,7 @@ QuotaTray 另有 `zhipu_api` / `zai_api`（按量余额，cc-switch 未实现）
 |---|---|---|
 | **A 层** | StepFun、Novita AI、MiniMax Coding Plan——cc-switch 端点/字段全有生产验证 | **批次 1** |
 | **NewAPI 系** | 约 40 家 one-api 系中转站，`GET {base}/api/user/self` 通用查询 | **批次 2**（预置模板，非逐站 native） |
-| **订阅四家** | Claude / Codex(ChatGPT) / Gemini / Grok 订阅用量——**CLI 凭据复用路线**（读官方 CLI 登录文件，QuotaTray 不做 OAuth 登录） | **批次 3**（架构决策与移植契约见 §6.1） |
+| **订阅四家** | Claude / Codex(ChatGPT) / Gemini / Grok 订阅用量——**CLI 凭据复用路线**（读官方 CLI 登录文件，QuotaTray 不做 OAuth 登录） | **✅ 已实现（PR #34/#35，v0.4.2）**——架构决策见 §6.1 |
 | **B 层** | 火山方舟（V4 AK/SK 签名）、百炼（无 API-Key 可用端点） | **延后**——凭据形态/实测结论见 §6.1 |
 | **C 层** | 国内大厂（千帆/混元/Longcat/MiMo/灵光/魔搭等）与聚合站（PPIO/AiHubMix/Nvidia 等） | **待做**——cc-switch 仅有切换预设、无查询实现，需逐站调研公开余额 API |
 | **百炼** | 阿里云百炼充值余额 | **Blocked——实测证伪（2026-08-25）**，API-Key 路线全堵：① 社区端点 `recharge-balance/query` 在主 API 域名全变体 404（GET/POST、compatible-mode 拼接、`bailian.cn-beijing` 域名均 InvalidAction.NotFound）；② 官方 CLI 网关（`bailian-cs.console.aliyun.com`）对 API-Key Bearer 返回 `BailianGateway.Login.NotLogined`（源码注释 + 实测双确认，仅认控制台 OAuth token）；③ 新旧控制台域名直连路径返回 SPA HTML/下线页。剩余路线：BssOpenApi `QueryAccountBalance`（RAM AK/SK + V3 签名，属 B 层工程且查的是阿里云主账户）或等官方接口。**教训：RAGFlow issue 是 feature request（未验证）、API-Key-Manager 实现未经真机确认——两个非实证来源不构成可用契约**。实现代码留档 `feat/bailian-provider` 分支（PR #33 已关闭），端点若复活改一行 URL 即可 |
@@ -98,9 +98,9 @@ QuotaTray 另有 `zhipu_api` / `zai_api`（按量余额，cc-switch 未实现）
 
 ## 6. 待做项（不在本两批次）
 
-### 6.1 订阅四家（批次 3，CLI 凭据复用）与延后项
+### 6.1 订阅四家（✅ 已实现：PR #34/#35，v0.4.2）与延后项
 
-**订阅四家的架构定案（2026-08-25）**：**QuotaTray 不做任何 OAuth 登录流程**，四家凭据全部复用本机官方 CLI 的登录文件（查询时只读、不写、不进 vault、用后即弃）——目标用户（AI 编码订阅用户）几乎必然已登录对应 CLI。此路线规避了自建 OAuth 的全部安全面（无回调、无 client 伪装、不新增明文落盘）。
+**订阅四家的架构定案（2026-08-25，已落地）**：**QuotaTray 不做任何 OAuth 登录流程**，四家凭据全部复用本机官方 CLI 的登录文件（查询时只读、不写、不进 vault、用后即弃）——目标用户（AI 编码订阅用户）几乎必然已登录对应 CLI。此路线规避了自建 OAuth 的全部安全面（无回调、无 client 伪装、不新增明文落盘）。
 
 | 平台 | 凭据文件 | 用量端点 | 移植来源 |
 |---|---|---|---|
@@ -109,7 +109,7 @@ QuotaTray 另有 `zhipu_api` / `zai_api`（按量余额，cc-switch 未实现）
 | Gemini Code Assist | `~/.gemini/oauth_creds.json`（refresh_token 自刷，公开 client_id） | `loadCodeAssist` + `retrieveUserQuota`（cloudcode-pa v1internal） | subscription.rs:772-1218 |
 | Grok 订阅 | `~/.grok/auth.json`（scope map，OIDC 优先） | gRPC-web `GetGrokCreditsConfig`（无 proto，protobuf 启发式扫描） | subscription_grok.rs 全文（CodexBar 移植） |
 
-已知边界：凭据文件格式与用量端点均无官方文档（社区工具广泛使用，事实上稳定）；macOS Keychain 凭据不支持（Windows 优先，CLI 在 Windows 存文件）；三家（Claude/Gemini/Grok）首版未经真机验证，契约来自 cc-switch 生产代码移植。
+已知边界：凭据文件格式与用量端点均无官方文档（社区工具广泛使用，事实上稳定）；macOS Keychain 凭据不支持（Windows 优先，CLI 在 Windows 存文件）；Codex 已真机验证通过（含条目级代理走被墙站点，`dev-smoke --proxy`）；Claude/Gemini/Grok 三家首版未经真机验证，契约来自 cc-switch 生产代码移植。
 
 **延后项**：
 

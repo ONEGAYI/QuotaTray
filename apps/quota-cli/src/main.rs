@@ -130,6 +130,10 @@ enum Command {
         /// key 文件路径（默认当前目录 .DevApiKey.json）
         #[arg(long, value_name = "PATH")]
         key_file: Option<PathBuf>,
+        /// 条目开启查询代理（settings.json 网络代理端口；验证 CLI 凭据型
+        /// 平台访问被墙站点时的代理通道）
+        #[arg(long)]
+        proxy: bool,
     },
 }
 
@@ -357,7 +361,9 @@ async fn run(cli: Cli) -> i32 {
             .await
         }
         #[cfg(debug_assertions)]
-        Command::DevSmoke { key_file } => cmd::devsmoke::run(key_file, ctx.lang).await,
+        Command::DevSmoke { key_file, proxy } => {
+            cmd::devsmoke::run(key_file, proxy, ctx.lang).await
+        }
     };
 
     if !json_mode && !is_update_cmd {
