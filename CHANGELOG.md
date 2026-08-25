@@ -2,6 +2,16 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.3] - 2026-08-25
+
+本补丁集中修复托盘悬停状态失步、跨窗口 Provider 缓存不同步及删除确认框定位异常。
+
+### Bug 修复
+
+- 托盘悬停面板偶发在鼠标移开后仍不收起，手动关闭后首次重新悬停又无法弹出：增加真实光标看门狗，在托盘图标与面板之外持续 250ms 后主动隐藏；失步状态下将后续 `Move` 恢复为进入事件，使首次重新悬停即可显示（#37）
+- 新增、编辑或删除 Provider 后，托盘面板的账户下拉列表仍显示旧缓存：后端广播 Provider 变更事件，主窗口与托盘面板分别失效 Provider 列表、查询状态和快照缓存（#37）
+- 删除 Provider 卡片时，二次确认框受卡片悬停变换影响而居中于卡片：通用对话框改为挂载到页面根节点，恢复以主窗口为定位参照（#37）
+
 ## [0.4.2] - 2026-08-25
 
 本版本预置平台从 12 家扩容至 20 家：新增 StepFun / Novita AI / MiniMax Coding Plan 三家按量与套餐平台、NewAPI 系中转站通用预置模板，以及 Claude / Codex（ChatGPT 订阅）/ Gemini / Grok 四家官方订阅用量查询——复用本机官方 CLI 的登录凭据，添加条目无需输入 key；同时配套条目级查询代理开关，chatgpt.com 等被墙站点可按条目走本机 HTTP 代理。
@@ -243,3 +253,4 @@
 [0.4.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.3.2...v0.4.0
 [0.4.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.0...v0.4.1
 [0.4.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.1...v0.4.2
+[0.4.3]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.2...v0.4.3
