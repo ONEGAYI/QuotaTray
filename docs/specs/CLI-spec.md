@@ -23,7 +23,8 @@
 | `quota pricing show/set/clear` | 峰谷定价查看 / 自定义 / 清除 |
 | `quota template test` | 对模板执行静态校验 + 试查询 |
 | `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
-| `quota config export/import` | 完整配置跨机器导出 / 整体导入 |
+| `quota history show/clear` | 查询历史走势查看（三档范围 + 分页）/ 清除 |
+| `quota config export/import` | 完整配置跨机器导出 / 整体导入（含查询历史） |
 | `quota dev-smoke` | 真机冒烟（仅 debug 构建） |
 
 ## 3. 子命令规格
@@ -62,6 +63,28 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
   （`echo $KEY | quota set-key id` 场景）。
 - `quota remove`：确认提示（`--yes` 跳过）。
 - id 冲突：`add` 生成短随机 id（如 6 位 base32），`edit/remove` 精确匹配。
+
+### quota history show / clear（M5）
+
+```text
+quota history show <id> [--window KEY] [--range 24h|7d|30d] [--page-size N] [--page N] [--json]
+quota history clear [id] [--yes]
+```
+
+- `quota query`（含 `--watch` 每轮）查询成功后自动写入历史库
+  （`config.json` 同目录 `history.db`，30 天滚动保留，见 history-spec）；
+  历史打开/写入失败仅 stderr 告警，不影响查询输出与退出码。
+- `show` 三档范围（默认 7d）：24h=15 分钟桶 / 7d=1 小时桶 / 30d=6 小时桶，
+  桶内取最后一点，按窗口时间线分组展示（列：时间/窗口/已用/剩余/单位）；
+  `--window` 只看指定时间线（如 five_hour / weekly）。
+- 分页：默认每页 20 行（`--page-size` 1..=500 覆盖）；终端下默认交互翻页
+  （空格/→ 下一页、b/← 上一页、q/Esc 退出）；`--page N` 指定页码即非交互
+  打印该页（与 `--json` 互斥）；管道（非终端）输出整表，翻页交由调用方。
+- `--json`：输出原始点数组（`{id, name, range, points}`，不分页不聚合）。
+- 退出码：id 不存在、历史库打开失败、页码超界 → 1；范围内无历史 → 提示并 0。
+- `clear`：无 id 清全部、有 id 清单条目（id 须存在）；确认默认否，`--yes` 跳过。
+- `config export` 默认携带全量历史行；`config import` 后按主键幂等合并进本机
+  历史库（同条目 id 跨机器续线），v1 老包无历史 section、导入不受影响。
 
 ### quota config export / import
 

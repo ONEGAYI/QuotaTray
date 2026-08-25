@@ -402,6 +402,85 @@ pub fn fmt_datetime_in_tz(ms: u64, timezone_offset_minutes: Option<i32>) -> Stri
     formatted.unwrap_or_else(|| chrono::Local::now().format("%m-%d %H:%M").to_string())
 }
 
+// ---- history 渲染 ----------------------------------------------------------
+
+/// `quota history show --json` 的输出结构（原始点，不分页不聚合）。
+#[derive(Serialize)]
+pub struct HistoryJson {
+    pub id: String,
+    pub name: String,
+    /// 回看范围档（"24h" / "7d" / "30d"）。
+    pub range: String,
+    pub points: Vec<quota_core::HistoryPoint>,
+}
+
+/// 历史点按窗口时间线分组、再按时间桶聚合（桶内取最后一点）。
+/// 输入须按 `sampled_at` 升序（`HistoryStore::range` 的输出顺序），
+/// 同桶后到的点覆盖先到的；输出按窗口名分组、组内按时间升序。
+pub fn bucket_points_by_window(
+    points: &[quota_core::HistoryPoint],
+    bucket_ms: u64,
+) -> Vec<quota_core::HistoryPoint> {
+    use std::collections::BTreeMap;
+    let mut by_window: BTreeMap<&str, BTreeMap<u64, quota_core::HistoryPoint>> = BTreeMap::new();
+    for point in points {
+        by_window
+            .entry(point.window_key.as_str())
+            .or_default()
+            .insert(point.sampled_at / bucket_ms, point.clone());
+    }
+    let mut result = Vec::new();
+    for (_key, buckets) in by_window {
+        result.extend(buckets.into_values());
+    }
+    result
+}
+
+/// 总页数：空数据也算 1 页（首页即空表）。
+pub fn total_pages(len: usize, page_size: u64) -> u64 {
+    if len == 0 {
+        return 1;
+    }
+    (len as u64).div_ceil(page_size)
+}
+
+/// 切出第 `page` 页（1 起）；超界返回空片。
+pub fn page_slice<'a>(
+    rows: &'a [quota_core::HistoryPoint],
+    page: u64,
+    page_size: u64,
+) -> &'a [quota_core::HistoryPoint] {
+    let start = page.saturating_sub(1).saturating_mul(page_size) as usize;
+    let end = start.saturating_add(page_size as usize).min(rows.len());
+    if start >= rows.len() {
+        &[]
+    } else {
+        &rows[start..end]
+    }
+}
+
+/// `quota history show` 表格：时间 / 窗口 / 已用 / 剩余 / 单位。
+/// 时间为本地时区 `%m-%d %H:%M`；窗口列复用「套餐」列头（窗口键源自 plan_name）。
+pub fn history_table(points: &[quota_core::HistoryPoint], lang: Lang) -> String {
+    let mut table = new_table(&[
+        t(lang, T::ColTime),
+        t(lang, T::ColPlan),
+        t(lang, T::ColUsed),
+        t(lang, T::ColRemaining),
+        t(lang, T::ColUnit),
+    ]);
+    for p in points {
+        table.add_row(vec![
+            Cell::new(fmt_datetime_in_tz(p.sampled_at, None)),
+            Cell::new(&p.window_key),
+            Cell::new(fmt_num(p.used)).set_alignment(CellAlignment::Right),
+            Cell::new(fmt_num(p.remaining)).set_alignment(CellAlignment::Right),
+            Cell::new(p.unit.clone().unwrap_or_else(|| "-".into())),
+        ]);
+    }
+    table.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +705,96 @@ mod tests {
         let ok = outcome_ok(vec![usage(1.0)]).to_json();
         let j = serde_json::to_string(&ok).unwrap();
         assert!(!j.to_lowercase().contains("key"), "{j}");
+    }
+
+    // ---- history 渲染 -------------------------------------------------------
+
+    use quota_core::HistoryPoint;
+
+    fn point(window: &str, sampled_at: u64, remaining: f64) -> HistoryPoint {
+        HistoryPoint {
+            window_key: window.into(),
+            sampled_at,
+            used: None,
+            remaining: Some(remaining),
+            total: None,
+            unit: Some("%".into()),
+        }
+    }
+
+    const HOUR_MS: u64 = 60 * 60 * 1000;
+
+    /// 契约：按窗口分组、桶内取最后一点、组内时间升序。
+    #[test]
+    fn bucket_points_group_by_window_and_keep_last_in_bucket() {
+        let points = vec![
+            point("five_hour", 10 * HOUR_MS, 1.0),
+            // 同桶（桶 10）后到覆盖先到
+            point("five_hour", 10 * HOUR_MS + 30 * 60 * 1000, 2.0),
+            point("five_hour", 12 * HOUR_MS, 3.0),
+            point("weekly", 9 * HOUR_MS, 4.0),
+            // 同毫秒不同桶边界：11h 恰好落入桶 11
+            point("weekly", 11 * HOUR_MS, 5.0),
+        ];
+        let bucketed = bucket_points_by_window(&points, HOUR_MS);
+        let got: Vec<(String, u64, f64)> = bucketed
+            .into_iter()
+            .map(|p| (p.window_key, p.sampled_at, p.remaining.unwrap()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("five_hour".into(), 10 * HOUR_MS + 30 * 60 * 1000, 2.0),
+                ("five_hour".into(), 12 * HOUR_MS, 3.0),
+                ("weekly".into(), 9 * HOUR_MS, 4.0),
+                ("weekly".into(), 11 * HOUR_MS, 5.0),
+            ]
+        );
+
+        assert!(bucket_points_by_window(&[], HOUR_MS).is_empty());
+    }
+
+    /// 契约：总页数与分页切片——空数据 1 页、整页、末页短页、超界空片。
+    #[test]
+    fn pagination_boundaries() {
+        assert_eq!(total_pages(0, 20), 1);
+        assert_eq!(total_pages(19, 20), 1);
+        assert_eq!(total_pages(20, 20), 1);
+        assert_eq!(total_pages(21, 20), 2);
+        assert_eq!(total_pages(40, 20), 2);
+
+        let rows: Vec<HistoryPoint> = (0..5).map(|i| point("w0", i, i as f64)).collect();
+        assert_eq!(page_slice(&rows, 1, 2).len(), 2);
+        assert_eq!(page_slice(&rows, 2, 2).len(), 2);
+        assert_eq!(page_slice(&rows, 3, 2).len(), 1, "末页短页");
+        assert_eq!(page_slice(&rows, 4, 2).len(), 0, "超界返回空片");
+        assert_eq!(page_slice(&rows, 1, 100).len(), 5, "页容量大于总数");
+        assert_eq!(page_slice(&[], 1, 20).len(), 0);
+    }
+
+    /// 契约：history 表格双语表头与数值渲染（时间列本地时区）。
+    #[test]
+    fn history_table_renders_headers_and_values() {
+        let rows = vec![point("five_hour", 1_700_000_000_000, 58.0)];
+        for lang in [Lang::Zh, Lang::En] {
+            let table = history_table(&rows, lang);
+            assert!(table.contains("five_hour"), "{lang:?}: {table}");
+            assert!(table.contains("58"), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColTime)), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColPlan)), "{lang:?}: {table}");
+        }
+        // 无数值列显示 "-"
+        let table = history_table(
+            &[HistoryPoint {
+                window_key: "w0".into(),
+                sampled_at: 1_700_000_000_000,
+                used: None,
+                remaining: None,
+                total: None,
+                unit: None,
+            }],
+            Lang::Zh,
+        );
+        assert!(table.contains('-'), "{table}");
     }
 }

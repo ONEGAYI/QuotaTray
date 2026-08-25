@@ -18,6 +18,7 @@ mod settings_io;
 mod texts;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use cmd::history::HistoryRange;
 use ctx::Ctx;
 use lang::Lang;
 use std::path::PathBuf;
@@ -109,6 +110,9 @@ enum Command {
     /// 凭据保险库
     #[command(subcommand)]
     Vault(VaultCmd),
+    /// 查询历史数据（余额/额度走势）
+    #[command(subcommand)]
+    History(HistoryCmd),
     /// 完整配置跨机器迁移
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -225,6 +229,38 @@ enum VaultCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum HistoryCmd {
+    /// 查看条目历史走势（按时间桶聚合）
+    Show {
+        /// 条目 id
+        id: String,
+        /// 只看指定窗口时间线（如 five_hour / weekly；缺省全部窗口）
+        #[arg(long, value_name = "KEY")]
+        window: Option<String>,
+        /// 回看范围与聚合粒度（默认 7d）
+        #[arg(long, value_enum, default_value = "7d")]
+        range: HistoryRange,
+        /// 每页行数（默认 20）
+        #[arg(long, value_name = "ROWS", value_parser = clap::value_parser!(u64).range(1..=500))]
+        page_size: Option<u64>,
+        /// 打印指定页后退出（非交互；缺省且在终端下交互翻页）
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..), conflicts_with = "json")]
+        page: Option<u64>,
+        /// 输出原始点 JSON（不分页不聚合，供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 清除历史数据
+    Clear {
+        /// 条目 id（缺省 = 全部条目）
+        id: Option<String>,
+        /// 跳过确认
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum ConfigCmd {
     /// 导出完整配置与凭据到私有迁移包
     Export {
@@ -300,6 +336,7 @@ async fn run(cli: Cli) -> i32 {
         Command::List { json: true }
             | Command::Query { json: true, .. }
             | Command::Add { json: true }
+            | Command::History(HistoryCmd::Show { json: true, .. })
     );
     let is_update_cmd = matches!(&cli.command, Command::Update { .. });
 
@@ -343,6 +380,15 @@ async fn run(cli: Cli) -> i32 {
             base_url,
         }) => cmd::script::run(&ctx, entry, json, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
+        Command::History(HistoryCmd::Show {
+            id,
+            window,
+            range,
+            page_size,
+            page,
+            json,
+        }) => cmd::history::run_show(&ctx, id, window, range, page_size, page, json),
+        Command::History(HistoryCmd::Clear { id, yes }) => cmd::history::run_clear(&ctx, id, yes),
         Command::Config(ConfigCmd::Export { output, yes }) => {
             cmd::config::run_export(&ctx, output, yes)
         }
@@ -445,6 +491,17 @@ mod tests {
                 "https://a.com",
             ],
             vec!["quota", "vault", "status"],
+            vec!["quota", "history", "show", "x1"],
+            vec!["quota", "history", "show", "x1", "--json"],
+            vec!["quota", "history", "show", "x1", "--range", "24h"],
+            vec!["quota", "history", "show", "x1", "--range", "7d"],
+            vec!["quota", "history", "show", "x1", "--range", "30d"],
+            vec!["quota", "history", "show", "x1", "--window", "five_hour"],
+            vec!["quota", "history", "show", "x1", "--page-size", "50"],
+            vec!["quota", "history", "show", "x1", "--page", "2"],
+            vec!["quota", "history", "clear"],
+            vec!["quota", "history", "clear", "x1"],
+            vec!["quota", "history", "clear", "x1", "--yes"],
             vec!["quota", "config", "export", "backup.qtray-export"],
             vec!["quota", "config", "export", "backup.qtray-export", "--yes"],
             vec!["quota", "config", "import", "backup.qtray-export"],
@@ -478,6 +535,19 @@ mod tests {
 
         let e = Cli::try_parse_from(["quota", "query", "--watch", "--interval", "0"]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::ValueValidation);
+
+        // history：非法范围档 / 页容量与页码下界 / --page 与 --json 互斥
+        let e =
+            Cli::try_parse_from(["quota", "history", "show", "x1", "--range", "3d"]).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::InvalidValue);
+        let e = Cli::try_parse_from(["quota", "history", "show", "x1", "--page-size", "0"])
+            .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::ValueValidation);
+        let e = Cli::try_parse_from(["quota", "history", "show", "x1", "--page", "0"]).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::ValueValidation);
+        let e = Cli::try_parse_from(["quota", "history", "show", "x1", "--page", "1", "--json"])
+            .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::ArgumentConflict);
 
         // --interval 仅在 --watch 下有效
         let e = Cli::try_parse_from(["quota", "query", "--interval", "3"]).unwrap_err();

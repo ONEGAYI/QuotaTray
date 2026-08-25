@@ -178,7 +178,8 @@ QuotaTray/
 │   │       ├── main.rs        # clap 定义子命令（含 pricing model / config 迁移组）+ dispatch
 │   │       │                  #   + --lang 全局参数（两阶段解析）+ 启动更新提示钩子
 │   │       │                  #   （stderr、节流、--json 与 update 子命令自身豁免）
-│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
+│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段 +
+│   │       │                  #   history_path 推导（config 同目录 history.db，M5）
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
 │   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、
@@ -192,18 +193,27 @@ QuotaTray/
 │   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语；
 │   │       │                  #   error 含 detail 排查详情 additive 透出）+
 │   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
-│   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述
+│   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述 +
+│   │       │                  #   history 时间桶聚合/分页切片/走势表（M5，纯函数）
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
 │   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）
 │   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
-│   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
+│   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）；
+│   │           │              #   成功结果写历史库（M5，打开/写失败仅告警不改退出码）
 │   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体；template 粘贴/
 │   │           │              #   script 代码粘贴 + allowInsecure 确认双形态）/
 │   │           │              #   --json stdin（拒收 api_key_enc，script 干跑校验）
 │   │           ├── config.rs  # config export/import：高敏感确认、完整配置迁移、
-│   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试
+│   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试；
+│   │           │              #   迁移包携带查询历史（M5）——导出全量带出、
+│   │           │              #   导入按主键幂等合并，读失败降级不带不阻断
+│   │           ├── history.rs # history show/clear（M5）：三档范围（24h=15m 桶/
+│   │           │              #   7d=1h 桶/30d=6h 桶，桶内取最后点）+ 窗口时间线
+│   │           │              #   过滤 + 分页（默认 20 行；终端交互翻页，--page N
+│   │           │              #   非交互打印单页，管道整表；--json 原始点）；
+│   │           │              #   clear 无 id 清全部（确认默认否）
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
 │   │           │              #   各自的 baseUrl、内容重粘贴与 script 的
 │   │           │              #   allowInsecure 修改）+ --enable/--disable 快捷路径

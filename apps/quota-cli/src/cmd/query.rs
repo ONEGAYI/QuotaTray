@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use futures::future::join_all;
 use quota_core::model::QueryError;
-use quota_core::{AppConfig, ProviderEntry, QueryEngine, Vault};
+use quota_core::{AppConfig, HistoryStore, ProviderEntry, QueryEngine, Vault};
 
 use crate::ctx::Ctx;
 use crate::exit::exit_code;
@@ -62,6 +62,8 @@ pub async fn run(
             return 1;
         }
     };
+    // 历史库为非关键附属数据：打开失败仅告警，查询照常（不写历史）。
+    let history = open_history(ctx);
 
     let print_once = |outcomes: &[QueryOutcome]| {
         if json {
@@ -83,6 +85,7 @@ pub async fn run(
                 r = run_queries(&engine, &vault, &entries) => r,
                 _ = &mut ctrl_c => break,
             };
+            record_history(history.as_ref(), &outcomes, lang);
             let _ = term.clear_screen();
             print_once(&outcomes);
             println!("{}", crate::texts::watch_hint(lang, period.as_secs() / 60));
@@ -94,8 +97,38 @@ pub async fn run(
         0
     } else {
         let outcomes = run_queries(&engine, &vault, &entries).await;
+        record_history(history.as_ref(), &outcomes, lang);
         print_once(&outcomes);
         exit_code(&flatten(&outcomes))
+    }
+}
+
+/// 打开历史库；失败告警一次后本进程跳过历史写入。
+fn open_history(ctx: &Ctx) -> Option<HistoryStore> {
+    match HistoryStore::open(&ctx.history_path()) {
+        Ok(store) => Some(store),
+        Err(e) => {
+            eprintln!("{}{e}", t(ctx.lang, T::HistoryOpenFail));
+            None
+        }
+    }
+}
+
+/// 成功查询写入历史库（仅 Ok 结果；写失败告警，不影响查询输出与退出码）。
+fn record_history(
+    history: Option<&HistoryStore>,
+    outcomes: &[QueryOutcome],
+    lang: crate::lang::Lang,
+) {
+    let Some(store) = history else { return };
+    let now = chrono::Local::now().timestamp_millis().max(0) as u64;
+    for outcome in outcomes {
+        if let Ok(data) = &outcome.result {
+            if let Err(e) = store.record(&outcome.id, data, now) {
+                eprintln!("{}{e}", t(lang, T::HistoryWriteFail));
+                return;
+            }
+        }
     }
 }
 
@@ -375,5 +408,65 @@ mod tests {
         // 部分存在部分缺失 → 整体报错
         let err = select_entries(&providers, &["a".to_string(), "zzz".to_string()]).unwrap_err();
         assert_eq!(err, vec!["zzz".to_string()]);
+    }
+
+    /// 历史写入契约的沙箱目录（config.json 与 history.db 同目录）。
+    fn history_test_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "quota-cli-query-history-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn outcome(id: &str, result: Result<Vec<quota_core::UsageData>, QueryError>) -> QueryOutcome {
+        QueryOutcome {
+            id: id.into(),
+            name: format!("条目-{id}"),
+            result,
+        }
+    }
+
+    /// 契约：record_history 只写成功结果（失败条目无历史点）；
+    /// 打开失败的库返回 None 且不 panic。
+    /// 注：run() 全链会构造真实 reqwest 引擎（网络不可 mock），
+    /// 故接线函数单独锁定，run 内调用由编译保证。
+    #[test]
+    fn record_history_writes_successful_outcomes_only() {
+        let dir = history_test_dir("record");
+        let ctx = Ctx::with_store(
+            dir.join("config.json"),
+            Arc::new(quota_core::InMemoryStore::new()),
+        );
+        let store = open_history(&ctx).expect("沙箱目录应可打开历史库");
+
+        let ok = outcome(
+            "d1",
+            Ok(vec![quota_core::UsageData {
+                plan_name: Some("five_hour".into()),
+                remaining: Some(88.0),
+                unit: Some("CNY".into()),
+                ..Default::default()
+            }]),
+        );
+        let failed = outcome("e1", Err(QueryError::transient("503")));
+        record_history(Some(&store), &[ok, failed], ctx.lang);
+
+        let reopened = quota_core::HistoryStore::open(&ctx.history_path()).unwrap();
+        let points = reopened.range("d1", 0).unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].window_key, "five_hour");
+        assert_eq!(points[0].remaining, Some(88.0));
+        assert!(
+            reopened.range("e1", 0).unwrap().is_empty(),
+            "失败条目不产生历史点"
+        );
+
+        // None（打开失败）时静默跳过
+        record_history(None, &[], ctx.lang);
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
