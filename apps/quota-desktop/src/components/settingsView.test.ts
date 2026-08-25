@@ -3,6 +3,7 @@ import {
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
+  resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateStatus,
 } from "./settingsView";
@@ -38,6 +39,41 @@ describe("更新设置视图", () => {
   it("有可用版本时下载失败仍显示错误态（不静默成发现新版本）", () => {
     expect(resolveUpdateStatus({ checking: false, hasAvailable: true, error: "下载失败" }))
       .toBe("error");
+  });
+
+  it("安装错误在检测/下载无错时透出", () => {
+    expect(
+      resolveUpdateError({
+        checkError: null,
+        downloadError: null,
+        installError: "安装包文件已丢失",
+        backendError: null,
+        hasAvailable: true,
+      }),
+    ).toContain("安装包文件已丢失");
+    expect(
+      resolveUpdateError({
+        checkError: null,
+        downloadError: new Error("下载失败"),
+        installError: "安装包文件已丢失",
+        backendError: null,
+        hasAvailable: true,
+      }),
+    ).toContain("下载失败");
+  });
+
+  it("主按钮分派：下载中 > 已下载可安装 > 可下载 > 检查", () => {
+    expect(resolveUpdateAction({ downloading: true, canDownload: true, hasDownloaded: true }))
+      .toBe("downloading");
+    expect(resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true }))
+      .toBe("install");
+    expect(resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: false }))
+      .toBe("download");
+    expect(resolveUpdateAction({ downloading: false, canDownload: false, hasDownloaded: false }))
+      .toBe("check");
+    // 后端清了下载记录（换版本）→ 不再提供安装入口
+    expect(resolveUpdateAction({ downloading: false, canDownload: false, hasDownloaded: true }))
+      .toBe("check");
   });
 
   it("格式化已知总量的下载进度与速率", () => {

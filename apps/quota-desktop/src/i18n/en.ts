@@ -190,7 +190,10 @@ export const en: Record<TextKey, string> = {
   "settings.download": "Download installer",
   "settings.downloading": "Downloading…",
   "settings.downloaded": "Saved to: {path}",
-  "settings.runInstaller": "Run the installer manually to update",
+  "settings.install": "Install update",
+  "settings.installConfirmTitle": "Install update",
+  "settings.installConfirm": "QuotaTray will quit and the setup wizard will start. Continue?",
+  "settings.installConfirmButton": "Quit & install",
   "settings.manualUrl": "No installer for this version; release page: {url}",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "Peak/off-peak pricing",

@@ -1,9 +1,12 @@
-//! 更新检测控制器：状态表、检测执行、安装包下载与每分钟调度。
+//! 更新检测控制器：状态表、检测执行、安装包下载/运行与每分钟调度。
 //!
 //! 业务逻辑（版本比较/release 解析/节流判定）在 core::update；本模块只做
-//! GUI 侧编排——状态表维护、settings 节流时间戳落盘、下载到系统下载
-//! 目录、常驻调度（每分钟 wake 读设置判定，设置变更自然生效免任务重启）。
+//! GUI 侧编排——状态表维护、settings 节流时间戳落盘、下载到系统临时
+//! 目录（`%TEMP%/QuotaTray/Downloads`）、运行安装包（NSIS 向导由用户
+//! 交互完成，应用随后退出解锁自身文件）、常驻调度（每分钟 wake 读设置
+//! 判定，设置变更自然生效免任务重启）。
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use quota_core::http::{HttpClient, ReqwestHttpClient};
@@ -32,6 +35,14 @@ pub struct AvailableInfo {
     pub asset_url: Option<String>,
 }
 
+/// 已下载安装包的记录：路径 + 对应 release 资产名（检测到不同版本资产
+/// 时据此失效，避免对着旧安装包提供「立即安装」入口）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DownloadedInstaller {
+    pub path: String,
+    pub asset_name: String,
+}
+
 /// 更新检测的展示状态。
 ///
 /// 节流判定的权威源是 `settings.update_last_check`（磁盘），
@@ -41,6 +52,7 @@ pub struct UpdateCtlState {
     pub last_check: Option<u64>,
     pub info: Option<AvailableInfo>,
     pub last_error: Option<String>,
+    pub downloaded: Option<DownloadedInstaller>,
 }
 
 /// `get_update_state` 的 IPC 返回形状（含当前版本）。
@@ -50,6 +62,9 @@ pub struct UpdateStateDto {
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
+    /// 后端自记录的已下载安装包路径；能否安装以其与当前 available
+    /// 资产匹配为准（检测到不同版本时由失效逻辑清空）。
+    pub downloaded_path: Option<String>,
 }
 
 pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
@@ -58,6 +73,28 @@ pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
+        downloaded_path: inner.downloaded.as_ref().map(|d| d.path.clone()),
+    }
+}
+
+/// 安装包下载目录：`%TEMP%/QuotaTray/Downloads`。临时目录语义——一次性
+/// 安装包随系统清理自然回收，丢失重下即可恢复。
+pub fn installer_dir() -> PathBuf {
+    std::env::temp_dir().join("QuotaTray").join("Downloads")
+}
+
+/// 检测成功后已下载记录的去留：新版本资产名与已下载一致才保留
+/// （换版本/已最新/无资产 → 清空）。检测失败不走此函数——网络故障
+/// 不应丢已下载状态（重连补检后可直接安装，无需重下）。
+fn carry_downloaded(
+    prev: Option<DownloadedInstaller>,
+    new_info: Option<&AvailableInfo>,
+) -> Option<DownloadedInstaller> {
+    match (prev, new_info) {
+        (Some(d), Some(info)) if info.asset_name.as_deref() == Some(d.asset_name.as_str()) => {
+            Some(d)
+        }
+        _ => None,
     }
 }
 
@@ -88,7 +125,8 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
 /// 检测失败（网络/解析）记入 `last_error` 而非中断——自动场景静默可查。
 pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
     let now = now_ms();
-    let inner = match update::check_update(http, VERSION).await {
+    let prev_downloaded = state.update_ctl.read().unwrap().downloaded.clone();
+    let mut inner = match update::check_update(http, VERSION).await {
         Ok(UpdateStatus::Available {
             version,
             html_url,
@@ -106,19 +144,27 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
                 asset_url: asset.map(|a| a.browser_download_url),
             }),
             last_error: None,
+            downloaded: None,
         },
         // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
         Ok(_) => UpdateCtlState {
             last_check: Some(now),
             info: None,
             last_error: None,
+            downloaded: None,
         },
+        // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
+        // 统一按资产名重判）
         Err(e) => UpdateCtlState {
             last_check: Some(now),
             info: None,
             last_error: Some(e.to_string()),
+            downloaded: prev_downloaded.clone(),
         },
     };
+    if inner.last_error.is_none() {
+        inner.downloaded = carry_downloaded(prev_downloaded, inner.info.as_ref());
+    }
 
     // settings 节流时间戳落盘（磁盘权威顺序：clone → 改 → save 成功 → 写回内存）
     {
@@ -134,7 +180,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
     inner
 }
 
-/// 下载安装包到系统下载目录（原子写），返回完整路径。
+/// 下载安装包（进度推送给前端）并落盘记录，返回完整路径。
 /// 前提：状态表里已有「可下载的新版本」（先检测后下载）。
 pub async fn download_installer(
     app: &AppHandle,
@@ -155,15 +201,76 @@ pub async fn download_installer(
         .download_with_progress(&url, &reporter)
         .await
         .map_err(|e| lang.err_update_download(&e))?;
-    let name = info
-        .asset_name
-        .unwrap_or_else(|| "QuotaTray-setup.exe".into());
-    let dir = dirs::download_dir()
-        .or_else(dirs::home_dir)
-        .ok_or_else(|| lang.err_update_no_dir())?;
-    let path = dir.join(&name);
-    update::write_atomic_bytes(&path, &bytes).map_err(|e| lang.err_update_save(&e))?;
-    Ok(path.to_string_lossy().into_owned())
+    // asset_name 与 asset_url 同源（downloadable 判定），None 属防御分支
+    let Some(name) = info.asset_name else {
+        return Err(lang.err_update_no_asset());
+    };
+    save_installer(state, &name, &bytes, lang)
+}
+
+/// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe` 结尾——防恶意
+/// 资产名使落盘位置逃出下载目录（运行侧另有 validate_installer_path）。
+fn validate_asset_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\', ':'])
+        && name.to_ascii_lowercase().ends_with(".exe")
+}
+
+/// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
+fn save_installer(
+    state: &AppState,
+    name: &str,
+    bytes: &[u8],
+    lang: Lang,
+) -> Result<String, String> {
+    if !validate_asset_name(name) {
+        return Err(lang.err_update_bad_asset());
+    }
+    let dir = installer_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| lang.err_update_mkdir(&e))?;
+    // 纵深防御：%TEMP% 为用户态任意进程可写区，目录若被预置为指向
+    // 他处的 symlink/junction，写入会跟随逃逸——检测到即拒绝
+    if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(lang.err_update_unsafe_dir());
+    }
+    let path = dir.join(name);
+    update::write_atomic_bytes(&path, bytes).map_err(|e| lang.err_update_save(&e))?;
+    let path_str = path.to_string_lossy().into_owned();
+    state.update_ctl.write().unwrap().downloaded = Some(DownloadedInstaller {
+        path: path_str.clone(),
+        asset_name: name.to_string(),
+    });
+    Ok(path_str)
+}
+
+/// 安装包路径防御校验：必须直接位于下载目录内且为 `.exe`。路径由后端
+/// 自己拼装，此处兜底防御状态表异常值被运行。
+fn validate_installer_path(path: &Path) -> bool {
+    path.parent() == Some(installer_dir().as_path())
+        && path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+}
+
+/// 运行已下载的安装包（NSIS 向导由用户交互完成）。覆盖安装需先解锁
+/// 自身文件，调用方（install_update 命令）在启动成功后退出应用。
+/// 文件已丢失（如临时目录被系统清理）时清空记录并报错——前端刷新后
+/// 自动回到「下载安装包」状态。
+pub fn run_installer(state: &AppState, lang: Lang) -> Result<(), String> {
+    let downloaded = state.update_ctl.read().unwrap().downloaded.clone();
+    let Some(d) = downloaded else {
+        return Err(lang.err_update_not_downloaded());
+    };
+    let path = PathBuf::from(&d.path);
+    if !validate_installer_path(&path) || !path.is_file() {
+        state.update_ctl.write().unwrap().downloaded = None;
+        return Err(lang.err_update_installer_missing());
+    }
+    std::process::Command::new(&path)
+        .spawn()
+        .map_err(|e| lang.err_update_run(&e))?;
+    Ok(())
 }
 
 /// 常驻调度：每分钟 wake 一次读设置，`due_check`（首启 ≥24h 节流或每日
@@ -213,6 +320,24 @@ mod tests {
         routes: Vec<(&'static str, u16, String)>,
     }
 
+    /// 手工组装最小 AppState（AppState 依赖 keyring，测试绕开生产构造）。
+    fn sandbox_state(dir: &Path) -> AppState {
+        let paths = crate::state::DataPaths::new(Some(dir.to_path_buf())).unwrap();
+        let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
+        let engine = quota_core::QueryEngine::with_default_client().unwrap();
+        AppState {
+            engine,
+            vault,
+            paths,
+            settings: std::sync::RwLock::new(Settings::default()),
+            results: std::sync::RwLock::new(HashMap::new()),
+            last_hover_refresh_ms: std::sync::atomic::AtomicU64::new(0),
+            resolved_theme: std::sync::RwLock::new(false),
+            update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
+            last_peak: std::sync::RwLock::new(HashMap::new()),
+        }
+    }
+
     #[async_trait]
     impl HttpClient for RouteHttp {
         async fn execute(&self, req: HttpRequest) -> Result<HttpResponse, HttpError> {
@@ -251,11 +376,13 @@ mod tests {
                     asset_url: asset.map(|a| a.browser_download_url),
                 }),
                 last_error: None,
+                downloaded: None,
             },
             _ => UpdateCtlState {
                 last_check: Some(1),
                 info: None,
                 last_error: None,
+                downloaded: None,
             },
         };
         // 有资产的新版本 → downloadable
@@ -283,30 +410,19 @@ mod tests {
         assert!(mk(UpdateStatus::UpToDate).info.is_none());
     }
 
-    /// 契约：run_check 端到端更新状态表 + settings 节流时间戳落盘。
-    /// AppState 构造绕不开 keyring（生产 store），用系统集成桩：
-    /// AppState 字段全 pub，直接手工组装（engine/vault 用最小真实现）。
+    /// 契约：run_check 端到端更新状态表 + settings 节流时间戳落盘；
+    /// 已下载记录在检测失败时保留、成功且无匹配资产时清空。
     #[tokio::test]
     async fn run_check_updates_state_and_settings_timestamp() {
-        // 手工组装 AppState：InMemoryStore + 默认引擎（不触网）
         let dir = std::env::temp_dir().join(format!("qt-updctl-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let paths = crate::state::DataPaths::new(Some(dir.clone())).unwrap();
-        let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
-        let engine = quota_core::QueryEngine::with_default_client().unwrap();
-        let settings = Settings::default();
-        settings.save(&paths.settings()).unwrap();
-        let state = AppState {
-            engine,
-            vault,
-            paths,
-            settings: std::sync::RwLock::new(settings),
-            results: std::sync::RwLock::new(HashMap::new()),
-            last_hover_refresh_ms: std::sync::atomic::AtomicU64::new(0),
-            resolved_theme: std::sync::RwLock::new(false),
-            update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
-            last_peak: std::sync::RwLock::new(HashMap::new()),
-        };
+        let state = sandbox_state(&dir);
+        state
+            .settings
+            .read()
+            .unwrap()
+            .save(&state.paths.settings())
+            .unwrap();
 
         // 无 release（404）→ last_check 记录、无 info、无错误
         let http = RouteHttp {
@@ -327,13 +443,202 @@ mod tests {
             "时间戳真实落盘"
         );
 
-        // 网络失败 → last_error 记录
+        // 预置已下载记录：检测失败（网络）→ 保留
+        let downloaded = DownloadedInstaller {
+            path: installer_dir()
+                .join("setup.exe")
+                .to_string_lossy()
+                .into_owned(),
+            asset_name: "setup.exe".into(),
+        };
+        state.update_ctl.write().unwrap().downloaded = Some(downloaded.clone());
         let http = RouteHttp { routes: vec![] };
         let inner = run_check(&state, &http).await;
         assert!(
             inner.last_error.is_some(),
             "网络失败进 last_error 而非 panic"
         );
+        assert_eq!(inner.downloaded, Some(downloaded), "网络失败不丢已下载记录");
+
+        // 成功且无新版本（404）→ 已下载记录清空
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 404, "".into())],
+        };
+        let inner = run_check(&state, &http).await;
+        assert!(inner.last_error.is_none());
+        assert_eq!(inner.downloaded, None, "已最新时旧安装包记录失效");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：下载目录固定为系统临时目录下 QuotaTray/Downloads。
+    #[test]
+    fn installer_dir_contract() {
+        assert_eq!(
+            installer_dir(),
+            std::env::temp_dir().join("QuotaTray").join("Downloads")
+        );
+    }
+
+    /// 契约：安装包路径校验——仅下载目录内直接的 .exe 放行。
+    #[test]
+    fn validate_installer_path_contract() {
+        let dir = installer_dir();
+        assert!(validate_installer_path(
+            &dir.join("QuotaTray_0.4.0_x64-setup.exe")
+        ));
+        assert!(
+            validate_installer_path(&dir.join("setup.EXE")),
+            "扩展名大小写不敏感"
+        );
+        assert!(!validate_installer_path(&dir.join("payload.zip")));
+        assert!(
+            !validate_installer_path(&dir.join("sub").join("setup.exe")),
+            "嵌套子目录不放行"
+        );
+        assert!(
+            !validate_installer_path(&dir.join("../evil.exe")),
+            "越出下载目录不放行"
+        );
+    }
+
+    /// 契约：检测成功后已下载记录仅在资产名一致时保留。
+    #[test]
+    fn carry_downloaded_contract() {
+        let d = || {
+            Some(DownloadedInstaller {
+                path: "p".into(),
+                asset_name: "setup.exe".into(),
+            })
+        };
+        let info = |name: Option<&str>| {
+            name.map(|n| AvailableInfo {
+                version: "0.2.0".into(),
+                html_url: "u".into(),
+                notes: None,
+                asset_name: Some(n.into()),
+                asset_size: None,
+                downloadable: true,
+                asset_url: Some("dl".into()),
+            })
+        };
+        assert!(
+            carry_downloaded(d(), info(Some("setup.exe")).as_ref()).is_some(),
+            "同资产保留"
+        );
+        assert!(
+            carry_downloaded(d(), info(Some("other.exe")).as_ref()).is_none(),
+            "换版本资产清空"
+        );
+        assert!(carry_downloaded(d(), None).is_none(), "无新版本清空");
+        assert!(
+            carry_downloaded(None, info(Some("setup.exe")).as_ref()).is_none(),
+            "本来就没有记录"
+        );
+        assert!(
+            carry_downloaded(d(), info(None).as_ref()).is_none(),
+            "新版本无资产名（downloadable=false）同样清空"
+        );
+    }
+
+    /// 契约：资产名仅放行纯文件名 .exe——路径分隔符/盘符冒号/
+    /// ADS 形态/非 exe 一律拒绝（写入侧防御，运行侧见路径校验）。
+    #[test]
+    fn validate_asset_name_contract() {
+        assert!(validate_asset_name("QuotaTray_0.4.1_x64-setup.exe"));
+        assert!(validate_asset_name("setup.EXE"), "扩展名大小写不敏感");
+        assert!(!validate_asset_name(""));
+        assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
+        assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");
+        assert!(!validate_asset_name("C:x.exe"), "盘符冒号");
+        assert!(!validate_asset_name("setup.exe:ads"), "NTFS ADS 冒号");
+        assert!(!validate_asset_name("setup.zip"), "非 exe");
+        assert!(!validate_asset_name(".."), "目录上跳");
+    }
+
+    /// 契约：恶意/非法资产名在落盘前被拒——不产生文件也不写状态。
+    #[test]
+    fn save_installer_rejects_bad_asset_name() {
+        let dir = std::env::temp_dir().join(format!("qt-savebad-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+        for bad in ["..\\..\\evil.exe", "a/b.exe", "setup.zip"] {
+            assert!(
+                save_installer(&state, bad, b"x", Lang::Zh).is_err(),
+                "{bad} 应被拒绝"
+            );
+            assert!(
+                !installer_dir().join(bad).exists(),
+                "{bad} 不得落盘（越界路径本就不应存在）"
+            );
+        }
+        assert!(
+            state.update_ctl.read().unwrap().downloaded.is_none(),
+            "拒绝时不写状态表"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：安装包字节落盘到下载目录（原子写语义由 core 覆盖）并记录
+    /// 路径 + 资产名进状态表。
+    #[test]
+    fn save_installer_writes_and_records() {
+        let dir = std::env::temp_dir().join(format!("qt-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+        let name = format!("qt-test-{}.exe", std::process::id());
+        let path = save_installer(&state, &name, b"hello", Lang::Zh).unwrap();
+        let expected = installer_dir().join(&name);
+        assert_eq!(PathBuf::from(&path), expected, "落盘到下载目录");
+        assert_eq!(std::fs::read(&expected).unwrap(), b"hello");
+        let d = state.update_ctl.read().unwrap().downloaded.clone().unwrap();
+        assert_eq!(d.path, path);
+        assert_eq!(d.asset_name, name);
+        std::fs::remove_file(&expected).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：dto_of 透传已下载路径。
+    #[test]
+    fn dto_of_exposes_downloaded_path() {
+        let mut inner = UpdateCtlState::default();
+        assert!(dto_of(&inner).downloaded_path.is_none());
+        inner.downloaded = Some(DownloadedInstaller {
+            path: "p".into(),
+            asset_name: "setup.exe".into(),
+        });
+        assert_eq!(dto_of(&inner).downloaded_path.as_deref(), Some("p"));
+    }
+
+    /// 契约：安装包文件丢失或路径越界时，run_installer 清记录并报错
+    /// （不进入 spawn 分支——文件不存在时提前返回）。
+    #[test]
+    fn run_installer_clears_record_on_missing_or_invalid() {
+        let dir = std::env::temp_dir().join(format!("qt-run-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+
+        // 记录存在但文件已被清理（临时目录场景）
+        state.update_ctl.write().unwrap().downloaded = Some(DownloadedInstaller {
+            path: installer_dir()
+                .join("qt-missing.exe")
+                .to_string_lossy()
+                .into_owned(),
+            asset_name: "qt-missing.exe".into(),
+        });
+        assert!(run_installer(&state, Lang::Zh).is_err(), "文件丢失应报错");
+        assert!(
+            state.update_ctl.read().unwrap().downloaded.is_none(),
+            "记录被清，前端回到可重下状态"
+        );
+
+        // 路径越界（不在下载目录内）：同样清记录并报错
+        state.update_ctl.write().unwrap().downloaded = Some(DownloadedInstaller {
+            path: "C:\\Windows\\notepad.exe".into(),
+            asset_name: "notepad.exe".into(),
+        });
+        assert!(run_installer(&state, Lang::Zh).is_err(), "越界路径应报错");
+        assert!(state.update_ctl.read().unwrap().downloaded.is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

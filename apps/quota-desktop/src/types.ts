@@ -193,6 +193,8 @@ export interface UpdateStateDto {
   last_check: number | null;
   available: UpdateAvailable | null;
   last_error: string | null;
+  /** 已下载安装包的完整路径（与当前 available 资产匹配；null = 未下载）。 */
+  downloaded_path: string | null;
 }
 
 /** 后端下载器推送的实时安装包下载状态。 */

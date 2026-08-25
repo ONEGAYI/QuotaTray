@@ -58,8 +58,10 @@ export const api = {
   getSnapshots: (): Promise<Record<string, SnapshotEntry>> => invoke("get_snapshots"),
   getUpdateState: (): Promise<UpdateStateDto> => invoke("get_update_state"),
   checkUpdateNow: (): Promise<UpdateStateDto> => invoke("check_update_now"),
-  /** 下载安装包到系统下载目录，返回完整路径。 */
+  /** 下载安装包到 %TEMP%/QuotaTray/Downloads，返回完整路径。 */
   downloadUpdate: (): Promise<string> => invoke("download_update"),
+  /** 运行已下载的安装包（应用随后自动退出，NSIS 向导接管）。 */
+  installUpdate: (): Promise<void> => invoke("install_update"),
   setHoverPanelPointerInside: (inside: boolean): Promise<void> =>
     invoke("set_hover_panel_pointer_inside", { inside }),
   hideHoverPanel: (): Promise<void> => invoke("hide_hover_panel"),

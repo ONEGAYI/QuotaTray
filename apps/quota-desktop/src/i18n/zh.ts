@@ -193,7 +193,10 @@ export const zh = {
   "settings.download": "下载安装包",
   "settings.downloading": "下载中…",
   "settings.downloaded": "已保存至：{path}",
-  "settings.runInstaller": "请手动运行安装包完成更新",
+  "settings.install": "立即安装",
+  "settings.installConfirmTitle": "安装更新",
+  "settings.installConfirm": "将退出 QuotaTray 并启动安装向导，是否继续？",
+  "settings.installConfirmButton": "退出并安装",
   "settings.manualUrl": "该版本没有安装包，发布页：{url}",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "峰谷定价",
