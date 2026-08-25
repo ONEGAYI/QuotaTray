@@ -426,7 +426,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 - 通用行为准则、提交规范（中文、`类型: 简述` + 正文）、发布规范遵循用户全局 AGENTS.md，此处不重复。
 - **TDD**：实现功能、修复 BUG 前先添加契约测试；网络相关测试一律 mock（不依赖真实平台 API）。
-- **提交前格式化（硬门禁）**：Rust 改动先 `cargo fmt --all`，前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace——main 上的格式债会拖垮后续所有 PR 的 CI（2026-08-24 v0.3.2 遗留三处未格式化即为此例）。
+- **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
 - **构建与测试**：
   - 全量构建检查：`cargo build --workspace`（仅编译校验）
   - 测试：`cargo test --workspace`
