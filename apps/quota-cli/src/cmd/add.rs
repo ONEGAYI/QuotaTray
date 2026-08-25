@@ -226,6 +226,8 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
 /// **顺序契约：id 必须先于 `set_api_key` 确定**——密文 AAD 绑定条目 id，
 /// 曾因先加密后生成 id（AAD=空串）导致向导创建的条目全部解密失败，
 /// 由 [`tests::wizard_entry_decrypts`] 锁定。
+// 参数是向导逐问收集的独立字段，强行并组反而掩盖调用点语义
+#[allow(clippy::too_many_arguments)]
 pub fn assemble_entry(
     ctx: &Ctx,
     name: String,
