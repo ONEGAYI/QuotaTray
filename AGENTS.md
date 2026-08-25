@@ -67,7 +67,27 @@ QuotaTray/
 │           │   │              #   读到会报未知 tag，升级单向）、PlanVariant
 │           │   │              #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
 │           │   └── transfer.rs# 完整配置跨机器迁移：一次性迁移密钥转写、私有认证
-│           │                  #   二进制容器、字节 API 与原子文件导入导出
+│           │                  #   二进制容器、字节 API 与原子文件导入导出；
+│           │                  #   容器 v2（M5）信封 {config, history} 携带历史
+│           │                  #   数据（v1 仍可导入，单向升级）、TransferBundle
+│           │                  #   返回 config + 可选历史行
+│           ├── history/       # 历史数据存储（M5，SQLite/rusqlite bundled）
+│           │   └── mod.rs     # HistoryStore：成功查询结果时序落库（一条 UsageData
+│           │                  #   一行，PK provider_id+window_key+sampled_at，
+│           │                  #   同毫秒重放幂等，重复窗口键按出现顺序 #2/#3
+│           │                  #   消歧、is_valid=false 跳过）；window_key 纯函数
+│           │                  #   （plan_name 优先、序数 w0/w1 回退，native 文案
+│           │                  #   冻结为键）+ window_kind 键文本→语义类别
+│           │                  #   （5h/周/其他，冻结键括号短标注启发式，
+│           │                  #   CLI 分组过滤用、M5-b GUI 复用）；
+│           │                  #   PRAGMA user_version +
+│           │                  #   MIGRATIONS 数组逐版本事务迁移（降级运行/
+│           │                  #   负版本拒绝打开）；busy_timeout 3s 防并发写
+│           │                  #   database is locked；30 天滚动清理（写入时
+│           │                  #   节流 ≥1h 一次）；WAL + synchronous NORMAL；
+│           │                  #   export_rows/merge_rows 供迁移容器导入导出；
+│           │                  #   非关键数据——调用方写失败静默告警不阻断
+│           │                  #   查询主链路
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码，
 │           │   │              #   敏感头判断统一走 redact；HttpResponse.raw 为
@@ -165,7 +185,8 @@ QuotaTray/
 │   │       ├── main.rs        # clap 定义子命令（含 pricing model / config 迁移组）+ dispatch
 │   │       │                  #   + --lang 全局参数（两阶段解析）+ 启动更新提示钩子
 │   │       │                  #   （stderr、节流、--json 与 update 子命令自身豁免）
-│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段
+│   │       ├── ctx.rs         # Ctx：配置路径 + SecretStore 注入 + lang 字段 +
+│   │       │                  #   history_path 推导（config 同目录 history.db，M5）
 │   │       ├── exit.rs        # 退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）
 │   │       ├── idgen.rs       # 6 位 Crockford base32 随机 id（无偏映射）
 │   │       ├── io.rs          # 交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、
@@ -179,22 +200,36 @@ QuotaTray/
 │   │       ├── render.rs      # comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语；
 │   │       │                  #   error 含 detail 排查详情 additive 透出）+
 │   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
-│   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述
+│   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述 +
+│   │       │                  #   history 时间桶聚合/分页切片/走势表 + 类别
+│   │       │                  #   排序分组与分段表头渲染（M5，纯函数）
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
 │   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）
 │   │           ├── mod.rs     # 子模块声明（devsmoke 仅 debug 编入）
 │   │           ├── list.rs    # 条目列表（表格 / --json providers 数组）
-│   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）
+│   │           ├── query.rs   # 并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）；
+│   │           │              #   成功结果写历史库（M5，打开/写失败仅告警不改退出码）
 │   │           ├── add.rs     # 交互向导（订阅型平台问套餐变体；template 粘贴/
 │   │           │              #   script 代码粘贴 + allowInsecure 确认双形态）/
 │   │           │              #   --json stdin（拒收 api_key_enc，script 干跑校验）
 │   │           ├── config.rs  # config export/import：高敏感确认、完整配置迁移、
-│   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试
+│   │           │              #   目标机器 Vault 重加密与失败不覆盖契约测试；
+│   │           │              #   迁移包携带查询历史（M5）——导出全量带出、
+│   │           │              #   导入按主键幂等合并，读失败降级不带不阻断
+│   │           ├── history.rs # history show/clear（M5）：三档范围（24h=15m 桶/
+│   │           │              #   7d=1h 桶/30d=6h 桶，桶内取最后点）+ 窗口语义
+│   │           │              #   过滤（--window 三态：all/类别别名/精确键优先，
+│   │           │              #   缺省按范围选粒度 24h→5h、7d/30d→周，缺失
+│   │           │              #   回退全部并条件提示）+ 分页（默认 20 行；终端
+│   │           │              #   交互翻页，--page N 非交互打印单页，管道整表，
+│   │           │              #   跨类别视图分段表头；--json 原始点含 window
+│   │           │              #   生效口径）；clear 无 id 清全部（确认默认否）
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
 │   │           │              #   各自的 baseUrl、内容重粘贴与 script 的
 │   │           │              #   allowInsecure 修改）+ --enable/--disable 快捷路径
-│   │           ├── remove.rs  # 确认删除（--yes 跳过）
+│   │           ├── remove.rs  # 确认删除（--yes 跳过；M5 起删除后同步清条目
+│           │              #   历史，失败仅告警不影响删除结果）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
 │   │           ├── pricing.rs  # pricing show/set/clear：生效定价展示（判定/
@@ -342,14 +377,19 @@ QuotaTray/
 │               ├── lib.rs      # Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册
 │               ├── state.rs    # AppState：引擎+保险库+结果表+resolved_theme+update_ctl
 │               │               #   +last_peak 峰谷翻转缓存+--data-dir 覆盖+ErrorInfo
-│               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
+│               │               #   （IPC 错误形状，含脱敏 detail 排查详情）+
+│               │               #   history 历史库句柄（M5，Mutex<HistoryStore>，打开
+│               │               #   失败降级内存库不阻断启动；DataPaths.history()）
 │               ├── commands.rs # 主业务 IPC 20 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
-│               │               #   消除悬停面板等只读视图的无数据空窗）+ Provider
+│               │               #   消除悬停面板等只读视图的无数据空窗；成功分支顺写
+│               │               #   历史库 M5，结果表锁外执行、失败仅告警）+ Provider
 │               │               #   增删改跨 WebView 失效事件、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新四命令（检测/下载/install_update 运行安装包后
-│               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播）+
+│               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播；
+│               │               #   M5 起随迁移包携带历史——导出全量带出、导入幂等
+│               │               #   合并；remove_provider 同步清条目历史）+
 │               │               #   script 双命令（validate_script 干跑/test_script 全链路，
 │               │               #   镜像 template 对，key 缺省语义同）；
 │               │               #   validate_entry 统一校验（含峰谷配置）、
@@ -412,7 +452,9 @@ QuotaTray/
     │   └── tray-ring-demo.html # 托盘圆环视觉规格（层结构/颜色/溢出/红点定案）
     └── specs/
         ├── CLI-spec.md        # quota-cli 规格（M2b）：子命令/退出码/dev-smoke
-        └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
+        ├── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
+        └── history-spec.md    # 历史存储规格（M5）：数据模型/滚动清理/schema
+                               #   迁移/迁移容器 v2/CLI 命令（含 SQLite 决策边界）
 ```
 
 （`src-tauri/gen/schemas` 为构建生成物，被 gitignore）
@@ -471,3 +513,6 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
 | keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |
 | 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |
+| 历史库 | `~/.quotatray/history.db`（SQLite）：每次成功查询的余额/额度快照时序表，滚动保留 30 天，schema 走 user_version 版本化迁移 |
+| 窗口键（window_key） | 历史行的窗口标识：`plan_name` 非空取之，否则回退序数 `w0/w1…`；同一多窗口条目每窗口一条时间线 |
+| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history}`：随配置携带历史数值行（幂等合并进目标机历史库）；v1 旧包仍可导入，旧二进制读 v2 拒绝 |

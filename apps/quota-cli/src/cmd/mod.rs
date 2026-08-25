@@ -5,6 +5,7 @@ pub mod config;
 #[cfg(debug_assertions)]
 pub mod devsmoke;
 pub mod edit;
+pub mod history;
 pub mod list;
 pub mod natives;
 pub mod pricing;

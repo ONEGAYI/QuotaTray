@@ -41,7 +41,7 @@ quota template test --entry my-sf
 ## 已知边界
 
 - **transforms 不支持字段间运算**：算术操作数只能是常数（如 `sub` 减去固定值）。OpenRouter 的 `remaining = total_credits − total_usage` 属于字段相减，模板无法表达，示例只展示 `total` 与 `used`——此类平台建议使用内置实现（`quota add` 选 openrouter 预置）。
-- **多窗口共用同一映射**：`windowsFrom` 数组的每个元素套用 `windows[0]` 的取数规则，行名统一取其 `name`，适合同构配额（多模型/多额度池）；异构窗口（每个窗口不同取数路径）暂不支持，请拆成多个条目。
+- **多窗口共用同一映射**：`windowsFrom` 数组的每个元素套用 `windows[0]` 的取数规则，行名统一取其 `name`，适合同构配额（多模型/多额度池）；异构窗口（每个窗口不同取数路径）暂不支持，请拆成多个条目。历史存储（M5）对数组产出的同名多行按出现顺序消歧为 `名称` / `名称#2` 各自记录时间线——键的稳定性依赖响应数组顺序稳定，顺序对调时时间线标签互换。
 - **URL 安全**：默认仅允许 HTTPS 与 loopback；其他 http 端点需在模板中显式 `"allowInsecure": true`。
 
 ## 本地联调多窗口示例

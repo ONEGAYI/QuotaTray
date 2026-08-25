@@ -38,6 +38,13 @@ pub fn run(ctx: &Ctx, id: String, yes: bool) -> i32 {
         eprintln!("{}{e}", t(lang, T::Err));
         return 1;
     }
+    // 条目已删，历史随删（与 desktop remove_provider 及快照孤儿过滤语义
+    // 对齐）；打开/清理失败仅告警，不影响删除结果
+    if let Err(e) =
+        quota_core::HistoryStore::open(&ctx.history_path()).and_then(|store| store.clear(Some(&id)))
+    {
+        eprintln!("{}{e}", t(lang, T::HistoryClearFail));
+    }
     println!("{}", texts::removed(lang, &entry.name, &id));
     0
 }
@@ -75,7 +82,7 @@ mod tests {
         }
     }
 
-    /// 契约：--yes 删除落盘——配置文件中该条目消失。
+    /// 契约：--yes 删除落盘——配置文件中该条目消失，历史随之清除（M5）。
     #[test]
     fn remove_yes_persists() {
         let ctx = test_ctx("yes");
@@ -84,11 +91,23 @@ mod tests {
             providers: vec![native("e1"), native("e2")],
         };
         cfg.save(&ctx.config_path).unwrap();
+        quota_core::HistoryStore::open(&ctx.history_path())
+            .unwrap()
+            .record("e1", &[quota_core::UsageData::default()], 1_700_000_000_000)
+            .unwrap();
 
         assert_eq!(run(&ctx, "e1".into(), true), 0);
         let after = AppConfig::load(&ctx.config_path).unwrap();
         assert_eq!(after.providers.len(), 1);
         assert_eq!(after.providers[0].id, "e2");
+        assert!(
+            quota_core::HistoryStore::open(&ctx.history_path())
+                .unwrap()
+                .range("e1", 0)
+                .unwrap()
+                .is_empty(),
+            "删除条目应同步清其历史"
+        );
         let _ = std::fs::remove_dir_all(ctx.config_path.parent().unwrap());
     }
 

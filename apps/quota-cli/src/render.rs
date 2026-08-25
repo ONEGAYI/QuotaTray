@@ -402,6 +402,182 @@ pub fn fmt_datetime_in_tz(ms: u64, timezone_offset_minutes: Option<i32>) -> Stri
     formatted.unwrap_or_else(|| chrono::Local::now().format("%m-%d %H:%M").to_string())
 }
 
+// ---- history 渲染 ----------------------------------------------------------
+
+/// `quota history show --json` 的输出结构（原始点，不分页不聚合）。
+#[derive(Serialize)]
+pub struct HistoryJson {
+    pub id: String,
+    pub name: String,
+    /// 回看范围档（"24h" / "7d" / "30d"）。
+    pub range: String,
+    /// 实际生效的窗口过滤口径："5h" / "weekly" / "all" / 精确键；
+    /// 未过滤（含缺省类别缺失回退全部）为 null。
+    pub window: Option<String>,
+    pub points: Vec<quota_core::HistoryPoint>,
+}
+
+/// 历史点按窗口时间线分组、再按时间桶聚合（桶内取最后一点）。
+/// 输入的每个窗口时间线须按 `sampled_at` 升序（`HistoryStore::range`
+/// 的全局升序输出天然满足；同桶后到的点覆盖先到的）；输出按窗口名
+/// 分组、组内按时间升序。
+pub fn bucket_points_by_window(
+    points: &[quota_core::HistoryPoint],
+    bucket_ms: u64,
+) -> Vec<quota_core::HistoryPoint> {
+    // debug_assert! 在 release 下仍对块内表达式做名称解析，
+    // helper 的 cfg 必须连调用点一起剔除（否则 release 编译失败）
+    #[cfg(debug_assertions)]
+    debug_assert!(
+        is_sorted_per_window(points),
+        "每个窗口时间线须按 sampled_at 升序（覆盖语义的前提）"
+    );
+    use std::collections::BTreeMap;
+    let mut by_window: BTreeMap<&str, BTreeMap<u64, quota_core::HistoryPoint>> = BTreeMap::new();
+    for point in points {
+        by_window
+            .entry(point.window_key.as_str())
+            .or_default()
+            .insert(point.sampled_at / bucket_ms, point.clone());
+    }
+    let mut result = Vec::new();
+    for (_key, buckets) in by_window {
+        result.extend(buckets.into_values());
+    }
+    result
+}
+
+/// debug 断言辅助：跨窗口可交错，但同一窗口时间线内不得回退。
+#[cfg(debug_assertions)]
+fn is_sorted_per_window(points: &[quota_core::HistoryPoint]) -> bool {
+    use std::collections::HashMap;
+    let mut last: HashMap<&str, u64> = HashMap::new();
+    for point in points {
+        if last
+            .get(point.window_key.as_str())
+            .is_some_and(|&t| t > point.sampled_at)
+        {
+            return false;
+        }
+        last.insert(point.window_key.as_str(), point.sampled_at);
+    }
+    true
+}
+
+/// 总页数：空数据也算 1 页（首页即空表）。
+pub fn total_pages(len: usize, page_size: u64) -> u64 {
+    if len == 0 {
+        return 1;
+    }
+    (len as u64).div_ceil(page_size)
+}
+
+/// 切出第 `page` 页（1 起）；超界返回空片。
+pub fn page_slice(
+    rows: &[quota_core::HistoryPoint],
+    page: u64,
+    page_size: u64,
+) -> &[quota_core::HistoryPoint] {
+    let start = page.saturating_sub(1).saturating_mul(page_size) as usize;
+    let end = start.saturating_add(page_size as usize).min(rows.len());
+    if start >= rows.len() {
+        &[]
+    } else {
+        &rows[start..end]
+    }
+}
+
+/// `quota history show` 表格：时间 / 窗口 / 已用 / 剩余 / 单位。
+/// 时间为本地时区 `%m-%d %H:%M`；窗口列复用「套餐」列头（窗口键源自 plan_name）。
+pub fn history_table(points: &[quota_core::HistoryPoint], lang: Lang) -> String {
+    let mut table = new_table(&[
+        t(lang, T::ColTime),
+        t(lang, T::ColPlan),
+        t(lang, T::ColUsed),
+        t(lang, T::ColRemaining),
+        t(lang, T::ColUnit),
+    ]);
+    for p in points {
+        table.add_row(vec![
+            Cell::new(fmt_datetime_in_tz(p.sampled_at, None)),
+            Cell::new(&p.window_key),
+            Cell::new(fmt_num(p.used)).set_alignment(CellAlignment::Right),
+            Cell::new(fmt_num(p.remaining)).set_alignment(CellAlignment::Right),
+            Cell::new(p.unit.clone().unwrap_or_else(|| "-".into())),
+        ]);
+    }
+    table.to_string()
+}
+
+/// 按窗口语义类别稳定排序（5h → 周 → 其他），类内保持原相对顺序
+/// （`bucket_points_by_window` 的窗口分组时间序）。分页切片因此天然
+/// 类别连续——分段渲染下至多一页含段边界。
+pub fn order_points_by_kind(points: &mut [quota_core::HistoryPoint]) {
+    points.sort_by_key(|p| kind_rank(quota_core::window_kind(&p.window_key)));
+}
+
+/// 类别固定展示序。
+fn kind_rank(kind: quota_core::WindowKind) -> u8 {
+    match kind {
+        quota_core::WindowKind::FiveHour => 0,
+        quota_core::WindowKind::Weekly => 1,
+        quota_core::WindowKind::Other => 2,
+    }
+}
+
+/// 按类别分组（5h → 周 → 其他，跳过空组），供全部窗口视图分段渲染；
+/// 与输入顺序无关，组内保持输入相对顺序。
+pub fn group_points_by_kind(
+    points: &[quota_core::HistoryPoint],
+) -> Vec<(quota_core::WindowKind, Vec<quota_core::HistoryPoint>)> {
+    let mut five_hour = Vec::new();
+    let mut weekly = Vec::new();
+    let mut other = Vec::new();
+    for point in points {
+        match quota_core::window_kind(&point.window_key) {
+            quota_core::WindowKind::FiveHour => five_hour.push(point.clone()),
+            quota_core::WindowKind::Weekly => weekly.push(point.clone()),
+            quota_core::WindowKind::Other => other.push(point.clone()),
+        }
+    }
+    [
+        (quota_core::WindowKind::FiveHour, five_hour),
+        (quota_core::WindowKind::Weekly, weekly),
+        (quota_core::WindowKind::Other, other),
+    ]
+    .into_iter()
+    .filter(|(_, rows)| !rows.is_empty())
+    .collect()
+}
+
+/// history show 的单页/整表渲染。`sectioned` 表示**整个过滤后视图**跨
+/// ≥2 个语义类别（由调用方对全量行判定后传入）：此时按类别分段
+/// （`── {类别} ──` 行 + 各段表格，段间空行），单页切片只含一个类别时
+/// 也保留其段头（分页翻页不失上下文）；非分段视图直接整表不加分段头。
+pub fn history_grouped_table(
+    points: &[quota_core::HistoryPoint],
+    lang: Lang,
+    sectioned: bool,
+) -> String {
+    if !sectioned {
+        return history_table(points, lang);
+    }
+    let sections: Vec<String> = group_points_by_kind(points)
+        .into_iter()
+        .map(|(kind, rows)| {
+            format!(
+                "── {} ──\n{}",
+                crate::texts::window_kind_label(lang, kind),
+                history_table(&rows, lang).trim_end_matches('\n')
+            )
+        })
+        .collect();
+    if sections.is_empty() {
+        return history_table(points, lang);
+    }
+    sections.join("\n\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +802,171 @@ mod tests {
         let ok = outcome_ok(vec![usage(1.0)]).to_json();
         let j = serde_json::to_string(&ok).unwrap();
         assert!(!j.to_lowercase().contains("key"), "{j}");
+    }
+
+    // ---- history 渲染 -------------------------------------------------------
+
+    use quota_core::HistoryPoint;
+
+    fn point(window: &str, sampled_at: u64, remaining: f64) -> HistoryPoint {
+        HistoryPoint {
+            window_key: window.into(),
+            sampled_at,
+            used: None,
+            remaining: Some(remaining),
+            total: None,
+            unit: Some("%".into()),
+        }
+    }
+
+    const HOUR_MS: u64 = 60 * 60 * 1000;
+
+    /// 契约：按窗口分组、桶内取最后一点、组内时间升序。
+    #[test]
+    fn bucket_points_group_by_window_and_keep_last_in_bucket() {
+        let points = vec![
+            point("five_hour", 10 * HOUR_MS, 1.0),
+            // 同桶（桶 10）后到覆盖先到
+            point("five_hour", 10 * HOUR_MS + 30 * 60 * 1000, 2.0),
+            point("five_hour", 12 * HOUR_MS, 3.0),
+            point("weekly", 9 * HOUR_MS, 4.0),
+            // 同毫秒不同桶边界：11h 恰好落入桶 11
+            point("weekly", 11 * HOUR_MS, 5.0),
+        ];
+        let bucketed = bucket_points_by_window(&points, HOUR_MS);
+        let got: Vec<(String, u64, f64)> = bucketed
+            .into_iter()
+            .map(|p| (p.window_key, p.sampled_at, p.remaining.unwrap()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("five_hour".into(), 10 * HOUR_MS + 30 * 60 * 1000, 2.0),
+                ("five_hour".into(), 12 * HOUR_MS, 3.0),
+                ("weekly".into(), 9 * HOUR_MS, 4.0),
+                ("weekly".into(), 11 * HOUR_MS, 5.0),
+            ]
+        );
+
+        assert!(bucket_points_by_window(&[], HOUR_MS).is_empty());
+    }
+
+    /// 契约：总页数与分页切片——空数据 1 页、整页、末页短页、超界空片。
+    #[test]
+    fn pagination_boundaries() {
+        assert_eq!(total_pages(0, 20), 1);
+        assert_eq!(total_pages(19, 20), 1);
+        assert_eq!(total_pages(20, 20), 1);
+        assert_eq!(total_pages(21, 20), 2);
+        assert_eq!(total_pages(40, 20), 2);
+
+        let rows: Vec<HistoryPoint> = (0..5).map(|i| point("w0", i, i as f64)).collect();
+        assert_eq!(page_slice(&rows, 1, 2).len(), 2);
+        assert_eq!(page_slice(&rows, 2, 2).len(), 2);
+        assert_eq!(page_slice(&rows, 3, 2).len(), 1, "末页短页");
+        assert_eq!(page_slice(&rows, 4, 2).len(), 0, "超界返回空片");
+        assert_eq!(page_slice(&rows, 1, 100).len(), 5, "页容量大于总数");
+        assert_eq!(page_slice(&[], 1, 20).len(), 0);
+    }
+
+    /// 契约：history 表格双语表头与数值渲染（时间列本地时区）。
+    #[test]
+    fn history_table_renders_headers_and_values() {
+        let rows = vec![point("five_hour", 1_700_000_000_000, 58.0)];
+        for lang in [Lang::Zh, Lang::En] {
+            let table = history_table(&rows, lang);
+            assert!(table.contains("five_hour"), "{lang:?}: {table}");
+            assert!(table.contains("58"), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColTime)), "{lang:?}: {table}");
+            assert!(table.contains(t(lang, T::ColPlan)), "{lang:?}: {table}");
+        }
+        // 无数值列显示 "-"
+        let table = history_table(
+            &[HistoryPoint {
+                window_key: "w0".into(),
+                sampled_at: 1_700_000_000_000,
+                used: None,
+                remaining: None,
+                total: None,
+                unit: None,
+            }],
+            Lang::Zh,
+        );
+        assert!(table.contains('-'), "{table}");
+    }
+
+    /// 契约：类别稳定排序（5h → 周 → 其他，类内保序）与分组跳空组。
+    #[test]
+    fn order_and_group_by_kind() {
+        let mut rows = vec![
+            point("DeepSeek", 1, 1.0),
+            point("Claude 订阅（week）", 2, 2.0),
+            point("Claude 订阅（5h）", 3, 3.0),
+            point("w0", 4, 4.0),
+        ];
+        order_points_by_kind(&mut rows);
+        let keys: Vec<&str> = rows.iter().map(|p| p.window_key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec!["Claude 订阅（5h）", "Claude 订阅（week）", "DeepSeek", "w0"],
+            "5h → 周 → 其他，类内保持原相对顺序"
+        );
+
+        let groups = group_points_by_kind(&rows);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].0, quota_core::WindowKind::FiveHour);
+        assert_eq!(groups[0].1.len(), 1);
+        assert_eq!(groups[1].0, quota_core::WindowKind::Weekly);
+        assert_eq!(groups[2].0, quota_core::WindowKind::Other);
+        assert_eq!(groups[2].1.len(), 2, "其他类别多窗口同组");
+
+        // 单类别输入 → 单组（空组不出现）
+        let only = group_points_by_kind(&[point("w0", 1, 1.0), point("w1", 2, 2.0)]);
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].0, quota_core::WindowKind::Other);
+    }
+
+    /// 契约：跨类别视图分段渲染（段头 + 各段表格）；单类别视图不加分段头；
+    /// 分页切片后的单页即使只含一个类别也保留其段头。
+    #[test]
+    fn history_grouped_table_sections() {
+        let rows = vec![
+            point("Claude 订阅（5h）", 1, 1.0),
+            point("Claude 订阅（week）", 2, 2.0),
+        ];
+        let sectioned = group_points_by_kind(&rows).len() > 1;
+        assert!(sectioned, "跨类别视图判定为分段");
+        for lang in [Lang::Zh, Lang::En] {
+            let out = history_grouped_table(&rows, lang, sectioned);
+            assert!(
+                out.contains(&crate::texts::window_kind_label(
+                    lang,
+                    quota_core::WindowKind::FiveHour
+                )),
+                "{lang:?}: {out}"
+            );
+            assert!(
+                out.contains(&crate::texts::window_kind_label(
+                    lang,
+                    quota_core::WindowKind::Weekly
+                )),
+                "{lang:?}: {out}"
+            );
+            assert!(out.contains("Claude 订阅（5h）"), "{lang:?}: {out}");
+            assert!(out.contains("Claude 订阅（week）"), "{lang:?}: {out}");
+        }
+
+        // 单类别视图：不加段头
+        let single = [point("w0", 1, 1.0)];
+        assert_eq!(group_points_by_kind(&single).len(), 1);
+        let out = history_grouped_table(&single, Lang::Zh, false);
+        assert!(!out.contains("其他窗口"), "{out}");
+
+        // 分页切片：页容量 1 时第 2 页只剩周窗，仍保留周窗口段头
+        let mut ordered = rows;
+        order_points_by_kind(&mut ordered);
+        let out = history_grouped_table(page_slice(&ordered, 2, 1), Lang::Zh, true);
+        assert!(out.contains("周窗口"), "{out}");
+        assert!(!out.contains("5 小时窗口"), "{out}");
     }
 }

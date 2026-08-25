@@ -7,6 +7,7 @@
 
 use crate::lang::Lang;
 use clap::Command;
+use quota_core::WindowKind;
 
 /// 无参 / 前缀型文案键。exhaustive match 保证每键双语齐全（漏译即编译错误）。
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +67,18 @@ pub enum T {
     ListEmpty,
     QueryNoEntries,
     NativesEmpty,
+
+    // ---- history ----
+    /// history 表「时间」列头。
+    ColTime,
+    /// 「历史库打开失败：」前缀。
+    HistoryOpenFail,
+    /// 「清理条目历史失败：」前缀（remove 删除清理）。
+    HistoryClearFail,
+    /// 「历史记录写入失败：」前缀。
+    HistoryWriteFail,
+    /// 条目在回看范围内无历史点。
+    HistoryEmpty,
 
     // ---- add 向导与校验 ----
     PasteHintA,
@@ -208,6 +221,17 @@ pub enum T {
     HelpConfigImport,
     HelpConfigImportInput,
     HelpConfigImportYes,
+    HelpHistory,
+    HelpHistoryShow,
+    HelpHistoryShowId,
+    HelpHistoryShowWindow,
+    HelpHistoryShowRange,
+    HelpHistoryShowPageSize,
+    HelpHistoryShowPage,
+    HelpHistoryShowJson,
+    HelpHistoryClear,
+    HelpHistoryClearId,
+    HelpHistoryClearYes,
     HelpUpdate,
     HelpUpdateCheck,
     HelpUpdateYes,
@@ -340,6 +364,12 @@ fn zh(key: T) -> &'static str {
         }
         T::NativesEmpty => "（无预置平台）",
 
+        T::ColTime => "时间",
+        T::HistoryOpenFail => "历史库打开失败：",
+        T::HistoryClearFail => "清理条目历史失败：",
+        T::HistoryWriteFail => "历史记录写入失败：",
+        T::HistoryEmpty => "回看范围内没有历史数据（成功查询后才会积累）",
+
         T::PasteHintA => {
             "粘贴提示：名称 / base_url 输入框请用 Shift+Ctrl+V 或鼠标右键（Ctrl+V 在此不生效）；"
         }
@@ -460,6 +490,21 @@ fn zh(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "覆盖 baseUrl 变量",
         T::HelpVault => "凭据保险库",
         T::HelpVaultStatus => "主密钥健康检查（系统凭据库可读性）",
+        T::HelpHistory => "查询历史数据（余额/额度走势）",
+        T::HelpHistoryShow => "查看条目历史走势（按时间桶聚合）",
+        T::HelpHistoryShowId => "条目 id",
+        T::HelpHistoryShowWindow => {
+            "窗口过滤：5h / weekly 类别、all 全部或窗口键精确匹配；缺省按范围选（24h→5h，7d/30d→周），缺失回退全部"
+        }
+        T::HelpHistoryShowRange => {
+            "回看范围与聚合粒度（24h=15 分钟桶 / 7d=1 小时桶 / 30d=6 小时桶）"
+        }
+        T::HelpHistoryShowPageSize => "每页行数（默认 20）",
+        T::HelpHistoryShowPage => "打印指定页后退出（非交互；缺省且在终端下交互翻页）",
+        T::HelpHistoryShowJson => "输出原始点 JSON（不分页不聚合，供脚本消费）",
+        T::HelpHistoryClear => "清除历史数据",
+        T::HelpHistoryClearId => "条目 id（缺省 = 全部条目）",
+        T::HelpHistoryClearYes => "跳过确认",
         T::HelpConfigTransfer => "完整配置跨机器迁移",
         T::HelpConfigExport => "导出完整配置与凭据到私有迁移包",
         T::HelpConfigExportOutput => "迁移包输出路径",
@@ -571,6 +616,14 @@ fn en(key: T) -> &'static str {
             "No entries to query; add one with quota add, or use quota query <id> to pick a disabled entry."
         }
         T::NativesEmpty => "(no built-in providers)",
+
+        T::ColTime => "Time",
+        T::HistoryOpenFail => "history store open failed: ",
+        T::HistoryClearFail => "history cleanup failed: ",
+        T::HistoryWriteFail => "history record write failed: ",
+        T::HistoryEmpty => {
+            "no history data in the selected range (accumulates after successful queries)"
+        }
 
         T::PasteHintA => {
             "Paste tip: use Shift+Ctrl+V or right-click in the name / base_url prompts (Ctrl+V does not work there);"
@@ -712,6 +765,23 @@ fn en(key: T) -> &'static str {
         T::HelpTemplateBaseUrl => "Override the baseUrl variable",
         T::HelpVault => "Credential vault",
         T::HelpVaultStatus => "Master key health check (system credential store readability)",
+        T::HelpHistory => "Query history (balance/quota trends)",
+        T::HelpHistoryShow => "Show an entry's trend (aggregated into time buckets)",
+        T::HelpHistoryShowId => "Entry id",
+        T::HelpHistoryShowWindow => {
+            "Window filter: 5h / weekly kinds, all, or an exact window key; defaults by range (24h→5h, 7d/30d→weekly), falls back to all when missing"
+        }
+        T::HelpHistoryShowRange => {
+            "Lookback range and bucket size (24h=15m / 7d=1h / 30d=6h buckets)"
+        }
+        T::HelpHistoryShowPageSize => "Rows per page (default 20)",
+        T::HelpHistoryShowPage => {
+            "Print the given page and exit (non-interactive; interactive paging on terminals by default)"
+        }
+        T::HelpHistoryShowJson => "Emit raw points as JSON (no paging or aggregation, for scripts)",
+        T::HelpHistoryClear => "Clear history data",
+        T::HelpHistoryClearId => "Entry id (all entries when omitted)",
+        T::HelpHistoryClearYes => "Skip confirmation",
         T::HelpConfigTransfer => "Transfer the complete configuration between machines",
         T::HelpConfigExport => {
             "Export the complete configuration and credentials to a private transfer package"
@@ -857,9 +927,21 @@ pub fn saved(lang: Lang, name: &str, id: &str) -> String {
 pub fn remove_confirm(lang: Lang, name: &str, id: &str) -> String {
     match lang {
         Lang::En => {
-            format!("Remove {name} ({id})? Its credential ciphertext will be removed as well")
+            format!(
+                "Remove {name} ({id})? Its credential ciphertext and query history will be removed as well"
+            )
         }
-        _ => format!("删除 {name}（{id}）？其凭据密文将一并移除"),
+        _ => format!("删除 {name}（{id}）？其凭据密文与查询历史将一并移除"),
+    }
+}
+
+/// config export 超 16 MiB 上限的逃生提示（常见根因是历史数据体积）。
+pub fn history_export_too_large_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => {
+            "hint: the query history often causes the 16 MiB limit; quota history clear frees space"
+        }
+        _ => "提示：迁移包超限常见根因是查询历史体积，可先 quota history clear 腾出空间",
     }
 }
 
@@ -875,11 +957,11 @@ pub fn cancelled(lang: Lang) -> &'static str {
 pub fn config_export_confirm(lang: Lang, path: &std::path::Path) -> String {
     match lang {
         Lang::En => format!(
-            "Export to {}? The package contains a decryption key and must be protected like plaintext credentials",
+            "Export to {}? The package contains a decryption key and the query history, and must be protected like plaintext credentials",
             path.display()
         ),
         _ => format!(
-            "导出到 {}？迁移包携带解密密钥，必须按明文凭据同等保护",
+            "导出到 {}？迁移包含解密密钥与查询历史，必须按明文凭据同等保护",
             path.display()
         ),
     }
@@ -915,6 +997,100 @@ pub fn config_imported(lang: Lang, path: &std::path::Path, count: usize) -> Stri
             path.display()
         ),
         _ => format!("已从 {} 导入配置（{count} 个供应商）", path.display()),
+    }
+}
+
+/// config import 附带合并的历史行数提示。
+pub fn history_merged(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::En => format!("merged {count} history row(s) into the local history store"),
+        _ => format!("已合并 {count} 行历史数据到本机历史库"),
+    }
+}
+
+/// 历史库读失败但导出/导入继续时的降级提示。
+pub fn history_transfer_degraded(lang: Lang, reason: &str) -> String {
+    match lang {
+        Lang::En => format!("history data not transferred ({reason})"),
+        _ => format!("历史数据未随迁移包传递（{reason}）"),
+    }
+}
+
+/// history show 交互翻页页脚（按键提示）。
+pub fn history_page_footer(lang: Lang, page: u64, total: u64) -> String {
+    match lang {
+        Lang::En => format!("-- page {page}/{total}: space/Enter/→ next, b/← prev, q quit --"),
+        _ => format!("── 第 {page}/{total} 页：空格/回车/→ 下一页，b/← 上一页，q 退出 ──"),
+    }
+}
+
+/// history show 非交互单页的页码行。
+pub fn history_page_note(lang: Lang, page: u64, total: u64) -> String {
+    match lang {
+        Lang::En => format!("-- page {page}/{total} --"),
+        _ => format!("── 第 {page}/{total} 页 ──"),
+    }
+}
+
+/// history show 页码超出范围。
+pub fn history_page_out_of_range(lang: Lang, page: u64, total: u64) -> String {
+    match lang {
+        Lang::En => format!("page {page} out of range (total {total} page(s))"),
+        _ => format!("页码 {page} 超出范围（共 {total} 页）"),
+    }
+}
+
+/// 窗口类别展示名（history show 分段表头与回退提示共用）。
+pub fn window_kind_label(lang: Lang, kind: WindowKind) -> String {
+    match (lang, kind) {
+        (Lang::En, WindowKind::FiveHour) => "5-hour window".into(),
+        (Lang::En, WindowKind::Weekly) => "weekly window".into(),
+        (Lang::En, WindowKind::Other) => "other windows".into(),
+        (_, WindowKind::FiveHour) => "5 小时窗口".into(),
+        (_, WindowKind::Weekly) => "周窗口".into(),
+        (_, WindowKind::Other) => "其他窗口".into(),
+    }
+}
+
+/// 缺省窗口类别在回看范围内无点时的回退提示（不强求：改展示全部窗口）。
+pub fn history_window_fallback(lang: Lang, kind: &str) -> String {
+    match lang {
+        Lang::En => format!("no {kind} found, showing all windows"),
+        _ => format!("未发现{kind}，已展示全部窗口"),
+    }
+}
+
+/// 显式窗口过滤无匹配：范围内有点但都不满足该过滤，列出可用窗口键。
+pub fn history_window_no_match(lang: Lang, filter: &str, available: &[String]) -> String {
+    match lang {
+        Lang::En => format!(
+            "no window matching \"{filter}\" in the selected range (available: {})",
+            available.join(", ")
+        ),
+        _ => format!(
+            "回看范围内没有匹配「{filter}」的窗口（现有：{}）",
+            available.join("、")
+        ),
+    }
+}
+
+/// history clear 确认（id 为 None = 全部条目）。
+pub fn history_clear_confirm(lang: Lang, id: Option<&str>) -> String {
+    match (lang, id) {
+        (Lang::En, Some(id)) => format!("Delete history of entry {id}?"),
+        (Lang::En, None) => "Delete history of ALL entries?".to_string(),
+        (_, Some(id)) => format!("删除条目 {id} 的历史数据？"),
+        (_, None) => "删除全部条目的历史数据？".to_string(),
+    }
+}
+
+/// history clear 完成。
+pub fn history_cleared(lang: Lang, id: Option<&str>) -> String {
+    match (lang, id) {
+        (Lang::En, Some(id)) => format!("history cleared for {id}"),
+        (Lang::En, None) => "history cleared for all entries".to_string(),
+        (_, Some(id)) => format!("已清除条目 {id} 的历史数据"),
+        (_, None) => "已清除全部条目的历史数据".to_string(),
     }
 }
 
@@ -1201,6 +1377,23 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
         .mut_subcommand("vault", |c| {
             c.about(tr(T::HelpVault))
                 .mut_subcommand("status", |c| c.about(tr(T::HelpVaultStatus)))
+        })
+        .mut_subcommand("history", |c| {
+            c.about(tr(T::HelpHistory))
+                .mut_subcommand("show", |c| {
+                    c.about(tr(T::HelpHistoryShow))
+                        .mut_arg("id", |a| a.help(tr(T::HelpHistoryShowId)))
+                        .mut_arg("window", |a| a.help(tr(T::HelpHistoryShowWindow)))
+                        .mut_arg("range", |a| a.help(tr(T::HelpHistoryShowRange)))
+                        .mut_arg("page_size", |a| a.help(tr(T::HelpHistoryShowPageSize)))
+                        .mut_arg("page", |a| a.help(tr(T::HelpHistoryShowPage)))
+                        .mut_arg("json", |a| a.help(tr(T::HelpHistoryShowJson)))
+                })
+                .mut_subcommand("clear", |c| {
+                    c.about(tr(T::HelpHistoryClear))
+                        .mut_arg("id", |a| a.help(tr(T::HelpHistoryClearId)))
+                        .mut_arg("yes", |a| a.help(tr(T::HelpHistoryClearYes)))
+                })
         })
         .mut_subcommand("config", |c| {
             c.about(tr(T::HelpConfigTransfer))

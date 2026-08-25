@@ -6,11 +6,12 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicU64;
 
 use quota_core::pricing::PeakKind;
-use quota_core::{QueryEngine, Vault};
+use quota_core::{HistoryStore, QueryEngine, Vault};
 use serde::Serialize;
 
 use crate::settings::Settings;
@@ -45,6 +46,11 @@ impl DataPaths {
 
     pub fn snapshot(&self) -> PathBuf {
         self.root.join("cache.json")
+    }
+
+    /// 查询历史库（M5，30 天滚动）。
+    pub fn history(&self) -> PathBuf {
+        self.root.join("history.db")
     }
 }
 
@@ -122,6 +128,9 @@ pub struct AppState {
     /// 的条目而非仅图标条目——主窗卡片与悬停面板同样消费该判定），
     /// 翻转才重建托盘并向 WebView 广播，避免轮询间隔长时标签过期。
     pub last_peak: RwLock<HashMap<String, PeakKind>>,
+    /// 查询历史库（M5）。非关键数据：打开失败降级内存库（eprintln 告警），
+    /// 查询主链路照常，仅历史不落盘。
+    pub history: Mutex<HistoryStore>,
 }
 
 /// 当前 epoch 毫秒。
@@ -183,6 +192,14 @@ impl AppState {
                 },
             );
         }
+        // 历史库（M5）非关键：打开失败降级内存库，不阻断启动
+        let history = match HistoryStore::open(&paths.history()) {
+            Ok(store) => store,
+            Err(e) => {
+                eprintln!("历史库打开失败（本次运行不落盘）：{e}");
+                HistoryStore::open_in_memory().map_err(|e| e.to_string())?
+            }
+        };
         Ok(Self {
             engine: std::sync::RwLock::new(engine),
             vault,
@@ -197,6 +214,7 @@ impl AppState {
                 ..Default::default()
             }),
             last_peak: RwLock::new(HashMap::new()),
+            history: Mutex::new(history),
         })
     }
 }

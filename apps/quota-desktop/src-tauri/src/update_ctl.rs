@@ -335,6 +335,8 @@ mod tests {
             resolved_theme: std::sync::RwLock::new(false),
             update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
             last_peak: std::sync::RwLock::new(HashMap::new()),
+            // 更新调度测试不消费历史，内存库即可
+            history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
         }
     }
 

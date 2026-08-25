@@ -1,9 +1,11 @@
-//! `quota config export/import`：完整配置跨机器迁移。
+//! `quota config export/import`：完整配置跨机器迁移（含查询历史）。
 
 use std::path::PathBuf;
 
 use dialoguer::{Confirm, theme::ColorfulTheme};
-use quota_core::{AppConfig, export_config_to_path, import_config_to_path};
+use quota_core::{
+    AppConfig, HistoryExportRow, HistoryStore, export_config_to_path, import_config_to_path,
+};
 
 use crate::ctx::Ctx;
 use crate::texts::{self, T, t};
@@ -27,13 +29,20 @@ pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
         println!("{}", texts::cancelled(ctx.lang));
         return 0;
     }
-    match export_config_to_path(&config, &vault, &output) {
+    // 历史随包携带；读失败降级为不带历史（导出主任务继续）。
+    let history = read_history_rows(ctx);
+    match export_config_to_path(&config, &vault, history.as_deref(), &output) {
         Ok(()) => {
             println!("{}", texts::config_exported(ctx.lang, &output));
             0
         }
         Err(e) => {
             eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
+            // 超限常见根因是历史体积：附逃生提示（TooLarge 的 Display
+            // 已含「超过 16 MiB 上限」文案，不重复打印）
+            if matches!(e, quota_core::ConfigTransferError::TooLarge) {
+                eprintln!("{}", texts::history_export_too_large_hint(ctx.lang));
+            }
             1
         }
     }
@@ -52,10 +61,11 @@ pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool) -> i32 {
         }
     };
     match import_config_to_path(&input, &vault, &ctx.config_path) {
-        Ok(config) => {
+        Ok(bundle) => {
+            merge_history(ctx, bundle.history.as_deref());
             println!(
                 "{}",
-                texts::config_imported(ctx.lang, &input, config.providers.len())
+                texts::config_imported(ctx.lang, &input, bundle.config.providers.len())
             );
             0
         }
@@ -63,6 +73,55 @@ pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool) -> i32 {
             eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
             1
         }
+    }
+}
+
+/// 全量读取本机历史行（跨机器迁移用）；打不开/读失败告警并返回 None。
+fn read_history_rows(ctx: &Ctx) -> Option<Vec<HistoryExportRow>> {
+    let store = match HistoryStore::open(&ctx.history_path()) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!(
+                "{}",
+                texts::history_transfer_degraded(ctx.lang, &e.to_string())
+            );
+            return None;
+        }
+    };
+    match store.export_rows() {
+        Ok(rows) => Some(rows),
+        Err(e) => {
+            eprintln!(
+                "{}",
+                texts::history_transfer_degraded(ctx.lang, &e.to_string())
+            );
+            None
+        }
+    }
+}
+
+/// 迁移包携带的历史行幂等合并进本机历史库；失败仅告警（配置已导入成功）。
+fn merge_history(ctx: &Ctx, rows: Option<&[HistoryExportRow]>) {
+    let Some(rows) = rows else { return };
+    if rows.is_empty() {
+        return;
+    }
+    let store = match HistoryStore::open(&ctx.history_path()) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!(
+                "{}",
+                texts::history_transfer_degraded(ctx.lang, &e.to_string())
+            );
+            return;
+        }
+    };
+    match store.merge_rows(rows) {
+        Ok(()) => println!("{}", texts::history_merged(ctx.lang, rows.len())),
+        Err(e) => eprintln!(
+            "{}",
+            texts::history_transfer_degraded(ctx.lang, &e.to_string())
+        ),
     }
 }
 
@@ -169,6 +228,45 @@ mod tests {
 
         assert_eq!(run_import(&target, bundle, true), 1);
         assert_eq!(AppConfig::load(&target.config_path).unwrap(), existing);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 契约：export 默认携带本机历史，import 幂等合并进目标机历史库
+    /// （同条目 id 续线）。
+    #[test]
+    fn export_import_carries_history_rows() {
+        let dir = test_dir("history");
+        let source = source_ctx(&dir);
+        // 源机积累两条历史点（单窗口一条时间线）
+        HistoryStore::open(&source.history_path())
+            .unwrap()
+            .record(
+                "source-entry",
+                &[quota_core::UsageData {
+                    plan_name: Some("five_hour".into()),
+                    remaining: Some(42.0),
+                    unit: Some("CNY".into()),
+                    ..Default::default()
+                }],
+                1_700_000_000_000,
+            )
+            .unwrap();
+
+        let bundle = dir.join("backup.qtray-export");
+        assert_eq!(run_export(&source, bundle.clone(), true), 0);
+
+        let target = Ctx::with_store(dir.join("target.json"), Arc::new(InMemoryStore::new()));
+        AppConfig::default().save(&target.config_path).unwrap();
+        assert_eq!(run_import(&target, bundle, true), 0);
+
+        let points = HistoryStore::open(&target.history_path())
+            .unwrap()
+            .range("source-entry", 0)
+            .unwrap();
+        assert_eq!(points.len(), 1, "历史随迁移包到达目标机");
+        assert_eq!(points[0].remaining, Some(42.0));
+        // v1 老包兼容（history=None 不合并）由 core transfer 测试覆盖
+
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -66,6 +66,14 @@ impl Ctx {
     pub fn new_engine(&self) -> Result<QueryEngine, String> {
         build_engine_from_settings(&self.config_path, self.lang)
     }
+
+    /// 历史库路径：与配置文件同目录（`--config` 覆盖时自然跟随）。
+    pub fn history_path(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .map(|dir| dir.join("history.db"))
+            .unwrap_or_else(|| PathBuf::from("history.db"))
+    }
 }
 
 /// 按 settings.json 的网络代理端口构造查询引擎（None = 直连）。
