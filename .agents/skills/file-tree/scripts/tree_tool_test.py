@@ -23,16 +23,7 @@ from tree_tool import (  # noqa: E402
     split_rel_path,
 )
 
-AGENTS_TEMPLATE = """# AGENTS
-
-## 文件树
-
-```
-<!-- file-tree:full:begin 由脚本渲染，禁止手改 -->
-旧详版树
-<!-- file-tree:full:end -->
-```
-"""
+AGENTS_TEMPLATE = "# AGENTS\n"
 
 
 def make_data() -> dict:
@@ -205,22 +196,6 @@ class RenderTest(SandboxTest):
             ),
         )
 
-    def test_full_snapshot_with_continuation_and_fallback(self):
-        tool = self.make_tool()
-        self.assertEqual(
-            tool.render_full_tree(),
-            "\n".join(
-                [
-                    "Demo/",
-                    "├── apps/      # 应用层",
-                    "│   ├── main.tsx # 分派主窗",
-                    "│   │            #   双面板",
-                    "│   └── util.ts  # 纯函数工具集",
-                    "└── Cargo.toml # workspace 根：成员与依赖版本、release 配置",
-                ]
-            ),
-        )
-
     def test_tags_table(self):
         tool = self.make_tool()
         self.assertEqual(
@@ -244,12 +219,18 @@ class RenderTest(SandboxTest):
 
     def test_render_replaces_existing_marker(self):
         tool = self.make_tool()
-        tool.render()
+        tool.render()  # 首跑附加两块
+        tool.agents_md.write_text(
+            tool.agents_md.read_text(encoding="utf-8").replace("# 入口", "# 被手改"),
+            encoding="utf-8",
+            newline="\n",
+        )
+        updated = tool.render()  # 再次渲染按标记替换
+        self.assertEqual(updated, [tool.agents_md])
         agents = tool.agents_md.read_text(encoding="utf-8")
-        self.assertIn("# 分派主窗", agents)  # 详版树块更新
-        self.assertNotIn("旧详版树", agents)
-        # 重复 render 幂等
-        self.assertEqual(tool.render(), [])
+        self.assertIn("# 入口", agents)
+        self.assertNotIn("# 被手改", agents)
+        self.assertEqual(tool.render(), [])  # 幂等
 
     def test_render_appends_missing_blocks_to_tail(self):
         tool = self.make_tool()
@@ -260,8 +241,6 @@ class RenderTest(SandboxTest):
         self.assertIn("## 文件树标签词表", agents)
         self.assertIn("# 入口", agents)
         self.assertIn("`pure`", agents)
-        # 原有 full 块留在原位，附加块在文件尾部
-        self.assertLess(agents.index("file-tree:full:begin"), agents.index("## 文件树（简版速览）"))
         # 附加的树块被 code fence 包裹
         tail = agents[agents.index("## 文件树（简版速览）"):]
         self.assertTrue(tail.index("```") < tail.index("# 入口") < tail.index("```", tail.index("# 入口")))
@@ -272,10 +251,18 @@ class RenderTest(SandboxTest):
         tool.render()
         agents = tool.agents_md.read_text(encoding="utf-8")
         self.assertTrue(agents.startswith("# AGENTS"))
-        for marker in ("file-tree:tree:begin", "file-tree:tags:begin", "file-tree:full:begin"):
+        for marker in ("file-tree:tree:begin", "file-tree:tags:begin"):
             self.assertIn(marker, agents)
         errors, _ = tool.check()
         self.assertEqual(errors, [])
+
+    def test_render_rejects_orphan_end_marker(self):
+        tool = self.make_tool()
+        tool.agents_md.write_text(
+            "# AGENTS\n\n<!-- file-tree:tree:end -->\n", encoding="utf-8", newline="\n"
+        )
+        with self.assertRaises(ToolError):
+            tool.render()
 
 
 class ReplaceBlockTest(unittest.TestCase):

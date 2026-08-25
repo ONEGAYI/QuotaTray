@@ -4,10 +4,11 @@
 条目字段固定顺序 desc / detail / rel / tags / children；本脚本是唯一写入口，
 所有写命令执行后自动按确定性字典序（casefold + 码点决胜）规范化并重渲染产物。
 
-渲染目标为 AGENTS.md 的三个标记块（简版树 / 标签词表 / 详版树）：
+渲染目标为 AGENTS.md 的两个标记块（简版树 / 标签词表）：
 块内有标记则替换标记间内容；无标记则附加到文件尾部（带小节标题）；
-AGENTS.md 不存在则生成最小骨架。仓库内其他手写文件树惰性对待：
-以本技能 tree.json 的查询结果为准，不主动同步维护它们。
+AGENTS.md 不存在则生成最小骨架。detail 完整描述只存于 tree.json 供查询，
+不渲染。仓库内其他手写文件树惰性对待：以本技能 tree.json 的查询结果为准，
+不主动同步维护它们。
 
 用法：
   python tree_tool.py add <path> -d 描述 [--detail 行]... [--rel 路径]... [--tags a,b] [--dir]
@@ -37,8 +38,6 @@ TREE_BEGIN = "<!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->"
 TREE_END = "<!-- file-tree:tree:end -->"
 TAGS_BEGIN = "<!-- file-tree:tags:begin 由脚本渲染，禁止手改 -->"
 TAGS_END = "<!-- file-tree:tags:end -->"
-FULL_BEGIN = "<!-- file-tree:full:begin 由脚本渲染，禁止手改 -->"
-FULL_END = "<!-- file-tree:full:end -->"
 
 DESC_MAX = 20
 
@@ -166,17 +165,11 @@ def walk_entries(children: dict, prefix: list[str]):
             yield from walk_entries(node["children"], prefix + [name])
 
 
-def render_tree(root_name: str, tree: dict, brief: bool) -> str:
-    """渲染树。brief=True 注释用 desc 单行；False 用 detail 多行（缺失回退 desc）。
+def render_tree(root_name: str, tree: dict) -> str:
+    """渲染简版树：注释为 desc 单行。
 
     列对齐：每个父目录的 children 块内按最宽 stem 对齐，'#' 固定在 width+1 列。
     """
-
-    def comments_of(node: dict) -> list[str]:
-        if brief:
-            return [node["desc"]] if node.get("desc") else []
-        detail = node.get("detail") or ([node["desc"]] if node.get("desc") else [])
-        return list(detail)
 
     def render_children(children: dict, prefix: str) -> list[str]:
         items = sorted(children.items(), key=lambda kv: sort_key(kv[0]))
@@ -190,11 +183,8 @@ def render_tree(root_name: str, tree: dict, brief: bool) -> str:
         lines = []
         for i, ((name, node), stem) in enumerate(zip(items, stems)):
             cont_prefix = prefix + ("    " if i == len(items) - 1 else "│   ")
-            comments = comments_of(node)
-            if comments:
-                lines.append(stem + " " * (column - len(stem)) + "# " + comments[0])
-                for extra in comments[1:]:
-                    lines.append(cont_prefix + " " * (column - len(cont_prefix)) + "#   " + extra)
+            if node.get("desc"):
+                lines.append(stem + " " * (column - len(stem)) + "# " + node["desc"])
             else:
                 lines.append(stem)
             if is_dir(node) and node["children"]:
@@ -356,10 +346,7 @@ class TreeTool:
     # ---------- 渲染 ----------
 
     def render_brief_tree(self) -> str:
-        return render_tree(self.root_name, self.load()["tree"], brief=True)
-
-    def render_full_tree(self) -> str:
-        return render_tree(self.root_name, self.load()["tree"], brief=False)
+        return render_tree(self.root_name, self.load()["tree"])
 
     def render_tags_table(self) -> str:
         tags = self.load().get("tags", {})
@@ -369,11 +356,10 @@ class TreeTool:
         return "\n".join(lines)
 
     def _blocks(self) -> list[tuple[str, str, str, bool, object]]:
-        """AGENTS.md 的三个渲染块：(begin, end, 附加时的小节标题, 是否 code fence, 内容函数)。"""
+        """AGENTS.md 的两个渲染块：(begin, end, 附加时的小节标题, 是否 code fence, 内容函数)。"""
         return [
             (TREE_BEGIN, TREE_END, "## 文件树（简版速览）", True, self.render_brief_tree),
             (TAGS_BEGIN, TAGS_END, "## 文件树标签词表", False, self.render_tags_table),
-            (FULL_BEGIN, FULL_END, "## 文件树（完整）", True, self.render_full_tree),
         ]
 
     def render(self) -> list[Path]:
@@ -502,7 +488,7 @@ class TreeTool:
             for f in unrecorded:
                 warnings.append(f"W: git 文件未收录进树: {f}")
 
-        # 产物一致性（AGENTS.md 三个标记块）
+        # 产物一致性（AGENTS.md 两个标记块）
         try:
             disk = self.agents_md.read_text(encoding="utf-8").replace("\r\n", "\n")
         except FileNotFoundError:
@@ -656,7 +642,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("check", help="校验全部不变量")
     p.add_argument("--strict", action="store_true", help="告警也视为失败")
 
-    sub.add_parser("render", help="重渲染 AGENTS.md 三个标记块（缺标记自动附加到尾部，无文件则生成）")
+    sub.add_parser("render", help="重渲染 AGENTS.md 两个标记块（缺标记自动附加到尾部，无文件则生成）")
 
     args = parser.parse_args(argv)
     tool = TreeTool(
