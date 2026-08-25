@@ -5,18 +5,34 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import type { UpdateStateDto } from "./types";
 
+export const PROVIDERS_CHANGED_EVENT = "providers-changed";
+
+type QueryInvalidator = {
+  invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
+};
+
+/** Provider 配置变化会影响两个 WebView 各自缓存的列表、查询与快照。 */
+export function invalidateProviderCaches(qc: QueryInvalidator) {
+  void qc.invalidateQueries({ queryKey: ["providers"] });
+  void qc.invalidateQueries({ queryKey: ["provider"] });
+  void qc.invalidateQueries({ queryKey: ["provider-state"] });
+  void qc.invalidateQueries({ queryKey: ["snapshots"] });
+}
+
 export function useProviders() {
   const qc = useQueryClient();
   useEffect(() => {
-    const unlisten = listen<number>("configuration-imported", () => {
-      void qc.invalidateQueries({ queryKey: ["providers"] });
-      void qc.invalidateQueries({ queryKey: ["provider"] });
-      void qc.invalidateQueries({ queryKey: ["provider-state"] });
-      void qc.invalidateQueries({ queryKey: ["snapshots"] });
+    const unlistenProviders = listen(PROVIDERS_CHANGED_EVENT, () => {
+      invalidateProviderCaches(qc);
+    });
+    const unlistenImport = listen<number>("configuration-imported", () => {
+      invalidateProviderCaches(qc);
       void qc.invalidateQueries({ queryKey: ["native-metas"] });
     });
     return () => {
-      void unlisten.then((fn) => fn());
+      void Promise.all([unlistenProviders, unlistenImport]).then((unlisten) => {
+        unlisten.forEach((fn) => fn());
+      });
     };
   }, [qc]);
   return useQuery({

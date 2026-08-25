@@ -243,8 +243,9 @@ QuotaTray/
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令
-│       │   ├── queries.ts      # React Query hooks：轮询/快照/refresh-now/自动更新状态事件+
-│       │   │                    #   配置导入跨窗口失效 + CLI 可改 native/custom model 短缓存 +
+│       │   ├── queries.ts / queries.test.ts # React Query hooks：轮询/快照/refresh-now/
+│       │   │                    #   自动更新状态事件 + Provider 变更/配置导入跨窗口失效契约 +
+│       │   │                    #   CLI 可改 native/custom model 短缓存 +
 │       │   │                    #   usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）
 │       │   ├── display.ts / display.test.ts
 │       │   │                    # 相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、
@@ -257,7 +258,8 @@ QuotaTray/
 │       │   │   └── en.ts       # 英文字典（Record<TextKey,string> 编译期锁键完整）
 │       │   └── components/
 │       │       ├── ui.tsx              # 按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件
-│       │       │                       #   （Dialog 含 Escape、焦点圈定与关闭后焦点恢复）
+│       │       │                       #   （Dialog 以 body Portal 保证主窗居中，含 Escape、
+│       │       │                       #   焦点圈定与关闭后焦点恢复）
 │       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、GitHub 仓库链接
 │       │       │                       #   （opener 插件，scope 锁定仓库主页）、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
@@ -343,7 +345,8 @@ QuotaTray/
 │               │               #   （IPC 错误形状，含脱敏 detail 排查详情）
 │               ├── commands.rs # 主业务 IPC 20 命令：key 写入策略（空=保持不变）、试查经引擎、
 │               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
-│               │               #   消除悬停面板等只读视图的无数据空窗）、
+│               │               #   消除悬停面板等只读视图的无数据空窗）+ Provider
+│               │               #   增删改跨 WebView 失效事件、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新四命令（检测/下载/install_update 运行安装包后
 │               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播）+
