@@ -61,6 +61,7 @@ QuotaTray/
 │           ├── config/        # 配置层
 │           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
 │           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
+│           │   │              #   （含 use_proxy 条目级查询代理开关，默认 false）
 │           │   ├── provider.rs# Credentials / ProviderKind（serde tag 分派：native/
 │           │   │              #   template/script，script 为 M4 新增——旧版二进制
 │           │   │              #   读到会报未知 tag，升级单向）、PlanVariant
@@ -148,9 +149,10 @@ QuotaTray/
 │           │                  #   validate 干跑（假变量+形状校验）；JS 异常
 │           │                  #   消息可能回显注入 key——全错误路径 redact 收口
 │           ├── query/
-│           │   └── mod.rs     # QueryEngine：解密→分派（native/template/script；
-│           │                  #   CLI 凭据型 native 跳过解密前置，api_key_enc
-│           │                  #   可为 None）→超时（15s）
+│           │   └── mod.rs     # QueryEngine：双通道路由（条目 use_proxy 走代理
+│           │                  #   通道，未配全局端口 → 确定性引导）→解密→分派
+│           │                  #   （native/template/script；CLI 凭据型 native 跳过
+│           │                  #   解密前置，api_key_enc 可为 None）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
 │                              #   独立下载通道（10min 总超时 + 15s 连接超时快速失败、
@@ -260,6 +262,8 @@ QuotaTray/
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── BrandMark.tsx       # 标题栏/悬停面板共用的静态品牌标志薄组件
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
+│       │       │                       #   条目级代理开关（Globe 按钮）、CLI 凭据型
+│       │       │                       #   脚注文案（「凭据来自本机 CLI」），
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口
 │       │       │                       #   逐窗主数值（短标签）+重置倒计时小字+
 │       │       │                       #   短时反馈、启停/编辑/删除确认；错误行带
@@ -373,7 +377,8 @@ QuotaTray/
 │               │               #   重建并向 WebView 广播 peak-flip 事件，前端锚点重算 #15）
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测字段组——开关/时刻/
-│               │               #   时间戳/代理端口，CLI 共读同一文件）
+│               │               #   时间戳/网络代理端口（更新与 use_proxy 条目查询
+│               │               #   共用，变更热重建引擎），CLI 共读同一文件）
 │               ├── update_ctl.rs # 更新检测控制：状态表（含已下载安装包记录，
 │               │               #   资产名随版本变化自动失效；检测失败不丢记录）+
 │               │               #   手动/自动检测 + 下载到 %TEMP%/QuotaTray/Downloads

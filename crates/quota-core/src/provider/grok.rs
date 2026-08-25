@@ -133,11 +133,14 @@ async fn query_with_token(
     if resp.status == 401 || resp.status == 403 {
         return Err(QueryError::deterministic(RELOGIN_HINT.to_string()));
     }
-    if resp.status == 408 {
-        return Err(QueryError::transient("HTTP 408".to_string()));
+    // 瞬时分类与全仓口径对齐：408/429/5xx 可重试（grok.com 在
+    // Cloudflare 后，429/502/503 抖动常见）；二进制协议的 body
+    // 无可读错误信息，不透传乱码 detail
+    let transient = resp.status == 408 || resp.status == 429 || (500..600).contains(&resp.status);
+    if transient {
+        return Err(QueryError::transient(format!("HTTP {}", resp.status)));
     }
     if !resp.is_success() {
-        // 二进制协议的 body 无可读错误信息，不透传乱码 detail
         return Err(QueryError::deterministic(format!("HTTP {}", resp.status)));
     }
 
@@ -226,7 +229,7 @@ fn grpc_trailer_status(bytes: &[u8]) -> Option<(u32, Option<String>)> {
             let text = String::from_utf8_lossy(&bytes[start..end]);
             let mut status = None;
             let mut message = None;
-            for line in text.split("\r\n").chain(text.split('\n')) {
+            for line in text.lines() {
                 if let Some((k, v)) = line.split_once(':') {
                     let k = k.trim();
                     let v = percent_decode(v.trim());
@@ -331,7 +334,8 @@ fn read_varint(bytes: &[u8], mut i: usize) -> Option<(u64, usize)> {
 }
 
 /// 递归扫描（无 proto，wire type 驱动；length-delimited 在深度内
-/// 一律尝试当嵌套消息递归）。解析失败从下一字节重同步。
+/// 一律尝试当嵌套消息递归）。varint/length 越界从下一字节重同步；
+/// 定宽字段（wire 1/5）越界视为截断消息，放弃本层剩余字节。
 fn scan_protobuf(bytes: &[u8], depth: usize, path: &[u32], scan: &mut Scan, order: &mut usize) {
     let mut i = 0usize;
     while i < bytes.len() {
@@ -545,13 +549,24 @@ mod tests {
         );
     }
 
-    /// percent 候选过滤：越界 float 不误取；多候选取路径最浅。
+    /// percent 候选过滤：越界 float 不误取；同值域多候选取路径最浅
+    /// （min_by_key (len, order) 规则被真实锁定——改成 max/最深即红）。
     #[test]
     fn percent_candidates_filtered() {
-        // 嵌套更深的 field-1 float(合法) 与浅层 field-1 float(越界 150)
+        let inner = [f_f32(1, 80.0), f_msg(2, &f_f32(1, 30.0))].concat();
+        let framed = grpc_data_frame(&f_msg(1, &inner));
+        assert_eq!(
+            extract_billing(&framed, 1_800_000_000).unwrap().0,
+            80.0,
+            "浅者胜"
+        );
         let inner = [f_f32(1, 150.0), f_msg(2, &f_f32(1, 30.0))].concat();
         let framed = grpc_data_frame(&f_msg(1, &inner));
-        assert_eq!(extract_billing(&framed, 1_800_000_000).unwrap().0, 30.0);
+        assert_eq!(
+            extract_billing(&framed, 1_800_000_000).unwrap().0,
+            30.0,
+            "越界被滤后取深层"
+        );
     }
 
     /// reset 候选过滤：过去时间与区间外值不取。
@@ -664,10 +679,21 @@ mod tests {
                 "gRPC {status} 应为瞬时"
             );
         }
+        for status in [408u16, 429, 502, 503] {
+            let mut mock = MockHttp::ok("");
+            mock.status = status;
+            assert!(
+                query_with_token(TOKEN, &mock)
+                    .await
+                    .unwrap_err()
+                    .is_transient(),
+                "HTTP {status} 应为瞬时"
+            );
+        }
         let mut mock = MockHttp::ok("");
-        mock.status = 408;
+        mock.status = 404;
         assert!(
-            query_with_token(TOKEN, &mock)
+            !query_with_token(TOKEN, &mock)
                 .await
                 .unwrap_err()
                 .is_transient()
