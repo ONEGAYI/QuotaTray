@@ -5,6 +5,8 @@
 pub mod claude;
 pub mod codex;
 pub mod deepseek;
+pub mod gemini;
+pub mod grok;
 pub mod kimi;
 pub mod kimi_coding;
 pub mod minimax;
@@ -18,6 +20,8 @@ pub mod zhipu_metered;
 pub use claude::Claude;
 pub use codex::Codex;
 pub use deepseek::DeepSeek;
+pub use gemini::Gemini;
+pub use grok::Grok;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
 pub use minimax::{MINIMAX_CN, MINIMAX_GLOBAL, MiniMax};
@@ -81,6 +85,8 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(MINIMAX_GLOBAL),
         Arc::new(Claude),
         Arc::new(Codex),
+        Arc::new(Gemini),
+        Arc::new(Grok),
     ]
 });
 
@@ -289,6 +295,13 @@ pub(crate) mod testing {
         pub body: String,
         pub network_fail: bool,
         pub delay: Option<Duration>,
+        /// 多响应序列（非空时按调用序弹出——多步请求的 provider 如
+        /// Gemini 刷新→loadCodeAssist→retrieveUserQuota 需要）；
+        /// 耗尽后回落单响应字段。
+        queue: std::sync::Mutex<Vec<(u16, String)>>,
+        /// 二进制协议（grok gRPC-web）的精确 raw 注入；None 时
+        /// raw = body 的 UTF-8 字节（文本响应等价）。
+        raw_override: Option<Vec<u8>>,
         /// 收到的请求记录（update 模块用它断言 User-Agent/Accept 等头契约）。
         /// Mutex 无 Clone，手动实现（克隆快照进新 Mutex）。
         captured: std::sync::Mutex<Vec<HttpRequest>>,
@@ -301,6 +314,8 @@ pub(crate) mod testing {
                 body: self.body.clone(),
                 network_fail: self.network_fail,
                 delay: self.delay,
+                queue: std::sync::Mutex::new(self.queue.lock().unwrap().clone()),
+                raw_override: self.raw_override.clone(),
                 captured: std::sync::Mutex::new(self.captured_requests()),
             }
         }
@@ -313,6 +328,37 @@ pub(crate) mod testing {
                 body: body.into(),
                 network_fail: false,
                 delay: None,
+                queue: std::sync::Mutex::new(Vec::new()),
+                raw_override: None,
+                captured: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        /// 二进制精确注入（grok gRPC-web 测试）：body 为 lossy 文本、
+        /// raw 为原始字节。
+        pub fn ok_raw(raw: &[u8]) -> Self {
+            Self {
+                status: 200,
+                body: String::from_utf8_lossy(raw).into_owned(),
+                network_fail: false,
+                delay: None,
+                queue: std::sync::Mutex::new(Vec::new()),
+                raw_override: Some(raw.to_vec()),
+                captured: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        /// 按调用序依次返回的多响应序列（gemini 三步请求等场景）。
+        pub fn seq(responses: &[(u16, &str)]) -> Self {
+            Self {
+                status: 200,
+                body: String::new(),
+                network_fail: false,
+                delay: None,
+                queue: std::sync::Mutex::new(
+                    responses.iter().map(|(s, b)| (*s, (*b).into())).collect(),
+                ),
+                raw_override: None,
                 captured: std::sync::Mutex::new(Vec::new()),
             }
         }
@@ -323,6 +369,8 @@ pub(crate) mod testing {
                 body: String::new(),
                 network_fail: false,
                 delay: None,
+                queue: std::sync::Mutex::new(Vec::new()),
+                raw_override: None,
                 captured: std::sync::Mutex::new(Vec::new()),
             }
         }
@@ -333,6 +381,8 @@ pub(crate) mod testing {
                 body: String::new(),
                 network_fail: true,
                 delay: None,
+                queue: std::sync::Mutex::new(Vec::new()),
+                raw_override: None,
                 captured: std::sync::Mutex::new(Vec::new()),
             }
         }
@@ -343,6 +393,8 @@ pub(crate) mod testing {
                 body: "{}".into(),
                 network_fail: false,
                 delay: Some(delay),
+                queue: std::sync::Mutex::new(Vec::new()),
+                raw_override: None,
                 captured: std::sync::Mutex::new(Vec::new()),
             }
         }
@@ -363,9 +415,21 @@ pub(crate) mod testing {
             if self.network_fail {
                 return Err(HttpError::Network("mock 网络故障".into()));
             }
+            let (status, body) = {
+                let mut queue = self.queue.lock().unwrap();
+                if queue.is_empty() {
+                    (self.status, self.body.clone())
+                } else {
+                    queue.remove(0)
+                }
+            };
             Ok(HttpResponse {
-                status: self.status,
-                body: self.body.clone(),
+                status,
+                raw: self
+                    .raw_override
+                    .clone()
+                    .unwrap_or_else(|| body.clone().into_bytes()),
+                body,
             })
         }
     }
@@ -523,6 +587,7 @@ mod tests {
         let resp = crate::http::HttpResponse {
             status: 200,
             body: "<html>oops sk-live-secret-000</html>".into(),
+            raw: Vec::new(),
         };
         let err = parse_success_json(&req, &resp).unwrap_err();
         assert!(!err.is_transient());
@@ -611,7 +676,7 @@ mod tests {
     /// gemini/grok 随后续 PR 注册（uses_cli_credentials 已预先声明四家）。
     #[test]
     fn registry_contains_cli_credential_providers() {
-        for id in ["claude", "codex"] {
+        for id in ["claude", "codex", "gemini", "grok"] {
             assert!(find(id).is_some(), "注册表缺少 {id}");
             assert!(uses_cli_credentials(id), "{id} 应为 CLI 凭据型");
             assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");

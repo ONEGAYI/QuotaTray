@@ -15,5 +15,7 @@
   "minimax": "sk-你的-minimax-密钥（国内站 api.minimaxi.com）",
   "minimax_global": "sk-你的-minimax-密钥（国际站 api.minimax.io）",
   "claude": "cli（订阅凭据自动读本机 ~/.claude/.credentials.json，本条目仅作 dev-smoke 开关）",
-  "codex": "cli（订阅凭据自动读本机 ~/.codex/auth.json，本条目仅作 dev-smoke 开关）"
+  "codex": "cli（订阅凭据自动读本机 ~/.codex/auth.json，本条目仅作 dev-smoke 开关）",
+  "gemini": "cli（订阅凭据自动读本机 ~/.gemini/oauth_creds.json，本条目仅作 dev-smoke 开关）",
+  "grok": "cli（订阅凭据自动读本机 ~/.grok/auth.json，本条目仅作 dev-smoke 开关）"
 }

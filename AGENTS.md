@@ -61,6 +61,7 @@ QuotaTray/
 │           ├── config/        # 配置层
 │           │   ├── mod.rs     # AppConfig（providers + custom_models 自定义模型库；
 │           │   │              #   原子写、密文落盘、旧文件兼容）+ ProviderEntry
+│           │   │              #   （含 use_proxy 条目级查询代理开关，默认 false）
 │           │   ├── provider.rs# Credentials / ProviderKind（serde tag 分派：native/
 │           │   │              #   template/script，script 为 M4 新增——旧版二进制
 │           │   │              #   读到会报未知 tag，升级单向）、PlanVariant
@@ -69,13 +70,14 @@ QuotaTray/
 │           │                  #   二进制容器、字节 API 与原子文件导入导出
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码，
-│           │   │              #   敏感头判断统一走 redact）
+│           │   │              #   敏感头判断统一走 redact；HttpResponse.raw 为
+│           │   │              #   二进制协议字节保真通道，gRPC-web 必走）
 │           │   ├── redact.rs  # 错误详情脱敏（参考 opencode）：结构化正则 + 本次请求
 │           │   │              #   密钥字面量两遍清洗，先清洗后截断（2048 字符）
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏；
 │           │              #   new_with_proxy 供更新通道注入可选代理）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（18 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（20 项）+
 │           │   │              #   supports_plan_variant/uses_cli_credentials 标记（订阅
 │           │   │              #   四家 CLI 凭据型：查询时读本机官方 CLI 登录文件）+
 │           │   │              #   解析工具（parse_success_json/
@@ -93,6 +95,21 @@ QuotaTray/
 │           │   │                     #   API key 模式确定性引导）→ GET wham/usage
 │           │   │                     #   （UA codex-cli 防拦 + ChatGPT-Account-Id 头）；
 │           │   │                     #   primary/secondary 双窗口按秒数标注、reset 秒→毫秒
+│           │   ├── gemini.rs         # Gemini Code Assist：CLI 凭据复用——只读
+│           │   │                     #   ~/.gemini/oauth_creds.json，access_token
+│           │   │                     #   过期用 refresh_token + gemini-cli 公开
+│           │   │                     #   client 凭据刷新（不写回文件，失败回退
+│           │   │                     #   旧 token）；两步 RPC loadCodeAssist →
+│           │   │                     #   retrieveUserQuota，buckets 按模型分组
+│           │   │                     #   （flash-lite 先判）聚合取最小剩余比例
+│           │   ├── grok.rs           # Grok 订阅 credits：CLI 凭据复用——只读
+│           │   │                     #   ~/.grok/auth.json（scope map，OIDC 优先/
+│           │   │                     #   legacy 兜底）；gRPC-web 空帧请求 + 整组
+│           │   │                     #   伪装头；响应无 .proto——帧拆分 + 通用
+│           │   │                     #   protobuf 递归扫描 + 字段路径启发提取
+│           │   │                     #   （fixed32 百分比/varint 重置秒/零用量
+│           │   │                     #   特判），必须走 HttpResponse.raw 字节
+│           │   │                     #   保真通道；gRPC 16/7→重登、4/14→瞬时
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
@@ -132,9 +149,10 @@ QuotaTray/
 │           │                  #   validate 干跑（假变量+形状校验）；JS 异常
 │           │                  #   消息可能回显注入 key——全错误路径 redact 收口
 │           ├── query/
-│           │   └── mod.rs     # QueryEngine：解密→分派（native/template/script；
-│           │                  #   CLI 凭据型 native 跳过解密前置，api_key_enc
-│           │                  #   可为 None）→超时（15s）
+│           │   └── mod.rs     # QueryEngine：双通道路由（条目 use_proxy 走代理
+│           │                  #   通道，未配全局端口 → 确定性引导）→解密→分派
+│           │                  #   （native/template/script；CLI 凭据型 native 跳过
+│           │                  #   解密前置，api_key_enc 可为 None）→超时（15s）
 │           └── update.rs      # 更新检测（M4-b）：版本三段比较、GitHub release 解析
 │                              #   与资产选择、节流/每日到点纯函数、AssetDownloader
 │                              #   独立下载通道（10min 总超时 + 15s 连接超时快速失败、
@@ -244,6 +262,8 @@ QuotaTray/
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮
 │       │       ├── BrandMark.tsx       # 标题栏/悬停面板共用的静态品牌标志薄组件
 │       │       ├── ProviderCard.tsx    # 余额优先卡片：悬停/窄屏展开、按币种峰谷三价、
+│       │       │                       #   条目级代理开关（Globe 按钮）、CLI 凭据型
+│       │       │                       #   脚注文案（「凭据来自本机 CLI」），
 │       │       │                       #   订阅积分语义、预置/库模型即时切换、多窗口
 │       │       │                       #   逐窗主数值（短标签）+重置倒计时小字+
 │       │       │                       #   短时反馈、启停/编辑/删除确认；错误行带
@@ -357,7 +377,8 @@ QuotaTray/
 │               │               #   重建并向 WebView 广播 peak-flip 事件，前端锚点重算 #15）
 │               ├── settings.rs # settings.json 读写（原子写、损坏回退；主题/语言三态、
 │               │               #   每圈单位、图标数据源、更新检测字段组——开关/时刻/
-│               │               #   时间戳/代理端口，CLI 共读同一文件）
+│               │               #   时间戳/网络代理端口（更新与 use_proxy 条目查询
+│               │               #   共用，变更热重建引擎），CLI 共读同一文件）
 │               ├── update_ctl.rs # 更新检测控制：状态表（含已下载安装包记录，
 │               │               #   资产名随版本变化自动失效；检测失败不丢记录）+
 │               │               #   手动/自动检测 + 下载到 %TEMP%/QuotaTray/Downloads

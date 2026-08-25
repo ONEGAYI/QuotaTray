@@ -16,7 +16,7 @@ describe("Provider 官方图标映射", () => {
     expect(providerIconUrl("minimax_global")).toBe(providerIconUrl("minimax"));
   });
 
-  it("十八个预置 Provider 都有图标，未知 native 保留回退空间", () => {
+  it("二十个预置 Provider 都有图标，未知 native 保留回退空间", () => {
     for (const id of [
       "deepseek",
       "siliconflow",
@@ -36,18 +36,17 @@ describe("Provider 官方图标映射", () => {
       "minimax_global",
       "claude",
       "codex",
+      "gemini",
+      "grok",
     ]) {
       expect(providerIconUrl(id), id).toBeTruthy();
     }
     expect(providerIconUrl("future-provider")).toBeNull();
   });
 
-  it("订阅四家品牌图：Codex 复用 OpenAI 图形，gemini/grok 键预先接线", () => {
+  it("订阅四家品牌图：Codex 复用 OpenAI 图形；均为彩色/深色图形", () => {
     expect(providerIconUrl("codex")).toBeTruthy();
     expect(providerIconUrl("codex")).not.toBe(providerIconUrl("claude"));
-    expect(providerIconUrl("gemini")).toBeTruthy();
-    expect(providerIconUrl("grok")).toBeTruthy();
-    // 订阅四家均为彩色/深色图形：无需 is-light-logo 深底变体
     for (const id of ["claude", "codex", "gemini", "grok"]) {
       expect(isLightLogo(id), id).toBe(false);
     }

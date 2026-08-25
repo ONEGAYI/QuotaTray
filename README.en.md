@@ -76,8 +76,10 @@ quota update --check           # check for new releases
 | MiniMax Coding Plan | CN / Global | 5h + weekly remaining percent, normalized to used |
 | Claude subscription | — | Pro/Max multi-window usage; credentials read from the local Claude Code login |
 | Codex (ChatGPT subscription) | — | Plus/Pro dual-window usage; credentials read from the local Codex CLI login |
+| Gemini Code Assist | — | per-model-group remaining quota; credentials read from the local Gemini CLI login |
+| Grok subscription | — | SuperGrok credits usage; credentials read from the local Grok CLI login |
 
-Subscription platforms (Claude/Codex) need **no API key**: credentials are read-only from the locally signed-in official CLI's login file at query time—never written or exported. Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai and the two subscription query endpoints plus credential file formats are not in public API references (stable contracts in wide community use); the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
+Subscription platforms (Claude/Codex/Gemini/Grok) need **no API key**: credentials are read-only from the locally signed-in official CLI's login file at query time—never written or exported. Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai and the two subscription query endpoints plus credential file formats are not in public API references (stable contracts in wide community use); the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
 
 ## Custom Queries: Declarative Templates
 

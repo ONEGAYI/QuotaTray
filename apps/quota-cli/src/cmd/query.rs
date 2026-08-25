@@ -189,6 +189,7 @@ mod tests {
                     return Ok(HttpResponse {
                         status: *status,
                         body: body.to_string(),
+                        raw: Vec::new(),
                     });
                 }
             }

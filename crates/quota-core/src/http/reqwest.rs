@@ -53,8 +53,12 @@ impl HttpClient for ReqwestHttpClient {
         }
         let resp = request.send().await.map_err(map_reqwest_err)?;
         let status = resp.status().as_u16();
-        let body = resp.text().await.map_err(map_reqwest_err)?;
-        Ok(HttpResponse { status, body })
+        // bytes 先行保真（raw 供二进制协议）；body 用 lossy UTF-8——
+        // 取代 text() 的 charset 嗅探（既有平台全为 JSON，RFC 8259
+        // 强制 UTF-8，无回归；text() 对无效序列同样 lossy）
+        let raw = resp.bytes().await.map_err(map_reqwest_err)?.to_vec();
+        let body = String::from_utf8_lossy(&raw).into_owned();
+        Ok(HttpResponse { status, body, raw })
     }
 }
 

@@ -1505,6 +1505,8 @@ mod tests {
             ("minimax_global", "USD"),
             ("claude", "CNY"),
             ("codex", "CNY"),
+            ("gemini", "CNY"),
+            ("grok", "CNY"),
         ] {
             assert_eq!(default_currency(id), expect, "{id}");
         }
@@ -1527,6 +1529,8 @@ mod tests {
             "minimax_global",
             "claude",
             "codex",
+            "gemini",
+            "grok",
         ]
         .into_iter()
         .collect();
