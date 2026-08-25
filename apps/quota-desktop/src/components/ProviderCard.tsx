@@ -29,7 +29,7 @@ import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
-import { isLightLogo, providerIconUrl } from "./providerIcon";
+import { isLightLogo, providerIconUrl, templateProviderIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
   resolveProviderPricingView,
@@ -124,7 +124,9 @@ export function ProviderCard({
   );
   const platformName = kindLabel(entry.kind, nativeMeta?.name, lang);
   const platformIconUrl =
-    entry.kind.type === "native" ? providerIconUrl(entry.kind.provider) : null;
+    entry.kind.type === "native"
+      ? providerIconUrl(entry.kind.provider)
+      : templateProviderIconUrl(entry.name);
   // 浅色品牌图（StepFun 纯白）需深底变体；无图标走首字母回退时不涉及
   const platformLightLogo =
     entry.kind.type === "native" && isLightLogo(entry.kind.provider);

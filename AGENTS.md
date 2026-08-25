@@ -200,9 +200,10 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 九张官方 Provider SVG（六组复用品牌 + stepfun/novita/
-│       │   │                    #   minimax；图标容器固定浅底不随主题——单色深色 logo
-│       │   │                    #   明暗主题均可见，浅色底图形（StepFun 白色圆盘）走深底变体）
+│       │   │   └── providers/     # 十张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax + newapi 供模板条目启发匹配；图标容器固定浅底
+│       │   │                    #   不随主题——单色深色 logo 明暗主题均可见，浅色底图形
+│       │   │                    #   （StepFun 白色圆盘）走 is-light-logo 深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
@@ -243,7 +244,9 @@ QuotaTray/
 │       │       │                       #   （errorDetail 排查详情随查询错误态透传）
 │       │       ├── providerIcon.ts / providerIcon.test.ts
 │       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约 +
-│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）
+│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）+
+│       │       │                       #   模板/脚本条目按名启发（templateProviderIconUrl，
+│       │       │                       #   条目名含 newapi → NewAPI 品牌图）
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
 │       │       │                       #   悬停/键盘展开二级 Provider 选单
 │       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
