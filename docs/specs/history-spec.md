@@ -96,6 +96,9 @@ CLI 查看（M5-a）提供数据底座。存储使用 SQLite（rusqlite，bundle
 ```rust
 pub fn window_key(data: &UsageData, ordinal: usize) -> String;
 
+pub enum WindowKind { FiveHour, Weekly, Other }
+pub fn window_kind(key: &str) -> WindowKind;   // 窗口键文本 → 语义类别（§7.1）
+
 impl HistoryStore {
     pub fn open(path: &Path) -> Result<Self, HistoryError>;      // 建目录+WAL+迁移
     pub fn open_in_memory() -> Result<Self, HistoryError>;
@@ -120,12 +123,42 @@ quota history clear [id] [--yes]
 - `quota query`（含 `--watch` 每轮）查询成功后写历史；写失败仅 stderr 告警，
   不影响查询输出与退出码。
 - `show` 三档范围（默认 7d）：24h=15 分钟桶 / 7d=1 小时桶 / 30d=6 小时桶，
-  桶内取最后一点，按窗口时间线分组展示（列：时间/窗口/已用/剩余/单位）；
-  `--window` 只看指定时间线（如 five_hour / weekly）。
+  桶内取最后一点（列：时间/窗口/已用/剩余/单位）。
+
+### 7.1 窗口语义过滤
+
+窗口键按文本归类语义类别（core `window_kind`，对**冻结键**的启发式）：
+native 五家订阅平台的窗口名遵循「全名（短标注）」约定——含 `（5h）`
+归 **5h 类**，含 `（week…）` 归**周类**（覆盖 Claude 的 week·Opus /
+week·Sonnet 变体）；Codex `（30d）`、GLM `（MCP）`、Gemini 模型档位窗、
+余额单窗、`w0` 回退键归**其他**。模板/脚本的自定义窗口名 best-effort：
+半角括号、`5小时`/`五小时`、`week`/`周` 等写法也识别，不含标记归其他。
+
+`--window` 三态（优先级从高到低）：
+
+1. `all`（大小写不敏感）→ 全部窗口；
+2. **精确键**命中 → 只看该时间线（向后兼容：字面名为 `five_hour` 等
+   别名同形的自定义窗口不受别名影响）；
+3. 类别别名 `5h` / `five_hour` / `five-hour`、`weekly` / `week`
+   （大小写不敏感）→ 该类别的全部时间线。
+
+缺省（无 `--window`）按范围粒度选类别：**24h → 5h 类、7d/30d → 周类**。
+选中类别在范围内无点时不强求——回退展示全部窗口，仅当另一规范类别
+有点时打一行回退提示（余额单窗等两类皆无的场景静默回退，避免每次
+打扰）。显式过滤无匹配时列出可用窗口键（范围内有点才提示）。
+
+全部窗口视图（`--window all` 或回退）跨 ≥2 类别时分段渲染：
+`── 5 小时窗口 ──` / `── 周窗口 ──` / `── 其他窗口 ──` 段头 + 各段表格；
+行序按类别稳定排序（5h → 周 → 其他，类内保持窗口分组时间序），分页
+切片因此类别连续。**分段与否由整个过滤后视图判定**：单类别视图不加
+分段头；分页后的单页即使只剩一个类别也保留其段头（翻页不失上下文）。
+
 - 分页：默认每页 20 行（`--page-size` 1..=500 覆盖）；终端下默认交互翻页
   （空格/回车/→ 下一页、b/← 上一页、q/Esc 退出）；`--page N` 指定页码即非交互
   打印该页（与 `--json` 互斥）；管道（非终端）输出整表，翻页交由调用方。
-- `--json` 输出原始点（`{id, name, range, points}`，不分页不聚合）。
+- `--json` 输出原始点（`{id, name, range, window, points}`，不分页不聚合；
+  `window` 为实际生效的过滤口径——`"5h"` / `"weekly"` / `"all"` / 精确键，
+  未过滤（含缺省回退）为 null）。
 - 退出码：id 不存在、历史库打开失败、页码超界 → 1；范围内无历史 → 提示并 0。
 - `clear`：无 id 清全部、有 id 清单条目（id 须存在）；确认默认否，`--yes` 跳过。
 

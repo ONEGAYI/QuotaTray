@@ -77,7 +77,10 @@ QuotaTray/
 │           │                  #   同毫秒重放幂等，重复窗口键按出现顺序 #2/#3
 │           │                  #   消歧、is_valid=false 跳过）；window_key 纯函数
 │           │                  #   （plan_name 优先、序数 w0/w1 回退，native 文案
-│           │                  #   冻结为键）；PRAGMA user_version +
+│           │                  #   冻结为键）+ window_kind 键文本→语义类别
+│           │                  #   （5h/周/其他，冻结键括号短标注启发式，
+│           │                  #   CLI 分组过滤用、M5-b GUI 复用）；
+│           │                  #   PRAGMA user_version +
 │           │                  #   MIGRATIONS 数组逐版本事务迁移（降级运行/
 │           │                  #   负版本拒绝打开）；busy_timeout 3s 防并发写
 │           │                  #   database is locked；30 天滚动清理（写入时
@@ -198,7 +201,8 @@ QuotaTray/
 │   │       │                  #   error 含 detail 排查详情 additive 透出）+
 │   │       │                  #   重置倒计时列（fmt_reset_countdown，now 注入）+
 │   │       │                  #   pricing 价格对照表/星期连续段聚合/UTC 偏移描述 +
-│   │       │                  #   history 时间桶聚合/分页切片/走势表（M5，纯函数）
+│   │       │                  #   history 时间桶聚合/分页切片/走势表 + 类别
+│   │       │                  #   排序分组与分段表头渲染（M5，纯函数）
 │   │       ├── texts.rs       # 双语文案表（TextKey exhaustive，漏译即编译错误）+
 │   │       │                  #   带参文案函数 + clap about/help 运行时翻译
 │   │       └── cmd/           # 子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）
@@ -214,10 +218,13 @@ QuotaTray/
 │   │           │              #   迁移包携带查询历史（M5）——导出全量带出、
 │   │           │              #   导入按主键幂等合并，读失败降级不带不阻断
 │   │           ├── history.rs # history show/clear（M5）：三档范围（24h=15m 桶/
-│   │           │              #   7d=1h 桶/30d=6h 桶，桶内取最后点）+ 窗口时间线
-│   │           │              #   过滤 + 分页（默认 20 行；终端交互翻页，--page N
-│   │           │              #   非交互打印单页，管道整表；--json 原始点）；
-│   │           │              #   clear 无 id 清全部（确认默认否）
+│   │           │              #   7d=1h 桶/30d=6h 桶，桶内取最后点）+ 窗口语义
+│   │           │              #   过滤（--window 三态：all/类别别名/精确键优先，
+│   │           │              #   缺省按范围选粒度 24h→5h、7d/30d→周，缺失
+│   │           │              #   回退全部并条件提示）+ 分页（默认 20 行；终端
+│   │           │              #   交互翻页，--page N 非交互打印单页，管道整表，
+│   │           │              #   跨类别视图分段表头；--json 原始点含 window
+│   │           │              #   生效口径）；clear 无 id 清全部（确认默认否）
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
 │   │           │              #   各自的 baseUrl、内容重粘贴与 script 的
 │   │           │              #   allowInsecure 修改）+ --enable/--disable 快捷路径
