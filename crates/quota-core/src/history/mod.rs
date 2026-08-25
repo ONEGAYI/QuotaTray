@@ -124,11 +124,15 @@ pub enum WindowKind {
 }
 
 /// 按窗口键文本归类语义类别（见 [`WindowKind`]）；`FiveHour` 先判。
+///
+/// `5h` 系模式要求命中位置前一字符不是 ASCII 数字——Codex 动态时长窗
+/// 可产出 `（15h）`、`（25h）`（子串含 "5h"），必须归 Other 而非
+/// 误入 5 小时类。
 pub fn window_kind(key: &str) -> WindowKind {
     let lower = key.to_lowercase();
     if ["5h", "5小时", "5 小时", "五小时"]
         .iter()
-        .any(|pat| lower.contains(pat))
+        .any(|pat| contains_standalone(&lower, pat))
     {
         WindowKind::FiveHour
     } else if lower.contains("week") || lower.contains("周") {
@@ -136,6 +140,16 @@ pub fn window_kind(key: &str) -> WindowKind {
     } else {
         WindowKind::Other
     }
+}
+
+/// 子串命中且其前一字符不是 ASCII 数字（"15h" 里的 "5h" 不算独立命中）。
+fn contains_standalone(lower: &str, pat: &str) -> bool {
+    lower.match_indices(pat).any(|(pos, _)| {
+        !lower[..pos]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_digit())
+    })
 }
 
 /// 历史库句柄。多线程共享由调用方加锁（rusqlite `Connection` 非 `Sync`）。
@@ -488,6 +502,11 @@ mod tests {
             // 非两类语义：动态时长 / 月度工具限额 / 模型档位 / 余额单窗 / 回退键
             ("Codex（30d）", WindowKind::Other),
             ("Codex（8h）", WindowKind::Other),
+            // 动态 h 窗尾数为 5 时子串含 "5h"，必须仍归 Other（契约：
+            // 5h 匹配排除前导 ASCII 数字）
+            ("Codex（15h）", WindowKind::Other),
+            ("Codex（25h）", WindowKind::Other),
+            ("15小时额度", WindowKind::Other),
             ("Codex（window）", WindowKind::Other),
             ("GLM Coding Plan（MCP）", WindowKind::Other),
             ("Gemini Code Assist（Pro）", WindowKind::Other),
