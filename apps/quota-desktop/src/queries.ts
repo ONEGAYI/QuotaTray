@@ -11,6 +11,11 @@ type QueryInvalidator = {
   invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
 };
 
+/** 标题栏主题/语言只属于显示设置，不影响任何 Provider 查询结果。 */
+export function invalidateDisplaySettingsCache(qc: QueryInvalidator) {
+  void qc.invalidateQueries({ queryKey: ["settings"] });
+}
+
 /** Provider 配置变化会影响两个 WebView 各自缓存的列表、查询与快照。 */
 export function invalidateProviderCaches(qc: QueryInvalidator) {
   void qc.invalidateQueries({ queryKey: ["providers"] });

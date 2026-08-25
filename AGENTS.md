@@ -287,6 +287,14 @@ QuotaTray/
 │       │   │                    #   重置倒计时/多窗口短标签（与 CLI fmt_reset_countdown 成对）、
 │       │   │                    #   条目类型标签 kindLabel（与 CLI kind_label 成对）
 │       │   ├── theme.tsx       # ThemeProvider：三态解析、system 实时跟随、setTheme 联动
+│       │   │                    #   （跟随变色同样走扩散动效，含 setTheme(null) 翻转
+│       │   │                    #   prefers-color-scheme 的回声防御——比对 DOM class）
+│       │   ├── themeTransition.ts / themeTransition.test.ts
+│       │   │                    # 主题切换圆形扩散动效（View Transitions）：CSS 变量
+│       │   │                    #   传参 + 样式表关键帧（首帧即 circle(0px) 裁剪）、
+│       │   │                    #   圆心取主题按钮锚点（data-theme-trigger）、
+│       │   │                    #   reduce-motion/不支持退化瞬时切换；纯函数与更新
+│       │   │                    #   回调时序契约测试
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
 │       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
 │       │   │   ├── zh.ts       # 中文字典（as const 类型基准）
