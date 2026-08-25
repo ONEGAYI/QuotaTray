@@ -1,0 +1,2 @@
+# file-tree 技能数据与产物固定 LF，保证跨机器渲染字节一致
+.agents/skills/file-tree/** text eol=lf

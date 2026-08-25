@@ -24,3 +24,7 @@ apps/quota-desktop/src-tauri/gen/schemas/
 Thumbs.db
 .DS_Store
 .zcode/
+
+# Python 字节码（file-tree 技能脚本）
+__pycache__/
+*.pyc
