@@ -16,7 +16,7 @@ describe("Provider 官方图标映射", () => {
     expect(providerIconUrl("minimax_global")).toBe(providerIconUrl("minimax"));
   });
 
-  it("十六个预置 Provider 都有图标，未知 native 保留回退空间", () => {
+  it("十七个预置 Provider 都有图标，未知 native 保留回退空间", () => {
     for (const id of [
       "deepseek",
       "siliconflow",
@@ -34,6 +34,7 @@ describe("Provider 官方图标映射", () => {
       "novita",
       "minimax",
       "minimax_global",
+      "bailian",
     ]) {
       expect(providerIconUrl(id), id).toBeTruthy();
     }
@@ -42,7 +43,7 @@ describe("Provider 官方图标映射", () => {
 
   it("浅色品牌图标记：仅白色 logo 需要深底变体", () => {
     expect(isLightLogo("stepfun")).toBe(true);
-    for (const id of ["deepseek", "novita", "minimax", "minimax_global", "future"]) {
+    for (const id of ["deepseek", "novita", "minimax", "minimax_global", "bailian", "future"]) {
       expect(isLightLogo(id), id).toBe(false);
     }
   });

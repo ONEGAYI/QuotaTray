@@ -2,6 +2,7 @@
 //!
 //! 平台实现的端点与字段映射依据 `docs/CC-Switch调研报告.md` §4.2。
 
+pub mod bailian;
 pub mod deepseek;
 pub mod kimi;
 pub mod kimi_coding;
@@ -13,6 +14,7 @@ pub mod stepfun;
 pub mod zhipu;
 pub mod zhipu_metered;
 
+pub use bailian::Bailian;
 pub use deepseek::DeepSeek;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
@@ -75,6 +77,7 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(Novita),
         Arc::new(MINIMAX_CN),
         Arc::new(MINIMAX_GLOBAL),
+        Arc::new(Bailian),
     ]
 });
 
@@ -559,5 +562,15 @@ mod tests {
             assert!(find(id).is_some(), "注册表缺少 {id}");
             assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
         }
+    }
+
+    /// 阿里云百炼充值余额（非官方端点、无峰谷、无套餐变体）。
+    #[test]
+    fn registry_contains_bailian_without_plan_variant() {
+        assert!(find("bailian").is_some(), "注册表缺少 bailian");
+        assert!(
+            !supports_plan_variant("bailian"),
+            "bailian 不应展示套餐变体"
+        );
     }
 }

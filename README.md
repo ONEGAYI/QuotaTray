@@ -71,8 +71,12 @@ quota update --check           # 检测新版本
 | Kimi Code | kimi.com/code / kimi.ai/code | 5 小时 + 周额度窗口，RFC3339 重置时间 |
 | 智谱 / Z.ai 通用 API | 国内站 / 国际站 | 按量计费余额，Bearer API key |
 | 智谱 / Z.ai Coding Plan | 国内站 / 国际站 | 套餐用量（多窗口），裸 key |
+| StepFun | — | 顶层 balance，CNY |
+| Novita AI | — | availableBalance ÷ 10000 = USD |
+| MiniMax Coding Plan | 国内站 / 国际站 | 5h+周剩余百分比归一已用 |
+| 阿里云百炼 | — | 充值余额，CNY |
 
-Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai 的余额和 Coding Plan 查询端点未收入公开 API 文档，其余为官方公开接口。自动化测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
+Kimi Code 使用 MoonshotAI 官方客户端采用的用量端点；智谱 / Z.ai 的余额和 Coding Plan 查询端点未收入公开 API 文档；阿里云百炼暂无官方余额接口，采用社区交叉验证的充值余额端点，其余为官方公开接口。自动化测试全 mock，不依赖真实账号。**未预置的平台用声明式模板接入**（见下节）。
 
 ## 自定义查询：声明式模板
 

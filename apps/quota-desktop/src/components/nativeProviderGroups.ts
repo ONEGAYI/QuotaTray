@@ -27,6 +27,7 @@ const KNOWN_GROUPS = [
   { key: "stepfun", ids: ["stepfun"] },
   { key: "novita", ids: ["novita"] },
   { key: "minimax", ids: ["minimax", "minimax_global"] },
+  { key: "bailian", ids: ["bailian"] },
 ] as const;
 
 /** 将 native 注册表聚合为稳定的平台一级菜单；未知项独立追加，避免被静默隐藏。 */

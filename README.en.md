@@ -71,8 +71,12 @@ quota update --check           # check for new releases
 | Kimi Code | kimi.com/code / kimi.ai/code | 5-hour + weekly quota windows with RFC3339 reset times |
 | Zhipu / Z.ai General API | CN / Global | pay-as-you-go balance, Bearer API key |
 | Zhipu / Z.ai Coding Plan | CN / Global | plan usage (multi-window), raw key |
+| StepFun | — | top-level balance, CNY |
+| Novita AI | — | availableBalance ÷ 10000 = USD |
+| MiniMax Coding Plan | CN / Global | 5h + weekly remaining percent, normalized to used |
+| Alibaba Cloud Bailian | — | recharge balance, CNY |
 
-Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai balance and Coding Plan query endpoints are not in their public API references, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
+Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai balance and Coding Plan query endpoints are not in their public API references; Alibaba Cloud Bailian has no official balance API yet, so a recharge-balance endpoint cross-verified by the community is used, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
 
 ## Custom Queries: Declarative Templates
 

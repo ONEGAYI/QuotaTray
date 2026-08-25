@@ -75,11 +75,15 @@ QuotaTray/
 │           │   └── reqwest.rs # 生产实现（rustls；错误去 URL 防凭据泄漏；
 │           │              #   new_with_proxy 供更新通道注入可选代理）
 │           ├── provider/      # 预置平台
-│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（16 项）+
+│           │   ├── mod.rs     # NativeProvider trait（query 收套餐变体）+ 注册表（17 项）+
 │           │   │              #   supports_plan_variant 标记 + 解析工具（parse_success_json/
 │           │   │              #   status_error_with_body 错误附脱敏响应体 detail——
 │           │   │              #   error_detail 嵌套 error.message 后回退平铺字符串，
 │           │   │              #   非字符串形态不误提取）+ MockHttp
+│           │   ├── bailian.rs       # 阿里云百炼充值余额：recharge-balance/query
+│           │   │                     #   （非官方端点，社区双源交叉验证）顶层
+│           │   │                     #   available_balance、CNY；字段缺失确定性
+│           │   │                     #   失败；免费额度需控制台 OAuth、不接入
 │           │   ├── deepseek.rs       # /user/balance（单站双币，余额 API 返回币种）
 │           │   ├── siliconflow.rs    # /v1/user/info（国内/国际双站参数化，CNY/USD）
 │           │   ├── openrouter.rs     # /api/v1/credits（remaining = credits − usage）
@@ -200,10 +204,10 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 十张官方 Provider SVG（六组复用品牌 + stepfun/novita/
-│       │   │                    #   minimax + newapi 供模板条目启发匹配；图标容器固定浅底
-│       │   │                    #   不随主题——单色深色 logo 明暗主题均可见，浅色底图形
-│       │   │                    #   （StepFun 白色圆盘）走 is-light-logo 深底变体）
+│       │   │   └── providers/     # 十一张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax/bailian + newapi 供模板条目启发匹配；图标容器
+│       │   │                    #   固定浅底不随主题——单色深色 logo 明暗主题均可见，
+│       │   │                    #   浅色底图形（StepFun 白色圆盘）走 is-light-logo 深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）

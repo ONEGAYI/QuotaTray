@@ -1,3 +1,4 @@
+import bailianUrl from "../assets/providers/bailian.svg";
 import deepseekUrl from "../assets/providers/deepseek.svg";
 import kimiUrl from "../assets/providers/kimi.svg";
 import minimaxUrl from "../assets/providers/minimax.svg";
@@ -26,6 +27,7 @@ const PROVIDER_ICON_URLS: Readonly<Record<string, string>> = {
   novita: novitaUrl,
   minimax: minimaxUrl,
   minimax_global: minimaxUrl,
+  bailian: bailianUrl,
 };
 
 /// 浅色品牌图（如 StepFun 官方纯白图形）：图标容器需切换深底变体

@@ -32,6 +32,7 @@ describe("添加供应商的平台聚合", () => {
       meta("kimi_code_cn"),
       meta("novita"),
       meta("minimax"),
+      meta("bailian", "阿里云百炼"),
     ]);
 
     expect(groups.map((group) => group.key)).toEqual([
@@ -44,6 +45,7 @@ describe("添加供应商的平台聚合", () => {
       "stepfun",
       "novita",
       "minimax",
+      "bailian",
     ]);
     expect(groups.find((group) => group.key === "siliconflow")?.providers.map((p) => p.id))
       .toEqual(["siliconflow", "siliconflow_global"]);
