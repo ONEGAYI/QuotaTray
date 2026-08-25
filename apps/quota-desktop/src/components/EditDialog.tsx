@@ -152,6 +152,8 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         try {
           await api.validateTemplate(templateJson);
         } catch (e) {
+          // 模板字段错误属「设置模板」子页，把用户带过去看现场
+          setTemplateSub("template");
           const dto = toTemplateError(e);
           throw new Error(
             dto
@@ -165,6 +167,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         try {
           parsed = JSON.parse(templateJson);
         } catch {
+          setTemplateSub("template");
           throw new Error(t("edit.templateJsonError"));
         }
         kind = { type: "template", ...(parsed as object) } as ProviderKind;
@@ -460,13 +463,12 @@ function TemplateForm(props: {
       )}
       <div className="qt-field">
         <span className={labelCls}>{t("edit.presetLabel")}</span>
-        <div className="qt-template-presets">
+        <div className="qt-template-presets" role="group" aria-label={t("edit.presetLabel")}>
           {PRESET_TEMPLATES.map((preset) => (
             <button
               key={preset.id}
               type="button"
               aria-pressed={activePreset === preset.id}
-              title={t("edit.presetHint")}
               onClick={() => {
                 props.setTemplateJson(preset.json);
                 // 内容已换，旧校验结论作废
@@ -478,6 +480,7 @@ function TemplateForm(props: {
             </button>
           ))}
         </div>
+        <small className="qt-field-hint">{t("edit.presetHint")}</small>
       </div>
 
       <label className="qt-field">
