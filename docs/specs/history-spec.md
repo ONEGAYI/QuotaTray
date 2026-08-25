@@ -35,7 +35,11 @@ CLI 查看（M5-a）提供数据底座。存储使用 SQLite（rusqlite，bundle
   同毫秒重放 `INSERT OR REPLACE` 幂等。
 - 不存 raw JSON、不存 `reset_at`——走势只需数值；将来需要细节走 schema 迁移加列。
 - 体积估算：默认 5 分钟轮询 × 30 天 ≈ 8640 点/窗口；典型 5 条目双窗 < 3MB。
-- `is_valid=false` 的「成功」响应也记录（数值可能为空，读取方过滤空值）。
+- **`is_valid == Some(false)` 的行跳过落库**：凭据失效期间数值不可信（常为 0
+  而非空），落库会在走势上留下无法区分的假断崖；失效期间时间线中断，
+  由读取方按空档呈现。`is_valid` 未声明（None）视为有效照常记录。
+- 窗口键重复语义：模板条目由 `template::validate` 拒绝重名窗口；script
+  条目返回重复 `plan_name` 时后者覆盖前者（同毫秒同键天然幂等）。
 
 ## 3. 存储与运维
 
@@ -96,15 +100,22 @@ impl HistoryStore {
 
 ## 7. CLI 命令（M5-a）
 
-```
-quota history show <id> [--days N=7] [--window KEY] [--json]
+```text
+quota history show <id> [--window KEY] [--range 24h|7d|30d] [--page-size N] [--page N] [--json]
 quota history clear [id] [--yes]
 ```
 
-- `quota query`（含 `--watch` 每轮）查询成功后写历史；写失败仅 stderr 告警。
-- `show`：表格默认按 1 小时桶取桶内最后点（Rust 层聚合，now 注入可测），
-  列＝时间/窗口/已用/剩余/单位；`--json` 输出原始点数组（不聚合）。
-- `config export` 默认携带全量历史；`config import` 后合并入库并提示行数。
+- `quota query`（含 `--watch` 每轮）查询成功后写历史；写失败仅 stderr 告警，
+  不影响查询输出与退出码。
+- `show` 三档范围（默认 7d）：24h=15 分钟桶 / 7d=1 小时桶 / 30d=6 小时桶，
+  桶内取最后一点，按窗口时间线分组展示（列：时间/窗口/已用/剩余/单位）；
+  `--window` 只看指定时间线（如 five_hour / weekly）。
+- 分页：默认每页 20 行（`--page-size` 1..=500 覆盖）；终端下默认交互翻页
+  （空格/→ 下一页、b/← 上一页、q/Esc 退出）；`--page N` 指定页码即非交互
+  打印该页（与 `--json` 互斥）；管道（非终端）输出整表，翻页交由调用方。
+- `--json` 输出原始点（`{id, name, range, points}`，不分页不聚合）。
+- 退出码：id 不存在、历史库打开失败、页码超界 → 1；范围内无历史 → 提示并 0。
+- `clear`：无 id 清全部、有 id 清单条目（id 须存在）；确认默认否，`--yes` 跳过。
 
 ## 8. 桌面端接线（M5-a）
 

@@ -88,8 +88,11 @@ pub struct HistoryExportRow {
 
 /// 窗口键推导：`plan_name` 非空（去空白）取之，否则回退序数 `w{ordinal}`。
 ///
-/// 同一条目的返回结构随平台实现稳定，因此 plan_name 在条目内是稳定键；
-/// 模板/脚本条目改写 plan_name 后从新键开始新序列，旧序列自然滚动淘汰。
+/// 同一条目的返回结构随平台实现稳定，因此 plan_name 在条目内是稳定键。
+/// 约束：native 各平台的 plan_name 文案（如「Claude 订阅（5h）」）已
+/// **冻结为窗口键**——调整展示文案会整体断掉历史时间线，i18n 化等改动
+/// 需保持键不变（展示层另做映射）。模板条目由 `template::validate`
+/// 拒绝重名窗口；script 条目返回重复 plan_name 时后者覆盖前者。
 pub fn window_key(data: &UsageData, ordinal: usize) -> String {
     match data.plan_name.as_deref() {
         Some(name) if !name.trim().is_empty() => name.trim().to_string(),
@@ -129,6 +132,10 @@ impl HistoryStore {
             .map_err(HistoryError::Open)?;
         conn.pragma_update(None, "synchronous", "NORMAL")
             .map_err(HistoryError::Open)?;
+        // 写锁竞争等待：桌面端常驻进程与 CLI 并发写同一库时，
+        // 无 busy handler 会立即报 database is locked 并静默丢点
+        conn.busy_timeout(std::time::Duration::from_millis(3000))
+            .map_err(HistoryError::Open)?;
         migrate(&mut conn)?;
         Ok(Self {
             conn,
@@ -138,6 +145,10 @@ impl HistoryStore {
 
     /// 一次成功查询的多窗口数据落库（单事务，同毫秒重放幂等），
     /// 并按 [`CLEANUP_INTERVAL_MS`] 节流触发滚动清理。
+    ///
+    /// `is_valid == Some(false)` 的行跳过：凭据失效期间数值不可信
+    /// （常为 0 而非空），落库会在走势上留下无法区分的假断崖；
+    /// 失效期间时间线中断，由读取方按空档呈现。
     pub fn record(
         &self,
         provider_id: &str,
@@ -146,6 +157,9 @@ impl HistoryStore {
     ) -> Result<(), HistoryError> {
         let tx = self.conn.unchecked_transaction()?;
         for (ordinal, item) in data.iter().enumerate() {
+            if item.is_valid == Some(false) {
+                continue;
+            }
             tx.execute(
                 "INSERT OR REPLACE INTO history
                     (provider_id, window_key, sampled_at, used, remaining, total, unit)
@@ -341,16 +355,19 @@ mod tests {
     fn open_creates_db_at_version_1() {
         let path = temp_db("open-v1");
         remove_db(&path);
-        let store = HistoryStore::open(&path).unwrap();
-        let version: i64 = store
-            .conn
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, 1);
-        // 表可用：直接走一次 record。
-        store
-            .record("p1", &[usage(Some("five_hour"), 42.0)], T0)
-            .unwrap();
+        {
+            let store = HistoryStore::open(&path).unwrap();
+            let version: i64 = store
+                .conn
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, 1);
+            // 表可用：直接走一次 record。
+            store
+                .record("p1", &[usage(Some("five_hour"), 42.0)], T0)
+                .unwrap();
+        }
+        // Windows 上句柄存活时删除会失败，先出作用域再清理
         remove_db(&path);
     }
 
@@ -435,6 +452,25 @@ mod tests {
             vec![Some(1.0), Some(3.0)],
             "过滤下界含端点、升序，且不串条目"
         );
+    }
+
+    #[test]
+    fn invalid_rows_are_skipped() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        let mut invalid = usage(Some("five_hour"), 0.0);
+        invalid.is_valid = Some(false);
+        invalid.invalid_message = Some("key 已过期".into());
+        store
+            .record("p1", &[usage(Some("weekly"), 7.0), invalid], T0)
+            .unwrap();
+
+        let points = store.range("p1", 0).unwrap();
+        assert_eq!(points.len(), 1, "is_valid=false 的行不得落库");
+        assert_eq!(points[0].window_key, "weekly");
+
+        // is_valid 未声明（None）视为有效照常记录
+        store.record("p2", &[usage(None, 1.0)], T0).unwrap();
+        assert_eq!(store.range("p2", 0).unwrap().len(), 1);
     }
 
     #[test]

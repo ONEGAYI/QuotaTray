@@ -206,9 +206,21 @@ pub fn validate(config: &TemplateConfig) -> Result<(), TemplateError> {
 
     if let Some(from) = &config.windows_from {
         check_path(from, "windowsFrom")?;
+        // 窗口名查重：重名窗口在历史库共用同一时间线（plan_name 即窗口键），
+        // 一次查询只会保留后写的行——静态校验层直接拒绝
+        let mut seen = std::collections::HashSet::new();
         for (i, w) in config.windows.iter().enumerate() {
             if w.name.trim().is_empty() {
                 return Err(fail(&format!("windows[{i}].name"), "窗口名不能为空".into()));
+            }
+            if !seen.insert(w.name.trim()) {
+                return Err(fail(
+                    &format!("windows[{i}].name"),
+                    format!(
+                        "窗口名重复：{}（重名窗口会互相覆盖历史时间线）",
+                        w.name.trim()
+                    ),
+                ));
             }
             check_extract(&w.extract, &format!("windows[{i}].extract"))?;
             check_transforms(&w.transforms, &format!("windows[{i}].transforms"))?;
@@ -690,6 +702,28 @@ mod tests {
             transforms: vec![],
         }];
         assert!(validate(&t).is_err());
+    }
+
+    /// 契约：多窗口窗口名查重——重名窗口共用同一历史时间线（plan_name
+    /// 即历史窗口键），一次查询互相覆盖丢行（M5），静态校验直接拒绝。
+    #[test]
+    fn rejects_duplicate_window_names() {
+        let mut t = simple_template();
+        let window = WindowSpec {
+            name: "five_hour".into(),
+            extract: t.extract.clone(),
+            transforms: vec![],
+        };
+        t.windows_from = Some("$.limits".into());
+        t.windows = vec![window.clone(), window];
+        assert!(matches!(
+            validate(&t),
+            Err(TemplateError::Validation { reason, .. }) if reason.contains("窗口名重复")
+        ));
+
+        // 不同名通过查重
+        t.windows[1].name = "weekly".into();
+        validate(&t).unwrap();
     }
 
     // ---- 执行 -------------------------------------------------------

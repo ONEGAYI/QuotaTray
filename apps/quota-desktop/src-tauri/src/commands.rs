@@ -884,6 +884,8 @@ mod tests {
             .merge_rows(imported.history.as_deref().unwrap())
             .unwrap();
         assert_eq!(store.range("p1", 0).unwrap().len(), 1);
+        // Windows 上句柄存活时删除会失败，先释放再清理
+        drop(store);
         let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
         let _ = std::fs::remove_dir_all(target_path.parent().unwrap());
     }

@@ -440,7 +440,9 @@ QuotaTray/
     │   └── tray-ring-demo.html # 托盘圆环视觉规格（层结构/颜色/溢出/红点定案）
     └── specs/
         ├── CLI-spec.md        # quota-cli 规格（M2b）：子命令/退出码/dev-smoke
-        └── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
+        ├── GUI-spec.md        # quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化
+        └── history-spec.md    # 历史存储规格（M5）：数据模型/滚动清理/schema
+                               #   迁移/迁移容器 v2/CLI 命令（含 SQLite 决策边界）
 ```
 
 （`src-tauri/gen/schemas` 为构建生成物，被 gitignore）

@@ -467,6 +467,9 @@ mod tests {
         // None（打开失败）时静默跳过
         record_history(None, &[], ctx.lang);
 
+        // Windows 上句柄存活时删除会失败，先释放再清理
+        drop(store);
+        drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -260,8 +260,8 @@ mod tests {
             .unwrap();
         assert_eq!(points.len(), 1, "历史随迁移包到达目标机");
         assert_eq!(points[0].remaining, Some(42.0));
+        // v1 老包兼容（history=None 不合并）由 core transfer 测试覆盖
 
-        // v1 老包（无历史 section）导入后目标机历史不受影响
         let _ = std::fs::remove_dir_all(dir);
     }
 }
