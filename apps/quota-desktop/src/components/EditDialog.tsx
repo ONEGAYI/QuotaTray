@@ -8,7 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useRef, useState } from "react";
 import { api, newEntryId } from "../api";
 import { dataSummary } from "../display";
-import { useLang } from "../i18n";
+import { useLang, type TextKey } from "../i18n";
 import { useNativeMetas } from "../queries";
 import type {
   PlanVariant,
@@ -19,8 +19,10 @@ import type {
   TemplateErrorDto,
 } from "../types";
 import { NativeProviderPicker } from "./NativeProviderPicker";
+import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } from "./presetTemplates";
 import { PricingSection } from "./PricingSection";
-import { Button, DialogShell } from "./ui";
+import { TemplateHelpCard } from "./TemplateHelpCard";
+import { Button, DialogShell, SegmentedControl } from "./ui";
 
 interface Props {
   open: boolean;
@@ -28,17 +30,6 @@ interface Props {
   usageCurrency?: string;
   onClose: () => void;
 }
-
-const DEFAULT_TEMPLATE = `{
-  "request": {
-    "url": "{{baseUrl}}/v1/user/info",
-    "headers": { "Authorization": "Bearer {{apiKey}}" }
-  },
-  "extract": {
-    "remaining": "$.data.totalBalance",
-    "unit": { "const": "CNY" }
-  }
-}`;
 
 /** 默认示例脚本：与 examples/scripts/basic.js 同款最小闭环。 */
 const DEFAULT_SCRIPT = `function request() {
@@ -53,6 +44,8 @@ function extract(resp) {
 }`;
 
 type Tab = "native" | "template" | "script";
+/** template 分支的二级子页：运营商信息/计价模型 与 模板编辑。 */
+type TemplateSub = "provider" | "template";
 
 /** invoke 抛出的错误若为后端 reject 的 TemplateErrorDto 则还原形状，否则 null。 */
 function toTemplateError(e: unknown): TemplateErrorDto | null {
@@ -76,6 +69,8 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         ? "script"
         : "native",
   );
+  // template 分支二级子页（切换一级页签不重置；默认先填运营商信息）
+  const [templateSub, setTemplateSub] = useState<TemplateSub>("provider");
   const [name, setName] = useState(initial?.name ?? "");
   const [nativeProvider, setNativeProvider] = useState(
     initial?.kind.type === "native" ? initial.kind.provider : "",
@@ -84,7 +79,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
     initial?.plan_variant ?? "auto",
   );
   const [templateJson, setTemplateJson] = useState(() => {
-    if (initial?.kind.type !== "template") return DEFAULT_TEMPLATE;
+    if (initial?.kind.type !== "template") return presetJsonOf("custom");
     const { type: _type, ...rest } = initial.kind;
     return JSON.stringify(rest, null, 2);
   });
@@ -200,6 +195,55 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
 
   if (!open) return null;
 
+  // 以下字段/区块被 template 与 native/script 两类分支复用，抽出避免重复
+  const nameField = (
+    <label className="qt-field">
+      <span>{t("edit.name")}</span>
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder={t("edit.namePlaceholder")}
+        className={inputCls}
+      />
+    </label>
+  );
+  const baseUrlField = (
+    <label className="qt-field">
+      <span className={labelCls}>{t("edit.baseUrl")}</span>
+      <input
+        value={baseUrl}
+        onChange={(event) => setBaseUrl(event.target.value)}
+        placeholder="https://api.example.com"
+        className={inputCls}
+      />
+    </label>
+  );
+  const credentialField = (
+    <label className="qt-field qt-credential-field">
+      <span>{t("edit.apiKey")}</span>
+      <small>{t("edit.apiKeyHint")}</small>
+      <input
+        type="password"
+        value={apiKey}
+        onChange={(event) => setApiKey(event.target.value)}
+        autoComplete="new-password"
+        placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
+        className={inputCls}
+      />
+    </label>
+  );
+  const pricingSection = (
+    <PricingSection
+      key={`${tab}:${nativeProvider}`}
+      preset={selectedPreset}
+      customModels={selectedNativeMeta?.custom_models ?? []}
+      initial={tab === initialTab ? initial?.pricing : undefined}
+      onChange={(pricing) => {
+        pricingRef.current = pricing;
+      }}
+    />
+  );
+
   return (
     <DialogShell
       title={initial ? t("edit.titleEdit") : t("edit.titleAdd")}
@@ -246,99 +290,99 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
           save.mutate();
         }}
       >
-        <div className="qt-edit-basics">
-          <label className="qt-field">
-            <span>{t("edit.name")}</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t("edit.namePlaceholder")}
-              className={inputCls}
-            />
-          </label>
-
-          {tab === "native" && (
-            <div className="qt-field">
-              <span>{t("edit.platform")}</span>
-              <NativeProviderPicker
-                metas={natives.data ?? []}
-                value={nativeProvider}
-                ariaLabel={t("edit.platform")}
-                placeholder={t("edit.platformPlaceholder")}
-                groupLabels={{
-                  deepseek: "DeepSeek",
-                  siliconflow: "SiliconFlow",
-                  openrouter: "OpenRouter",
-                  kimi: "Kimi",
-                  zhipu: t("edit.platformGroupZhipu"),
-                  zai: "Z.ai",
-                }}
-                onChange={setNativeProvider}
-              />
-            </div>
-          )}
-
-          {tab === "native" && selectedNativeMeta?.supports_plan_variant && (
-            <label className="qt-field">
-              <span>{t("edit.planVariant")}</span>
-              <select
-                value={planVariant}
-                onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
-                className={inputCls}
-              >
-                <option value="auto">{t("edit.planVariantAuto")}</option>
-                <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
-                <option value="weekly">{t("edit.planVariantWeekly")}</option>
-              </select>
-            </label>
-          )}
-        </div>
-
         {tab === "template" && (
-          <TemplateForm
-            templateJson={templateJson}
-            setTemplateJson={setTemplateJson}
-            baseUrl={baseUrl}
-            setBaseUrl={setBaseUrl}
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-          />
+          <div className="qt-edit-subtabs">
+            <SegmentedControl
+              value={templateSub}
+              compact
+              options={[
+                { value: "provider", label: t("edit.subProvider") },
+                { value: "template", label: t("edit.subTemplate") },
+              ]}
+              onChange={setTemplateSub}
+            />
+          </div>
         )}
 
-        {tab === "script" && (
-          <ScriptForm
-            code={scriptCode}
-            setCode={setScriptCode}
-            allowInsecure={scriptInsecure}
-            setAllowInsecure={setScriptInsecure}
-            baseUrl={baseUrl}
-            setBaseUrl={setBaseUrl}
-            apiKey={apiKey}
-          />
+        {tab === "template" ? (
+          <>
+            {/* 子页「运营商与模型」：CSS 隐藏切换（不卸载）——
+                PricingSection 内聚草稿态，卸载重挂会丢未保存的定价改动 */}
+            <div className={templateSub === "provider" ? undefined : "qt-hidden"}>
+              <div className="qt-edit-basics">{nameField}</div>
+              {baseUrlField}
+              {pricingSection}
+              {credentialField}
+            </div>
+            {/* 子页「设置模板」：条件渲染——内部校验/试查结论允许丢失，
+                避免 CodeMirror 挂在隐藏容器的测量问题 */}
+            {templateSub === "template" && (
+              <TemplateForm
+                templateJson={templateJson}
+                setTemplateJson={setTemplateJson}
+                baseUrl={baseUrl}
+                apiKey={apiKey}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <div className="qt-edit-basics">
+              {nameField}
+
+              {tab === "native" && (
+                <div className="qt-field">
+                  <span>{t("edit.platform")}</span>
+                  <NativeProviderPicker
+                    metas={natives.data ?? []}
+                    value={nativeProvider}
+                    ariaLabel={t("edit.platform")}
+                    placeholder={t("edit.platformPlaceholder")}
+                    groupLabels={{
+                      deepseek: "DeepSeek",
+                      siliconflow: "SiliconFlow",
+                      openrouter: "OpenRouter",
+                      kimi: "Kimi",
+                      zhipu: t("edit.platformGroupZhipu"),
+                      zai: "Z.ai",
+                    }}
+                    onChange={setNativeProvider}
+                  />
+                </div>
+              )}
+
+              {tab === "native" && selectedNativeMeta?.supports_plan_variant && (
+                <label className="qt-field">
+                  <span>{t("edit.planVariant")}</span>
+                  <select
+                    value={planVariant}
+                    onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
+                    className={inputCls}
+                  >
+                    <option value="auto">{t("edit.planVariantAuto")}</option>
+                    <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
+                    <option value="weekly">{t("edit.planVariantWeekly")}</option>
+                  </select>
+                </label>
+              )}
+            </div>
+
+            {tab === "script" && (
+              <ScriptForm
+                code={scriptCode}
+                setCode={setScriptCode}
+                allowInsecure={scriptInsecure}
+                setAllowInsecure={setScriptInsecure}
+                baseUrl={baseUrl}
+                setBaseUrl={setBaseUrl}
+                apiKey={apiKey}
+              />
+            )}
+
+            {pricingSection}
+            {credentialField}
+          </>
         )}
-
-        <PricingSection
-          key={`${tab}:${nativeProvider}`}
-          preset={selectedPreset}
-          customModels={selectedNativeMeta?.custom_models ?? []}
-          initial={tab === initialTab ? initial?.pricing : undefined}
-          onChange={(pricing) => {
-            pricingRef.current = pricing;
-          }}
-        />
-
-        <label className="qt-field qt-credential-field">
-          <span>{t("edit.apiKey")}</span>
-          <small>{t("edit.apiKeyHint")}</small>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            autoComplete="new-password"
-            placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
-            className={inputCls}
-          />
-        </label>
 
         {error && <p className="qt-inline-error">{error}</p>}
       </form>
@@ -346,20 +390,27 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
   );
 }
 
-/** 模板形态：JSON 编辑器 + baseUrl + 校验/试查。 */
+/** 模板形态：预设模板 + JSON 编辑器 + 校验/试查 + 编写说明。 */
 function TemplateForm(props: {
   templateJson: string;
   setTemplateJson: (v: string) => void;
+  /** 试查只读取值（输入框在「运营商与模型」子页） */
   baseUrl: string;
-  setBaseUrl: (v: string) => void;
   apiKey: string;
-  setApiKey: (v: string) => void;
 }) {
   const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
+  const activePreset = matchedPresetId(props.templateJson);
+  const presetLabels: Record<PresetTemplate["id"], TextKey> = {
+    custom: "edit.preset.custom",
+    balance: "edit.preset.balance",
+    site: "edit.preset.site",
+    credits: "edit.preset.credits",
+    windows: "edit.preset.windows",
+  };
 
   const validate = useMutation({
     mutationFn: () => api.validateTemplate(props.templateJson),
@@ -407,6 +458,28 @@ function TemplateForm(props: {
       {/"allowInsecure"\s*:\s*true/.test(props.templateJson) && (
         <p className="qt-inline-warning">{t("edit.insecureWarn")}</p>
       )}
+      <div className="qt-field">
+        <span className={labelCls}>{t("edit.presetLabel")}</span>
+        <div className="qt-template-presets">
+          {PRESET_TEMPLATES.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              aria-pressed={activePreset === preset.id}
+              title={t("edit.presetHint")}
+              onClick={() => {
+                props.setTemplateJson(preset.json);
+                // 内容已换，旧校验结论作废
+                setValidateOk(false);
+                setValidateMsg(null);
+              }}
+            >
+              {t(presetLabels[preset.id])}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <label className="qt-field">
         <span className={labelCls}>{t("edit.templateJson")}</span>
         <div className="qt-code-editor">
@@ -423,16 +496,6 @@ function TemplateForm(props: {
             basicSetup={{ foldGutter: false, autocompletion: false }}
           />
         </div>
-      </label>
-
-      <label className="qt-field">
-        <span className={labelCls}>{t("edit.baseUrl")}</span>
-        <input
-          value={props.baseUrl}
-          onChange={(e) => props.setBaseUrl(e.target.value)}
-          placeholder="https://api.example.com"
-          className={inputCls}
-        />
       </label>
 
       <div className="qt-template-actions">
@@ -468,6 +531,8 @@ function TemplateForm(props: {
           )}
         </div>
       )}
+
+      <TemplateHelpCard />
     </div>
   );
 }

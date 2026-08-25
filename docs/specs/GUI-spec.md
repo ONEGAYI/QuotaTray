@@ -33,8 +33,10 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
    （瞬时=灰、确定性=红），多窗口条目分行。
 2. **添加/编辑表单**（对话框或侧栏，三种形态）：
    - native：平台下拉（`natives` 列表）+ key 输入（password 型，空=保持不变）
-   - template：模板 JSON 编辑器（CodeMirror 或等价）+ base_url + key +
-     「校验」按钮（调 validate）与「试查」按钮（调 template test）
+   - template：二级子页（三选一下方的分段选单）——「运营商与模型」（名称 +
+     base_url + key + 峰谷计价）与「设置模板」（预设模板按钮组：通用/单对象
+     余额/站点可变/总额已用/多窗口 + CodeMirror JSON 编辑器 + 校验/试查 +
+     底部可展开的模板编写说明卡：变量与字段速查）
    - script（M4）：JS 编辑器（CodeMirror javascript 语言包）+ base_url +
      allowInsecure 开关（启用时显示明文 http 警告）+ key + 「校验」
      （调 validate_script，干跑）与「试查」（调 test_script，沙箱全链路）；

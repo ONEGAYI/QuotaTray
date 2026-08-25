@@ -117,6 +117,29 @@ export const zh = {
   "edit.keyConfigured": "已配置（留空保持不变）",
   "edit.keyMissing": "未配置",
 
+  // ---- 模板分支二级子页与预设 ----
+  "edit.subProvider": "运营商与模型",
+  "edit.subTemplate": "设置模板",
+  "edit.presetLabel": "预设模板",
+  "edit.presetHint": "点击将预设填入编辑器（覆盖当前内容）",
+  "edit.preset.custom": "通用示例",
+  "edit.preset.balance": "单对象余额",
+  "edit.preset.site": "站点可变 baseUrl",
+  "edit.preset.credits": "总额 / 已用",
+  "edit.preset.windows": "多窗口",
+  "edit.helpTitle": "模板编写说明",
+  "edit.helpLead": "模板是一段声明式 JSON：描述一次余额请求与取数路径，无需写代码。",
+  "edit.helpVarKey": "API 密钥——取「运营商与模型」页凭据区输入的值",
+  "edit.helpVarUrl": "站点地址——取「运营商与模型」页 baseUrl 输入的值",
+  "edit.helpRequest": "请求定义：method 默认 GET；headers、body 原样发送",
+  "edit.helpExtract":
+    "取数映射：planName / total / used / remaining / unit / isValid / invalidMessage，按需给出子集",
+  "edit.helpPath": "取值写法：JSONPath 路径（如 $.data.balance）或 const 常量（写法见下方示例）",
+  "edit.helpTransforms": "算术变换：multiply / divide / add / sub / round，作用于取数后的字段",
+  "edit.helpWindows": "多窗口：windowsFrom 指向响应中窗口数组的路径，windows 逐窗取数",
+  "edit.helpInsecure": "allowInsecure 为 true 时允许 http 明文请求（有泄露风险）",
+  "edit.helpTip": "「校验」仅做静态检查；「试查」会用当前 key 与 baseUrl 真实发送一次请求。",
+
   // ---- 自定义标题栏 ----
   "titlebar.github": "GitHub 仓库",
   "titlebar.language": "切换语言",

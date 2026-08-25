@@ -456,11 +456,30 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-edit-tabs button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--qt-text-soft); }
 .qt-edit-tabs button[aria-pressed="true"] { background: var(--qt-surface); color: var(--qt-accent-strong); box-shadow: 0 1px 5px var(--qt-shadow); font-weight: 650; }
 .qt-edit-tabs button:disabled { opacity: .4; }
+/* template 分支二级子页选单：紧贴一级选单下方，视觉层级弱一级 */
+.qt-edit-subtabs { margin: -10px 0 16px; }
+.qt-hidden { display: none !important; }
 .qt-edit-form { display: grid; gap: 16px; }
 .qt-edit-basics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .qt-credential-field { padding: 13px; border: 1px solid var(--qt-border); border-radius: 10px; background: var(--qt-surface-soft); }
 .qt-credential-field small { display: block; margin: -1px 0 8px; color: var(--qt-text-faint); font-size: 11px; }
 .qt-template-form { display: grid; gap: 12px; }
+.qt-template-presets { display: flex; flex-wrap: wrap; gap: 7px; }
+.qt-template-presets button { min-height: 30px; border: 0; border-radius: 8px; padding: 5px 12px; background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 12px; cursor: pointer; }
+.qt-template-presets button:hover { color: var(--qt-accent-strong); }
+.qt-template-presets button[aria-pressed="true"] { background: var(--qt-surface); color: var(--qt-accent-strong); font-weight: 600; box-shadow: 0 1px 5px var(--qt-shadow); }
+.qt-template-help { border: 1px solid var(--qt-border); border-radius: 10px; background: var(--qt-surface-soft); }
+.qt-template-help-toggle { display: flex; width: 100%; align-items: center; gap: 5px; border: 0; padding: 9px 12px; background: transparent; color: var(--qt-text-soft); font-size: 12px; cursor: pointer; }
+.qt-template-help-toggle:hover { color: var(--qt-accent-strong); }
+.qt-template-help-toggle .is-open { transform: rotate(180deg); }
+.qt-template-help-body { display: grid; gap: 10px; padding: 0 12px 12px; }
+.qt-template-help-lead { margin: 0; color: var(--qt-text-soft); font-size: 12px; }
+.qt-template-help-grid { display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 60%); gap: 5px 12px; margin: 0; font-size: 12px; }
+.qt-template-help-grid dt { color: var(--qt-text); }
+.qt-template-help-grid dt code { padding: 1px 5px; border-radius: 5px; background: var(--qt-surface); border: 1px solid var(--qt-border); font-size: 11px; }
+.qt-template-help-grid dd { margin: 0; color: var(--qt-text-soft); }
+.qt-template-help pre { margin: 0; padding: 9px 11px; border: 1px solid var(--qt-border); border-radius: 8px; background: var(--qt-surface); font-size: 11px; line-height: 1.55; overflow-x: auto; }
+.qt-template-help-tip { margin: 0; color: var(--qt-text-faint); font-size: 11px; }
 .qt-inline-warning { margin: 0; border-radius: 9px; padding: 9px 11px; background: var(--qt-warning-soft); color: var(--qt-warning); font-size: 12px; }
 .qt-code-editor { overflow: hidden; border: 1px solid var(--qt-border-strong); border-radius: 9px; }
 .qt-template-actions { display: flex; align-items: center; gap: 8px; }
