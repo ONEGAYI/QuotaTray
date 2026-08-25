@@ -11,6 +11,8 @@ export const en: Record<TextKey, string> = {
   "app.subtitle": "AI account balance monitor",
   "app.add": "+ Add",
   "app.accounts": "Accounts",
+  "app.usageStats": "Usage",
+  "app.viewTabs": "Main content view",
   "app.accountCount": "{count} account(s)",
   "app.addAccount": "Add account",
   "app.settings": "Settings",
@@ -19,6 +21,8 @@ export const en: Record<TextKey, string> = {
   "app.emptyTitle": "No provider entries yet",
   "app.emptyHint":
     "Click \"Add\" for a built-in provider, or use a template JSON for any platform",
+  "history.title": "History",
+  "history.placeholder": "Usage history will be available in a future release",
 
   // ---- 供应商卡片 ----
   "card.disabled": "Disabled",

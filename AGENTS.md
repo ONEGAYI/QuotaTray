@@ -262,7 +262,11 @@ QuotaTray/
 │       ├── tsconfig.json / eslint.config.js / index.html
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
-│       │   │                              #   （标题栏/账户摘要/列表），编辑时传递查询币种
+│       │   │                              #   （标题栏/账户与使用统计页签/列表/历史占位），
+│       │   │                              #   编辑时传递查询币种
+│       │   ├── mainPanelView.ts / mainPanelView.test.ts
+│       │   │                    # 主窗口面板切换状态机：下沉模糊峰值换内容后上浮清晰，
+│       │   │                    #   连续点击以最后选择为准
 │       │   ├── vite-env.d.ts   # Vite 静态资源（品牌 PNG 等）模块类型声明
 │       │   ├── index.css       # 明暗设计令牌（暗色 #161616 中性系；color-scheme
 │       │   │                    #   随主题；全局 webkit 滚动条暗色 #2e2e2e）、
@@ -303,6 +307,9 @@ QuotaTray/
 │       │       ├── ui.tsx              # 按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件
 │       │       │                       #   （Dialog 以 body Portal 保证主窗居中，含 Escape、
 │       │       │                       #   焦点圈定与关闭后焦点恢复）
+│       │       ├── MainPanelTabs.tsx / mainPanelTabsView.ts / mainPanelTabsView.test.ts
+│       │       │                       # 账户/使用统计页签鼠标聚光：按鼠标到文字中心距离
+│       │       │                       #   独立显现径向柔光，离开区域完全隐藏
 │       │       ├── TitleBar.tsx        # 自定义标题栏：拖动/双击最大化、GitHub 仓库链接
 │       │       │                       #   （opener 插件，scope 锁定仓库主页）、语言与主题
 │       │       │                       #   图标下拉三选（即时保存）、窗口控制按钮

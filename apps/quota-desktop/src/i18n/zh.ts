@@ -15,6 +15,8 @@ export const zh = {
   "app.subtitle": "AI 账户余额监视",
   "app.add": "+ 添加",
   "app.accounts": "账户",
+  "app.usageStats": "使用统计",
+  "app.viewTabs": "主内容视图",
   "app.accountCount": "{count} 个账户",
   "app.addAccount": "添加账户",
   "app.settings": "设置",
@@ -22,6 +24,8 @@ export const zh = {
   "app.configError": "配置读取失败：{msg}",
   "app.emptyTitle": "还没有供应商条目",
   "app.emptyHint": "点击右上角「添加」接入预置平台，或用模板 JSON 接入任意平台",
+  "history.title": "历史记录",
+  "history.placeholder": "使用统计面板将在后续版本中提供",
 
   // ---- 供应商卡片 ----
   "card.disabled": "已停用",
