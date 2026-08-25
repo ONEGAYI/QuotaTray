@@ -169,6 +169,12 @@ fn parse_usage(body: &Value) -> Result<Vec<UsageData>, QueryError> {
             remaining: Some(100.0 - used),
             unit: Some("%".into()),
             reset_at,
+            // plan_type（plus/prolite/pro）透传 extra 供排查；
+            // additional_rate_limits（按模型的额外限流）首版不解析
+            extra: body
+                .get("plan_type")
+                .filter(|v| !v.is_null())
+                .map(|p| serde_json::json!({ "plan_type": p })),
             ..Default::default()
         });
     }
@@ -201,11 +207,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(data.len(), 2);
+        assert!(data[0].extra.is_none(), "无 plan_type 的响应不伪造 extra");
         assert_eq!(data[0].plan_name.as_deref(), Some("Codex（5h）"));
         assert_eq!(data[0].used, Some(42.0));
         assert_eq!(data[0].remaining, Some(58.0));
         assert_eq!(data[0].reset_at, Some(1787659200000));
         assert_eq!(data[1].plan_name.as_deref(), Some("Codex（week）"));
+    }
+
+    /// plan_type 透传 extra（真机响应含 plus/prolite/pro 区分订阅档）。
+    #[tokio::test]
+    async fn plan_type_passed_to_extra() {
+        let body = r#"{"plan_type": "prolite", "rate_limit": {"primary_window": {"used_percent": 12, "limit_window_seconds": 604800, "reset_at": 1788152929}, "secondary_window": null}}"#;
+        let data = query_with_token(&token(), &MockHttp::ok(body))
+            .await
+            .unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(
+            data[0]
+                .extra
+                .as_ref()
+                .and_then(|v| v.get("plan_type"))
+                .and_then(Value::as_str),
+            Some("prolite")
+        );
     }
 
     /// 窗口标签映射：30d 与回退形态。
