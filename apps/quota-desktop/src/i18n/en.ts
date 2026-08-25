@@ -111,6 +111,8 @@ export const en: Record<TextKey, string> = {
   "edit.testOk": "Test succeeded",
   "edit.apiKey": "API key",
   "edit.apiKeyHint": "Credentials are sent only to the backend, encrypted, and never shown in plaintext.",
+  "edit.cliCredentialHint":
+    "Credentials are read automatically from the locally signed-in official CLI at query time (no API key to fill in)",
   "edit.keyConfigured": "Configured (leave blank to keep)",
   "edit.keyMissing": "Not configured",
 

@@ -10,6 +10,7 @@ function meta(id: string, name = id): NativeMeta {
     pricing_by_currency: {},
     custom_models: [],
     supports_plan_variant: false,
+    uses_cli_credentials: false,
   };
 }
 
@@ -32,6 +33,8 @@ describe("添加供应商的平台聚合", () => {
       meta("kimi_code_cn"),
       meta("novita"),
       meta("minimax"),
+      meta("claude"),
+      meta("codex"),
     ]);
 
     expect(groups.map((group) => group.key)).toEqual([
@@ -44,6 +47,8 @@ describe("添加供应商的平台聚合", () => {
       "stepfun",
       "novita",
       "minimax",
+      "claude",
+      "codex",
     ]);
     expect(groups.find((group) => group.key === "siliconflow")?.providers.map((p) => p.id))
       .toEqual(["siliconflow", "siliconflow_global"]);

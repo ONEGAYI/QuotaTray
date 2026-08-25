@@ -114,6 +114,8 @@ export const zh = {
   "edit.testOk": "试查成功",
   "edit.apiKey": "API key",
   "edit.apiKeyHint": "凭据只写入后端并加密保存，界面不会回显明文。",
+  "edit.cliCredentialHint":
+    "此平台的凭据在查询时自动读取本机已登录的官方 CLI（无需也无处填写 API key）",
   "edit.keyConfigured": "已配置（留空保持不变）",
   "edit.keyMissing": "未配置",
 

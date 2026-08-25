@@ -40,6 +40,9 @@ pub struct NativeMetaDto {
     /// 是否支持套餐变体声明（智谱系订阅套餐：v1 无周限 / v2+ 有周限），
     /// 编辑表单据此决定是否展示变体选择。
     pub supports_plan_variant: bool,
+    /// CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的
+    /// 登录文件只读获取——编辑表单隐藏 key 输入框并展示提示卡。
+    pub uses_cli_credentials: bool,
     /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
     pub custom_models: Vec<quota_core::CustomModelDef>,
 }
@@ -332,6 +335,7 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
                 id: m.id.into(),
                 name: m.name.into(),
                 supports_plan_variant: quota_core::provider::supports_plan_variant(m.id),
+                uses_cli_credentials: quota_core::provider::uses_cli_credentials(m.id),
                 pricing,
                 pricing_by_currency,
                 custom_models: cfg.custom_models.get(m.id).cloned().unwrap_or_default(),

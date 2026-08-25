@@ -186,9 +186,19 @@ fn wizard(ctx: &Ctx, existing_ids: &[String]) -> Result<ProviderEntry, String> {
         )
     };
 
-    // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
-    let key = io::read_secret(t(lang, T::KeyPromptSkip), lang)
-        .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?;
+    // CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的登录
+    // 文件只读获取，跳过 key 输入并打印提示行
+    let cli_cred = matches!(&kind, ProviderKind::Native { provider }
+        if quota_core::provider::uses_cli_credentials(provider));
+    let key = if cli_cred {
+        println!("{}", t(lang, T::CliCredentialNote));
+        String::new()
+    } else {
+        // key 可跳过（回车空值，稍后 set-key 补配）；读取失败与主动跳过区分开
+        io::read_secret(t(lang, T::KeyPromptSkip), lang)
+            .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?
+            .to_string()
+    };
     assemble_entry(
         ctx,
         name.trim().to_string(),

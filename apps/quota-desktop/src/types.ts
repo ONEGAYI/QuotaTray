@@ -225,6 +225,9 @@ export interface NativeMeta {
   custom_models: CustomModelDef[];
   /** 是否支持套餐变体声明（智谱系订阅套餐），编辑表单据此展示选择。 */
   supports_plan_variant: boolean;
+  /** CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
+   *  编辑表单隐藏 key 输入框并展示提示卡。 */
+  uses_cli_credentials: boolean;
 }
 
 export interface TemplateErrorDto {

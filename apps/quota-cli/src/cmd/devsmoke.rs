@@ -103,10 +103,14 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
             pricing: None,
             plan_variant: PlanVariant::Auto,
         };
-        if let Err(e) = entry.set_api_key(&vault, key) {
-            eprintln!("[{platform}] {}{e}", t(lang, T::SmokeEncryptFail));
-            failures += 1;
-            continue;
+        // CLI 凭据型平台（订阅四家）：key 文件条目只是「要测这个」的
+        // 开关（占位值即可），凭据实际来自本机官方 CLI 登录文件
+        if !quota_core::provider::uses_cli_credentials(platform) {
+            if let Err(e) = entry.set_api_key(&vault, key) {
+                eprintln!("[{platform}] {}{e}", t(lang, T::SmokeEncryptFail));
+                failures += 1;
+                continue;
+            }
         }
         match engine.query(&vault, &entry).await {
             Ok(data) => {

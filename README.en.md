@@ -71,8 +71,13 @@ quota update --check           # check for new releases
 | Kimi Code | kimi.com/code / kimi.ai/code | 5-hour + weekly quota windows with RFC3339 reset times |
 | Zhipu / Z.ai General API | CN / Global | pay-as-you-go balance, Bearer API key |
 | Zhipu / Z.ai Coding Plan | CN / Global | plan usage (multi-window), raw key |
+| StepFun | — | top-level balance, CNY |
+| Novita AI | — | availableBalance ÷ 10000 = USD |
+| MiniMax Coding Plan | CN / Global | 5h + weekly remaining percent, normalized to used |
+| Claude subscription | — | Pro/Max multi-window usage; credentials read from the local Claude Code login |
+| Codex (ChatGPT subscription) | — | Plus/Pro dual-window usage; credentials read from the local Codex CLI login |
 
-Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai balance and Coding Plan query endpoints are not in their public API references, while the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
+Subscription platforms (Claude/Codex) need **no API key**: credentials are read-only from the locally signed-in official CLI's login file at query time—never written or exported. Kimi Code uses the usage endpoint adopted by MoonshotAI's official client; the Zhipu / Z.ai and the two subscription query endpoints plus credential file formats are not in public API references (stable contracts in wide community use); the others use official public APIs. Automated tests are fully mocked. **Platforms not listed can be added via declarative templates** (next section).
 
 ## Custom Queries: Declarative Templates
 

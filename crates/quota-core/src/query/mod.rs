@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::config::{ProviderEntry, ProviderKind};
+use crate::config::{Credentials, ProviderEntry, ProviderKind};
 use crate::http::{HttpClient, ReqwestHttpClient};
 use crate::model::QueryError;
 use crate::model::UsageData;
@@ -40,15 +40,23 @@ impl QueryEngine {
         vault: &Vault,
         entry: &ProviderEntry,
     ) -> Result<Vec<UsageData>, QueryError> {
-        let creds = entry.credentials(vault)?;
         match &entry.kind {
             ProviderKind::Native { provider: id } => {
                 let native = provider::find(id)
                     .ok_or_else(|| QueryError::deterministic(format!("未知的预置平台 id：{id}")))?;
+                // CLI 凭据型平台（订阅四家）：凭据由 provider 查询时从本机
+                // 官方 CLI 的登录文件只读获取，跳过 api_key 解密前置——
+                // api_key_enc 为 None 不再是错误
+                let creds = if provider::uses_cli_credentials(id) {
+                    Credentials::new("")
+                } else {
+                    entry.credentials(vault)?
+                };
                 let fut = native.query(&creds, self.http.as_ref(), entry.plan_variant);
                 self.with_timeout(fut).await
             }
             ProviderKind::Template(config) => {
+                let creds = entry.credentials(vault)?;
                 let fut = crate::template::execute(
                     self.http.as_ref(),
                     config,
@@ -58,6 +66,7 @@ impl QueryEngine {
                 self.with_timeout(fut).await
             }
             ProviderKind::Script(config) => {
+                let creds = entry.credentials(vault)?;
                 let fut = crate::script::execute(
                     self.http.as_ref(),
                     config,
@@ -158,6 +167,21 @@ mod tests {
                 .await
                 .unwrap_err()
                 .is_transient()
+        );
+    }
+
+    /// 契约：CLI 凭据型平台（订阅四家）api_key_enc 为 None 也不在
+    /// 解密前置报「未配置 API key」——凭据由 provider 从本机 CLI 登录
+    /// 文件获取（本机文件缺失时是 provider 层的确定性引导错误）。
+    #[tokio::test]
+    async fn cli_credential_platform_runs_without_api_key() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let engine = QueryEngine::new(Arc::new(MockHttp::ok("{}")), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &entry("claude")).await.unwrap_err();
+        let message = err.message();
+        assert!(
+            !message.contains("未配置 API key"),
+            "CLI 凭据型平台不应报缺 key：{message}"
         );
     }
 

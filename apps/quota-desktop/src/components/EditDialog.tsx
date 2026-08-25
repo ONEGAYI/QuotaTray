@@ -235,6 +235,14 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
       />
     </label>
   );
+  // CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
+  // 以提示卡替代 key 输入框（apiKey 恒空，保存走「空=保持」路径）
+  const cliCredentialField = (
+    <label className="qt-field qt-credential-field">
+      <span>{t("edit.apiKey")}</span>
+      <small>{t("edit.cliCredentialHint")}</small>
+    </label>
+  );
   const pricingSection = (
     <PricingSection
       key={`${tab}:${nativeProvider}`}
@@ -355,6 +363,10 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                       stepfun: "StepFun",
                       novita: "Novita AI",
                       minimax: "MiniMax",
+                      claude: "Claude",
+                      codex: "Codex",
+                      gemini: "Gemini",
+                      grok: "Grok",
                     }}
                     onChange={setNativeProvider}
                   />
@@ -390,7 +402,9 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
             )}
 
             {pricingSection}
-            {credentialField}
+            {tab === "native" && selectedNativeMeta?.uses_cli_credentials
+              ? cliCredentialField
+              : credentialField}
           </>
         )}
 
