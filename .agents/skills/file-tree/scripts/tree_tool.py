@@ -247,6 +247,7 @@ class TreeTool:
         root_name: str,
         history_path: Path,
         history_limit: int = HISTORY_LIMIT,
+        legacy_history_paths: tuple[Path, ...] = (),
     ):
         self.tree_json = tree_json
         self.agents_md = agents_md
@@ -254,6 +255,7 @@ class TreeTool:
         self.root_name = root_name
         self.history_path = history_path
         self.history_limit = history_limit
+        self.legacy_history_paths = legacy_history_paths  # 历史旧位置（如 git 初始化前的退化位置），保存时收敛删除
         self.git_files_override: set[str] | None = None
 
     # ---------- 数据读写（唯一写入口） ----------
@@ -276,18 +278,29 @@ class TreeTool:
     # ---------- undo/redo（全量快照双栈，历史不入版本库） ----------
 
     def _load_history(self) -> dict:
-        try:
-            hist = json.loads(self.history_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {"undo": [], "redo": []}
-        if not isinstance(hist, dict) or "undo" not in hist or "redo" not in hist:
-            return {"undo": [], "redo": []}
-        return hist
+        """按 canonical → legacy 顺序找历史：git 初始化前落在技能目录的旧历史仍可读。"""
+        candidates = [self.history_path] + [p for p in self.legacy_history_paths if p != self.history_path]
+        for path in candidates:
+            try:
+                hist = json.loads(path.read_text(encoding="utf-8"))
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+            if isinstance(hist, dict) and "undo" in hist and "redo" in hist:
+                return hist
+        return {"undo": [], "redo": []}
 
     def _save_history(self, hist: dict) -> None:
+        """永远写 canonical 位置，并收敛删除 legacy 残留（迁移不产生可被追踪的旧文件）。"""
         self.history_path.parent.mkdir(parents=True, exist_ok=True)
         with self.history_path.open("w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(hist, ensure_ascii=False))
+        for legacy in self.legacy_history_paths:
+            if legacy == self.history_path:
+                continue
+            try:
+                legacy.unlink()
+            except OSError:
+                pass  # 删除失败不阻断；check 会持续提示待收敛
 
     def _trim(self, stack: list) -> list:
         return stack[-self.history_limit :] if len(stack) > self.history_limit else stack
@@ -612,6 +625,14 @@ class TreeTool:
                 if actual != content_fn():
                     errors.append(f"E: {self.agents_md.name} 标记块内容与 tree.json 不一致（产物过期或被手改），运行 render")
 
+        # 历史位置收敛提示：legacy 残留说明仓库初始化晚于技能使用，待迁移
+        for legacy in self.legacy_history_paths:
+            if legacy != self.history_path and legacy.exists():
+                warnings.append(
+                    f"W: 历史文件位于旧位置 {legacy}（仓库在技能使用之后初始化？），"
+                    f"执行任一维护命令将自动迁移到 {self.history_path} 并删除旧文件"
+                )
+
         if strict:
             return (errors + [f"E(strict): {w}" for w in warnings], [])
         return errors, warnings
@@ -784,6 +805,7 @@ def main(argv=None) -> int:
         repo_root=REPO_ROOT,
         root_name=REPO_ROOT.name,
         history_path=default_history_path(REPO_ROOT, SKILL_DIR),
+        legacy_history_paths=(SKILL_DIR / ".history.json",),
     )
     handlers = {
         "add": _cmd_add,

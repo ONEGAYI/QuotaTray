@@ -496,6 +496,57 @@ class UndoRedoTest(SandboxTest):
         self.assertEqual(undo_ops, [])
 
 
+class HistoryMigrationTest(SandboxTest):
+    """git 初始化晚于技能使用：旧位置历史自动收敛进 git 私有区，undo 栈不断裂。"""
+
+    def _simulate_git_init(self, tool: TreeTool) -> Path:
+        legacy = tool.history_path
+        canonical = tool.repo_root / ".git" / "file-tree" / "history.json"
+        tool.history_path = canonical
+        tool.legacy_history_paths = (legacy,)
+        return legacy
+
+    def test_migrates_legacy_history_into_gitdir(self):
+        tool = self.make_tool()
+        legacy = tool.history_path
+        tool.add("apps/first.rs", desc="一", detail=["一"])  # git init 前：历史落在技能目录
+        self.assertTrue(legacy.exists())
+        self._simulate_git_init(tool)
+        # 旧历史仍可读（含迁移前的撤销栈）
+        undo_ops, _ = tool.history_summary()
+        self.assertEqual(undo_ops, ["add apps/first.rs"])
+        # 下一次写操作完成收敛：栈延续、旧文件删除
+        tool.add("apps/second.rs", desc="二", detail=["二"])
+        undo_ops, _ = tool.history_summary()
+        self.assertEqual(undo_ops, ["add apps/first.rs", "add apps/second.rs"])
+        canonical = tool.history_path
+        self.assertTrue(canonical.exists())
+        self.assertFalse(legacy.exists())
+
+    def test_undo_reads_legacy_and_converges(self):
+        tool = self.make_tool()
+        tool.add("apps/old.rs", desc="旧", detail=["旧"])
+        self._simulate_git_init(tool)
+        op = tool.undo()  # 直接 undo：读旧位置历史，恢复后写 canonical
+        self.assertEqual(op, "add apps/old.rs")
+        self.assertNotIn("old.rs", tool.load()["tree"]["apps"]["children"])
+        self.assertFalse(self.legacy_exists(tool))
+        op = tool.redo()  # redo 栈同样延续
+        self.assertEqual(op, "add apps/old.rs")
+
+    def legacy_exists(self, tool: TreeTool) -> bool:
+        return any(p.exists() for p in tool.legacy_history_paths if p != tool.history_path)
+
+    def test_check_warns_on_pending_migration(self):
+        tool = self.make_tool()
+        tool.add("apps/x.rs", desc="x", detail=["x"])
+        tool.render()
+        self._simulate_git_init(tool)
+        errors, warnings = tool.check()
+        self.assertEqual(errors, [])
+        self.assertTrue(any("旧位置" in w for w in warnings))
+
+
 class QueryTest(SandboxTest):
     def test_filters(self):
         tool = self.make_tool()

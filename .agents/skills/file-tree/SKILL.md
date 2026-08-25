@@ -32,7 +32,7 @@ check [--strict]                 # 全量不变量校验（--strict 时告警也
 render                           # 重渲染 AGENTS.md 两个标记块（缺标记自动附加到尾部）
 ```
 
-**撤销历史（防误操作）**：每次数据变更前自动快照当前 tree.json 全量；undo 恢复后自动重渲染 AGENTS.md，新操作会截断 redo 分支（编辑器语义）。历史存放于 **git 私有区 `<gitdir>/file-tree/history.json`**——天然不被 git 追踪、不入库、clone 不携带；判定以 `<gitdir>/HEAD` 存在为准（空 `.git` 目录不算仓库），且脚本绝不创建 `.git`；非 git 环境退化为技能目录本地文件 `.history.json`。历史基线是「上一次脚本操作前」，中途手改 tree.json 的内容会随回滚丢失（手改本就被禁止）。
+**撤销历史（防误操作）**：每次数据变更前自动快照当前 tree.json 全量；undo 恢复后自动重渲染 AGENTS.md，新操作会截断 redo 分支（编辑器语义）。历史存放于 **git 私有区 `<gitdir>/file-tree/history.json`**——天然不被 git 追踪、不入库、clone 不携带；判定以 `<gitdir>/HEAD` 存在为准（空 `.git` 目录不算仓库），且脚本绝不创建 `.git`；非 git 环境退化为技能目录本地文件 `.history.json`。**仓库初始化晚于技能使用时自动收敛**：加载按 git 私有区 → 旧位置顺序找历史（撤销栈不断裂），保存永远写 git 私有区并删除旧位置文件；check 对待收敛状态给出告警。历史基线是「上一次脚本操作前」，中途手改 tree.json 的内容会随回滚丢失（手改本就被禁止）。
 
 契约测试：`python .agents/skills/file-tree/scripts/tree_tool_test.py`
 
