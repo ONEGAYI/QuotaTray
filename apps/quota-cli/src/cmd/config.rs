@@ -38,6 +38,11 @@ pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
         }
         Err(e) => {
             eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
+            // 超限常见根因是历史体积：附逃生提示（TooLarge 的 Display
+            // 已含「超过 16 MiB 上限」文案，不重复打印）
+            if matches!(e, quota_core::ConfigTransferError::TooLarge) {
+                eprintln!("{}", texts::history_export_too_large_hint(ctx.lang));
+            }
             1
         }
     }

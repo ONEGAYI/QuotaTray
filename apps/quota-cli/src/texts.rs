@@ -920,9 +920,21 @@ pub fn saved(lang: Lang, name: &str, id: &str) -> String {
 pub fn remove_confirm(lang: Lang, name: &str, id: &str) -> String {
     match lang {
         Lang::En => {
-            format!("Remove {name} ({id})? Its credential ciphertext will be removed as well")
+            format!(
+                "Remove {name} ({id})? Its credential ciphertext and query history will be removed as well"
+            )
         }
-        _ => format!("删除 {name}（{id}）？其凭据密文将一并移除"),
+        _ => format!("删除 {name}（{id}）？其凭据密文与查询历史将一并移除"),
+    }
+}
+
+/// config export 超 16 MiB 上限的逃生提示（常见根因是历史数据体积）。
+pub fn history_export_too_large_hint(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => {
+            "hint: the query history often causes the 16 MiB limit; quota history clear frees space"
+        }
+        _ => "提示：迁移包超限常见根因是查询历史体积，可先 quota history clear 腾出空间",
     }
 }
 
@@ -1000,8 +1012,8 @@ pub fn history_transfer_degraded(lang: Lang, reason: &str) -> String {
 /// history show 交互翻页页脚（按键提示）。
 pub fn history_page_footer(lang: Lang, page: u64, total: u64) -> String {
     match lang {
-        Lang::En => format!("-- page {page}/{total}: space/→ next, b/← prev, q quit --"),
-        _ => format!("── 第 {page}/{total} 页：空格/→ 下一页，b/← 上一页，q 退出 ──"),
+        Lang::En => format!("-- page {page}/{total}: space/Enter/→ next, b/← prev, q quit --"),
+        _ => format!("── 第 {page}/{total} 页：空格/回车/→ 下一页，b/← 上一页，q 退出 ──"),
     }
 }
 

@@ -91,8 +91,13 @@ pub struct HistoryExportRow {
 /// 同一条目的返回结构随平台实现稳定，因此 plan_name 在条目内是稳定键。
 /// 约束：native 各平台的 plan_name 文案（如「Claude 订阅（5h）」）已
 /// **冻结为窗口键**——调整展示文案会整体断掉历史时间线，i18n 化等改动
-/// 需保持键不变（展示层另做映射）。模板条目由 `template::validate`
-/// 拒绝重名窗口；script 条目返回重复 plan_name 时后者覆盖前者。
+/// 需保持键不变（展示层另做映射）。
+///
+/// 同次查询出现重复键的两种来源：模板 `windowsFrom` 数组展开对每个元素
+/// 产出同名行（M2a 既有行为，配置数组内重名窗口由 `template::validate`
+/// 拒绝），以及 script 返回重复 `plan_name`。[`HistoryStore::record`]
+/// 对重复键按出现顺序追加 `#2`、`#3` 消歧——跨查询的键稳定性依赖
+/// 返回数组顺序稳定，见 history-spec §2。
 pub fn window_key(data: &UsageData, ordinal: usize) -> String {
     match data.plan_name.as_deref() {
         Some(name) if !name.trim().is_empty() => name.trim().to_string(),
@@ -149,6 +154,9 @@ impl HistoryStore {
     /// `is_valid == Some(false)` 的行跳过：凭据失效期间数值不可信
     /// （常为 0 而非空），落库会在走势上留下无法区分的假断崖；
     /// 失效期间时间线中断，由读取方按空档呈现。
+    ///
+    /// 同次查询出现重复窗口键时按出现顺序追加 `#2`、`#3` 消歧
+    /// （见 [`window_key`]）。
     pub fn record(
         &self,
         provider_id: &str,
@@ -156,9 +164,18 @@ impl HistoryStore {
         at_ms: u64,
     ) -> Result<(), HistoryError> {
         let tx = self.conn.unchecked_transaction()?;
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (ordinal, item) in data.iter().enumerate() {
             if item.is_valid == Some(false) {
                 continue;
+            }
+            let mut key = window_key(item, ordinal);
+            if !seen.insert(key.clone()) {
+                let mut suffix = 2;
+                while !seen.insert(format!("{key}#{suffix}")) {
+                    suffix += 1;
+                }
+                key = format!("{key}#{suffix}");
             }
             tx.execute(
                 "INSERT OR REPLACE INTO history
@@ -166,7 +183,7 @@ impl HistoryStore {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     provider_id,
-                    window_key(item, ordinal),
+                    key,
                     at_ms as i64,
                     item.used,
                     item.remaining,
@@ -293,7 +310,9 @@ fn migrate_with(conn: &mut Connection, migrations: &[&str]) -> Result<(), Histor
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(HistoryError::Open)?;
     let latest = migrations.len() as i64;
-    if version > latest {
+    // 负值只可能来自外部工具手动篡改 PRAGMA；as usize 会位回绕成巨大
+    // 偏移导致静默跳过迁移，按版本异常拒绝
+    if !(0..=latest).contains(&version) {
         return Err(HistoryError::NewerVersion { version });
     }
     for (idx, script) in migrations.iter().enumerate().skip(version as usize) {
@@ -473,6 +492,58 @@ mod tests {
         assert_eq!(store.range("p2", 0).unwrap().len(), 1);
     }
 
+    /// 契约：同次查询重复窗口键按出现顺序消歧（windowsFrom 数组展开
+    /// 的同名多行 / script 重复 plan_name），不得静默互相覆盖。
+    #[test]
+    fn duplicate_window_keys_are_disambiguated() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        // 模拟 windowsFrom 数组两个元素套用同一 WindowSpec：同名两行
+        store
+            .record(
+                "p1",
+                &[
+                    usage(Some("Quota"), 30.0),
+                    usage(Some("Quota"), 70.0),
+                    usage(Some("weekly"), 90.0),
+                ],
+                T0,
+            )
+            .unwrap();
+        let points = store.range("p1", 0).unwrap();
+        let keys: Vec<(&str, Option<f64>)> = points
+            .iter()
+            .map(|p| (p.window_key.as_str(), p.remaining))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("Quota", Some(30.0)),
+                ("Quota#2", Some(70.0)),
+                ("weekly", Some(90.0))
+            ],
+            "重复键追加 #2 消歧，各行独立保留"
+        );
+
+        // 下次查询数组顺序稳定 → 键稳定，各自续线
+        store
+            .record(
+                "p1",
+                &[usage(Some("Quota"), 25.0), usage(Some("Quota"), 65.0)],
+                T0 + 60_000,
+            )
+            .unwrap();
+        assert_eq!(store.range("p1", 0).unwrap().len(), 5);
+        // 无效行不参与消歧计数
+        let mut invalid = usage(Some("Quota"), 0.0);
+        invalid.is_valid = Some(false);
+        store
+            .record("p2", &[invalid, usage(Some("Quota"), 5.0)], T0)
+            .unwrap();
+        let p2 = store.range("p2", 0).unwrap();
+        assert_eq!(p2.len(), 1);
+        assert_eq!(p2[0].window_key, "Quota");
+    }
+
     #[test]
     fn rolling_cleanup_deletes_expired_rows_with_throttle() {
         let store = HistoryStore::open_in_memory().unwrap();
@@ -561,6 +632,13 @@ mod tests {
         assert!(matches!(
             migrate_with(&mut conn, MIGRATIONS),
             Err(HistoryError::NewerVersion { version: 99 })
+        ));
+        // 手动篡改的负版本同样拒绝（as usize 位回绕会静默跳过迁移）
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", -1).unwrap();
+        assert!(matches!(
+            migrate_with(&mut conn, MIGRATIONS),
+            Err(HistoryError::NewerVersion { version: -1 })
         ));
     }
 

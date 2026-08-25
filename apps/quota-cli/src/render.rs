@@ -415,12 +415,17 @@ pub struct HistoryJson {
 }
 
 /// 历史点按窗口时间线分组、再按时间桶聚合（桶内取最后一点）。
-/// 输入须按 `sampled_at` 升序（`HistoryStore::range` 的输出顺序），
-/// 同桶后到的点覆盖先到的；输出按窗口名分组、组内按时间升序。
+/// 输入的每个窗口时间线须按 `sampled_at` 升序（`HistoryStore::range`
+/// 的全局升序输出天然满足；同桶后到的点覆盖先到的）；输出按窗口名
+/// 分组、组内按时间升序。
 pub fn bucket_points_by_window(
     points: &[quota_core::HistoryPoint],
     bucket_ms: u64,
 ) -> Vec<quota_core::HistoryPoint> {
+    debug_assert!(
+        is_sorted_per_window(points),
+        "每个窗口时间线须按 sampled_at 升序（覆盖语义的前提）"
+    );
     use std::collections::BTreeMap;
     let mut by_window: BTreeMap<&str, BTreeMap<u64, quota_core::HistoryPoint>> = BTreeMap::new();
     for point in points {
@@ -434,6 +439,23 @@ pub fn bucket_points_by_window(
         result.extend(buckets.into_values());
     }
     result
+}
+
+/// debug 断言辅助：跨窗口可交错，但同一窗口时间线内不得回退。
+#[cfg(debug_assertions)]
+fn is_sorted_per_window(points: &[quota_core::HistoryPoint]) -> bool {
+    use std::collections::HashMap;
+    let mut last: HashMap<&str, u64> = HashMap::new();
+    for point in points {
+        if last
+            .get(point.window_key.as_str())
+            .is_some_and(|&t| t > point.sampled_at)
+        {
+            return false;
+        }
+        last.insert(point.window_key.as_str(), point.sampled_at);
+    }
+    true
 }
 
 /// 总页数：空数据也算 1 页（首页即空表）。
