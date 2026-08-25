@@ -402,7 +402,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-pricing-section-header h3 { margin: 0; font-size: 14px; font-weight: 650; }
 .qt-pricing-section-header p { margin: 4px 0 0; }
 .qt-text-subdued { color: var(--qt-text-soft); font-size: 12px; }
-.qt-pricing-mode { margin: 0 14px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 9px; background: var(--qt-surface-soft); }
+.qt-pricing-mode { margin: 0 14px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 9px; background: var(--qt-surface-soft); }
 .qt-pricing-model-row { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; align-items: center; gap: 11px; padding: 12px 14px; border-block: 1px solid var(--qt-border); }
 .qt-pricing-model-row > label { color: var(--qt-text); font-size: 13px; font-weight: 650; }
 .qt-inherit-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 14px; background: var(--qt-accent-soft); color: var(--qt-accent-strong); font-size: 12px; }
@@ -464,6 +464,9 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hidden { display: none !important; }
 .qt-field-hint { display: block; color: var(--qt-text-faint); font-size: 11px; }
 .qt-edit-form { display: grid; gap: 16px; }
+/* template 二级子页包裹容器：内部元素脱离了 form grid 的 gap 体系，
+   需自带同尺寸行距（否则退化为零间距块堆叠） */
+.qt-edit-subpage { display: grid; gap: 16px; }
 .qt-edit-basics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .qt-credential-field { padding: 13px; border: 1px solid var(--qt-border); border-radius: 10px; background: var(--qt-surface-soft); }
 .qt-credential-field small { display: block; margin: -1px 0 8px; color: var(--qt-text-faint); font-size: 11px; }
