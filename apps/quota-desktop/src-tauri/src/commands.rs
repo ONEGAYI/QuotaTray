@@ -207,7 +207,7 @@ fn export_configuration_at(
     vault: &Vault,
 ) -> Result<(), String> {
     let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
-    quota_core::export_config_to_path(&config, vault, export_path).map_err(|e| e.to_string())
+    quota_core::export_config_to_path(&config, vault, None, export_path).map_err(|e| e.to_string())
 }
 
 fn import_configuration_at(
@@ -215,7 +215,10 @@ fn import_configuration_at(
     config_path: &std::path::Path,
     vault: &Vault,
 ) -> Result<AppConfig, String> {
-    quota_core::import_config_to_path(export_path, vault, config_path).map_err(|e| e.to_string())
+    // 历史数据接线在 M5-a 桌面端 PR 跟进，此处仅解码配置。
+    let bundle = quota_core::import_config_to_path(export_path, vault, config_path)
+        .map_err(|e| e.to_string())?;
+    Ok(bundle.config)
 }
 
 /// 导出完整配置到用户通过系统对话框选定的路径。

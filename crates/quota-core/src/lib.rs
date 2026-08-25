@@ -7,8 +7,10 @@
 //! - `update`：GitHub release 检测更新与安装包下载（M4-b）
 //! - `pricing`：峰谷定价（时段判定、预置平台定价、自定义合并）
 //! - `script`：QuickJS 沙箱脚本查询（M4，`{request, extractor}` 协议）
+//! - `history`：查询结果的历史存储（M5，SQLite + 版本化迁移）
 
 pub mod config;
+pub mod history;
 pub mod http;
 pub mod model;
 pub mod pricing;
@@ -21,8 +23,11 @@ pub mod vault;
 
 pub use config::{
     AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, PlanVariant,
-    ProviderEntry, ProviderKind, export_config, export_config_to_path, import_config,
-    import_config_from_path, import_config_to_path,
+    ProviderEntry, ProviderKind, TransferBundle, export_config, export_config_to_path,
+    import_config, import_config_from_path, import_config_to_path,
+};
+pub use history::{
+    DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, window_key,
 };
 pub use model::{QueryError, UsageData};
 pub use pricing::{

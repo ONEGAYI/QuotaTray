@@ -67,7 +67,20 @@ QuotaTray/
 │           │   │              #   读到会报未知 tag，升级单向）、PlanVariant
 │           │   │              #   订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）
 │           │   └── transfer.rs# 完整配置跨机器迁移：一次性迁移密钥转写、私有认证
-│           │                  #   二进制容器、字节 API 与原子文件导入导出
+│           │                  #   二进制容器、字节 API 与原子文件导入导出；
+│           │                  #   容器 v2（M5）信封 {config, history} 携带历史
+│           │                  #   数据（v1 仍可导入，单向升级）、TransferBundle
+│           │                  #   返回 config + 可选历史行
+│           ├── history/       # 历史数据存储（M5，SQLite/rusqlite bundled）
+│           │   └── mod.rs     # HistoryStore：成功查询结果时序落库（一条 UsageData
+│           │                  #   一行，PK provider_id+window_key+sampled_at，
+│           │                  #   同毫秒重放幂等）；window_key 纯函数（plan_name
+│           │                  #   优先、序数 w0/w1 回退）；PRAGMA user_version +
+│           │                  #   MIGRATIONS 数组逐版本事务迁移（降级运行拒绝
+│           │                  #   打开）；30 天滚动清理（写入时节流 ≥1h 一次）；
+│           │                  #   WAL + synchronous NORMAL；export_rows/merge_rows
+│           │                  #   供迁移容器导入导出；非关键数据——调用方写失败
+│           │                  #   静默告警不阻断查询主链路
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码，
 │           │   │              #   敏感头判断统一走 redact；HttpResponse.raw 为
@@ -471,3 +484,6 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
 | keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |
 | 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |
+| 历史库 | `~/.quotatray/history.db`（SQLite）：每次成功查询的余额/额度快照时序表，滚动保留 30 天，schema 走 user_version 版本化迁移 |
+| 窗口键（window_key） | 历史行的窗口标识：`plan_name` 非空取之，否则回退序数 `w0/w1…`；同一多窗口条目每窗口一条时间线 |
+| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history}`：随配置携带历史数值行（幂等合并进目标机历史库）；v1 旧包仍可导入，旧二进制读 v2 拒绝 |

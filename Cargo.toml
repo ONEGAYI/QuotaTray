@@ -32,6 +32,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 regex = "1"
 # QuickJS 沙箱（M4 script provider）：默认内嵌编译 QuickJS-NG 源码（MSRV 1.87）
 rquickjs = "0.12"
+# 历史数据存储（M5 history）：bundled 内嵌编译 SQLite，Windows 分发自包含
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [profile.release]
 lto = "thin"

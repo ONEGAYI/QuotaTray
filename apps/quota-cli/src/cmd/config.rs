@@ -27,7 +27,7 @@ pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
         println!("{}", texts::cancelled(ctx.lang));
         return 0;
     }
-    match export_config_to_path(&config, &vault, &output) {
+    match export_config_to_path(&config, &vault, None, &output) {
         Ok(()) => {
             println!("{}", texts::config_exported(ctx.lang, &output));
             0
@@ -52,10 +52,10 @@ pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool) -> i32 {
         }
     };
     match import_config_to_path(&input, &vault, &ctx.config_path) {
-        Ok(config) => {
+        Ok(bundle) => {
             println!(
                 "{}",
-                texts::config_imported(ctx.lang, &input, config.providers.len())
+                texts::config_imported(ctx.lang, &input, bundle.config.providers.len())
             );
             0
         }
