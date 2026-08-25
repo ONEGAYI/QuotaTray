@@ -72,6 +72,8 @@ pub enum T {
     ColTime,
     /// 「历史库打开失败：」前缀。
     HistoryOpenFail,
+    /// 「清理条目历史失败：」前缀（remove 删除清理）。
+    HistoryClearFail,
     /// 「历史记录写入失败：」前缀。
     HistoryWriteFail,
     /// 条目在回看范围内无历史点。
@@ -363,6 +365,7 @@ fn zh(key: T) -> &'static str {
 
         T::ColTime => "时间",
         T::HistoryOpenFail => "历史库打开失败：",
+        T::HistoryClearFail => "清理条目历史失败：",
         T::HistoryWriteFail => "历史记录写入失败：",
         T::HistoryEmpty => "回看范围内没有历史数据（成功查询后才会积累）",
 
@@ -613,6 +616,7 @@ fn en(key: T) -> &'static str {
 
         T::ColTime => "Time",
         T::HistoryOpenFail => "history store open failed: ",
+        T::HistoryClearFail => "history cleanup failed: ",
         T::HistoryWriteFail => "history record write failed: ",
         T::HistoryEmpty => {
             "no history data in the selected range (accumulates after successful queries)"

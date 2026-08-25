@@ -74,13 +74,17 @@ QuotaTray/
 │           ├── history/       # 历史数据存储（M5，SQLite/rusqlite bundled）
 │           │   └── mod.rs     # HistoryStore：成功查询结果时序落库（一条 UsageData
 │           │                  #   一行，PK provider_id+window_key+sampled_at，
-│           │                  #   同毫秒重放幂等）；window_key 纯函数（plan_name
-│           │                  #   优先、序数 w0/w1 回退）；PRAGMA user_version +
-│           │                  #   MIGRATIONS 数组逐版本事务迁移（降级运行拒绝
-│           │                  #   打开）；30 天滚动清理（写入时节流 ≥1h 一次）；
-│           │                  #   WAL + synchronous NORMAL；export_rows/merge_rows
-│           │                  #   供迁移容器导入导出；非关键数据——调用方写失败
-│           │                  #   静默告警不阻断查询主链路
+│           │                  #   同毫秒重放幂等，重复窗口键按出现顺序 #2/#3
+│           │                  #   消歧、is_valid=false 跳过）；window_key 纯函数
+│           │                  #   （plan_name 优先、序数 w0/w1 回退，native 文案
+│           │                  #   冻结为键）；PRAGMA user_version +
+│           │                  #   MIGRATIONS 数组逐版本事务迁移（降级运行/
+│           │                  #   负版本拒绝打开）；busy_timeout 3s 防并发写
+│           │                  #   database is locked；30 天滚动清理（写入时
+│           │                  #   节流 ≥1h 一次）；WAL + synchronous NORMAL；
+│           │                  #   export_rows/merge_rows 供迁移容器导入导出；
+│           │                  #   非关键数据——调用方写失败静默告警不阻断
+│           │                  #   查询主链路
 │           ├── http/          # HTTP 抽象
 │           │   ├── mod.rs     # HttpClient trait + 请求/响应/错误类型（Debug 打码，
 │           │   │              #   敏感头判断统一走 redact；HttpResponse.raw 为
@@ -217,7 +221,8 @@ QuotaTray/
 │   │           ├── edit.rs    # 向导（回车保持，套餐变体可改；template/script
 │   │           │              #   各自的 baseUrl、内容重粘贴与 script 的
 │   │           │              #   allowInsecure 修改）+ --enable/--disable 快捷路径
-│   │           ├── remove.rs  # 确认删除（--yes 跳过）
+│   │           ├── remove.rs  # 确认删除（--yes 跳过；M5 起删除后同步清条目
+│           │              #   历史，失败仅告警不影响删除结果）
 │   │           ├── setkey.rs  # 隐藏读 key → vault 加密写配置
 │   │           ├── natives.rs # 预置平台表（含峰谷预置标记列）
 │   │           ├── pricing.rs  # pricing show/set/clear：生效定价展示（判定/

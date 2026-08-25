@@ -43,7 +43,7 @@ pub fn run(ctx: &Ctx, id: String, yes: bool) -> i32 {
     if let Err(e) =
         quota_core::HistoryStore::open(&ctx.history_path()).and_then(|store| store.clear(Some(&id)))
     {
-        eprintln!("{}{e}", t(lang, T::HistoryOpenFail));
+        eprintln!("{}{e}", t(lang, T::HistoryClearFail));
     }
     println!("{}", texts::removed(lang, &entry.name, &id));
     0

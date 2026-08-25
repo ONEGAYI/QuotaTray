@@ -57,6 +57,8 @@ pub enum HistoryError {
     },
     #[error("历史库版本过新（v{version}），请先升级应用")]
     NewerVersion { version: i64 },
+    #[error("历史库版本号异常（v{version}，可能被外部工具篡改），可删除 history.db 重建")]
+    AbnormalVersion { version: i64 },
     #[error("历史库读写失败：{0}")]
     Db(#[from] rusqlite::Error),
 }
@@ -311,8 +313,11 @@ fn migrate_with(conn: &mut Connection, migrations: &[&str]) -> Result<(), Histor
         .map_err(HistoryError::Open)?;
     let latest = migrations.len() as i64;
     // 负值只可能来自外部工具手动篡改 PRAGMA；as usize 会位回绕成巨大
-    // 偏移导致静默跳过迁移，按版本异常拒绝
-    if !(0..=latest).contains(&version) {
+    // 偏移导致静默跳过迁移，按版本异常拒绝（升级应用救不回负值）
+    if version < 0 {
+        return Err(HistoryError::AbnormalVersion { version });
+    }
+    if version > latest {
         return Err(HistoryError::NewerVersion { version });
     }
     for (idx, script) in migrations.iter().enumerate().skip(version as usize) {
@@ -633,12 +638,13 @@ mod tests {
             migrate_with(&mut conn, MIGRATIONS),
             Err(HistoryError::NewerVersion { version: 99 })
         ));
-        // 手动篡改的负版本同样拒绝（as usize 位回绕会静默跳过迁移）
+        // 手动篡改的负版本同样拒绝（as usize 位回绕会静默跳过迁移），
+        // 且升级应用救不回——单独文案引导删除重建
         let mut conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "user_version", -1).unwrap();
         assert!(matches!(
             migrate_with(&mut conn, MIGRATIONS),
-            Err(HistoryError::NewerVersion { version: -1 })
+            Err(HistoryError::AbnormalVersion { version: -1 })
         ));
     }
 

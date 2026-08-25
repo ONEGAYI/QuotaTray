@@ -422,6 +422,9 @@ pub fn bucket_points_by_window(
     points: &[quota_core::HistoryPoint],
     bucket_ms: u64,
 ) -> Vec<quota_core::HistoryPoint> {
+    // debug_assert! 在 release 下仍对块内表达式做名称解析，
+    // helper 的 cfg 必须连调用点一起剔除（否则 release 编译失败）
+    #[cfg(debug_assertions)]
     debug_assert!(
         is_sorted_per_window(points),
         "每个窗口时间线须按 sampled_at 升序（覆盖语义的前提）"
