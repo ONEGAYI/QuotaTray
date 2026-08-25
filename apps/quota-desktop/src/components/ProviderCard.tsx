@@ -29,7 +29,7 @@ import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
-import { providerIconUrl } from "./providerIcon";
+import { isLightLogo, providerIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
   resolveProviderPricingView,
@@ -125,6 +125,9 @@ export function ProviderCard({
   const platformName = kindLabel(entry.kind, nativeMeta?.name, lang);
   const platformIconUrl =
     entry.kind.type === "native" ? providerIconUrl(entry.kind.provider) : null;
+  // 浅色品牌图（StepFun 纯白）需深底变体；无图标走首字母回退时不涉及
+  const platformLightLogo =
+    entry.kind.type === "native" && isLightLogo(entry.kind.provider);
   const explicitModelChoice = entry.pricing?.model
     ? modelChoices.find(
         (choice) => choice.modelId?.toLowerCase() === entry.pricing?.model?.toLowerCase(),
@@ -244,7 +247,7 @@ export function ProviderCard({
     >
       <div className="qt-provider-primary">
         <div className="qt-provider-identity">
-          <span className="qt-provider-avatar">
+          <span className={`qt-provider-avatar${platformLightLogo ? " is-light-logo" : ""}`}>
             {platformIconUrl ? (
               <img src={platformIconUrl} alt="" aria-hidden="true" draggable={false} />
             ) : (

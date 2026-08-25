@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { providerIconUrl } from "./providerIcon";
+import { isLightLogo, providerIconUrl } from "./providerIcon";
 
 describe("Provider 官方图标映射", () => {
   it("国内/国际及余额/订阅条目复用对应品牌图标", () => {
@@ -9,9 +9,10 @@ describe("Provider 官方图标映射", () => {
     expect(providerIconUrl("kimi_code_global")).toBe(providerIconUrl("kimi_cn"));
     expect(providerIconUrl("zhipu_api")).toBe(providerIconUrl("zhipu"));
     expect(providerIconUrl("zai_api")).toBe(providerIconUrl("zai"));
+    expect(providerIconUrl("minimax_global")).toBe(providerIconUrl("minimax"));
   });
 
-  it("十二个预置 Provider 都有图标，未知 native 保留回退空间", () => {
+  it("十六个预置 Provider 都有图标，未知 native 保留回退空间", () => {
     for (const id of [
       "deepseek",
       "siliconflow",
@@ -25,9 +26,20 @@ describe("Provider 官方图标映射", () => {
       "zai_api",
       "zhipu",
       "zai",
+      "stepfun",
+      "novita",
+      "minimax",
+      "minimax_global",
     ]) {
       expect(providerIconUrl(id), id).toBeTruthy();
     }
     expect(providerIconUrl("future-provider")).toBeNull();
+  });
+
+  it("浅色品牌图标记：仅白色 logo 需要深底变体", () => {
+    expect(isLightLogo("stepfun")).toBe(true);
+    for (const id of ["deepseek", "novita", "minimax", "minimax_global", "future"]) {
+      expect(isLightLogo(id), id).toBe(false);
+    }
   });
 });

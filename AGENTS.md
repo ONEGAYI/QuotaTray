@@ -200,7 +200,9 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 六组官方 Provider SVG（国内/国际及余额/订阅复用品牌）
+│       │   │   └── providers/     # 九张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax；图标容器固定浅底不随主题——单色深色 logo
+│       │   │                    #   明暗主题均可见，浅色 logo 走 is-light-logo 深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
@@ -240,7 +242,8 @@ QuotaTray/
 │       │       │                       # 卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑
 │       │       │                       #   （errorDetail 排查详情随查询错误态透传）
 │       │       ├── providerIcon.ts / providerIcon.test.ts
-│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约
+│       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约 +
+│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
 │       │       │                       #   悬停/键盘展开二级 Provider 选单
 │       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
