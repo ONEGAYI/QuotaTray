@@ -35,6 +35,8 @@ describe("添加供应商的平台聚合", () => {
       meta("minimax"),
       meta("claude"),
       meta("codex"),
+      meta("gemini"),
+      meta("grok"),
     ]);
 
     expect(groups.map((group) => group.key)).toEqual([
@@ -49,6 +51,8 @@ describe("添加供应商的平台聚合", () => {
       "minimax",
       "claude",
       "codex",
+      "gemini",
+      "grok",
     ]);
     expect(groups.find((group) => group.key === "siliconflow")?.providers.map((p) => p.id))
       .toEqual(["siliconflow", "siliconflow_global"]);

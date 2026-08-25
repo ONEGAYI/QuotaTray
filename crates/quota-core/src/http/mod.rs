@@ -101,6 +101,10 @@ impl HttpRequest {
 pub struct HttpResponse {
     pub status: u16,
     pub body: String,
+    /// 响应体的字节保真通道（与 body 同源）：body 是 lossy UTF-8 文本，
+    /// 二进制协议（grok 的 gRPC-web+proto）必须走本字段，禁止从 body
+    /// 还原字节——恰好构成合法 UTF-8 的二进制会静默损坏。
+    pub raw: Vec<u8>,
 }
 
 impl HttpResponse {

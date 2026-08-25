@@ -263,10 +263,12 @@ mod tests {
                 HttpResponse {
                     status: 404,
                     body: "not found".into(),
+                    raw: Vec::new(),
                 },
                 HttpResponse {
                     status: 200,
                     body: r#"{"data":{"available_balance":"8.5","used_balance":1.5,"total_balance":10,"currency":"cny"}}"#.into(),
+                    raw: Vec::new(),
                 },
             ]),
             requests: Arc::clone(&requests),

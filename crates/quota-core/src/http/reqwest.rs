@@ -53,8 +53,9 @@ impl HttpClient for ReqwestHttpClient {
         }
         let resp = request.send().await.map_err(map_reqwest_err)?;
         let status = resp.status().as_u16();
-        let body = resp.text().await.map_err(map_reqwest_err)?;
-        Ok(HttpResponse { status, body })
+        let raw = resp.bytes().await.map_err(map_reqwest_err)?.to_vec();
+        let body = String::from_utf8_lossy(&raw).into_owned();
+        Ok(HttpResponse { status, body, raw })
     }
 }
 

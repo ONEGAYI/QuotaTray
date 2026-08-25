@@ -251,6 +251,7 @@ mod tests {
                     return Ok(HttpResponse {
                         status: *status,
                         body: body.clone(),
+                        raw: Vec::new(),
                     });
                 }
             }
