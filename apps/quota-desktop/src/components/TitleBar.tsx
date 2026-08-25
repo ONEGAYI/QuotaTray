@@ -15,7 +15,7 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useLang, type TextKey } from "../i18n";
-import { useSettings } from "../queries";
+import { invalidateDisplaySettingsCache, useSettings } from "../queries";
 import { resolveSetting, useTheme } from "../theme";
 import { applyThemeTransition, shouldAnimate, themeTriggerOrigin } from "../themeTransition";
 import type { Settings } from "../types";
@@ -58,10 +58,7 @@ export function TitleBar() {
       if (!settings.data) throw new Error("settings not loaded");
       return api.saveSettings({ ...settings.data, ...patch });
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["settings"] });
-      void qc.invalidateQueries({ queryKey: ["provider"] });
-    },
+    onSuccess: () => invalidateDisplaySettingsCache(qc),
   });
 
   const languageOptions: Array<{ value: string; key: TextKey }> = [
