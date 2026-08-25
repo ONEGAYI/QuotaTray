@@ -1,7 +1,7 @@
 //! 托盘悬停面板：位置计算、显隐调度与窗口命令。
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewUrl, WebviewWindowBuilder,
@@ -14,11 +14,13 @@ const PANEL_HEIGHT: f64 = 520.0;
 /// + 错误行，前端裁掉状态行/用量列表/峰谷/页脚，见 hoverPanelView）。
 const PANEL_HEIGHT_COMPACT: f64 = 260.0;
 const PANEL_GAP: i32 = 8;
-const HIDE_DELAY_MS: u64 = 450;
+const HIDE_DELAY_MS: u64 = 250;
+const POINTER_WATCH_INTERVAL_MS: u64 = 100;
 
 #[derive(Default)]
 pub struct HoverPanelState {
     generation: AtomicU64,
+    pointer_watch_generation: AtomicU64,
     tray_inside: AtomicBool,
     panel_inside: AtomicBool,
 }
@@ -29,6 +31,27 @@ struct PhysicalBox {
     y: i32,
     width: u32,
     height: u32,
+}
+
+impl PhysicalBox {
+    fn contains(self, point: PhysicalPosition<i32>) -> bool {
+        point.x >= self.x
+            && point.x < self.x + self.width as i32
+            && point.y >= self.y
+            && point.y < self.y + self.height as i32
+    }
+}
+
+fn pointer_over_surfaces(
+    cursor: PhysicalPosition<i32>,
+    tray: PhysicalBox,
+    panel: Option<PhysicalBox>,
+) -> bool {
+    tray.contains(cursor) || panel.is_some_and(|surface| surface.contains(cursor))
+}
+
+fn move_needs_recovery(tray_inside: bool, panel_visible: bool) -> bool {
+    !tray_inside || !panel_visible
 }
 
 fn panel_position(
@@ -194,6 +217,37 @@ fn physical_box(rect: Rect) -> PhysicalBox {
     }
 }
 
+fn window_box(window: &tauri::WebviewWindow) -> Option<PhysicalBox> {
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    Some(PhysicalBox {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// 隐藏托盘 flyout 场景下，上游可能把托盘 rect 报成任务栏 chevron。
+/// rect 若不含当前光标，就以首次 Enter 的光标为中心构造一块宽松的
+/// 图标命中区域，供漏发 Leave 时的看门狗判断使用。
+fn pointer_watch_tray_surface(
+    tray: PhysicalBox,
+    cursor: Option<PhysicalPosition<i32>>,
+    flyout_hover: bool,
+) -> PhysicalBox {
+    let Some(cursor) = cursor.filter(|point| flyout_hover && !tray.contains(*point)) else {
+        return tray;
+    };
+    let radius = (tray.height as i32).max(16);
+    PhysicalBox {
+        x: cursor.x - radius,
+        y: cursor.y - radius,
+        width: (radius * 2) as u32,
+        height: (radius * 2) as u32,
+    }
+}
+
 fn work_area_at(app: &AppHandle, x: f64, y: f64) -> Option<PhysicalBox> {
     let monitor = app
         .monitor_from_point(x, y)
@@ -222,6 +276,7 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
         .cursor_position()
         .ok()
         .map(|p| PhysicalPosition::new(p.x as i32, p.y as i32));
+    let mut pointer_watch_surface = tray;
     // 锚定显示器：优先光标（悬停时光标必在图标/flyout 上），取不到时
     // 退回 rect 中心
     let (anchor_x, anchor_y) = cursor.map(|c| (c.x as f64, c.y as f64)).unwrap_or_else(|| {
@@ -239,6 +294,7 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
             Some(c) => !rect_is_trusted(c, work_area),
             None => false,
         };
+        pointer_watch_surface = pointer_watch_tray_surface(tray, cursor, flyout_hover);
         // 高度决策的可用垂直空间：flyout 路径取光标上下两侧较大者
         // （面板可回退下方），任务栏路径取工作区高（避让为 0）
         let work_height = work_area.height as i32;
@@ -289,6 +345,7 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
     }
     let _ = window.show();
     raise_to_topmost(&window);
+    start_pointer_watch(app.clone(), pointer_watch_surface);
 }
 
 /// 重新置顶（不激活）：面板窗口随应用启动创建（隐藏不销毁），Explorer
@@ -316,6 +373,76 @@ fn raise_to_topmost(window: &tauri::WebviewWindow) {
 
 #[cfg(not(windows))]
 fn raise_to_topmost(_window: &tauri::WebviewWindow) {}
+
+/// `tray-icon` 0.24.2 的 Windows 实现会在第一次 WM_MOUSEMOVE 时发出
+/// Enter，但要等第二次移动才启动 Leave 检测。快速掠过图标时可能永久
+/// 漏发 Leave，因此面板显示期间以真实光标位置做低频兜底核对。
+fn start_pointer_watch(app: AppHandle, tray_surface: PhysicalBox) {
+    let watch_generation = app
+        .state::<HoverPanelState>()
+        .pointer_watch_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    tauri::async_runtime::spawn(async move {
+        let mut outside_since = None;
+        loop {
+            tokio::time::sleep(Duration::from_millis(POINTER_WATCH_INTERVAL_MS)).await;
+            let state = app.state::<HoverPanelState>();
+            if state.pointer_watch_generation.load(Ordering::SeqCst) != watch_generation {
+                return;
+            }
+
+            let Some(window) = app.get_webview_window(LABEL) else {
+                return;
+            };
+            if !window.is_visible().unwrap_or(false) {
+                return;
+            }
+            let Some(cursor) = app
+                .cursor_position()
+                .ok()
+                .map(|point| PhysicalPosition::new(point.x as i32, point.y as i32))
+            else {
+                // 暂时取不到系统光标时不作隐藏判定，下一轮继续核对。
+                outside_since = None;
+                continue;
+            };
+
+            if pointer_over_surfaces(cursor, tray_surface, window_box(&window)) {
+                state
+                    .tray_inside
+                    .store(tray_surface.contains(cursor), Ordering::SeqCst);
+                outside_since = None;
+                continue;
+            }
+
+            state.tray_inside.store(false, Ordering::SeqCst);
+            let started = outside_since.get_or_insert_with(Instant::now);
+            if started.elapsed() >= Duration::from_millis(HIDE_DELAY_MS) {
+                hide(&app);
+                return;
+            }
+        }
+    });
+}
+
+/// 上游 Enter/Leave 状态失步时，再次经过托盘图标只会收到 Move。
+/// 本地已离开或窗口已隐藏时把该 Move 提升为一次 Enter，恢复显示。
+pub fn tray_move(app: &AppHandle, rect: Rect) -> bool {
+    let tray_inside = app
+        .state::<HoverPanelState>()
+        .tray_inside
+        .load(Ordering::SeqCst);
+    let panel_visible = app
+        .get_webview_window(LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if !move_needs_recovery(tray_inside, panel_visible) {
+        return false;
+    }
+    tray_enter(app, rect);
+    true
+}
 
 pub fn tray_leave(app: &AppHandle) {
     let state = app.state::<HoverPanelState>();
@@ -357,6 +484,9 @@ pub fn hide(app: &AppHandle) {
     state.tray_inside.store(false, Ordering::SeqCst);
     state.panel_inside.store(false, Ordering::SeqCst);
     state.generation.fetch_add(1, Ordering::SeqCst);
+    state
+        .pointer_watch_generation
+        .fetch_add(1, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.hide();
     }
@@ -452,6 +582,51 @@ mod tests {
         assert!(!should_hide(7, 8, false, false));
         assert!(!should_hide(7, 7, true, false));
         assert!(!should_hide(7, 7, false, true));
+    }
+
+    /// 回归契约：Windows 托盘事件源可能在首次 Enter 后漏发 Leave。
+    /// 看门狗必须以真实光标位置为准：托盘或面板任一区域内都保留，
+    /// 两者之外才允许进入延迟隐藏流程。
+    #[test]
+    fn pointer_watch_keeps_only_tray_or_panel_surface() {
+        let tray = PhysicalBox {
+            x: 1800,
+            y: 1040,
+            width: 32,
+            height: 32,
+        };
+        let panel = PhysicalBox {
+            x: 1440,
+            y: 512,
+            width: 374,
+            height: 520,
+        };
+
+        assert!(pointer_over_surfaces(
+            PhysicalPosition::new(1810, 1050),
+            tray,
+            Some(panel),
+        ));
+        assert!(pointer_over_surfaces(
+            PhysicalPosition::new(1600, 700),
+            tray,
+            Some(panel),
+        ));
+        assert!(!pointer_over_surfaces(
+            PhysicalPosition::new(1000, 700),
+            tray,
+            Some(panel),
+        ));
+    }
+
+    /// 回归契约：上游漏发 Leave 后，再次经过图标只会收到 Move；本地
+    /// 已隐藏或已判定离开时，Move 必须恢复显示，正常悬停内的 Move 则
+    /// 不重复执行 show/定位。
+    #[test]
+    fn tray_move_recovers_only_desynchronised_hover() {
+        assert!(move_needs_recovery(false, true));
+        assert!(move_needs_recovery(true, false));
+        assert!(!move_needs_recovery(true, true));
     }
 
     /// 契约：rect 可信判定——任务栏图标必然悬停于工作区之外（可信，
