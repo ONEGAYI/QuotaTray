@@ -48,6 +48,8 @@ export const en: Record<TextKey, string> = {
   "card.keyMissing": "No API key",
   "card.cliCredential": "Credentials from local CLI",
   "card.proxyOn": "Proxy on",
+  "card.proxyOnFeedback": "Query proxy enabled",
+  "card.proxyOffFeedback": "Query proxy disabled",
   "card.proxyOff": "Use proxy",
   "card.snapshotAt": "Last at {time} (startup snapshot)",
   "card.refreshing": "Refreshing…",

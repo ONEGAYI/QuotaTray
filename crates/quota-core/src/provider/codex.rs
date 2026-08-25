@@ -256,6 +256,7 @@ mod tests {
         assert_eq!(window_label(2_592_000), "30d");
         assert_eq!(window_label(3 * 86_400), "3d");
         assert_eq!(window_label(7_200), "2h");
+        assert_eq!(window_label(1_800), "1h", "不足一小时向上取 1h 而非 0h");
         assert_eq!(window_label(0), "window");
     }
 

@@ -444,6 +444,7 @@ mod tests {
             Some("sk-wizard-key".into()),
             &[],
             PlanVariant::Auto,
+            false,
         )
         .unwrap();
 
@@ -463,6 +464,7 @@ mod tests {
             None,
             &[],
             PlanVariant::Auto,
+            false,
         )
         .unwrap();
         assert!(no_key.api_key_enc.is_none());

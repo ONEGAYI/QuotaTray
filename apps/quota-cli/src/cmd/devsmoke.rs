@@ -83,7 +83,7 @@ pub async fn run(key_file: Option<PathBuf>, lang: Lang) -> i32 {
     };
     // 查询走与生产一致的代理设置（settings.json 网络代理端口）
     let default_config = quota_core::AppConfig::default_path().unwrap_or_default();
-    let engine = match crate::ctx::build_engine_from_settings(&default_config) {
+    let engine = match crate::ctx::build_engine_from_settings(&default_config, lang) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("{}{e}", t(lang, T::Err));

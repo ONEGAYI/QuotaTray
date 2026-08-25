@@ -51,6 +51,8 @@ export const zh = {
   "card.keyMissing": "未配置 key",
   "card.cliCredential": "凭据来自本机 CLI",
   "card.proxyOn": "代理已开",
+  "card.proxyOnFeedback": "已开启查询代理",
+  "card.proxyOffFeedback": "已关闭查询代理",
   "card.proxyOff": "走代理",
   "card.snapshotAt": "上次于 {time}（启动快照）",
   "card.refreshing": "刷新中…",

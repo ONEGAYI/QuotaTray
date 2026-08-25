@@ -64,17 +64,20 @@ impl Ctx {
 
     /// 构造生产查询引擎（reqwest + 15 秒超时）。每进程调用一次即可。
     pub fn new_engine(&self) -> Result<QueryEngine, String> {
-        build_engine_from_settings(&self.config_path)
+        build_engine_from_settings(&self.config_path, self.lang)
     }
 }
 
 /// 按 settings.json 的网络代理端口构造查询引擎（None = 直连）。
 /// 代理与更新检测共用同一端口（chatgpt.com 等被墙站点的订阅查询必需）。
-pub fn build_engine_from_settings(config_path: &std::path::Path) -> Result<QueryEngine, String> {
+pub fn build_engine_from_settings(
+    config_path: &std::path::Path,
+    lang: crate::lang::Lang,
+) -> Result<QueryEngine, String> {
     let prefs = crate::settings_io::load_prefs(config_path);
     let proxy_url = quota_core::update::proxy_url_of(prefs.update_proxy_port);
     let direct = quota_core::http::ReqwestHttpClient::new(quota_core::DEFAULT_TIMEOUT)
-        .map_err(|e| format!("{}{e}", t(crate::lang::Lang::System, T::EngineInitFail)))?;
+        .map_err(|e| format!("{}{e}", t(lang, T::EngineInitFail)))?;
     let proxied = match proxy_url.as_deref() {
         Some(url) => Some(
             quota_core::http::ReqwestHttpClient::new_with_proxy(

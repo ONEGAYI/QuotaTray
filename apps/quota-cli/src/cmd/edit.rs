@@ -315,6 +315,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e, template_entry());
@@ -339,6 +340,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: false,
+                use_proxy: false,
             },
         );
         assert_eq!(e.name, "新名");
@@ -364,6 +366,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e.name, "旧名");
@@ -399,6 +402,7 @@ mod tests {
                 script_allow_insecure: Some(true),
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         assert_eq!(e.base_url.as_deref(), Some("https://new.com"));
@@ -421,6 +425,7 @@ mod tests {
                 script_allow_insecure: None,
                 plan_variant: None,
                 enabled: true,
+                use_proxy: false,
             },
         );
         match &e.kind {

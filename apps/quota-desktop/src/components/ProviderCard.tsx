@@ -179,7 +179,7 @@ export function ProviderCard({
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
       void qc.invalidateQueries({ queryKey: ["provider", entry.id] });
-      setFeedback(entry.use_proxy ? t("card.proxyOff") : t("card.proxyOn"));
+      setFeedback(entry.use_proxy ? t("card.proxyOffFeedback") : t("card.proxyOnFeedback"));
     },
     onError: (error) => setFeedback(String(error)),
   });
@@ -455,13 +455,18 @@ export function ProviderCard({
         </div>
 
         <div className="qt-provider-actions">
-          <Button variant="ghost" icon={RefreshCw} disabled={!entry.enabled} onClick={invalidate}>
+          <Button
+            variant="ghost"
+            icon={RefreshCw}
+            disabled={!entry.enabled || toggleEnabled.isPending || toggleProxy.isPending}
+            onClick={invalidate}
+          >
             {view.kind === "transient" ? t("card.retry") : t("card.refresh")}
           </Button>
           <Button
             variant="ghost"
             icon={entry.enabled ? Pause : Play}
-            disabled={toggleEnabled.isPending}
+            disabled={toggleEnabled.isPending || toggleProxy.isPending}
             onClick={() => {
               setFeedback(null);
               toggleEnabled.mutate();
@@ -473,7 +478,7 @@ export function ProviderCard({
             variant="ghost"
             icon={Globe}
             className={entry.use_proxy ? "is-active" : undefined}
-            disabled={toggleProxy.isPending}
+            disabled={toggleProxy.isPending || toggleEnabled.isPending}
             onClick={() => {
               setFeedback(null);
               toggleProxy.mutate();

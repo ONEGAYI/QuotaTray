@@ -186,15 +186,18 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         pricing: pricingRef.current,
         // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
         plan_variant: planVariant,
+        // 编辑无代理表单字段：保留卡片 Globe 开关的当前值
+        //（缺失会被后端 serde 读成 false，静默重置用户开关）
+        use_proxy: initial?.use_proxy,
       };
       // CLI 凭据型平台永不写 key：残留输入（跨平台切换的 state）不落 vault
-    const saveKey =
-      tab === "native" && selectedNativeMeta?.uses_cli_credentials
-        ? null
-        : apiKey.trim()
-          ? apiKey
-          : null;
-    await api.upsertProvider(entry, saveKey);
+      const saveKey =
+        tab === "native" && selectedNativeMeta?.uses_cli_credentials
+          ? null
+          : apiKey.trim()
+            ? apiKey
+            : null;
+      await api.upsertProvider(entry, saveKey);
     },
     onSuccess: () => {
       invalidateAll();
