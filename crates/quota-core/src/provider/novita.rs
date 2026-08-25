@@ -11,8 +11,8 @@ use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
-/// 原始余额单位 0.0001 USD 的换算因子。
-const CENTI_MILLI_USD: f64 = 10_000.0;
+/// 每美元对应的原始余额单位数（1 USD = 10000 单位，即原始单位 0.0001 USD）。
+const RAW_UNITS_PER_USD: f64 = 10_000.0;
 
 pub struct Novita;
 
@@ -38,7 +38,7 @@ impl NativeProvider for Novita {
 
         let raw = parse_num(body.get("availableBalance"))
             .ok_or_else(|| parse_error("Novita AI", "availableBalance 数值"))?;
-        let remaining = raw / CENTI_MILLI_USD;
+        let remaining = raw / RAW_UNITS_PER_USD;
 
         // 余额耗尽标记沿用 OpenRouter 先例：不是凭据失效，是「没钱了」的独立表达
         let exhausted = remaining <= 0.0;
@@ -100,14 +100,17 @@ mod tests {
         assert_eq!(data[0].remaining, Some(50.0));
     }
 
-    /// 余额 ≤ 0 → is_valid=false + 「额度已耗尽」（OpenRouter 同款语义）。
+    /// 余额 ≤ 0 → is_valid=false + 「额度已耗尽」（OpenRouter 同款语义）；
+    /// 负余额保留原值（欠费可见）。
     #[tokio::test]
-    async fn zero_balance_marks_exhausted() {
-        let data = query_with(MockHttp::ok(r#"{"availableBalance":0}"#))
-            .await
-            .unwrap();
-        assert_eq!(data[0].is_valid, Some(false));
-        assert_eq!(data[0].invalid_message.as_deref(), Some("额度已耗尽"));
+    async fn zero_or_negative_balance_marks_exhausted() {
+        for (raw, expect) in [(0.0, 0.0), (-25000.0, -2.5)] {
+            let body = format!(r#"{{"availableBalance":{raw}}}"#);
+            let data = query_with(MockHttp::ok(&body)).await.unwrap();
+            assert_eq!(data[0].remaining, Some(expect));
+            assert_eq!(data[0].is_valid, Some(false));
+            assert_eq!(data[0].invalid_message.as_deref(), Some("额度已耗尽"));
+        }
     }
 
     /// availableBalance 缺失/非数值 → 确定性失败（不兜底 0）。

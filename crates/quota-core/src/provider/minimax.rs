@@ -54,7 +54,7 @@ fn window_row(
         used: Some(100.0 - remain),
         remaining: Some(remain),
         unit: Some("%".into()),
-        reset_at: item.get(reset_field).and_then(Value::as_i64),
+        reset_at: item.get(reset_field).and_then(parse_int),
         is_valid: None,
         invalid_message: None,
         extra: None,
@@ -360,20 +360,24 @@ mod tests {
         assert!(err.message().contains("<redacted>"), "{}", err.message());
     }
 
-    /// 双站契约：国际站请求打 api.minimax.io 域名。
+    /// 双站契约：两站请求分别打各自域名（路径一致）。
     #[tokio::test]
-    async fn global_variant_hits_io_domain() {
-        let mock = MockHttp::ok(
-            r#"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":50}]}"#,
-        );
-        MINIMAX_GLOBAL
-            .query(&creds(), &mock, PlanVariant::Auto)
-            .await
-            .unwrap();
-        assert_eq!(
-            mock.captured_requests()[0].url,
-            "https://api.minimax.io/v1/api/openplatform/coding_plan/remains"
-        );
+    async fn both_sites_hit_their_own_domains() {
+        let body = r#"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":50}]}"#;
+        for (provider, domain) in [
+            (&MINIMAX_CN, "https://api.minimaxi.com"),
+            (&MINIMAX_GLOBAL, "https://api.minimax.io"),
+        ] {
+            let mock = MockHttp::ok(body);
+            provider
+                .query(&creds(), &mock, PlanVariant::Auto)
+                .await
+                .unwrap();
+            assert_eq!(
+                mock.captured_requests()[0].url,
+                format!("{domain}/v1/api/openplatform/coding_plan/remains")
+            );
+        }
     }
 
     /// 字符串数字的剩余百分比同样接受。
@@ -386,5 +390,19 @@ mod tests {
         }"#;
         let rows = query_cn(MockHttp::ok(body)).await.unwrap();
         assert_eq!(rows[0].remaining, Some(98.0));
+    }
+
+    /// 重置时间兼容字符串数字毫秒（parse_int 语义，与其余数值字段一致）。
+    #[tokio::test]
+    async fn accepts_string_number_reset_time() {
+        let body = r#"{
+            "model_remains": [
+                {"model_name": "general",
+                 "current_interval_remaining_percent": 50,
+                 "end_time": "1780329600000"}
+            ]
+        }"#;
+        let rows = query_cn(MockHttp::ok(body)).await.unwrap();
+        assert_eq!(rows[0].reset_at, Some(1_780_329_600_000));
     }
 }
