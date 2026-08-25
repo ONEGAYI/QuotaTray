@@ -255,14 +255,12 @@ fn percent_decode(raw: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() + 1 && i + 2 < bytes.len() + 1 {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
             let hex = |b: u8| (b as char).to_digit(16);
-            if i + 2 < bytes.len() {
-                if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                    out.push((h * 16 + l) as u8);
-                    i += 3;
-                    continue;
-                }
+            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
             }
         }
         out.push(bytes[i]);
