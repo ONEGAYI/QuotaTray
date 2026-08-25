@@ -263,7 +263,8 @@ QuotaTray/
 │       ├── src/               # React 前端（zh/en 双语 + 明暗主题三态）
 │       │   ├── main.tsx / App.tsx        # 入口按 URL 分派主窗/悬停窗 + Calm Native 主布局
 │       │   │                              #   （标题栏/账户与使用统计页签/列表/历史占位），
-│       │   │                              #   编辑时传递查询币种
+│       │   │                              #   编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载
+│       │   │                              #   卡片，不触发重查也不丢展开态
 │       │   ├── mainPanelView.ts / mainPanelView.test.ts
 │       │   │                    # 主窗口面板切换状态机：下沉模糊峰值换内容后上浮清晰，
 │       │   │                    #   连续点击以最后选择为准
@@ -282,8 +283,10 @@ QuotaTray/
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
 │       │   ├── api.ts          # invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令
-│       │   ├── queries.ts / queries.test.ts # React Query hooks：轮询/快照/refresh-now/
-│       │   │                    #   自动更新状态事件 + Provider 变更/配置导入跨窗口失效契约 +
+│       │   ├── queries.ts / queries.test.ts # React Query hooks：轮询（staleTime 对齐轮询周期，重挂载/恢复聚焦
+│       │   │                    #   不追加查询）/快照/refresh-now/自动更新状态事件 +
+│       │   │                    #   Provider 变更按条目 id 失效（其余条目不陪查）/
+│       │   │                    #   配置导入全量失效跨窗口契约 +
 │       │   │                    #   CLI 可改 native/custom model 短缓存 +
 │       │   │                    #   usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）
 │       │   ├── display.ts / display.test.ts
@@ -396,10 +399,11 @@ QuotaTray/
 │               │               #   history 历史库句柄（M5，Mutex<HistoryStore>，打开
 │               │               #   失败降级内存库不阻断启动；DataPaths.history()）
 │               ├── commands.rs # 主业务 IPC 20 命令：key 写入策略（空=保持不变）、试查经引擎、
-│               │               #   upsert 清结果后即时补查（refetch_and_store 共用，
-│               │               #   消除悬停面板等只读视图的无数据空窗；成功分支顺写
-│               │               #   历史库 M5，结果表锁外执行、失败仅告警）+ Provider
-│               │               #   增删改跨 WebView 失效事件、
+│               │               #   upsert 清结果后携条目 id 广播 providers-changed，由
+│               │               #   主窗按条目失效驱动卡片重查（卡片常挂载保证观察者在；
+│               │               #   后端不补查——与前端失效驱动会并发双查同一平台 API；
+│               │               #   成功分支顺写历史库 M5，结果表锁外执行、失败仅告警）+
+│               │               #   Provider 增删改跨 WebView 失效事件（payload 条目 id）、
 │               │               #   快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、
 │               │               #   更新四命令（检测/下载/install_update 运行安装包后
 │               │               #   退出应用）+ 配置导入导出（导入清结果/快照并广播；
@@ -423,10 +427,8 @@ QuotaTray/
 │               │               #   联动裁剪区块）；show 后 SetWindowPos 重插
 │               │               #   topmost 压过 flyout（不激活）；真实光标看门狗
 │               │               #   兜底上游漏发 Leave，Move 可恢复失步后的首次悬停。
-│               │               #   架构备忘：悬停自动刷新链依赖主窗「关闭=隐藏不销毁」
-│               │               #   （refresh-now 由主窗响应查询后经 provider-state-changed
-│               │               #   回流面板）——若未来改主窗为销毁式，需改为后端直查
-│               │               #   引擎并广播结果；面板手动刷新按钮不依赖此链
+│               │               #   悬停只管浮层不触发查询（纯显示操作）；数据新鲜度
+│               │               #   由后台轮询与面板手动刷新按钮（单条 queryProvider）兜底
 │               ├── tray.rs     # 托盘：菜单文本（双语参数化）/圆环图标（数据源门控、
 │               │               #   「图标显示」子菜单、any_alert 红点、新版本信息行）
 │               │               #   /keep-last-good 窗口/峰谷两行（数据行只挂当前展示

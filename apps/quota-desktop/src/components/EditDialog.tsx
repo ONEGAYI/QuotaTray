@@ -9,7 +9,7 @@ import { useMemo, useRef, useState } from "react";
 import { api, newEntryId } from "../api";
 import { dataSummary } from "../display";
 import { useLang, type TextKey } from "../i18n";
-import { useNativeMetas } from "../queries";
+import { invalidateProviderCaches, useNativeMetas } from "../queries";
 import type {
   PlanVariant,
   PricingConfig,
@@ -114,11 +114,6 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
       : undefined
   ) ?? selectedNativeMeta?.pricing ?? null;
 
-  const invalidateAll = () => {
-    void qc.invalidateQueries({ queryKey: ["providers"] });
-    void qc.invalidateQueries({ queryKey: ["provider"] });
-  };
-
   const save = useMutation({
     mutationFn: async () => {
       setError(null);
@@ -200,7 +195,8 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
       await api.upsertProvider(entry, saveKey);
     },
     onSuccess: () => {
-      invalidateAll();
+      // 只失效本条目派生缓存：其余条目的查询不陪查（事件侧同键失效，幂等）
+      invalidateProviderCaches(qc, id);
       onClose();
     },
     onError: (e) => setError(e.message),

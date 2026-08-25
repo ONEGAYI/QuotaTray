@@ -88,58 +88,64 @@ function AppInner() {
             }
           }}
         >
-          {mainPanel.visible === "accounts" ? (
-            <>
-              {providers.isLoading && (
-                <div className="qt-loading-card">{t("app.loading")}</div>
-              )}
-              {providers.isError && (
-                <p className="qt-inline-error">
-                  {t("app.configError", { msg: String(providers.error) })}
-                </p>
-              )}
-              {providers.data != null && providers.data.length === 0 && (
-                <div className="qt-empty-state">
-                  <p>{t("app.emptyTitle")}</p>
-                  <span>{t("app.emptyHint")}</span>
-                </div>
-              )}
-              <div className="qt-provider-list">
-                {(providers.data ?? []).map((entry) => {
-                  const nativeProviderId =
-                    entry.kind.type === "native" ? entry.kind.provider : undefined;
-                  return (
-                    <ProviderCard
-                      key={entry.id}
-                      entry={entry}
-                      intervalMinutes={intervalMinutes}
-                      thresholdPercent={threshold}
-                      snapshot={snapshots.data?.[entry.id]}
-                      nativeMeta={
-                        nativeProviderId
-                          ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
-                          : undefined
-                      }
-                      onEdit={(provider, usageCurrency) => {
-                        setEditing(provider);
-                        setEditingCurrency(usageCurrency);
-                        setDialogSeq((sequence) => sequence + 1);
-                        setEditOpen(true);
-                      }}
-                    />
-                  );
-                })}
+          {/*
+           * 两面板常挂载、hidden 切换可见性：卸载重挂载会让全部卡片重走
+           * useProviderQuery 并丢失展开/菜单等本地状态，而换页只是显示
+           * 操作，不应触发查询。hidden 的翻转时点沿用 visible 契约
+           * （最大模糊点替换内容），动画作用于容器不受影响。
+           */}
+          <div className="qt-panel-page" hidden={mainPanel.visible !== "accounts"}>
+            {providers.isLoading && (
+              <div className="qt-loading-card">{t("app.loading")}</div>
+            )}
+            {providers.isError && (
+              <p className="qt-inline-error">
+                {t("app.configError", { msg: String(providers.error) })}
+              </p>
+            )}
+            {providers.data != null && providers.data.length === 0 && (
+              <div className="qt-empty-state">
+                <p>{t("app.emptyTitle")}</p>
+                <span>{t("app.emptyHint")}</span>
               </div>
-            </>
-          ) : (
-            <section className="qt-history-placeholder">
-              <span className="qt-history-placeholder-icon" aria-hidden="true">
-                <History size={24} strokeWidth={1.8} />
-              </span>
-              <h2>{t("history.title")}</h2>
-              <p>{t("history.placeholder")}</p>
-            </section>
-          )}
+            )}
+            <div className="qt-provider-list">
+              {(providers.data ?? []).map((entry) => {
+                const nativeProviderId =
+                  entry.kind.type === "native" ? entry.kind.provider : undefined;
+                return (
+                  <ProviderCard
+                    key={entry.id}
+                    entry={entry}
+                    intervalMinutes={intervalMinutes}
+                    thresholdPercent={threshold}
+                    snapshot={snapshots.data?.[entry.id]}
+                    nativeMeta={
+                      nativeProviderId
+                        ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
+                        : undefined
+                    }
+                    onEdit={(provider, usageCurrency) => {
+                      setEditing(provider);
+                      setEditingCurrency(usageCurrency);
+                      setDialogSeq((sequence) => sequence + 1);
+                      setEditOpen(true);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+          <section
+            className="qt-history-placeholder"
+            hidden={mainPanel.visible === "accounts"}
+          >
+            <span className="qt-history-placeholder-icon" aria-hidden="true">
+              <History size={24} strokeWidth={1.8} />
+            </span>
+            <h2>{t("history.title")}</h2>
+            <p>{t("history.placeholder")}</p>
+          </section>
         </div>
       </main>
 
