@@ -112,16 +112,22 @@ export function presetJsonOf(id: PresetTemplate["id"]): string {
   return preset.json;
 }
 
-/** serde 序列化 TemplateConfig（顶层与 windows 项）会补全的缺省键：
- * 保存过的条目重新编辑时，编辑器内容经后端 JSON 往返会多出这些
- * 空值键——语义等价比较时，一侧缺省、另一侧为对应空值视为相等。 */
-const SERDE_DEFAULTS: ReadonlySet<string> = new Set([
-  "extract",
-  "transforms",
-  "windowsFrom",
-  "windows",
-  "allowInsecure",
+/** serde 序列化会补全的缺省键（对照 core TemplateConfig/TemplateRequest/
+ * WindowSpec 定义，无 skip_serializing_if 的 default 字段）：
+ * 保存过的条目重新编辑时，编辑器内容经后端 JSON 往返会多出这些键——
+ * 语义等价比较时，一侧缺省、另一侧为对应缺省形态视为相等。
+ * method 的缺省是具体值 "GET"，其余均为空值形态。 */
+const SERDE_EMPTY_DEFAULTS: ReadonlySet<string> = new Set([
+  "extract", // {}（ExtractSpec 全字段 skip，空对象即缺省）
+  "transforms", // []
+  "windowsFrom", // null
+  "windows", // []
+  "allowInsecure", // false
+  "headers", // {}
 ]);
+const SERDE_VALUE_DEFAULTS: Readonly<Record<string, unknown>> = {
+  method: "GET",
+};
 
 function isEmptyValue(value: unknown): boolean {
   if (value == null || value === false) return true;
@@ -130,11 +136,19 @@ function isEmptyValue(value: unknown): boolean {
   return false;
 }
 
-/** 深比较两个已 parse 的配置对象（键序无关）；`withDefaults` 标记当前层
- * 是否为 TemplateConfig / windows 项（应用 SERDE_DEFAULTS 缺省宽容）。 */
+function isSerdeDefault(key: string, value: unknown): boolean {
+  if (key in SERDE_VALUE_DEFAULTS) return value === SERDE_VALUE_DEFAULTS[key];
+  return SERDE_EMPTY_DEFAULTS.has(key) && isEmptyValue(value);
+}
+
+/** 深比较两个已 parse 的配置对象（键序无关）。`withDefaults` 标记当前层
+ * 是否应用缺省宽容——仅 TemplateConfig（顶层）、TemplateRequest
+ * （request 键下）、WindowSpec（windows 数组项）三层。 */
 function semanticEquals(a: unknown, b: unknown, withDefaults: boolean): boolean {
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    // 数组项继承宽容：顶层 windows 项即 WindowSpec（Transform 等元素
+    // 无白名单同名键，继承无宽容面）
     return a.every((item, i) => semanticEquals(item, b[i], withDefaults));
   }
   if (typeof a === "object" && a !== null && typeof b === "object" && b !== null) {
@@ -144,11 +158,12 @@ function semanticEquals(a: unknown, b: unknown, withDefaults: boolean): boolean 
       const inA = key in recordA;
       const inB = key in recordB;
       if (inA && inB) {
-        if (!semanticEquals(recordA[key], recordB[key], false)) return false;
-      } else if (withDefaults && SERDE_DEFAULTS.has(key)) {
-        // 一侧缺省、另一侧是 serde 补全的空值 → 等价；非空值则是真实差异
-        const present = (inA ? recordA : recordB)[key];
-        if (!isEmptyValue(present)) return false;
+        // request 子层是 TemplateRequest、windows 数组项是 WindowSpec，
+        // 这两支继承宽容；其余子层（extract 内部、headers map 等）不应用
+        const childDefaults = withDefaults && (key === "request" || key === "windows");
+        if (!semanticEquals(recordA[key], recordB[key], childDefaults)) return false;
+      } else if (withDefaults && isSerdeDefault(key, (inA ? recordA : recordB)[key])) {
+        // 一侧缺省、另一侧是 serde 补全的缺省形态 → 等价
       } else {
         return false;
       }

@@ -27,20 +27,34 @@ describe("模板编辑器预设", () => {
     expect(matchedPresetId(reordered)).toBe(first.id);
   });
 
-  it("matchedPresetId：serde 往返补全的缺省空值键不灭灯（保存后重编辑）", () => {
-    const first = JSON.parse(PRESET_TEMPLATES[0].json) as Record<string, unknown>;
-    first.transforms = [];
-    first.windowsFrom = null;
-    first.windows = [];
-    first.allowInsecure = false;
-    expect(matchedPresetId(JSON.stringify(first, null, 2))).toBe(PRESET_TEMPLATES[0].id);
+  it("matchedPresetId：serde 真实往返形态不灭灯（保存后重编辑）", () => {
+    // 模拟后端全量序列化补全：TemplateConfig 顶层五个 default 键 +
+    // request 层的 method:"GET" 与 headers:{}
+    const roundTrip = (json: string): string => {
+      const config = JSON.parse(json) as Record<string, unknown>;
+      config.extract = config.extract ?? {};
+      config.transforms = config.transforms ?? [];
+      config.windowsFrom = config.windowsFrom ?? null;
+      config.windows = config.windows ?? [];
+      config.allowInsecure = config.allowInsecure ?? false;
+      const request = config.request as Record<string, unknown>;
+      request.method = request.method ?? "GET";
+      request.headers = request.headers ?? {};
+      return JSON.stringify(config, null, 2);
+    };
+    for (const preset of PRESET_TEMPLATES) {
+      expect(
+        matchedPresetId(roundTrip(preset.json)),
+        `预设 ${preset.id} 经 serde 往返补全后应仍点亮`,
+      ).toBe(preset.id);
+    }
 
-    // windows 形态：顶层补空 extract（serde 对无顶层 extract 的配置序列化出 {}）
-    const windows = JSON.parse(presetJsonOf("windows")) as Record<string, unknown>;
-    windows.extract = {};
-    windows.transforms = [];
-    windows.allowInsecure = false;
-    expect(matchedPresetId(JSON.stringify(windows, null, 2))).toBe("windows");
+    // 多余的缺省键混入非预设内容仍灭灯（宽容不等于放行任意内容）
+    const custom = JSON.parse(roundTrip(presetJsonOf("custom"))) as {
+      request: { url: string };
+    };
+    custom.request.url = "{{baseUrl}}/other";
+    expect(matchedPresetId(JSON.stringify(custom))).toBeNull();
   });
 
   it("matchedPresetId：实质改动灭灯，解析失败为 null", () => {
