@@ -19,7 +19,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./api";
 import { useSettings } from "./queries";
-import { applySystemThemeTransition, themeTriggerOrigin } from "./themeTransition";
+import { applyThemeTransition, themeTriggerOrigin } from "./themeTransition";
 
 export type ResolvedTheme = "light" | "dark";
 
@@ -50,21 +50,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
       const next = systemTheme();
-      // 回声防御：setTheme(null) 经 tao ThemeChanged → WebView2
-      // PreferredColorScheme 翻转 prefers-color-scheme，本监听器会收到
-      // 自己动作的回声。DOM 实际主题已等于系统色（用户刚主动切换、
-      // 过渡正在播放）时跳过——否则第二次 startViewTransition 会按
-      // 规范 skip 掉进行中的动画，表现为瞬间变色。比对用 DOM class
-      // 而非 resolved 状态：class 在过渡回调内同步写入，回声链路
-      // （IPC→tao→wry→COM→媒体查询）必然晚于该帧，无竞态。
+      // setTheme(null) 会经 WebView2 翻转 prefers-color-scheme。若 DOM 已是
+      // 目标主题，只同步 React 状态，避免为同一次变化重复启动过渡。
       const applied = document.documentElement.classList.contains("dark") ? "dark" : "light";
       if (next === applied) {
         setResolved(next);
         return;
       }
-      // setResolved 必须由 View Transition 的更新回调提交；调用后立刻提交会抢在
-      // 旧帧捕获之前把 DOM 变暗，导致圆环之外从第一帧起就是目标主题。
-      applySystemThemeTransition(next, themeTriggerOrigin(), setResolved);
+      applyThemeTransition(next, themeTriggerOrigin(), setResolved);
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

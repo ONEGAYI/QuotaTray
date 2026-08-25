@@ -54,11 +54,12 @@ export function themeTriggerOrigin(): { x: number; y: number } {
   return originFromRect(rect, { width: window.innerWidth, height: window.innerHeight });
 }
 
-/** 以圆形扩散切换到 next 主题；onApply 持久化设置（React 链路照常走）。 */
+/** 以圆形扩散切换到 next 主题。
+ *  commit 与 DOM 变色必须同处更新回调，确保旧帧捕获前不会提交目标状态。 */
 export function applyThemeTransition(
   next: ResolvedTheme,
   origin: { x: number; y: number },
-  onApply: () => void,
+  commit: (next: ResolvedTheme) => void,
 ): void {
   const applyDom = () => document.documentElement.classList.toggle("dark", next === "dark");
   if (
@@ -66,7 +67,7 @@ export function applyThemeTransition(
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   ) {
     applyDom();
-    onApply();
+    commit(next);
     return;
   }
   // 回调内同步挂/摘 .dark class 立即产生新帧，不等 React 异步链路——
@@ -83,24 +84,6 @@ export function applyThemeTransition(
   }
   document.startViewTransition(() => {
     applyDom();
-    onApply();
+    commit(next);
   });
-}
-
-type ThemeTransitionRunner = (
-  next: ResolvedTheme,
-  origin: { x: number; y: number },
-  onApply: () => void,
-) => void;
-
-/** system 的媒体查询变化必须把 React 状态提交放进更新回调。
- *  startViewTransition 返回时旧帧未必已经捕获；若调用方随后立即 setResolved，
- *  React 可能先把旧页面改成目标主题，使圆环之外也提前变色。 */
-export function applySystemThemeTransition(
-  next: ResolvedTheme,
-  origin: { x: number; y: number },
-  setResolved: (next: ResolvedTheme) => void,
-  runTransition: ThemeTransitionRunner = applyThemeTransition,
-): void {
-  runTransition(next, origin, () => setResolved(next));
 }

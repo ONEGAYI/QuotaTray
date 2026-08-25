@@ -293,7 +293,8 @@ QuotaTray/
 │       │   │                    # 主题切换圆形扩散动效（View Transitions）：CSS 变量
 │       │   │                    #   传参 + 样式表关键帧（首帧即 circle(0px) 裁剪）、
 │       │   │                    #   圆心取主题按钮锚点（data-theme-trigger）、
-│       │   │                    #   reduce-motion/不支持退化瞬时切换；纯函数契约测试
+│       │   │                    #   reduce-motion/不支持退化瞬时切换；纯函数与更新
+│       │   │                    #   回调时序契约测试
 │       │   ├── i18n/           # 轻量自写 i18n（Context + t(key, params) 插值）
 │       │   │   ├── index.tsx   # LangProvider + resolveUiLang + TextKey re-export
 │       │   │   ├── zh.ts       # 中文字典（as const 类型基准）
