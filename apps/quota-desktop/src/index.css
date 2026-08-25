@@ -64,6 +64,30 @@
   --qt-scrollbar-thumb-hover: #3d3d3d;
 }
 
+/* 主题切换圆形扩散（View Transitions）：old 静止全显，new 由关键帧从主题按钮
+   位置向外扩散。圆心/半径经 --qt-theme-* 变量由 themeTransition.ts 在过渡激活前
+   写入；动画声明于样式表，伪元素首帧即带 circle(0px) 起始裁剪，无 JS 挂载空窗。
+   对齐官方圆形揭示示例完整关闭默认快照混合：image-pair 解除 isolation: isolate
+   默认隔离合成（否则真实页面变色后首帧会提前透出过渡层之下）、快照显式
+   display: block、mix-blend-mode: normal。变量回退值仅作兜底。 */
+::view-transition-image-pair(root) {
+  isolation: auto;
+}
+::view-transition-old(root) {
+  display: block;
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  display: block;
+  animation: theme-circle-expand 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  mix-blend-mode: normal;
+}
+@keyframes theme-circle-expand {
+  from { clip-path: circle(0px at var(--qt-theme-x, 50%) var(--qt-theme-y, 0px)); }
+  to { clip-path: circle(var(--qt-theme-r, 0px) at var(--qt-theme-x, 50%) var(--qt-theme-y, 0px)); }
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: var(--qt-shell); }
 button, input, select, textarea { font: inherit; }

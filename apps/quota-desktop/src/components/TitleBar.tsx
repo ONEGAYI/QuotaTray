@@ -16,7 +16,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useLang, type TextKey } from "../i18n";
 import { useSettings } from "../queries";
-import { useTheme } from "../theme";
+import { resolveSetting, useTheme } from "../theme";
+import { applyThemeTransition, shouldAnimate, themeTriggerOrigin } from "../themeTransition";
 import type { Settings } from "../types";
 import { BrandMark } from "./BrandMark";
 import { DropdownMenu, IconButton, MenuItem } from "./ui";
@@ -76,6 +77,19 @@ export function TitleBar() {
 
   const settingLanguage = settings.data?.language ?? "system";
   const settingTheme = settings.data?.theme ?? "system";
+
+  // 选定主题：实际主题有变化时从主题按钮位置圆形扩散过渡，否则直接保存
+  const pickTheme = (value: string) => {
+    setMenu(null);
+    if (settingTheme === value) return;
+    const next = resolveSetting(value);
+    if (!shouldAnimate(resolvedTheme, next)) {
+      save.mutate({ theme: value });
+      return;
+    }
+    applyThemeTransition(next, themeTriggerOrigin(), () => save.mutate({ theme: value }));
+  };
+
   const ThemeTriggerIcon =
     settingTheme === "system" ? Monitor : resolvedTheme === "dark" ? Sun : Moon;
 
@@ -125,7 +139,8 @@ export function TitleBar() {
           </DropdownMenu>
         </div>
 
-        <div className="qt-titlebar-menu-anchor">
+        {/* data-theme-trigger：主题按钮锚点，扩散动效圆心来源（themeTransition.ts） */}
+        <div data-theme-trigger className="qt-titlebar-menu-anchor">
           <IconButton
             icon={ThemeTriggerIcon}
             label={t("titlebar.theme")}
@@ -139,10 +154,7 @@ export function TitleBar() {
                 key={option.value}
                 icon={option.icon}
                 checked={settingTheme === option.value}
-                onClick={() => {
-                  setMenu(null);
-                  if (settingTheme !== option.value) save.mutate({ theme: option.value });
-                }}
+                onClick={() => pickTheme(option.value)}
               >
                 {t(option.key)}
               </MenuItem>
