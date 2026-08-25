@@ -35,7 +35,7 @@ QuotaTray 另有 `zhipu_api` / `zai_api`（按量余额，cc-switch 未实现）
 | **A 层** | StepFun、Novita AI、MiniMax Coding Plan——cc-switch 端点/字段全有生产验证 | **批次 1** |
 | **NewAPI 系** | 约 40 家 one-api 系中转站，`GET {base}/api/user/self` 通用查询 | **批次 2**（预置模板，非逐站 native） |
 | **B 层** | 火山方舟（V4 AK/SK 签名）、Claude / ChatGPT(Codex) / Gemini / Grok 四家订阅 OAuth | **待做**——凭据形态/架构决策见 §6.1 |
-| **百炼** | 阿里云百炼充值余额：`GET dashscope.aliyuncs.com/api/v1/recharge/recharge-balance/query`（主 API 域名，不受控制台迁移影响），Bearer api key，顶层 `available_balance`、CNY。端点无官方文档，社区双源交叉验证（RAGFlow issue #14671 + API-Key-Manager）；免费额度查询走控制台网关需 OAuth token，不接入 | **已完成**（native，Coding Plan 用量未做） |
+| **百炼** | 阿里云百炼充值余额 | **Blocked——实测证伪（2026-08-25）**，API-Key 路线全堵：① 社区端点 `recharge-balance/query` 在主 API 域名全变体 404（GET/POST、compatible-mode 拼接、`bailian.cn-beijing` 域名均 InvalidAction.NotFound）；② 官方 CLI 网关（`bailian-cs.console.aliyun.com`）对 API-Key Bearer 返回 `BailianGateway.Login.NotLogined`（源码注释 + 实测双确认，仅认控制台 OAuth token）；③ 新旧控制台域名直连路径返回 SPA HTML/下线页。剩余路线：BssOpenApi `QueryAccountBalance`（RAM AK/SK + V3 签名，属 B 层工程且查的是阿里云主账户）或等官方接口。**教训：RAGFlow issue 是 feature request（未验证）、API-Key-Manager 实现未经真机确认——两个非实证来源不构成可用契约**。实现代码留档 `feat/bailian-provider` 分支（PR #33），端点若复活改一行 URL 即可 |
 | **C 层** | 国内大厂（千帆/混元/Longcat/MiMo/灵光/魔搭等）与聚合站（PPIO/AiHubMix/Nvidia 等） | **待做**——cc-switch 仅有切换预设、无查询实现，需逐站调研公开余额 API |
 
 ## 4. 批次 1 移植参考（native provider × 3）
@@ -111,7 +111,7 @@ QuotaTray 另有 `zhipu_api` / `zai_api`（按量余额，cc-switch 未实现）
 
 ### 6.2 C 层：无查询实现，需逐站调研
 
-- **国内厂商官方**：百度千帆（Coding/Token Plan）、阿里百炼（充值余额已实现；Coding Plan 用量待调研）、腾讯混元（仅 Codex 侧）、Longcat（美团）、小米 MiMo（含 Token Plan）、蚂蚁灵光、ModelScope、KAT-Coder
+- **国内厂商官方**：百度千帆（Coding/Token Plan）、阿里百炼（API-Key 余额路线实测证伪，见 §3 表；Coding Plan 用量待调研）、腾讯混元（仅 Codex 侧）、Longcat（美团）、小米 MiMo（含 Token Plan）、蚂蚁灵光、ModelScope、KAT-Coder
 - **聚合/云**：PPIO、AiHubMix、Nvidia（积分制）、CherryIN、DMXAPI、TheRouter 等
 - 其中多数是否有公开余额 API **未经调研**，按需逐站确认后再定 native/模板/script 落点。
 
