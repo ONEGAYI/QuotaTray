@@ -8,7 +8,7 @@
   "windowsFrom": "$.windows",
   "windows": [
     {
-      "name": "配额窗口",
+      "name": "Quota",
       "extract": {
         "used": "$.used",
         "total": "$.limit",

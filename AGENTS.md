@@ -244,10 +244,19 @@ QuotaTray/
 │       │       │                       # 镜像 resolve_with：模型级窗口/订阅/币种套/
 │       │       │                       #   自定义模型库解析、峰谷判定与模型切换纯逻辑
 │       │       ├── EditDialog.tsx      # Modal：native 下拉（订阅型带套餐变体选择）/
-│       │       │                       #   template 编辑器（校验+试查）/script JS 编辑器
-│       │       │                       #   （M4：校验/试查镜像 template，allowInsecure 开关
-│       │       │                       #   带警告 + 默认最小闭环示例）、
+│       │       │                       #   template 分支二级子页（运营商与模型＝名称/
+│       │       │                       #   baseUrl/key/峰谷计价；设置模板＝预设模板+
+│       │       │                       #   JSON 编辑器+校验/试查+编写说明卡。子页 A 用
+│       │       │                       #   CSS 隐藏切换保 PricingSection 草稿态不丢）/
+│       │       │                       #   script JS 编辑器（M4：校验/试查镜像 template，
+│       │       │                       #   allowInsecure 开关带警告 + 默认最小闭环示例）、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
+│       │       ├── presetTemplates.ts / presetTemplates.test.ts
+│       │       │                       # 模板编辑器预设库（5 形态：通用/单对象余额/
+│       │       │                       #   站点可变/总额已用/多窗口，与 examples/templates
+│       │       │                       #   对齐）+ matchedPresetId 高亮判定纯函数
+│       │       ├── TemplateHelpCard.tsx # 模板编写说明折叠卡：变量、字段速查、
+│       │       │                       #   最小示例（设置模板子页底部，默认收起）
 │       │       ├── PricingSection.tsx  # 峰谷区块：预置/库模型、模型级窗口、订阅说明、
 │       │       │                       #   时区与带说明的三档价格编辑（空字段按契约回退）
 │       │       ├── pricingDraft.ts / pricingDraft.test.ts

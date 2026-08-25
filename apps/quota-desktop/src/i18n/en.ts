@@ -114,6 +114,32 @@ export const en: Record<TextKey, string> = {
   "edit.keyConfigured": "Configured (leave blank to keep)",
   "edit.keyMissing": "Not configured",
 
+  // ---- Template sub-tabs and presets ----
+  "edit.subProvider": "Provider & model",
+  "edit.subTemplate": "Template",
+  "edit.presetLabel": "Preset templates",
+  "edit.presetHint": "Click to load this preset into the editor, replacing current content",
+  "edit.preset.custom": "Generic",
+  "edit.preset.balance": "Single balance",
+  "edit.preset.site": "Site via baseUrl",
+  "edit.preset.credits": "Total / used",
+  "edit.preset.windows": "Multi-window",
+  "edit.helpTitle": "Template guide",
+  "edit.helpLead":
+    "A template is declarative JSON describing one balance request and its value paths — no code needed.",
+  "edit.helpVarKey": "API key — taken from the credential field on the \"Provider & model\" tab",
+  "edit.helpVarUrl": "Site base URL — taken from the baseUrl input on the \"Provider & model\" tab",
+  "edit.helpRequest": "Request: method defaults to GET; headers and body are sent as-is",
+  "edit.helpExtract":
+    "Field mapping: planName / total / used / remaining / unit / isValid / invalidMessage — any subset",
+  "edit.helpPath": "Value syntax: a JSONPath (e.g. $.data.balance) or a const (see the example below)",
+  "edit.helpTransforms": "Arithmetic: multiply / divide / add / sub / round, applied after extraction",
+  "edit.helpWindows":
+    "Multi-window: windowsFrom points to the window array in the response; windows maps each one",
+  "edit.helpInsecure": "allowInsecure: true allows plaintext http requests (risk of leakage)",
+  "edit.helpTip":
+    "\"Validate\" is a static check; \"Test\" sends one real request with the current key and baseUrl.",
+
   // ---- 自定义标题栏 ----
   "titlebar.github": "GitHub repository",
   "titlebar.language": "Switch language",
