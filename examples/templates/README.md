@@ -10,8 +10,18 @@
 | `siliconflow.json` | 双站平台（国内/国际共用 API 路径） | `{{baseUrl}}` 变量、`const` 常量、`round` 变换 |
 | `openrouter.json` | 只有总额与已用、无剩余字段 | `total`/`used` 双字段展示、受限算术的边界（见下） |
 | `multi-window.json` | 数组式多配额窗口 | `windowsFrom` 多窗口展开、loopback 端点（默认放行 http） |
+| `newapi.json` | NewAPI 系中转站（one-api 系，需自备站点实测） | `divide` 币值换算（quota÷500000=USD）、`invalidMessage` 失效透出、自定义鉴权头 |
 
-> 预置平台（DeepSeek、SiliconFlow 等 8 个）无需模板即可使用——以上以它们为例是为了让示例可用真实平台验证语法。
+> 预置平台（DeepSeek、SiliconFlow 等）无需模板即可使用——以上以它们为例是为了让示例可用真实平台验证语法。
+
+## NewAPI 系鉴权双要素
+
+`newapi.json` 面向 one-api 系中转站（PackyCode、88Code 等数十家），两处值需改成自己的：
+
+- `Authorization` 的 key 位填站点的**系统访问令牌**（站点个人设置生成，不是 sk- 推理 key）；
+- `New-Api-User` 头填你的**用户数字 ID**（模板中的 `"1"` 仅为占位，严格 NewAPI 校验该头，缺失或不符会 401）。
+
+`quota` / `used_quota` 为站内记账单位，按 one-api 惯例 `÷500000` 换算为 USD；个别站点自定义比率时请同步修改 `divide` 的 `by`。
 
 ## 试查方法
 

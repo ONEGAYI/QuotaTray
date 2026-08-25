@@ -3,7 +3,7 @@
  * 用户可在此基础上继续手改。 */
 
 export interface PresetTemplate {
-  id: "custom" | "balance" | "site" | "credits" | "windows";
+  id: "custom" | "balance" | "site" | "credits" | "windows" | "newapi";
   /** 完整模板 JSON 文本。 */
   json: string;
 }
@@ -100,6 +100,32 @@ export const PRESET_TEMPLATES: readonly PresetTemplate[] = [
         { "op": "round", "field": "used", "digits": 2 }
       ]
     }
+  ]
+}`,
+  },
+  {
+    id: "newapi",
+    json: `{
+  "request": {
+    "url": "{{baseUrl}}/api/user/self",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}",
+      "New-Api-User": "1"
+    }
+  },
+  "extract": {
+    "planName": "$.data.group",
+    "remaining": "$.data.quota",
+    "used": "$.data.used_quota",
+    "isValid": "$.success",
+    "invalidMessage": "$.message",
+    "unit": { "const": "USD" }
+  },
+  "transforms": [
+    { "op": "divide", "field": "remaining", "by": 500000 },
+    { "op": "round", "field": "remaining", "digits": 2 },
+    { "op": "divide", "field": "used", "by": 500000 },
+    { "op": "round", "field": "used", "digits": 2 }
   ]
 }`,
   },

@@ -420,6 +420,7 @@ function TemplateForm(props: {
     site: "edit.preset.site",
     credits: "edit.preset.credits",
     windows: "edit.preset.windows",
+    newapi: "edit.preset.newapi",
   };
 
   const validate = useMutation({

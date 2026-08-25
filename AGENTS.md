@@ -260,8 +260,10 @@ QuotaTray/
 │       │       │                       #   allowInsecure 开关带警告 + 默认最小闭环示例）、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
 │       │       ├── presetTemplates.ts / presetTemplates.test.ts
-│       │       │                       # 模板编辑器预设库（5 形态：通用/单对象余额/
-│       │       │                       #   站点可变/总额已用/多窗口，与 examples/templates
+│       │       │                       # 模板编辑器预设库（6 形态：通用/单对象余额/
+│       │       │                       #   站点可变/总额已用/多窗口/NewAPI 系中转
+│       │       │                       #   ——New-Api-User 头写占位值用户手改、
+│       │       │                       #   quota÷500000 换算 USD，与 examples/templates
 │       │       │                       #   同构）+ matchedPresetId 语义等价高亮判定
 │       │       │                       #   （serde 往返补全键不算改动）纯函数
 │       │       ├── TemplateHelpCard.tsx # 模板编写说明折叠卡：变量、字段速查、
@@ -346,9 +348,10 @@ QuotaTray/
 │               │               #   生效；同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
-│   ├── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
-│   │                          #   双站 baseUrl/总额已用/多窗口，含 README 使用
-│   │                          #   说明与已知边界，均经 quota template test 实测）
+│   ├── templates/             # 声明式模板可运行示例（5 形态：字符串数字单对象/
+│   │                          #   双站 baseUrl/总额已用/多窗口/NewAPI 系中转，
+│   │                          #   含 README 使用说明与已知边界；前四者经 quota
+│   │                          #   template test 实测，newapi 需自备站点）
 │   └── scripts/               # JS 脚本查询可运行示例（basic 最小闭环/多窗口
 │                              #   字段间运算+reset_at，含 README 协议说明与
 │                              #   已知边界，loopback 端到端实测）
