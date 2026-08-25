@@ -215,8 +215,9 @@ QuotaTray/
 │   │           │              #   ——GUI 设置页写入，检测/下载共用并打印提示行）
 │   │           ├── vault.rs   # vault status：主密钥健康检查
 │   │           └── devsmoke.rs# 仅 debug：读 .DevApiKey.json 走完整链路（CLI 凭据型
-│   │           │              #   平台条目仅作开关、跳过 set_api_key；OK 行带
-│   │           │              #   extra= 原始窗口 JSON，便于核对响应结构）
+│   │           │              #   平台条目仅作开关、跳过 set_api_key；--proxy 让
+│   │           │              #   条目走 settings.json 代理端口，真机验证代理通道；
+│   │           │              #   OK 行带 extra= 原始窗口 JSON，便于核对响应结构）
 │   └── quota-desktop/         # 桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层
 │       ├── package.json       # pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/
 │       │                      #   （lang-json + lang-javascript）/Lucide/Vitest/opener +
