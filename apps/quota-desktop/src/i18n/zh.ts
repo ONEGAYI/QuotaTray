@@ -127,6 +127,7 @@ export const zh = {
   "edit.preset.site": "站点可变 baseUrl",
   "edit.preset.credits": "总额 / 已用",
   "edit.preset.windows": "多窗口",
+  "edit.preset.newapi": "NewAPI 系中转",
   "edit.helpTitle": "模板编写说明",
   "edit.helpLead": "模板是一段声明式 JSON：描述一次余额请求与取数路径，无需写代码。",
   "edit.helpVarKey": "API 密钥——取「运营商与模型」页凭据区输入的值",

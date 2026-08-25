@@ -200,9 +200,10 @@ QuotaTray/
 │       │   │                    #   Mica-like 基底、主窗响应式系统 + 悬停面板样式
 │       │   ├── assets/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
-│       │   │   └── providers/     # 九张官方 Provider SVG（六组复用品牌 + stepfun/novita/
-│       │   │                    #   minimax；图标容器固定浅底不随主题——单色深色 logo
-│       │   │                    #   明暗主题均可见，浅色底图形（StepFun 白色圆盘）走深底变体）
+│       │   │   └── providers/     # 十张官方 Provider SVG（六组复用品牌 + stepfun/novita/
+│       │   │                    #   minimax + newapi 供模板条目启发匹配；图标容器固定浅底
+│       │   │                    #   不随主题——单色深色 logo 明暗主题均可见，浅色底图形
+│       │   │                    #   （StepFun 白色圆盘）走 is-light-logo 深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
@@ -243,7 +244,9 @@ QuotaTray/
 │       │       │                       #   （errorDetail 排查详情随查询错误态透传）
 │       │       ├── providerIcon.ts / providerIcon.test.ts
 │       │       │                       # 预置 Provider id → 官方 SVG 映射与未知项回退契约 +
-│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）
+│       │       │                       #   浅色 logo 判定（isLightLogo → 容器深底变体）+
+│       │       │                       #   模板/脚本条目按名启发（templateProviderIconUrl，
+│       │       │                       #   条目名含 newapi → NewAPI 品牌图）
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
 │       │       │                       #   悬停/键盘展开二级 Provider 选单
 │       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
@@ -260,8 +263,10 @@ QuotaTray/
 │       │       │                       #   allowInsecure 开关带警告 + 默认最小闭环示例）、
 │       │       │                       #   分组表单、独立凭据区与固定页脚
 │       │       ├── presetTemplates.ts / presetTemplates.test.ts
-│       │       │                       # 模板编辑器预设库（5 形态：通用/单对象余额/
-│       │       │                       #   站点可变/总额已用/多窗口，与 examples/templates
+│       │       │                       # 模板编辑器预设库（6 形态：通用/单对象余额/
+│       │       │                       #   站点可变/总额已用/多窗口/NewAPI 系中转
+│       │       │                       #   ——New-Api-User 头写占位值用户手改、
+│       │       │                       #   quota÷500000 换算 USD，与 examples/templates
 │       │       │                       #   同构）+ matchedPresetId 语义等价高亮判定
 │       │       │                       #   （serde 往返补全键不算改动）纯函数
 │       │       ├── TemplateHelpCard.tsx # 模板编写说明折叠卡：变量、字段速查、
@@ -346,9 +351,10 @@ QuotaTray/
 │               │               #   生效；同 tick 顺带峰谷翻转检测）
 │               └── snapshot.rs # cache.json 快照（{id:{data,at}}，原子写、容错）
 ├── examples/
-│   ├── templates/             # 声明式模板可运行示例（4 形态：字符串数字单对象/
-│   │                          #   双站 baseUrl/总额已用/多窗口，含 README 使用
-│   │                          #   说明与已知边界，均经 quota template test 实测）
+│   ├── templates/             # 声明式模板可运行示例（5 形态：字符串数字单对象/
+│   │                          #   双站 baseUrl/总额已用/多窗口/NewAPI 系中转，
+│   │                          #   含 README 使用说明与已知边界；前四者经 quota
+│   │                          #   template test 实测，newapi 需自备站点）
 │   └── scripts/               # JS 脚本查询可运行示例（basic 最小闭环/多窗口
 │                              #   字段间运算+reset_at，含 README 协议说明与
 │                              #   已知边界，loopback 端到端实测）

@@ -1,0 +1,23 @@
+{
+  "request": {
+    "url": "{{baseUrl}}/api/user/self",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}",
+      "New-Api-User": "1"
+    }
+  },
+  "extract": {
+    "planName": "$.data.group",
+    "remaining": "$.data.quota",
+    "used": "$.data.used_quota",
+    "isValid": "$.success",
+    "invalidMessage": "$.message",
+    "unit": { "const": "USD" }
+  },
+  "transforms": [
+    { "op": "divide", "field": "remaining", "by": 500000 },
+    { "op": "round", "field": "remaining", "digits": 2 },
+    { "op": "divide", "field": "used", "by": 500000 },
+    { "op": "round", "field": "used", "digits": 2 }
+  ]
+}

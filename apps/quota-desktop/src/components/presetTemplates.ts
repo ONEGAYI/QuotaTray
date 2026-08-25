@@ -1,9 +1,9 @@
-/** 模板编辑器的预设模板库（GUI 内嵌副本，与 examples/templates 四种
- * 形态对齐；示例目录更新时同步维护）。选中预设即整体填入编辑器，
- * 用户可在此基础上继续手改。 */
+/** 模板编辑器的预设模板库（GUI 内嵌副本，与 examples/templates 五种
+ * 形态对齐——custom 为通用骨架无对应示例文件；示例目录更新时同步
+ * 维护）。选中预设即整体填入编辑器，用户可在此基础上继续手改。 */
 
 export interface PresetTemplate {
-  id: "custom" | "balance" | "site" | "credits" | "windows";
+  id: "custom" | "balance" | "site" | "credits" | "windows" | "newapi";
   /** 完整模板 JSON 文本。 */
   json: string;
 }
@@ -100,6 +100,32 @@ export const PRESET_TEMPLATES: readonly PresetTemplate[] = [
         { "op": "round", "field": "used", "digits": 2 }
       ]
     }
+  ]
+}`,
+  },
+  {
+    id: "newapi",
+    json: `{
+  "request": {
+    "url": "{{baseUrl}}/api/user/self",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}",
+      "New-Api-User": "1"
+    }
+  },
+  "extract": {
+    "planName": "$.data.group",
+    "remaining": "$.data.quota",
+    "used": "$.data.used_quota",
+    "isValid": "$.success",
+    "invalidMessage": "$.message",
+    "unit": { "const": "USD" }
+  },
+  "transforms": [
+    { "op": "divide", "field": "remaining", "by": 500000 },
+    { "op": "round", "field": "remaining", "digits": 2 },
+    { "op": "divide", "field": "used", "by": 500000 },
+    { "op": "round", "field": "used", "digits": 2 }
   ]
 }`,
   },

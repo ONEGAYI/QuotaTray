@@ -1,6 +1,7 @@
 import deepseekUrl from "../assets/providers/deepseek.svg";
 import kimiUrl from "../assets/providers/kimi.svg";
 import minimaxUrl from "../assets/providers/minimax.svg";
+import newapiUrl from "../assets/providers/newapi.svg";
 import novitaUrl from "../assets/providers/novita.svg";
 import openrouterUrl from "../assets/providers/openrouter.svg";
 import siliconflowUrl from "../assets/providers/siliconflow.svg";
@@ -39,4 +40,11 @@ export function providerIconUrl(nativeId: string): string | null {
 /** 该 native 的品牌图是否为浅色图形（容器需深底，见 is-light-logo 变体）。 */
 export function isLightLogo(nativeId: string): boolean {
   return LIGHT_LOGO_IDS.has(nativeId);
+}
+
+/** 模板/脚本条目按名称启发匹配品牌图：匹配不到返回 null 走首字母
+ *  回退。NewAPI 系中转是模板预设的主要覆盖场景，条目名通常含
+ *  "newapi"（深色图形，固定浅底容器即可见）。 */
+export function templateProviderIconUrl(entryName: string): string | null {
+  return entryName.trim().toLowerCase().includes("newapi") ? newapiUrl : null;
 }

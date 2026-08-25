@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isLightLogo, providerIconUrl } from "./providerIcon";
+import {
+  isLightLogo,
+  providerIconUrl,
+  templateProviderIconUrl,
+} from "./providerIcon";
 
 describe("Provider 官方图标映射", () => {
   it("国内/国际及余额/订阅条目复用对应品牌图标", () => {
@@ -41,5 +45,12 @@ describe("Provider 官方图标映射", () => {
     for (const id of ["deepseek", "novita", "minimax", "minimax_global", "future"]) {
       expect(isLightLogo(id), id).toBe(false);
     }
+  });
+
+  it("模板条目按名称启发匹配：含 newapi（不区分大小写）得品牌图，其余回退", () => {
+    expect(templateProviderIconUrl("NewAPI 中转")).toBeTruthy();
+    expect(templateProviderIconUrl("  my-newapi-site ")).toBeTruthy();
+    expect(templateProviderIconUrl("自建聚合站")).toBeNull();
+    expect(templateProviderIconUrl("")).toBeNull();
   });
 });
