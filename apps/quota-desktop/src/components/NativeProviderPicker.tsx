@@ -32,6 +32,8 @@ interface MenuPosition {
 
 const POPOVER_WIDTH = 568;
 const VIEWPORT_GAP = 10;
+/** 菜单绝对高度上限：正常窗口下不必顶满视口，矮窗口再随视口收缩。 */
+const MENU_MAX_HEIGHT = 460;
 
 export function NativeProviderPicker({
   metas,
@@ -52,9 +54,6 @@ export function NativeProviderPicker({
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const groups = useMemo(() => groupNativeProviders(metas), [metas]);
   const selected = metas.find((meta) => meta.id === value) ?? null;
-  const reservedMenuHeight = open && menuPosition
-    ? Math.min(groups.length * 41 + 12, menuPosition.maxHeight) + 6
-    : 0;
 
   const measureMenu = useCallback(() => {
     const trigger = triggerRef.current;
@@ -65,14 +64,18 @@ export function NativeProviderPicker({
       Math.max(VIEWPORT_GAP, rect.left),
       Math.max(VIEWPORT_GAP, window.innerWidth - width - VIEWPORT_GAP),
     );
-    // 聚合菜单固定从选择框下方展开；空间不足时由双栏各自滚动，
-    // 不再向上/向左翻转遮住当前表单。
+    // 聚合菜单固定从选择框下方浮层展开（不占文档流、不挤动下方表单）；
+    // 高度自适应主窗口：取「视口剩余空间」与绝对上限的较小值，
+    // 空间不足时由左右双栏各自滚动。
     const top = rect.bottom + 6;
     setMenuPosition({
       top,
       left,
       width,
-      maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_GAP),
+      maxHeight: Math.max(
+        120,
+        Math.min(MENU_MAX_HEIGHT, window.innerHeight - top - VIEWPORT_GAP),
+      ),
     });
   }, []);
 
@@ -272,11 +275,7 @@ export function NativeProviderPicker({
   );
 
   return (
-    <div
-      ref={rootRef}
-      className={`qt-native-picker ${open ? "is-open" : ""}`}
-      style={{ paddingBottom: reservedMenuHeight || undefined }}
-    >
+    <div ref={rootRef} className="qt-native-picker">
       <button
         ref={triggerRef}
         type="button"

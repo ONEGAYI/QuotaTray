@@ -248,7 +248,10 @@ QuotaTray/
 │       │       │                       #   模板/脚本条目按名启发（templateProviderIconUrl，
 │       │       │                       #   条目名含 newapi → NewAPI 品牌图）
 │       │       ├── NativeProviderPicker.tsx # 添加/编辑平台聚合选择器：SVG 一级菜单+
-│       │       │                       #   悬停/键盘展开二级 Provider 选单
+│       │       │                       #   悬停/键盘展开二级 Provider 选单；菜单为 fixed
+│       │       │                       #   浮层不占文档流，高度自适应主窗口（min(剩余
+│       │       │                       #   空间, 460px)），左右双栏 minmax(0,1fr)+min-height:0
+│       │       │                       #   各自独立滚动（滚动条走全局主题变量）
 │       │       ├── nativeProviderGroups.ts / nativeProviderGroups.test.ts
 │       │       │                       # native id 的平台分组、稳定顺序与未知项兜底
 │       │       ├── providerPricing.ts / providerPricing.test.ts
