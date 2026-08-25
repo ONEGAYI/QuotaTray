@@ -647,10 +647,8 @@ fn handle_tray_event(app: &AppHandle, event: &TrayIconEvent) {
         TrayIconEvent::Leave { .. } => crate::hover_panel::tray_leave(app),
         // Windows 上游偶发漏发 Leave 后，下一次经过图标只会收到 Move；
         // 本地状态已隐藏/离开时将其作为恢复性 Enter。
-        TrayIconEvent::Move { rect, .. } => {
-            if crate::hover_panel::tray_move(app, *rect) {
-                hover_refresh(app);
-            }
+        TrayIconEvent::Move { rect, .. } if crate::hover_panel::tray_move(app, *rect) => {
+            hover_refresh(app);
         }
         _ => {}
     }

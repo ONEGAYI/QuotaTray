@@ -619,6 +619,34 @@ mod tests {
         ));
     }
 
+    /// 契约：看门狗的托盘命中区域通常沿用事件 rect；只有隐藏托盘
+    /// flyout 且光标落在 rect 外（上游可能误报 chevron）时，才围绕
+    /// 当前光标构造兜底区域。取不到光标时必须保守沿用 rect。
+    #[test]
+    fn pointer_watch_tray_surface_falls_back_only_for_untrusted_flyout_rect() {
+        let tray = PhysicalBox {
+            x: 1800,
+            y: 1040,
+            width: 32,
+            height: 24,
+        };
+        let inside = PhysicalPosition::new(1810, 1050);
+        let outside = PhysicalPosition::new(1600, 700);
+
+        assert_eq!(pointer_watch_tray_surface(tray, None, true), tray);
+        assert_eq!(pointer_watch_tray_surface(tray, Some(outside), false), tray);
+        assert_eq!(pointer_watch_tray_surface(tray, Some(inside), true), tray);
+        assert_eq!(
+            pointer_watch_tray_surface(tray, Some(outside), true),
+            PhysicalBox {
+                x: 1576,
+                y: 676,
+                width: 48,
+                height: 48,
+            },
+        );
+    }
+
     /// 回归契约：上游漏发 Leave 后，再次经过图标只会收到 Move；本地
     /// 已隐藏或已判定离开时，Move 必须恢复显示，正常悬停内的 Move 则
     /// 不重复执行 show/定位。
