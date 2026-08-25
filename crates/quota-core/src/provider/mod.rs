@@ -5,16 +5,22 @@
 pub mod deepseek;
 pub mod kimi;
 pub mod kimi_coding;
+pub mod minimax;
+pub mod novita;
 pub mod openrouter;
 pub mod siliconflow;
+pub mod stepfun;
 pub mod zhipu;
 pub mod zhipu_metered;
 
 pub use deepseek::DeepSeek;
 pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
+pub use minimax::{MINIMAX_CN, MINIMAX_GLOBAL, MiniMax};
+pub use novita::Novita;
 pub use openrouter::OpenRouter;
 pub use siliconflow::{SILICONFLOW_CN, SILICONFLOW_GLOBAL, SiliconFlow};
+pub use stepfun::StepFun;
 pub use zhipu::{ZAI, ZHIPU, ZhipuApi};
 pub use zhipu_metered::{ZAI_API, ZHIPU_API, ZhipuMetered};
 
@@ -65,6 +71,10 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(ZHIPU),
         Arc::new(ZAI_API),
         Arc::new(ZAI),
+        Arc::new(StepFun),
+        Arc::new(Novita),
+        Arc::new(MINIMAX_CN),
+        Arc::new(MINIMAX_GLOBAL),
     ]
 });
 
@@ -536,6 +546,16 @@ mod tests {
     #[test]
     fn registry_contains_zhipu_metered_without_plan_variant() {
         for id in ["zhipu_api", "zai_api"] {
+            assert!(find(id).is_some(), "注册表缺少 {id}");
+            assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
+        }
+    }
+
+    /// StepFun/Novita 按量余额与 MiniMax 固定 5h+周窗口协议，
+    /// 均不展示套餐变体（MiniMax 周桶由响应 status 字段自描述）。
+    #[test]
+    fn registry_contains_batch1_providers_without_plan_variant() {
+        for id in ["stepfun", "novita", "minimax", "minimax_global"] {
             assert!(find(id).is_some(), "注册表缺少 {id}");
             assert!(!supports_plan_variant(id), "{id} 不应展示套餐变体");
         }

@@ -24,6 +24,9 @@ const KNOWN_GROUPS = [
   { key: "kimi", ids: ["kimi_cn", "kimi_global", "kimi_code_cn", "kimi_code_global"] },
   { key: "zhipu", ids: ["zhipu_api", "zhipu"] },
   { key: "zai", ids: ["zai_api", "zai"] },
+  { key: "stepfun", ids: ["stepfun"] },
+  { key: "novita", ids: ["novita"] },
+  { key: "minimax", ids: ["minimax", "minimax_global"] },
 ] as const;
 
 /** 将 native 注册表聚合为稳定的平台一级菜单；未知项独立追加，避免被静默隐藏。 */

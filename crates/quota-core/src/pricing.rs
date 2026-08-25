@@ -370,7 +370,7 @@ pub struct PresetProvider {
 pub fn default_currency(native_id: &str) -> &'static str {
     match native_id {
         "kimi_global" | "kimi_code_global" | "zai" | "zai_api" | "siliconflow_global"
-        | "openrouter" => "USD",
+        | "openrouter" | "novita" | "minimax_global" => "USD",
         _ => "CNY",
     }
 }
@@ -1499,6 +1499,10 @@ mod tests {
             ("zai_api", "USD"),
             ("zhipu", "CNY"),
             ("zai", "USD"),
+            ("stepfun", "CNY"),
+            ("novita", "USD"),
+            ("minimax", "CNY"),
+            ("minimax_global", "USD"),
         ] {
             assert_eq!(default_currency(id), expect, "{id}");
         }
@@ -1515,6 +1519,10 @@ mod tests {
             "zai_api",
             "zhipu",
             "zai",
+            "stepfun",
+            "novita",
+            "minimax",
+            "minimax_global",
         ]
         .into_iter()
         .collect();
