@@ -17,8 +17,12 @@ AGENTS.md 不存在则生成最小骨架。detail 完整描述只存于 tree.jso
   python tree_tool.py query [--kw 关键词] [--tag 标签] [--rel-of 路径] [--json]
   python tree_tool.py tag-add <名> -d 说明
   python tree_tool.py tag-rm <名>
+  python tree_tool.py undo | redo | history
   python tree_tool.py check [--strict]
   python tree_tool.py render
+
+撤销历史（默认 20 步）存放于 git 私有区 <gitdir>/file-tree/history.json：
+不被 git 追踪、不入库、clone 不携带；非 git 仓库退化为技能目录 .history.json。
 """
 
 from __future__ import annotations
@@ -40,6 +44,34 @@ TAGS_BEGIN = "<!-- file-tree:tags:begin 由脚本渲染，禁止手改 -->"
 TAGS_END = "<!-- file-tree:tags:end -->"
 
 DESC_MAX = 20
+HISTORY_LIMIT = 20  # undo/redo 各自保留的最大步数
+
+
+def resolve_git_dir(repo_root: Path) -> Path | None:
+    """定位有效的 git 私有目录：普通仓库的 .git/，或 worktree 的 gitdir: 指针。
+
+    以 <gitdir>/HEAD 存在为准——空 .git 目录或无效指针不算仓库（也绝不创建 .git）。
+    """
+    dot = repo_root / ".git"
+    gitdir: Path | None = None
+    if dot.is_dir():
+        gitdir = dot
+    elif dot.is_file():
+        first_line = dot.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+        if first_line and first_line[0].startswith("gitdir:"):
+            target = Path(first_line[0][len("gitdir:") :].strip())
+            gitdir = target if target.is_absolute() else repo_root / target
+    if gitdir is not None and (gitdir / "HEAD").is_file():
+        return gitdir
+    return None
+
+
+def default_history_path(repo_root: Path, skill_dir: Path) -> Path:
+    """历史存放：git 私有区（不被追踪/不入库/clone 不携带）；非 git 仓库退化为技能目录本地文件。"""
+    gitdir = resolve_git_dir(repo_root)
+    if gitdir is not None:
+        return gitdir / "file-tree" / "history.json"
+    return skill_dir / ".history.json"
 
 
 class ToolError(Exception):
@@ -207,11 +239,21 @@ def _find_node(tree: dict, parts: list[str]) -> dict | None:
 
 
 class TreeTool:
-    def __init__(self, tree_json: Path, agents_md: Path, repo_root: Path, root_name: str):
+    def __init__(
+        self,
+        tree_json: Path,
+        agents_md: Path,
+        repo_root: Path,
+        root_name: str,
+        history_path: Path,
+        history_limit: int = HISTORY_LIMIT,
+    ):
         self.tree_json = tree_json
         self.agents_md = agents_md
         self.repo_root = repo_root
         self.root_name = root_name
+        self.history_path = history_path
+        self.history_limit = history_limit
         self.git_files_override: set[str] | None = None
 
     # ---------- 数据读写（唯一写入口） ----------
@@ -230,6 +272,68 @@ class TreeTool:
         self.tree_json.parent.mkdir(parents=True, exist_ok=True)
         with self.tree_json.open("w", encoding="utf-8", newline="\n") as f:
             f.write(dumps_canonical(normalize_data(data)))
+
+    # ---------- undo/redo（全量快照双栈，历史不入版本库） ----------
+
+    def _load_history(self) -> dict:
+        try:
+            hist = json.loads(self.history_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {"undo": [], "redo": []}
+        if not isinstance(hist, dict) or "undo" not in hist or "redo" not in hist:
+            return {"undo": [], "redo": []}
+        return hist
+
+    def _save_history(self, hist: dict) -> None:
+        self.history_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.history_path.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(hist, ensure_ascii=False))
+
+    def _trim(self, stack: list) -> list:
+        return stack[-self.history_limit :] if len(stack) > self.history_limit else stack
+
+    def _record_undo(self, op: str) -> None:
+        """数据变更前调用：快照当前态入 undo 栈，截断 redo 分支。历史写入失败仅告警不阻断。"""
+        hist = self._load_history()
+        hist["undo"].append({"op": op, "data": self.load()})
+        hist["undo"] = self._trim(hist["undo"])
+        hist["redo"] = []
+        try:
+            self._save_history(hist)
+        except OSError as exc:
+            print(f"警告: 历史写入失败，本次操作不可撤销: {exc}", file=sys.stderr)
+
+    def history_summary(self) -> tuple[list[str], list[str]]:
+        """返回 (可撤销操作列表, 可重做操作列表)，从旧到新。"""
+        hist = self._load_history()
+        return (
+            [e.get("op", "?") for e in hist["undo"]],
+            [e.get("op", "?") for e in hist["redo"]],
+        )
+
+    def undo(self) -> str:
+        hist = self._load_history()
+        if not hist["undo"]:
+            raise ToolError("没有可撤销的操作")
+        entry = hist["undo"].pop()
+        hist["redo"].append({"op": entry["op"], "data": self.load()})
+        hist["redo"] = self._trim(hist["redo"])
+        self.write_data(entry["data"])
+        self.render()
+        self._save_history(hist)
+        return entry["op"]
+
+    def redo(self) -> str:
+        hist = self._load_history()
+        if not hist["redo"]:
+            raise ToolError("没有可重做的操作")
+        entry = hist["redo"].pop()
+        hist["undo"].append({"op": entry["op"], "data": self.load()})
+        hist["undo"] = self._trim(hist["undo"])
+        self.write_data(entry["data"])
+        self.render()
+        self._save_history(hist)
+        return entry["op"]
 
     # ---------- 条目操作 ----------
 
@@ -283,6 +387,7 @@ class TreeTool:
             node["rel"] = list(rel)
         if tags is not None:
             node["tags"] = list(tags)
+        self._record_undo(f"add {path}")
         self.write_data(data)
 
     def rm(self, path) -> None:
@@ -299,6 +404,7 @@ class TreeTool:
         for i in range(len(nodes) - 1, 0, -1):
             if not nodes[i]["children"]:
                 del nodes[i - 1]["children"][parts[i - 1]]
+        self._record_undo(f"rm {path}")
         self.write_data(data)
 
     # ---------- 词表 ----------
@@ -308,6 +414,7 @@ class TreeTool:
         if name in data.get("tags", {}):
             raise ToolError(f"标签已存在: {name}")
         data.setdefault("tags", {})[name] = desc
+        self._record_undo(f"tag-add {name}")
         self.write_data(data)
 
     def tag_rm(self, name: str) -> None:
@@ -322,6 +429,7 @@ class TreeTool:
         if in_use:
             raise ToolError(f"标签仍在使用，先清理条目: {', '.join(in_use)}")
         del data["tags"][name]
+        self._record_undo(f"tag-rm {name}")
         self.write_data(data)
 
     # ---------- 查询 ----------
@@ -584,6 +692,27 @@ def _cmd_tag_rm(tool: TreeTool, args) -> None:
     print(f"已删除标签并重渲染: {args.name}")
 
 
+def _cmd_undo(tool: TreeTool, args) -> None:
+    op = tool.undo()
+    print(f"已撤销: {op}（redo 可重做）")
+
+
+def _cmd_redo(tool: TreeTool, args) -> None:
+    op = tool.redo()
+    print(f"已重做: {op}")
+
+
+def _cmd_history(tool: TreeTool, args) -> None:
+    undo_ops, redo_ops = tool.history_summary()
+    if not undo_ops and not redo_ops:
+        print("历史为空（无操作记录）")
+        return
+    for i, op in enumerate(undo_ops, 1):
+        print(f"  {'>' if i == len(undo_ops) else ' '} {i}. 可撤销: {op}")
+    for op in reversed(redo_ops):
+        print(f"    可重做: {op}")
+
+
 def _cmd_check(tool: TreeTool, args) -> int:
     errors, warnings = tool.check(strict=args.strict)
     if tool._git_files() is None:
@@ -642,6 +771,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("check", help="校验全部不变量")
     p.add_argument("--strict", action="store_true", help="告警也视为失败")
 
+    sub.add_parser("undo", help="撤销最近一次数据变更（恢复后自动重渲染）")
+    sub.add_parser("redo", help="重做最近一次撤销")
+    sub.add_parser("history", help="查看可撤销/可重做的操作概要")
+
     sub.add_parser("render", help="重渲染 AGENTS.md 两个标记块（缺标记自动附加到尾部，无文件则生成）")
 
     args = parser.parse_args(argv)
@@ -650,6 +783,7 @@ def main(argv=None) -> int:
         agents_md=REPO_ROOT / "AGENTS.md",
         repo_root=REPO_ROOT,
         root_name=REPO_ROOT.name,
+        history_path=default_history_path(REPO_ROOT, SKILL_DIR),
     )
     handlers = {
         "add": _cmd_add,
@@ -658,6 +792,9 @@ def main(argv=None) -> int:
         "query": _cmd_query,
         "tag-add": _cmd_tag_add,
         "tag-rm": _cmd_tag_rm,
+        "undo": _cmd_undo,
+        "redo": _cmd_redo,
+        "history": _cmd_history,
         "check": _cmd_check,
         "render": _cmd_render,
     }

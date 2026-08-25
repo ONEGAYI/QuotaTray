@@ -17,8 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from tree_tool import (  # noqa: E402
     ToolError,
     TreeTool,
+    default_history_path,
     normalize_data,
     replace_block,
+    resolve_git_dir,
     sort_key,
     split_rel_path,
 )
@@ -45,7 +47,7 @@ def make_data() -> dict:
 class SandboxTest(unittest.TestCase):
     """基类：为每个用例搭临时沙箱并返回配置好的 TreeTool。"""
 
-    def make_tool(self, data: dict | None = None, git_files: set[str] | None = None) -> TreeTool:
+    def make_tool(self, data: dict | None = None, git_files: set[str] | None = None, history_limit: int = 20) -> TreeTool:
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -56,6 +58,8 @@ class SandboxTest(unittest.TestCase):
             agents_md=root / "AGENTS.md",
             repo_root=root,
             root_name="Demo",
+            history_path=skill_dir / ".history.json",
+            history_limit=history_limit,
         )
         tool.write_data(data if data is not None else make_data())
         tool.agents_md.write_text(AGENTS_TEMPLATE, encoding="utf-8", newline="\n")
@@ -383,6 +387,115 @@ class CheckTest(SandboxTest):
         )
 
 
+class GitDirTest(unittest.TestCase):
+    """git 私有区识别：以 <gitdir>/HEAD 为准，绝不创建 .git。"""
+
+    def test_none_without_dotgit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertIsNone(resolve_git_dir(root))
+
+    def test_rejects_empty_dotgit_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()  # 无效仓库：空 .git
+            self.assertIsNone(resolve_git_dir(root))
+            self.assertEqual(default_history_path(root, root / "skill"), root / "skill" / ".history.json")
+
+    def test_accepts_dir_with_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+            self.assertEqual(resolve_git_dir(root), root / ".git")
+            self.assertEqual(
+                default_history_path(root, root / "skill"),
+                root / ".git" / "file-tree" / "history.json",
+            )
+
+    def test_accepts_worktree_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real = root / "realgit"
+            real.mkdir()
+            (real / "HEAD").write_text("ref: refs/heads/feat\n", encoding="utf-8")
+            (root / ".git").write_text(f"gitdir: {real.as_posix()}\n", encoding="utf-8")
+            self.assertEqual(resolve_git_dir(root), real)
+
+    def test_history_writing_never_creates_dotgit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill = root / "skill"
+            skill.mkdir()
+            tool = TreeTool(
+                tree_json=skill / "tree.json",
+                agents_md=skill / "AGENTS.md",
+                repo_root=root,
+                root_name="Demo",
+                history_path=default_history_path(root, skill),
+            )
+            tool.write_data({"tags": {}, "tree": {"a.rs": {"desc": "a", "detail": ["a"]}}})
+            tool.agents_md.write_text("# AGENTS\n", encoding="utf-8", newline="\n")
+            tool.add("b.rs", desc="b", detail=["b"])
+            self.assertFalse((root / ".git").exists())  # 不凭空创建 .git
+            self.assertTrue((skill / ".history.json").exists())  # 退化路径生效
+
+
+class UndoRedoTest(SandboxTest):
+    def test_undo_restores_previous_state(self):
+        tool = self.make_tool()
+        tool.add("apps/new.rs", desc="新增", detail=["描述"])
+        self.assertIn("new.rs", tool.get("apps")["children"])
+        op = tool.undo()
+        self.assertEqual(op, "add apps/new.rs")
+        self.assertNotIn("new.rs", tool.load()["tree"]["apps"]["children"])
+        # 恢复后产物同步、check 干净
+        self.assertEqual(tool.check()[0], [])
+        self.assertIn("# 入口", tool.agents_md.read_text(encoding="utf-8"))
+
+    def test_redo_roundtrip(self):
+        tool = self.make_tool()
+        tool.rm("apps/util.ts")
+        self.assertNotIn("util.ts", tool.get("apps")["children"])
+        tool.undo()
+        op = tool.redo()
+        self.assertEqual(op, "rm apps/util.ts")
+        self.assertNotIn("util.ts", tool.get("apps")["children"])
+
+    def test_undo_empty_raises(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.undo()
+        with self.assertRaises(ToolError):
+            tool.redo()
+
+    def test_new_op_truncates_redo_branch(self):
+        tool = self.make_tool()
+        tool.add("apps/a.rs", desc="a", detail=["a"])
+        tool.undo()
+        tool.add("apps/b.rs", desc="b", detail=["b"])  # 新操作截断 redo 分支
+        with self.assertRaises(ToolError):
+            tool.redo()
+
+    def test_history_limit_drops_oldest(self):
+        tool = self.make_tool(history_limit=2)
+        for name in ("a.rs", "b.rs", "c.rs"):
+            tool.add(name, desc=name, detail=[name])
+        undo_ops, _ = tool.history_summary()
+        self.assertEqual(undo_ops, ["add a.rs", "add b.rs", "add c.rs"][-2:])
+        tool.undo()  # 撤销 add c.rs
+        tool.undo()  # 撤销 add b.rs
+        with self.assertRaises(ToolError):  # a.rs 的快照已被丢弃
+            tool.undo()
+
+    def test_validation_failure_leaves_no_history(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add("bad/path/../x.rs", desc="x")  # 校验失败
+        undo_ops, _ = tool.history_summary()
+        self.assertEqual(undo_ops, [])
+
+
 class QueryTest(SandboxTest):
     def test_filters(self):
         tool = self.make_tool()
@@ -413,6 +526,7 @@ class SelfHostTest(unittest.TestCase):
             agents_md=repo_root / "AGENTS.md",
             repo_root=repo_root,
             root_name=repo_root.name,
+            history_path=default_history_path(repo_root, skill_dir),
         )
         if not tool.tree_json.exists():
             self.skipTest("tree.json 尚未迁移")

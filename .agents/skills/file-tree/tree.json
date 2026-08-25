@@ -38,9 +38,9 @@
                     "tree_tool.py": {
                       "desc": "文件树唯一维护脚本",
                       "detail": [
-                        "子命令 add/rm/get/query/tag-add/tag-rm/check/render",
-                        "写操作后自动字典序规范化并重渲染产物",
-                        "check 校验规范形态/词表/rel/磁盘对照/产物一致"
+                        "子命令 add/rm/get/query/tag-add/tag-rm/undo/redo/history/check/render",
+                        "写操作后自动字典序规范化并重渲染产物；变更前快照入撤销栈（.git 私有区）",
+                        "check 校验规范形态/字段完整性/词表/rel/磁盘对照/产物一致"
                       ]
                     },
                     "tree_tool_test.py": {
