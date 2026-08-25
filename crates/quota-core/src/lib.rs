@@ -27,7 +27,8 @@ pub use config::{
     import_config, import_config_from_path, import_config_to_path,
 };
 pub use history::{
-    DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, window_key,
+    DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, WindowKind,
+    window_key, window_kind,
 };
 pub use model::{QueryError, UsageData};
 pub use pricing::{

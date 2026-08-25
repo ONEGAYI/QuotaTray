@@ -107,6 +107,37 @@ pub fn window_key(data: &UsageData, ordinal: usize) -> String {
     }
 }
 
+/// 窗口键的语义类别：`history show` 等读取方按此分组展示（5h / 周 / 其他）。
+///
+/// 判定是对**冻结键文本**的启发式：native 各平台窗口名遵循
+/// 「全名（短标注）」约定——5 小时窗带 `（5h）`、周窗带 `（week…）`
+/// 后缀（Claude/Codex/Kimi Code/MiniMax/GLM 一致），按子串归类即可
+/// 精确覆盖 native 全集。模板/脚本的自定义窗口名为 best-effort
+/// （半角括号、中文与大小写写法也识别），不含标记的归
+/// [`WindowKind::Other`]——Codex `（30d）`、GLM `（MCP）`、Gemini
+/// 模型档位窗、余额单窗与 `w0` 回退键均属此类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowKind {
+    FiveHour,
+    Weekly,
+    Other,
+}
+
+/// 按窗口键文本归类语义类别（见 [`WindowKind`]）；`FiveHour` 先判。
+pub fn window_kind(key: &str) -> WindowKind {
+    let lower = key.to_lowercase();
+    if ["5h", "5小时", "5 小时", "五小时"]
+        .iter()
+        .any(|pat| lower.contains(pat))
+    {
+        WindowKind::FiveHour
+    } else if lower.contains("week") || lower.contains("周") {
+        WindowKind::Weekly
+    } else {
+        WindowKind::Other
+    }
+}
+
 /// 历史库句柄。多线程共享由调用方加锁（rusqlite `Connection` 非 `Sync`）。
 #[derive(Debug)]
 pub struct HistoryStore {
@@ -433,6 +464,51 @@ mod tests {
         assert_eq!(window_key(&usage(Some("weekly"), 1.0), 0), "weekly");
         assert_eq!(window_key(&usage(Some("  "), 1.0), 3), "w3");
         assert_eq!(window_key(&usage(None, 1.0), 1), "w1");
+    }
+
+    /// 契约：窗口键语义归类精确覆盖 native 冻结键全集，
+    /// 自定义写法（半角/中文/大小写/消歧后缀）best-effort。
+    #[test]
+    fn window_kind_classifies_native_and_custom_keys() {
+        let cases = [
+            // native 五家订阅平台的 5 小时窗（全角括号短标注约定）
+            ("Claude 订阅（5h）", WindowKind::FiveHour),
+            ("Codex（5h）", WindowKind::FiveHour),
+            ("Kimi Code（5h）", WindowKind::FiveHour),
+            ("MiniMax Coding Plan（5h）", WindowKind::FiveHour),
+            ("GLM Coding Plan（5h）", WindowKind::FiveHour),
+            // 周窗（含 Claude 的模型分档变体）
+            ("Claude 订阅（week）", WindowKind::Weekly),
+            ("Claude 订阅（week·Opus）", WindowKind::Weekly),
+            ("Claude 订阅（week·Sonnet）", WindowKind::Weekly),
+            ("Codex（week）", WindowKind::Weekly),
+            ("Kimi Code（week）", WindowKind::Weekly),
+            ("MiniMax Coding Plan（week）", WindowKind::Weekly),
+            ("GLM Coding Plan（week）", WindowKind::Weekly),
+            // 非两类语义：动态时长 / 月度工具限额 / 模型档位 / 余额单窗 / 回退键
+            ("Codex（30d）", WindowKind::Other),
+            ("Codex（8h）", WindowKind::Other),
+            ("Codex（window）", WindowKind::Other),
+            ("GLM Coding Plan（MCP）", WindowKind::Other),
+            ("Gemini Code Assist（Pro）", WindowKind::Other),
+            ("Grok 订阅", WindowKind::Other),
+            ("DeepSeek", WindowKind::Other),
+            ("智谱开放平台（按量计费）", WindowKind::Other),
+            ("w0", WindowKind::Other),
+            ("Quota#2", WindowKind::Other),
+            // 自定义写法：半角括号 / 大小写 / 中文 / 消歧后缀
+            ("MyPlan (5h)", WindowKind::FiveHour),
+            ("5H quota", WindowKind::FiveHour),
+            ("5小时额度", WindowKind::FiveHour),
+            ("五小时窗口", WindowKind::FiveHour),
+            ("额度（5h）#2", WindowKind::FiveHour),
+            ("weekly quota", WindowKind::Weekly),
+            ("本周额度", WindowKind::Weekly),
+            ("Weekly", WindowKind::Weekly),
+        ];
+        for (key, expected) in cases {
+            assert_eq!(window_kind(key), expected, "键 {key:?} 归类错误");
+        }
     }
 
     #[test]
