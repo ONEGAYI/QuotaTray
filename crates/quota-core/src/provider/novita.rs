@@ -72,7 +72,7 @@ mod tests {
 
     /// 换算契约：原始单位 0.0001 USD，÷10000 → USD。
     #[tokio::test]
-    async fn converts_cent_milli_usd() {
+    async fn converts_raw_units_to_usd() {
         let body = r#"{"availableBalance":1000000,"cashBalance":800000,"creditLimit":0}"#;
         let data = query_with(MockHttp::ok(body)).await.unwrap();
         assert_eq!(
