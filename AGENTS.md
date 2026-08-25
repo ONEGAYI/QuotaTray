@@ -202,7 +202,7 @@ QuotaTray/
 │       │   │   ├── brand-mark.png # 透明品牌主图：四段额度环 + 右下 Q 形拖尾
 │       │   │   └── providers/     # 九张官方 Provider SVG（六组复用品牌 + stepfun/novita/
 │       │   │                    #   minimax；图标容器固定浅底不随主题——单色深色 logo
-│       │   │                    #   明暗主题均可见，浅色 logo 走 is-light-logo 深底变体）
+│       │   │                    #   明暗主题均可见，浅色底图形（StepFun 白色圆盘）走深底变体）
 │       │   ├── types.ts        # core serde 形状的 TS 镜像（模型级 plan/windows、
 │       │   │                    #   PlanVariant、reset_at、自定义模型库/按币种预置 DTO、
 │       │   │                    #   更新下载进度/已下载路径、KEEP_LAST_GOOD_MS）
