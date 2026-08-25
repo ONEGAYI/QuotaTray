@@ -20,9 +20,6 @@ use crate::state::{AppState, EntryState, now_ms};
 
 pub const TRAY_ID: &str = "main";
 
-/// 悬停刷新节流窗口（GUI-spec §3：10 秒，cc-switch 验证过的节奏）。
-const HOVER_THROTTLE_MS: u64 = 10_000;
-
 /// 错误文案截断长度（托盘菜单行宽有限）。
 const MESSAGE_LIMIT: usize = 60;
 
@@ -639,43 +636,17 @@ fn handle_tray_event(app: &AppHandle, event: &TrayIconEvent) {
             button_state: MouseButtonState::Up,
             ..
         } => show_main(app),
-        // 悬停：显示详情浮层，并按既有 10 秒节流触发全量刷新。
+        // 悬停：仅显示详情浮层。数据新鲜度由后台轮询与面板手动刷新按钮
+        // 兜底——悬停是纯显示操作，不触发任何 Provider 查询。
         TrayIconEvent::Enter { rect, .. } => {
             crate::hover_panel::tray_enter(app, *rect);
-            hover_refresh(app);
         }
         TrayIconEvent::Leave { .. } => crate::hover_panel::tray_leave(app),
         // Windows 上游偶发漏发 Leave 后，下一次经过图标只会收到 Move；
-        // 本地状态已隐藏/离开时将其作为恢复性 Enter。
-        TrayIconEvent::Move { rect, .. } if crate::hover_panel::tray_move(app, *rect) => {
-            hover_refresh(app);
-        }
+        // 本地状态已隐藏/离开时将其作为恢复性 Enter（同样只管浮层）。
+        TrayIconEvent::Move { rect, .. } if crate::hover_panel::tray_move(app, *rect) => {}
         _ => {}
     }
-}
-
-fn hover_refresh(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    let now = now_ms();
-    let last = state
-        .last_hover_refresh_ms
-        .load(std::sync::atomic::Ordering::Relaxed);
-    if now.saturating_sub(last) < HOVER_THROTTLE_MS {
-        return;
-    }
-    if state
-        .last_hover_refresh_ms
-        .compare_exchange(
-            last,
-            now,
-            std::sync::atomic::Ordering::Relaxed,
-            std::sync::atomic::Ordering::Relaxed,
-        )
-        .is_err()
-    {
-        return;
-    }
-    emit_refresh(app);
 }
 
 fn emit_refresh(app: &AppHandle) {

@@ -6,8 +6,24 @@ import {
 } from "./queries";
 
 describe("Provider 跨窗口变更事件", () => {
-  it("使用稳定事件名并失效所有 Provider 派生缓存", () => {
+  it("使用稳定事件名", () => {
     expect(PROVIDERS_CHANGED_EVENT).toBe("providers-changed");
+  });
+
+  it("按条目失效：单条目变更只刷新列表、该条目查询/只读视图与快照", () => {
+    const invalidateQueries = vi.fn();
+
+    invalidateProviderCaches({ invalidateQueries }, "p1");
+
+    expect(invalidateQueries.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
+      ["providers"],
+      ["provider", "p1"],
+      ["provider-state", "p1"],
+      ["snapshots"],
+    ]);
+  });
+
+  it("全量失效：配置导入等所有条目都可能变化的场景", () => {
     const invalidateQueries = vi.fn();
 
     invalidateProviderCaches({ invalidateQueries });

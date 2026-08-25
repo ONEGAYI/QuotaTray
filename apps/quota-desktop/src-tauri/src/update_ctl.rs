@@ -331,7 +331,6 @@ mod tests {
             paths,
             settings: std::sync::RwLock::new(Settings::default()),
             results: std::sync::RwLock::new(HashMap::new()),
-            last_hover_refresh_ms: std::sync::atomic::AtomicU64::new(0),
             resolved_theme: std::sync::RwLock::new(false),
             update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
             last_peak: std::sync::RwLock::new(HashMap::new()),

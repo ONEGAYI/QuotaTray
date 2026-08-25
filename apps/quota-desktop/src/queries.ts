@@ -16,19 +16,27 @@ export function invalidateDisplaySettingsCache(qc: QueryInvalidator) {
   void qc.invalidateQueries({ queryKey: ["settings"] });
 }
 
-/** Provider 配置变化会影响两个 WebView 各自缓存的列表、查询与快照。 */
-export function invalidateProviderCaches(qc: QueryInvalidator) {
+/** Provider 配置变化会影响两个 WebView 各自缓存的列表、查询与快照。
+ * entryId 缺省时全量失效（配置导入等所有条目都可能变化的场景）；
+ * 单条目变更（新增/编辑/启停/删除）只失效该条目的派生缓存，
+ * 其余条目的查询继续沿用各自轮询周期，不陪查。 */
+export function invalidateProviderCaches(qc: QueryInvalidator, entryId?: string) {
   void qc.invalidateQueries({ queryKey: ["providers"] });
-  void qc.invalidateQueries({ queryKey: ["provider"] });
-  void qc.invalidateQueries({ queryKey: ["provider-state"] });
+  if (entryId) {
+    void qc.invalidateQueries({ queryKey: ["provider", entryId] });
+    void qc.invalidateQueries({ queryKey: ["provider-state", entryId] });
+  } else {
+    void qc.invalidateQueries({ queryKey: ["provider"] });
+    void qc.invalidateQueries({ queryKey: ["provider-state"] });
+  }
   void qc.invalidateQueries({ queryKey: ["snapshots"] });
 }
 
 export function useProviders() {
   const qc = useQueryClient();
   useEffect(() => {
-    const unlistenProviders = listen(PROVIDERS_CHANGED_EVENT, () => {
-      invalidateProviderCaches(qc);
+    const unlistenProviders = listen<string>(PROVIDERS_CHANGED_EVENT, (event) => {
+      invalidateProviderCaches(qc, event.payload);
     });
     const unlistenImport = listen<number>("configuration-imported", () => {
       invalidateProviderCaches(qc);
@@ -53,14 +61,20 @@ export function useSettings() {
   });
 }
 
-/** 单条目轮询：默认 5 分钟，后台（托盘态）继续刷新。 */
+/** 单条目轮询：默认 5 分钟，后台（托盘态）继续刷新。
+ * staleTime 对齐轮询周期：周期内的重挂载、窗口恢复聚焦、网络重连
+ * 都不追加查询——刷新只由首次取数、轮询到点、手动刷新与条目变更/
+ * 导入失效触发；周期外的恢复聚焦由框架默认 refetchOnWindowFocus
+ * 补查一次，时点已贴近下次轮询，视为轮询的提前量而非独立刷新。 */
 export function useProviderQuery(id: string, enabled: boolean, intervalMinutes: number) {
+  const intervalMs = intervalMinutes * 60_000;
   return useQuery({
     queryKey: ["provider", id],
     queryFn: () => api.queryProvider(id),
     enabled,
-    refetchInterval: intervalMinutes * 60_000,
+    refetchInterval: intervalMs,
     refetchIntervalInBackground: true,
+    staleTime: intervalMs,
     // 错误双轨已在 QueryOutcome 内表达，不启用框架层重试
     retry: false,
   });

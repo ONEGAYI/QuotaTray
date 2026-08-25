@@ -168,8 +168,10 @@ fn after_state_change(app: &AppHandle, state: &AppState) {
     tray::rebuild(app, state);
 }
 
-fn emit_providers_changed(app: &AppHandle) {
-    if let Err(e) = app.emit(PROVIDERS_CHANGED_EVENT, ()) {
+/// 广播单条目配置变更（payload 为条目 id）：前端按条目失效派生缓存，
+/// 不再全量失效——其余条目的查询继续沿用各自轮询周期。
+fn emit_providers_changed(app: &AppHandle, entry_id: &str) {
+    if let Err(e) = app.emit(PROVIDERS_CHANGED_EVENT, entry_id) {
         eprintln!("Provider 变更事件发送失败：{e}");
     }
 }
@@ -306,21 +308,12 @@ pub fn upsert_provider(
     // 条目已变，作废该条目的旧查询结果（其他条目的 keep-last-good 数据与快照保留）
     state.results.write().unwrap().remove(&entry_id);
     after_state_change(&app, &state);
-    emit_providers_changed(&app);
-    // 立即补查一次：悬停面板只读共享结果表（不发查询），清结果后若无人
-    // 补查，面板会停留「无数据」直到下次轮询——补查完成后经
-    // provider-state-changed 广播回流。条目被禁用时补查自然报错，仅记日志。
-    spawn_refetch(app.clone(), entry_id);
+    // 携带条目 id 广播：主窗按条目失效查询缓存后由挂载的卡片即时重查
+    // （卡片常挂载，观察者不随页签/窗口显隐消失），悬停面板经
+    // provider-state-changed 回流。不在此处后端补查——前端失效驱动的
+    // 查询与后端补查会并发双查同一平台 API。
+    emit_providers_changed(&app, &entry_id);
     Ok(())
-}
-
-/// 后台补查单条目并落入共享结果表（忽略错误，仅记日志）。
-fn spawn_refetch(app: AppHandle, id: String) {
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = refetch_and_store(&app, id).await {
-            eprintln!("条目补查失败：{e}");
-        }
-    });
 }
 
 #[tauri::command]
@@ -343,7 +336,7 @@ pub fn remove_provider(
     }
     state.results.write().unwrap().remove(&id);
     after_state_change(&app, &state);
-    emit_providers_changed(&app);
+    emit_providers_changed(&app, &id);
     Ok(())
 }
 
