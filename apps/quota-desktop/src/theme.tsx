@@ -19,7 +19,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./api";
 import { useSettings } from "./queries";
-import { applyThemeTransition, themeTriggerOrigin } from "./themeTransition";
+import { applySystemThemeTransition, themeTriggerOrigin } from "./themeTransition";
 
 export type ResolvedTheme = "light" | "dark";
 
@@ -62,8 +62,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setResolved(next);
         return;
       }
-      applyThemeTransition(next, themeTriggerOrigin(), () => {});
-      setResolved(next);
+      // setResolved 必须由 View Transition 的更新回调提交；调用后立刻提交会抢在
+      // 旧帧捕获之前把 DOM 变暗，导致圆环之外从第一帧起就是目标主题。
+      applySystemThemeTransition(next, themeTriggerOrigin(), setResolved);
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

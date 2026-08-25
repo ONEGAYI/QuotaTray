@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { expandRadius, originFromRect, shouldAnimate, themeOriginVars } from "./themeTransition";
+import { describe, expect, it, vi } from "vitest";
+import {
+  applySystemThemeTransition,
+  expandRadius,
+  originFromRect,
+  shouldAnimate,
+  themeOriginVars,
+} from "./themeTransition";
 
 describe("主题切换圆形扩散", () => {
   it("expandRadius 取点击点到视口四角的最大距离（覆盖全屏的终态半径）", () => {
@@ -38,5 +44,23 @@ describe("主题切换圆形扩散", () => {
       x: 400,
       y: 300,
     });
+  });
+
+  it("系统主题状态只在 View Transition 更新回调内提交，旧帧捕获前保持原主题", () => {
+    let update: (() => void) | undefined;
+    const runTransition = vi.fn(
+      (_next: "light" | "dark", _origin: { x: number; y: number }, onApply: () => void) => {
+        update = onApply;
+      },
+    );
+    const setResolved = vi.fn();
+
+    applySystemThemeTransition("dark", { x: 100, y: 50 }, setResolved, runTransition);
+
+    expect(runTransition).toHaveBeenCalledOnce();
+    expect(setResolved).not.toHaveBeenCalled();
+
+    update?.();
+    expect(setResolved).toHaveBeenCalledWith("dark");
   });
 });

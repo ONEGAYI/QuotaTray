@@ -86,3 +86,21 @@ export function applyThemeTransition(
     onApply();
   });
 }
+
+type ThemeTransitionRunner = (
+  next: ResolvedTheme,
+  origin: { x: number; y: number },
+  onApply: () => void,
+) => void;
+
+/** system 的媒体查询变化必须把 React 状态提交放进更新回调。
+ *  startViewTransition 返回时旧帧未必已经捕获；若调用方随后立即 setResolved，
+ *  React 可能先把旧页面改成目标主题，使圆环之外也提前变色。 */
+export function applySystemThemeTransition(
+  next: ResolvedTheme,
+  origin: { x: number; y: number },
+  setResolved: (next: ResolvedTheme) => void,
+  runTransition: ThemeTransitionRunner = applyThemeTransition,
+): void {
+  runTransition(next, origin, () => setResolved(next));
+}
