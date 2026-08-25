@@ -411,6 +411,9 @@ pub struct HistoryJson {
     pub name: String,
     /// 回看范围档（"24h" / "7d" / "30d"）。
     pub range: String,
+    /// 实际生效的窗口过滤口径："5h" / "weekly" / "all" / 精确键；
+    /// 未过滤（含缺省类别缺失回退全部）为 null。
+    pub window: Option<String>,
     pub points: Vec<quota_core::HistoryPoint>,
 }
 
@@ -504,6 +507,75 @@ pub fn history_table(points: &[quota_core::HistoryPoint], lang: Lang) -> String 
         ]);
     }
     table.to_string()
+}
+
+/// 按窗口语义类别稳定排序（5h → 周 → 其他），类内保持原相对顺序
+/// （`bucket_points_by_window` 的窗口分组时间序）。分页切片因此天然
+/// 类别连续——分段渲染下至多一页含段边界。
+pub fn order_points_by_kind(points: &mut [quota_core::HistoryPoint]) {
+    points.sort_by_key(|p| kind_rank(quota_core::window_kind(&p.window_key)));
+}
+
+/// 类别固定展示序。
+fn kind_rank(kind: quota_core::WindowKind) -> u8 {
+    match kind {
+        quota_core::WindowKind::FiveHour => 0,
+        quota_core::WindowKind::Weekly => 1,
+        quota_core::WindowKind::Other => 2,
+    }
+}
+
+/// 按类别分组（5h → 周 → 其他，跳过空组），供全部窗口视图分段渲染；
+/// 与输入顺序无关，组内保持输入相对顺序。
+pub fn group_points_by_kind(
+    points: &[quota_core::HistoryPoint],
+) -> Vec<(quota_core::WindowKind, Vec<quota_core::HistoryPoint>)> {
+    let mut five_hour = Vec::new();
+    let mut weekly = Vec::new();
+    let mut other = Vec::new();
+    for point in points {
+        match quota_core::window_kind(&point.window_key) {
+            quota_core::WindowKind::FiveHour => five_hour.push(point.clone()),
+            quota_core::WindowKind::Weekly => weekly.push(point.clone()),
+            quota_core::WindowKind::Other => other.push(point.clone()),
+        }
+    }
+    [
+        (quota_core::WindowKind::FiveHour, five_hour),
+        (quota_core::WindowKind::Weekly, weekly),
+        (quota_core::WindowKind::Other, other),
+    ]
+    .into_iter()
+    .filter(|(_, rows)| !rows.is_empty())
+    .collect()
+}
+
+/// history show 的单页/整表渲染。`sectioned` 表示**整个过滤后视图**跨
+/// ≥2 个语义类别（由调用方对全量行判定后传入）：此时按类别分段
+/// （`── {类别} ──` 行 + 各段表格，段间空行），单页切片只含一个类别时
+/// 也保留其段头（分页翻页不失上下文）；非分段视图直接整表不加分段头。
+pub fn history_grouped_table(
+    points: &[quota_core::HistoryPoint],
+    lang: Lang,
+    sectioned: bool,
+) -> String {
+    if !sectioned {
+        return history_table(points, lang);
+    }
+    let sections: Vec<String> = group_points_by_kind(points)
+        .into_iter()
+        .map(|(kind, rows)| {
+            format!(
+                "── {} ──\n{}",
+                crate::texts::window_kind_label(lang, kind),
+                history_table(&rows, lang).trim_end_matches('\n')
+            )
+        })
+        .collect();
+    if sections.is_empty() {
+        return history_table(points, lang);
+    }
+    sections.join("\n\n")
 }
 
 #[cfg(test)]
@@ -821,5 +893,80 @@ mod tests {
             Lang::Zh,
         );
         assert!(table.contains('-'), "{table}");
+    }
+
+    /// 契约：类别稳定排序（5h → 周 → 其他，类内保序）与分组跳空组。
+    #[test]
+    fn order_and_group_by_kind() {
+        let mut rows = vec![
+            point("DeepSeek", 1, 1.0),
+            point("Claude 订阅（week）", 2, 2.0),
+            point("Claude 订阅（5h）", 3, 3.0),
+            point("w0", 4, 4.0),
+        ];
+        order_points_by_kind(&mut rows);
+        let keys: Vec<&str> = rows.iter().map(|p| p.window_key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec!["Claude 订阅（5h）", "Claude 订阅（week）", "DeepSeek", "w0"],
+            "5h → 周 → 其他，类内保持原相对顺序"
+        );
+
+        let groups = group_points_by_kind(&rows);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].0, quota_core::WindowKind::FiveHour);
+        assert_eq!(groups[0].1.len(), 1);
+        assert_eq!(groups[1].0, quota_core::WindowKind::Weekly);
+        assert_eq!(groups[2].0, quota_core::WindowKind::Other);
+        assert_eq!(groups[2].1.len(), 2, "其他类别多窗口同组");
+
+        // 单类别输入 → 单组（空组不出现）
+        let only = group_points_by_kind(&[point("w0", 1, 1.0), point("w1", 2, 2.0)]);
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].0, quota_core::WindowKind::Other);
+    }
+
+    /// 契约：跨类别视图分段渲染（段头 + 各段表格）；单类别视图不加分段头；
+    /// 分页切片后的单页即使只含一个类别也保留其段头。
+    #[test]
+    fn history_grouped_table_sections() {
+        let rows = vec![
+            point("Claude 订阅（5h）", 1, 1.0),
+            point("Claude 订阅（week）", 2, 2.0),
+        ];
+        let sectioned = group_points_by_kind(&rows).len() > 1;
+        assert!(sectioned, "跨类别视图判定为分段");
+        for lang in [Lang::Zh, Lang::En] {
+            let out = history_grouped_table(&rows, lang, sectioned);
+            assert!(
+                out.contains(&crate::texts::window_kind_label(
+                    lang,
+                    quota_core::WindowKind::FiveHour
+                )),
+                "{lang:?}: {out}"
+            );
+            assert!(
+                out.contains(&crate::texts::window_kind_label(
+                    lang,
+                    quota_core::WindowKind::Weekly
+                )),
+                "{lang:?}: {out}"
+            );
+            assert!(out.contains("Claude 订阅（5h）"), "{lang:?}: {out}");
+            assert!(out.contains("Claude 订阅（week）"), "{lang:?}: {out}");
+        }
+
+        // 单类别视图：不加段头
+        let single = [point("w0", 1, 1.0)];
+        assert_eq!(group_points_by_kind(&single).len(), 1);
+        let out = history_grouped_table(&single, Lang::Zh, false);
+        assert!(!out.contains("其他窗口"), "{out}");
+
+        // 分页切片：页容量 1 时第 2 页只剩周窗，仍保留周窗口段头
+        let mut ordered = rows;
+        order_points_by_kind(&mut ordered);
+        let out = history_grouped_table(page_slice(&ordered, 2, 1), Lang::Zh, true);
+        assert!(out.contains("周窗口"), "{out}");
+        assert!(!out.contains("5 小时窗口"), "{out}");
     }
 }

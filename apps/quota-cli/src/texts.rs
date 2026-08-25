@@ -7,6 +7,7 @@
 
 use crate::lang::Lang;
 use clap::Command;
+use quota_core::WindowKind;
 
 /// 无参 / 前缀型文案键。exhaustive match 保证每键双语齐全（漏译即编译错误）。
 #[derive(Clone, Copy, Debug)]
@@ -492,7 +493,9 @@ fn zh(key: T) -> &'static str {
         T::HelpHistory => "查询历史数据（余额/额度走势）",
         T::HelpHistoryShow => "查看条目历史走势（按时间桶聚合）",
         T::HelpHistoryShowId => "条目 id",
-        T::HelpHistoryShowWindow => "只看指定窗口时间线（如 five_hour / weekly；缺省全部窗口）",
+        T::HelpHistoryShowWindow => {
+            "窗口过滤：5h / weekly 类别、all 全部或窗口键精确匹配；缺省按范围选（24h→5h，7d/30d→周），缺失回退全部"
+        }
         T::HelpHistoryShowRange => {
             "回看范围与聚合粒度（24h=15 分钟桶 / 7d=1 小时桶 / 30d=6 小时桶）"
         }
@@ -766,7 +769,7 @@ fn en(key: T) -> &'static str {
         T::HelpHistoryShow => "Show an entry's trend (aggregated into time buckets)",
         T::HelpHistoryShowId => "Entry id",
         T::HelpHistoryShowWindow => {
-            "Show only the given window timeline (e.g. five_hour / weekly; all windows by default)"
+            "Window filter: 5h / weekly kinds, all, or an exact window key; defaults by range (24h→5h, 7d/30d→weekly), falls back to all when missing"
         }
         T::HelpHistoryShowRange => {
             "Lookback range and bucket size (24h=15m / 7d=1h / 30d=6h buckets)"
@@ -1034,6 +1037,40 @@ pub fn history_page_out_of_range(lang: Lang, page: u64, total: u64) -> String {
     match lang {
         Lang::En => format!("page {page} out of range (total {total} page(s))"),
         _ => format!("页码 {page} 超出范围（共 {total} 页）"),
+    }
+}
+
+/// 窗口类别展示名（history show 分段表头与回退提示共用）。
+pub fn window_kind_label(lang: Lang, kind: WindowKind) -> String {
+    match (lang, kind) {
+        (Lang::En, WindowKind::FiveHour) => "5-hour window".into(),
+        (Lang::En, WindowKind::Weekly) => "weekly window".into(),
+        (Lang::En, WindowKind::Other) => "other windows".into(),
+        (_, WindowKind::FiveHour) => "5 小时窗口".into(),
+        (_, WindowKind::Weekly) => "周窗口".into(),
+        (_, WindowKind::Other) => "其他窗口".into(),
+    }
+}
+
+/// 缺省窗口类别在回看范围内无点时的回退提示（不强求：改展示全部窗口）。
+pub fn history_window_fallback(lang: Lang, kind: &str) -> String {
+    match lang {
+        Lang::En => format!("no {kind} found, showing all windows"),
+        _ => format!("未发现{kind}，已展示全部窗口"),
+    }
+}
+
+/// 显式窗口过滤无匹配：范围内有点但都不满足该过滤，列出可用窗口键。
+pub fn history_window_no_match(lang: Lang, filter: &str, available: &[String]) -> String {
+    match lang {
+        Lang::En => format!(
+            "no window matching \"{filter}\" in the selected range (available: {})",
+            available.join(", ")
+        ),
+        _ => format!(
+            "回看范围内没有匹配「{filter}」的窗口（现有：{}）",
+            available.join("、")
+        ),
     }
 }
 

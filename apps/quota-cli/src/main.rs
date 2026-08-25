@@ -234,7 +234,7 @@ enum HistoryCmd {
     Show {
         /// 条目 id
         id: String,
-        /// 只看指定窗口时间线（如 five_hour / weekly；缺省全部窗口）
+        /// 窗口过滤：5h / weekly 类别、all 全部或窗口键精确匹配；缺省按范围选（24h→5h，7d/30d→周），缺失回退全部
         #[arg(long, value_name = "KEY")]
         window: Option<String>,
         /// 回看范围与聚合粒度（默认 7d）
@@ -497,6 +497,8 @@ mod tests {
             vec!["quota", "history", "show", "x1", "--range", "7d"],
             vec!["quota", "history", "show", "x1", "--range", "30d"],
             vec!["quota", "history", "show", "x1", "--window", "five_hour"],
+            vec!["quota", "history", "show", "x1", "--window", "weekly"],
+            vec!["quota", "history", "show", "x1", "--window", "all"],
             vec!["quota", "history", "show", "x1", "--page-size", "50"],
             vec!["quota", "history", "show", "x1", "--page", "2"],
             vec!["quota", "history", "clear"],
