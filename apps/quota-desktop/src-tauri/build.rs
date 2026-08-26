@@ -38,6 +38,7 @@ fn stage_quota_cli() {
 }
 
 /// 是否由 Tauri CLI 驱动（tauri build/dev 会注入 TAURI_ENV_* 环境变量）。
+#[cfg(windows)]
 fn tauri_cli_driven() -> bool {
     std::env::var_os("TAURI_ENV_PLATFORM").is_some()
         || std::env::var_os("TAURI_ENV_ARCH").is_some()
