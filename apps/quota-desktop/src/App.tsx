@@ -1,13 +1,14 @@
 // 主窗口：供应商列表 + 添加/设置入口。
 // 关闭窗口 = 隐藏收托盘（Rust 侧处理），React 不参与退出逻辑。
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { History, Plus, Settings as SettingsIcon } from "lucide-react";
+import { Plus, Settings as SettingsIcon } from "lucide-react";
 import { useReducer, useState } from "react";
 import { EditDialog } from "./components/EditDialog";
 import { MainPanelTabs } from "./components/MainPanelTabs";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { TitleBar } from "./components/TitleBar";
+import { UsageStatsPage } from "./components/UsageStatsPage";
 import { LangProvider, useLang } from "./i18n";
 import { ThemeProvider } from "./theme";
 import { useNativeMetas, useProviders, useRefreshNow, useSettings, useSnapshots } from "./queries";
@@ -136,16 +137,13 @@ function AppInner() {
               })}
             </div>
           </div>
-          <section
-            className="qt-history-placeholder"
-            hidden={mainPanel.visible === "accounts"}
-          >
-            <span className="qt-history-placeholder-icon" aria-hidden="true">
-              <History size={24} strokeWidth={1.8} />
-            </span>
-            <h2>{t("history.title")}</h2>
-            <p>{t("history.placeholder")}</p>
-          </section>
+          <div className="qt-panel-page" hidden={mainPanel.visible === "accounts"}>
+            <UsageStatsPage
+              providers={providers.data ?? []}
+              providersLoading={providers.isLoading}
+              providersError={providers.error}
+            />
+          </div>
         </div>
       </main>
 

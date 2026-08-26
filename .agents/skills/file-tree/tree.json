@@ -457,16 +457,21 @@
                   "kind": "file",
                   "desc": "invoke 封装",
                   "detail": [
-                    "invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令"
+                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移 + 短 id 生成"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src-tauri/src/commands.rs"
                   ]
                 },
                 "App.tsx": {
                   "kind": "file",
                   "desc": "主窗布局与页签",
                   "detail": [
-                    "Calm Native 主布局（标题栏/账户与使用统计页签/列表/历史占位），",
-                    "编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载",
-                    "卡片，不触发重查也不丢展开态"
+                    "Calm Native 主布局（标题栏/账户与使用统计页签/供应商列表/交互式使用统计示意页）",
+                    "编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载卡片，不触发重查也不丢展开态"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/components/UsageStatsPage.tsx"
                   ]
                 },
                 "assets": {
@@ -843,6 +848,43 @@
                         "（Dialog 以 body Portal 保证主窗居中，含 Escape、",
                         "焦点圈定与关闭后焦点恢复）"
                       ]
+                    },
+                    "usageChartView.test.ts": {
+                      "kind": "file",
+                      "desc": "统计图表逻辑测试",
+                      "detail": [
+                        "覆盖真实历史分组/桶聚合/左右轴语义、连续/短缺失/长缺失分段、绝对值标尺、拟合路径和 Ctrl+滚轮契约"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageChartView.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "usageChartView.ts": {
+                      "kind": "file",
+                      "desc": "统计图表纯逻辑",
+                      "detail": [
+                        "HistoryPoint 按 Scope/小时桶构造可绘制序列并沿用卡片用量语义；采样分段、整洁刻度、限幅单调三次 Hermite 路径与滚轮手势分流"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageChartView.test.ts",
+                        "apps/quota-desktop/src/components/UsageStatsPage.tsx"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "UsageStatsPage.tsx": {
+                      "kind": "file",
+                      "desc": "使用统计趋势页",
+                      "detail": [
+                        "真实 Provider + SQLite 历史驱动的双轴 SVG 趋势图：最近 7 天/1h 桶、Scope 自动生成、百分比/绝对值自动分轴、分段拟合、真实缺失留白、点/空缺 Tooltip、Ctrl+滚轮缩放与拖拽平移"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/queries.ts"
+                      ]
                     }
                   }
                 },
@@ -880,7 +922,10 @@
                       "kind": "file",
                       "desc": "英文字典（编译锁键）",
                       "detail": [
-                        "英文字典（Record<TextKey,string> 编译期锁键完整）"
+                        "英文字典（Record<TextKey,string> 编译期锁键完整），与中文使用统计文案成对"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/i18n/zh.ts"
                       ]
                     },
                     "index.tsx": {
@@ -894,7 +939,10 @@
                       "kind": "file",
                       "desc": "中文字典（类型基准）",
                       "detail": [
-                        "中文字典（as const 类型基准）"
+                        "中文字典（as const 类型基准），含使用统计示意页文案"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/i18n/en.ts"
                       ]
                     }
                   }
@@ -903,9 +951,7 @@
                   "kind": "file",
                   "desc": "设计令牌与全局样式",
                   "detail": [
-                    "明暗设计令牌（暗色 #161616 中性系；color-scheme 随主题；",
-                    "全局 webkit 滚动条暗色 #2e2e2e）、Mica-like 基底、",
-                    "主窗响应式系统 + 悬停面板样式"
+                    "明暗设计令牌（含图表外轴/内部虚线网格/缺失纹理）、Mica-like 基底、主窗响应式系统、使用统计图与悬停面板样式"
                   ]
                 },
                 "main.tsx": {
@@ -956,11 +1002,7 @@
                   "kind": "file",
                   "desc": "React Query hooks",
                   "detail": [
-                    "React Query hooks：轮询（staleTime 对齐轮询周期，重挂载/",
-                    "恢复聚焦不追加查询）/快照/refresh-now/自动更新状态事件 +",
-                    "Provider 变更按条目 id 失效（其余条目不陪查）/配置导入",
-                    "全量失效跨窗口契约 + CLI 可改 native/custom model 短缓存 +",
-                    "usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）"
+                    "React Query hooks：Provider 轮询、真实历史读取与成功查询事件失效、快照/refresh-now/自动更新事件、Provider 精确/全量缓存失效、峰谷翻转 tick"
                   ]
                 },
                 "theme.tsx": {
@@ -1002,9 +1044,7 @@
                   "kind": "file",
                   "desc": "core serde 的 TS 镜像",
                   "detail": [
-                    "core serde 形状的 TS 镜像（模型级 plan/windows、PlanVariant、",
-                    "reset_at、自定义模型库/按币种预置 DTO、更新下载进度/",
-                    "已下载路径、KEEP_LAST_GOOD_MS）"
+                    "core serde 形状的 TS 镜像：UsageData/HistoryPoint、Provider/定价/设置/更新与 KEEP_LAST_GOOD_MS"
                   ]
                 },
                 "vite-env.d.ts": {
@@ -1088,22 +1128,8 @@
                       "kind": "file",
                       "desc": "IPC 命令集",
                       "detail": [
-                        "主业务 IPC 20 命令：key 写入策略（空=保持不变）、",
-                        "试查经引擎、upsert 清结果后携条目 id 广播 providers-changed，",
-                        "由主窗按条目失效驱动卡片重查（卡片常挂载保证观察者在；",
-                        "后端不补查——与前端失效驱动会并发双查同一平台 API；",
-                        "成功分支顺写历史库 M5，结果表锁外执行、失败仅告警）+",
-                        "Provider 增删改跨 WebView 失效事件（payload 条目 id）、",
-                        "快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、",
-                        "更新四命令（检测/下载/install_update 运行安装包后",
-                        "退出应用）+ 配置导入导出（导入清结果/快照并广播；",
-                        "M5 起随迁移包携带历史；remove_provider 同步清条目历史）+",
-                        "script 双命令（validate_script 干跑/test_script 全链路，",
-                        "镜像 template 对，key 缺省语义同）；",
-                        "validate_entry 统一校验（含峰谷配置）、",
-                        "list_native_metas 携带模型级 plan/windows 与",
-                        "supports_plan_variant、DeepSeek CNY/USD 预置套与",
-                        "按 native id 聚类的自定义模型 DTO"
+                        "主业务 IPC 21 命令：既有 Provider/设置/更新/迁移/试查链路 + get_history 只读 SQLite 历史；成功查询写历史后广播 provider-state-changed",
+                        "key 写入仍执行空值保持与前端不回显安全策略；配置导入导出携带历史，删除 Provider 同步清历史"
                       ]
                     },
                     "hover_panel.rs": {
@@ -1133,8 +1159,10 @@
                       "kind": "file",
                       "desc": "Tauri Builder 装配",
                       "detail": [
-                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/",
-                        "更新调度/命令注册"
+                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含 get_history）"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/src/commands.rs"
                       ]
                     },
                     "main.rs": {
@@ -1735,8 +1763,7 @@
               "kind": "file",
               "desc": "历史存储规格（M5）",
               "detail": [
-                "历史存储规格（M5）：数据模型/滚动清理/schema 迁移/",
-                "迁移容器 v2/CLI 命令（含 SQLite 决策边界）"
+                "历史存储规格（M5）：数据模型/清理与迁移、迁移容器 v2、CLI 命令、M5-b get_history IPC 与 GUI 最近 7 天趋势口径"
               ]
             }
           }

@@ -170,7 +170,10 @@ QuotaTray/
 │       │   │   ├── settingsView.ts              # 设置视图纯逻辑
 │       │   │   ├── TemplateHelpCard.tsx         # 模板说明折叠卡
 │       │   │   ├── TitleBar.tsx                 # 自定义标题栏
-│       │   │   └── ui.tsx                       # 共享基础组件
+│       │   │   ├── ui.tsx                       # 共享基础组件
+│       │   │   ├── usageChartView.test.ts       # 统计图表逻辑测试
+│       │   │   ├── usageChartView.ts            # 统计图表纯逻辑
+│       │   │   └── UsageStatsPage.tsx           # 使用统计趋势页
 │       │   ├── display.test.ts         # display 文案测试
 │       │   ├── display.ts              # 时间与百分比文案
 │       │   ├── i18n/                   # 轻量自写 i18n

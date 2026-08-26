@@ -19,6 +19,7 @@ describe("Provider 跨窗口变更事件", () => {
       ["providers"],
       ["provider", "p1"],
       ["provider-state", "p1"],
+      ["history", "p1"],
       ["snapshots"],
     ]);
   });
@@ -32,6 +33,7 @@ describe("Provider 跨窗口变更事件", () => {
       ["providers"],
       ["provider"],
       ["provider-state"],
+      ["history"],
       ["snapshots"],
     ]);
   });

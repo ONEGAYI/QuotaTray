@@ -73,6 +73,7 @@ pub fn run() {
             commands::test_script,
             commands::query_provider,
             commands::get_provider_state,
+            commands::get_history,
             commands::get_settings,
             commands::save_settings,
             commands::set_resolved_theme,

@@ -15,6 +15,16 @@ export interface UsageData {
   extra?: unknown;
 }
 
+/** 历史库单点的 IPC 镜像；字段名沿用 core HistoryPoint 的 snake_case。 */
+export interface HistoryPoint {
+  window_key: string;
+  sampled_at: number;
+  used?: number;
+  remaining?: number;
+  total?: number;
+  unit?: string;
+}
+
 /** 模板请求定义。 */
 export interface TemplateRequest {
   method?: "GET" | "POST";

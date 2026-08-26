@@ -166,10 +166,17 @@ week·Sonnet 变体）；Codex 动态时长窗（`（30d）`、`（8h）`、`（
 - 退出码：id 不存在、历史库打开失败、页码超界 → 1；范围内无历史 → 提示并 0。
 - `clear`：无 id 清全部、有 id 清单条目（id 须存在）；确认默认否，`--yes` 跳过。
 
-## 8. 桌面端接线（M5-a）
+## 8. 桌面端接线（M5-a / M5-b）
 
 - `DataPaths::history()` 派生路径；`AppState` 持 `Mutex<HistoryStore>`，
   打开失败降级 `open_in_memory` 并告警，不阻断启动。
 - `refetch_and_store` 成功分支写历史；`remove_provider` 清条目历史；
   `export_configuration` / `import_configuration` 携带历史。
-- 不新增 IPC 与 UI（M5-b 随走势图一起提供 `get_history`）。
+- M5-b 新增只读 IPC `get_history(id, from_ms) -> HistoryPoint[]`；读取本地
+  SQLite，不触发平台网络请求。Provider 查询成功并完成历史落库后，沿用
+  `provider-state-changed` 事件使对应历史查询缓存立即失效。
+- GUI 默认读取最近 7 天，前端按 `window_key` 生成 Scope，并按 1 小时桶
+  保留最后一点。`unit="%"` 或 `used/total` 可换算时走百分比轴；否则优先
+  取 `remaining`、回退 `used` 走绝对值轴。无法绘制的窗口不出现在 Scope。
+- 图表每次只显示一个 Scope；真实采样空档按 1 小时桶分段，短空档虚线
+  桥接、长空档断线留白，不生成推算点。当前版本不提供范围切换控件。

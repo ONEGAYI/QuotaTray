@@ -25,9 +25,11 @@ export function invalidateProviderCaches(qc: QueryInvalidator, entryId?: string)
   if (entryId) {
     void qc.invalidateQueries({ queryKey: ["provider", entryId] });
     void qc.invalidateQueries({ queryKey: ["provider-state", entryId] });
+    void qc.invalidateQueries({ queryKey: ["history", entryId] });
   } else {
     void qc.invalidateQueries({ queryKey: ["provider"] });
     void qc.invalidateQueries({ queryKey: ["provider-state"] });
+    void qc.invalidateQueries({ queryKey: ["history"] });
   }
   void qc.invalidateQueries({ queryKey: ["snapshots"] });
 }
@@ -87,6 +89,32 @@ export function useProviderState(id: string, enabled: boolean) {
     queryFn: () => api.getProviderState(id),
     enabled,
     retry: false,
+  });
+}
+
+/** 单条 Provider 的本地历史；成功查询事件到达后立即刷新新落库点。 */
+export function useHistory(id: string, fromMs: number) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!id) return;
+    const unlisten = listen<string>("provider-state-changed", (event) => {
+      if (event.payload === id) {
+        void qc.invalidateQueries({ queryKey: ["history", id] });
+      }
+    }).catch((err) => {
+      console.error("provider-state-changed 历史失效监听失败：", err);
+      return () => {};
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [id, qc]);
+
+  return useQuery({
+    queryKey: ["history", id, fromMs],
+    queryFn: () => api.getHistory(id, fromMs),
+    enabled: id.length > 0,
+    staleTime: 60_000,
   });
 }
 
