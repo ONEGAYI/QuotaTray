@@ -166,10 +166,22 @@ week·Sonnet 变体）；Codex 动态时长窗（`（30d）`、`（8h）`、`（
 - 退出码：id 不存在、历史库打开失败、页码超界 → 1；范围内无历史 → 提示并 0。
 - `clear`：无 id 清全部、有 id 清单条目（id 须存在）；确认默认否，`--yes` 跳过。
 
-## 8. 桌面端接线（M5-a）
+## 8. 桌面端接线（M5-a / M5-b）
 
 - `DataPaths::history()` 派生路径；`AppState` 持 `Mutex<HistoryStore>`，
   打开失败降级 `open_in_memory` 并告警，不阻断启动。
 - `refetch_and_store` 成功分支写历史；`remove_provider` 清条目历史；
   `export_configuration` / `import_configuration` 携带历史。
-- 不新增 IPC 与 UI（M5-b 随走势图一起提供 `get_history`）。
+- M5-b 新增只读 IPC `get_history(id, from_ms) -> HistoryPoint[]`；读取本地
+  SQLite，不触发平台网络请求。Provider 查询成功并完成历史落库后，沿用
+  `provider-state-changed` 事件使对应历史查询缓存立即失效。
+- GUI 默认读取最近 7 天，前端按 `window_key` 生成 Scope，并按 1 小时桶
+  保留最后一点。`unit="%"` 或存在 `total` 时走百分比轴并展示**剩余额度**：
+  优先使用 `remaining`（有 `total` 时换算比例），缺失则以 `100%-used`
+  倒置；否则优先取 `remaining`、回退 `used` 走绝对值轴。无法绘制的窗口
+  不出现在 Scope。
+- 最近 7 天下界在每次历史重取时按当前时间重新计算；图表时间窗每分钟及
+  新采样到达时向前滑动。视窗位于实时右边缘时保持缩放跨度并跟随，用户
+  已平移到历史区间时保留观察位置，仅在其滑出 7 天保留期后做边界钳制。
+- 图表每次只显示一个 Scope；真实采样空档按 1 小时桶分段，短空档虚线
+  桥接、长空档断线留白，不生成推算点。当前版本不提供范围切换控件。

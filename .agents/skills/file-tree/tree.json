@@ -8,12 +8,15 @@
   },
   "tree": {
     ".agents": {
+      "kind": "dir",
       "desc": "Agent 技能库（项目级）",
       "children": {
         "skills": {
+          "kind": "dir",
           "desc": "技能目录",
           "children": {
             "file-tree": {
+              "kind": "dir",
               "desc": "文件树技能",
               "detail": [
                 "项目文件树唯一数据源与维护入口",
@@ -22,9 +25,11 @@
               ],
               "children": {
                 "agents": {
+                  "kind": "dir",
                   "desc": "Codex 元数据目录",
                   "children": {
                     "openai.yaml": {
+                      "kind": "file",
                       "desc": "Codex 技能元数据",
                       "detail": [
                         "display_name / short_description / default_prompt"
@@ -33,9 +38,11 @@
                   }
                 },
                 "scripts": {
+                  "kind": "dir",
                   "desc": "技能脚本",
                   "children": {
                     "tree_tool.py": {
+                      "kind": "file",
                       "desc": "文件树唯一维护脚本",
                       "detail": [
                         "子命令 add/rm/get/query/tag-add/tag-rm/undo/redo/history/check/render",
@@ -44,6 +51,7 @@
                       ]
                     },
                     "tree_tool_test.py": {
+                      "kind": "file",
                       "desc": "脚本契约测试",
                       "detail": [
                         "unittest 沙箱契约：排序/渲染快照/check 不变量/自举"
@@ -58,12 +66,14 @@
                   }
                 },
                 "SKILL.md": {
+                  "kind": "file",
                   "desc": "技能主入口",
                   "detail": [
                     "用法说明 + 字段说明 + 多树冲突规则；不承载渲染数据"
                   ]
                 },
                 "tree.json": {
+                  "kind": "file",
                   "desc": "文件树唯一数据源",
                   "detail": [
                     "顶层 {tags, tree}；嵌套 = 目录；条目字段 desc/detail/rel/tags/children",
@@ -77,24 +87,29 @@
       }
     },
     ".DevApiKey.json.example": {
+      "kind": "file",
       "desc": "本地密钥文件模板",
       "detail": [
         "本地密钥文件模板（真实文件被 ignore）"
       ]
     },
     ".gitattributes": {
+      "kind": "file",
       "desc": "行尾规则（技能 LF）",
       "detail": [
         "file-tree 技能数据与产物固定 LF，跨机器渲染字节一致"
       ]
     },
     ".github": {
+      "kind": "dir",
       "desc": "GitHub 配置",
       "children": {
         "workflows": {
+          "kind": "dir",
           "desc": "CI 工作流",
           "children": {
             "ci.yml": {
+              "kind": "file",
               "desc": "CI 双矩阵流水线",
               "detail": [
                 "CI：双矩阵 fmt+clippy+test（Ubuntu 含 Tauri 依赖）+ 前端 lint/build"
@@ -105,6 +120,7 @@
       }
     },
     ".gitignore": {
+      "kind": "file",
       "desc": "忽略清单（密钥/生成物）",
       "detail": [
         "含 .DevApiKey.json / .DevApiKey.json 被忽略、前端与 gen/schemas 生成物、",
@@ -112,6 +128,7 @@
       ]
     },
     "AGENTS.md": {
+      "kind": "file",
       "desc": "项目规则单一事实源",
       "detail": [
         "本文件：项目规则单一事实源（设计决策快照/工程规范/安全红线/术语表）",
@@ -119,30 +136,36 @@
       ]
     },
     "apps": {
+      "kind": "dir",
       "desc": "应用层（CLI 与桌面端）",
       "children": {
         "quota-cli": {
+          "kind": "dir",
           "desc": "CLI 前端（bin 名 quota）",
           "detail": [
             "CLI 前端（bin 名 quota，M2b 完成；i18n 三态 + 更新检测）"
           ],
           "children": {
             "Cargo.toml": {
+              "kind": "file",
               "desc": "CLI crate 清单",
               "detail": [
                 "CLI crate 依赖与 bin（quota）声明"
               ]
             },
             "src": {
+              "kind": "dir",
               "desc": "CLI 源码",
               "children": {
                 "cmd": {
+                  "kind": "dir",
                   "desc": "子命令实现（每命令一模块）",
                   "detail": [
                     "子命令实现（每命令一模块，handler 收 Ctx；文案走 texts.rs）"
                   ],
                   "children": {
                     "add.rs": {
+                      "kind": "file",
                       "desc": "交互添加向导",
                       "detail": [
                         "交互向导（订阅型平台问套餐变体；template 粘贴/",
@@ -151,6 +174,7 @@
                       ]
                     },
                     "config.rs": {
+                      "kind": "file",
                       "desc": "配置导入导出",
                       "detail": [
                         "config export/import：高敏感确认、完整配置迁移、",
@@ -160,6 +184,7 @@
                       ]
                     },
                     "devsmoke.rs": {
+                      "kind": "file",
                       "desc": "开发冒烟（仅 debug）",
                       "detail": [
                         "仅 debug：读 .DevApiKey.json 走完整链路（CLI 凭据型",
@@ -169,6 +194,7 @@
                       ]
                     },
                     "edit.rs": {
+                      "kind": "file",
                       "desc": "编辑向导与启停",
                       "detail": [
                         "向导（回车保持，套餐变体可改；template/script",
@@ -177,6 +203,7 @@
                       ]
                     },
                     "history.rs": {
+                      "kind": "file",
                       "desc": "history 命令（M5）",
                       "detail": [
                         "history show/clear（M5）：三档范围（24h=15m 桶/7d=1h 桶/30d=6h 桶，桶内取最后点）",
@@ -188,24 +215,28 @@
                       ]
                     },
                     "list.rs": {
+                      "kind": "file",
                       "desc": "条目列表",
                       "detail": [
                         "条目列表（表格 / --json providers 数组）"
                       ]
                     },
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "子模块声明",
                       "detail": [
                         "devsmoke 仅 debug 编入"
                       ]
                     },
                     "natives.rs": {
+                      "kind": "file",
                       "desc": "预置平台表",
                       "detail": [
                         "预置平台表（含峰谷预置标记列）"
                       ]
                     },
                     "pricing.rs": {
+                      "kind": "file",
                       "desc": "定价查看/写入",
                       "detail": [
                         "pricing show/set/clear：生效定价展示（判定/价格对照表/",
@@ -215,6 +246,7 @@
                       ]
                     },
                     "pricing_models.rs": {
+                      "kind": "file",
                       "desc": "自定义模型库管理",
                       "detail": [
                         "pricing model list/add/remove：自定义模型库管理",
@@ -225,6 +257,7 @@
                       ]
                     },
                     "query.rs": {
+                      "kind": "file",
                       "desc": "并行查询与 watch",
                       "detail": [
                         "并行查询 + watch 轮询 + 退出码聚合（RouteHttp 全链测试）；",
@@ -232,6 +265,7 @@
                       ]
                     },
                     "remove.rs": {
+                      "kind": "file",
                       "desc": "确认删除",
                       "detail": [
                         "确认删除（--yes 跳过；M5 起删除后同步清条目历史，",
@@ -239,6 +273,7 @@
                       ]
                     },
                     "script.rs": {
+                      "kind": "file",
                       "desc": "脚本试查",
                       "detail": [
                         "script test：干跑校验先行 + 真实试查（--json",
@@ -248,6 +283,7 @@
                       ]
                     },
                     "setkey.rs": {
+                      "kind": "file",
                       "desc": "写入 API key",
                       "detail": [
                         "隐藏读 key → vault 加密写配置"
@@ -257,12 +293,14 @@
                       ]
                     },
                     "template.rs": {
+                      "kind": "file",
                       "desc": "模板试查",
                       "detail": [
                         "template test：静态校验 + 真实试查"
                       ]
                     },
                     "update.rs": {
+                      "kind": "file",
                       "desc": "更新检测/下载命令",
                       "detail": [
                         "update：检测 GitHub release + 可选下载（--check/--yes/",
@@ -272,6 +310,7 @@
                       ]
                     },
                     "vault.rs": {
+                      "kind": "file",
                       "desc": "vault 健康检查",
                       "detail": [
                         "vault status：主密钥健康检查"
@@ -280,6 +319,7 @@
                   }
                 },
                 "ctx.rs": {
+                  "kind": "file",
                   "desc": "CLI 上下文",
                   "detail": [
                     "Ctx：配置路径 + SecretStore 注入 + lang 字段 +",
@@ -287,18 +327,21 @@
                   ]
                 },
                 "exit.rs": {
+                  "kind": "file",
                   "desc": "退出码三分约定",
                   "detail": [
                     "退出码三分约定（0 全成功 / 1 确定性 / 2 仅瞬时）"
                   ]
                 },
                 "idgen.rs": {
+                  "kind": "file",
                   "desc": "随机 id 生成",
                   "detail": [
                     "6 位 Crockford base32 随机 id（无偏映射）"
                   ]
                 },
                 "io.rs": {
+                  "kind": "file",
                   "desc": "交互 IO 薄层",
                   "detail": [
                     "交互薄层：掩码读 key（星号回显、Ctrl+V 剪贴板粘贴、管道分流）、",
@@ -307,6 +350,7 @@
                   ]
                 },
                 "lang.rs": {
+                  "kind": "file",
                   "desc": "语言三态与检测",
                   "detail": [
                     "Lang 三态（zh/en/system）+ sys-locale 检测 +",
@@ -314,6 +358,7 @@
                   ]
                 },
                 "main.rs": {
+                  "kind": "file",
                   "desc": "clap 定义与 dispatch",
                   "detail": [
                     "clap 定义子命令（含 pricing model / config 迁移组）+ dispatch",
@@ -322,6 +367,7 @@
                   ]
                 },
                 "render.rs": {
+                  "kind": "file",
                   "desc": "表格与 JSON 渲染",
                   "detail": [
                     "comfy-table 表格 + query --json 输出结构（纯函数可测、文案双语；",
@@ -336,6 +382,7 @@
                   ]
                 },
                 "settings_io.rs": {
+                  "kind": "file",
                   "desc": "settings.json 读取",
                   "detail": [
                     "settings.json 的 update 字段读取（mini struct：开关/时刻/",
@@ -344,6 +391,7 @@
                   ]
                 },
                 "texts.rs": {
+                  "kind": "file",
                   "desc": "双语文案表",
                   "detail": [
                     "双语文案表（TextKey exhaustive，漏译即编译错误）+",
@@ -355,24 +403,28 @@
           }
         },
         "quota-desktop": {
+          "kind": "dir",
           "desc": "桌面端（M3 完成）",
           "detail": [
             "桌面端（M3 完成）：Tauri 2 + React，GUI 为薄层"
           ],
           "children": {
             "eslint.config.js": {
+              "kind": "file",
               "desc": "ESLint 扁平配置",
               "detail": [
                 "ESLint 扁平配置（React hooks/TS 规则，pnpm lint 入口）"
               ]
             },
             "index.html": {
+              "kind": "file",
               "desc": "Vite HTML 入口",
               "detail": [
                 "Vite HTML 入口（挂载 #root）"
               ]
             },
             "package.json": {
+              "kind": "file",
               "desc": "pnpm 前端清单",
               "detail": [
                 "pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/",
@@ -381,47 +433,60 @@
               ]
             },
             "pnpm-lock.yaml": {
+              "kind": "file",
               "desc": "前端依赖锁文件",
               "detail": [
                 "pnpm 依赖锁定（入库保证可复现安装）"
               ]
             },
             "pnpm-workspace.yaml": {
+              "kind": "file",
               "desc": "pnpm 构建许可",
               "detail": [
                 "pnpm 11 构建脚本许可（esbuild）"
               ]
             },
             "src": {
+              "kind": "dir",
               "desc": "React 前端源码",
               "detail": [
                 "React 前端（zh/en 双语 + 明暗主题三态）"
               ],
               "children": {
                 "api.ts": {
+                  "kind": "file",
                   "desc": "invoke 封装",
                   "detail": [
-                    "invoke 封装 + 短 id 生成 + 主题/更新/配置迁移命令"
+                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移 + 短 id 生成"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src-tauri/src/commands.rs"
                   ]
                 },
                 "App.tsx": {
+                  "kind": "file",
                   "desc": "主窗布局与页签",
                   "detail": [
-                    "Calm Native 主布局（标题栏/账户与使用统计页签/列表/历史占位），",
-                    "编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载",
-                    "卡片，不触发重查也不丢展开态"
+                    "Calm Native 主布局（标题栏/账户与使用统计页签/供应商列表/交互式使用统计示意页）",
+                    "编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载卡片，不触发重查也不丢展开态"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/components/UsageStatsPage.tsx"
                   ]
                 },
                 "assets": {
+                  "kind": "dir",
                   "desc": "静态资源",
                   "children": {
                     "brand-mark.png": {
+                      "kind": "file",
                       "desc": "透明品牌主图",
                       "detail": [
                         "透明品牌主图：四段额度环 + 右下 Q 形拖尾"
                       ]
                     },
                     "providers": {
+                      "kind": "dir",
                       "desc": "Provider SVG 图标集",
                       "detail": [
                         "十四张官方 Provider SVG（六组复用品牌 + stepfun/novita/",
@@ -435,15 +500,18 @@
                   }
                 },
                 "components": {
+                  "kind": "dir",
                   "desc": "前端组件",
                   "children": {
                     "BrandMark.tsx": {
+                      "kind": "file",
                       "desc": "品牌标志薄组件",
                       "detail": [
                         "标题栏/悬停面板共用的静态品牌标志薄组件"
                       ]
                     },
                     "configTransferView.test.ts": {
+                      "kind": "file",
                       "desc": "迁移视图测试",
                       "detail": [
                         "迁移默认文件名/扩展名/错误归一化的 Vitest 契约测试"
@@ -456,6 +524,7 @@
                       ]
                     },
                     "configTransferView.ts": {
+                      "kind": "file",
                       "desc": "迁移视图纯逻辑",
                       "detail": [
                         "迁移默认文件名、扩展名与错误归一化纯逻辑"
@@ -465,6 +534,7 @@
                       ]
                     },
                     "EditDialog.tsx": {
+                      "kind": "file",
                       "desc": "添加/编辑弹窗",
                       "detail": [
                         "Modal：native 下拉（订阅型带套餐变体选择）/",
@@ -477,6 +547,7 @@
                       ]
                     },
                     "HoverPanel.tsx": {
+                      "kind": "file",
                       "desc": "托盘悬停浮窗",
                       "detail": [
                         "托盘悬停浮窗 A 方案：余额/额度/峰谷详情 +",
@@ -485,6 +556,7 @@
                       ]
                     },
                     "hoverPanelView.test.ts": {
+                      "kind": "file",
                       "desc": "悬停面板测试",
                       "detail": [
                         "悬停条目回退/圆环镜像/压缩视口判定的 Vitest 契约测试"
@@ -497,6 +569,7 @@
                       ]
                     },
                     "hoverPanelView.ts": {
+                      "kind": "file",
                       "desc": "悬停面板纯逻辑",
                       "detail": [
                         "悬停条目回退、前端圆环镜像与压缩视口判定",
@@ -507,6 +580,7 @@
                       ]
                     },
                     "MainPanelTabs.tsx": {
+                      "kind": "file",
                       "desc": "页签与鼠标聚光",
                       "detail": [
                         "账户/使用统计页签鼠标聚光：按鼠标到文字中心距离",
@@ -514,6 +588,7 @@
                       ]
                     },
                     "mainPanelTabsView.test.ts": {
+                      "kind": "file",
                       "desc": "聚光视图测试",
                       "detail": [
                         "页签聚光视图逻辑的 Vitest 契约测试"
@@ -526,6 +601,7 @@
                       ]
                     },
                     "mainPanelTabsView.ts": {
+                      "kind": "file",
                       "desc": "聚光视图纯逻辑",
                       "detail": [
                         "鼠标聚光视图纯逻辑：距离计算与柔光显现参数"
@@ -535,6 +611,7 @@
                       ]
                     },
                     "nativeProviderGroups.test.ts": {
+                      "kind": "file",
                       "desc": "平台分组测试",
                       "detail": [
                         "平台分组/顺序/兜底的 Vitest 契约测试"
@@ -547,6 +624,7 @@
                       ]
                     },
                     "nativeProviderGroups.ts": {
+                      "kind": "file",
                       "desc": "平台分组纯逻辑",
                       "detail": [
                         "native id 的平台分组、稳定顺序与未知项兜底"
@@ -556,6 +634,7 @@
                       ]
                     },
                     "NativeProviderPicker.tsx": {
+                      "kind": "file",
                       "desc": "平台聚合选择器",
                       "detail": [
                         "添加/编辑平台聚合选择器：SVG 一级菜单+悬停/键盘展开",
@@ -566,6 +645,7 @@
                       ]
                     },
                     "presetTemplates.test.ts": {
+                      "kind": "file",
                       "desc": "预设库测试",
                       "detail": [
                         "预设库形态与等价高亮判定的 Vitest 契约测试"
@@ -578,6 +658,7 @@
                       ]
                     },
                     "presetTemplates.ts": {
+                      "kind": "file",
                       "desc": "模板预设库",
                       "detail": [
                         "模板编辑器预设库（6 形态：通用/单对象余额/站点可变/",
@@ -591,6 +672,7 @@
                       ]
                     },
                     "pricingDraft.test.ts": {
+                      "kind": "file",
                       "desc": "定价草稿测试",
                       "detail": [
                         "草稿转换/撞名/精度判定的 Vitest 契约测试"
@@ -603,6 +685,7 @@
                       ]
                     },
                     "pricingDraft.ts": {
+                      "kind": "file",
                       "desc": "定价草稿纯逻辑",
                       "detail": [
                         "编辑草稿转换、撞名模型显式选择、小额价格精度与",
@@ -613,6 +696,7 @@
                       ]
                     },
                     "PricingSection.tsx": {
+                      "kind": "file",
                       "desc": "峰谷编辑区块",
                       "detail": [
                         "峰谷区块：预置/库模型、模型级窗口、订阅说明、",
@@ -620,6 +704,7 @@
                       ]
                     },
                     "ProviderCard.tsx": {
+                      "kind": "file",
                       "desc": "余额卡片",
                       "detail": [
                         "余额优先卡片：悬停/窄屏展开、按币种峰谷三价、",
@@ -631,6 +716,7 @@
                       ]
                     },
                     "providerCardView.test.ts": {
+                      "kind": "file",
                       "desc": "卡片视图测试",
                       "detail": [
                         "卡片各视图状态机的 Vitest 契约测试"
@@ -643,6 +729,7 @@
                       ]
                     },
                     "providerCardView.ts": {
+                      "kind": "file",
                       "desc": "卡片视图纯逻辑",
                       "detail": [
                         "卡片正常/错误/keep-last-good/快照/多窗口视图纯逻辑",
@@ -653,6 +740,7 @@
                       ]
                     },
                     "providerIcon.test.ts": {
+                      "kind": "file",
                       "desc": "图标映射测试",
                       "detail": [
                         "图标映射与浅色 logo 判定的 Vitest 契约测试"
@@ -665,6 +753,7 @@
                       ]
                     },
                     "providerIcon.ts": {
+                      "kind": "file",
                       "desc": "Provider 图标映射",
                       "detail": [
                         "预置 Provider id → 官方 SVG 映射与未知项回退契约 +",
@@ -677,6 +766,7 @@
                       ]
                     },
                     "providerPricing.test.ts": {
+                      "kind": "file",
                       "desc": "定价镜像测试",
                       "detail": [
                         "resolve_with 镜像解析的 Vitest 契约测试"
@@ -689,6 +779,7 @@
                       ]
                     },
                     "providerPricing.ts": {
+                      "kind": "file",
                       "desc": "前端定价解析镜像",
                       "detail": [
                         "镜像 resolve_with：模型级窗口/订阅/币种套/",
@@ -699,6 +790,7 @@
                       ]
                     },
                     "SettingsDialog.tsx": {
+                      "kind": "file",
                       "desc": "设置弹窗",
                       "detail": [
                         "常规/更新/数据迁移导航：更新下载进度 +",
@@ -708,6 +800,7 @@
                       ]
                     },
                     "settingsView.test.ts": {
+                      "kind": "file",
                       "desc": "设置视图测试",
                       "detail": [
                         "设置视图状态分派的 Vitest 契约测试"
@@ -720,6 +813,7 @@
                       ]
                     },
                     "settingsView.ts": {
+                      "kind": "file",
                       "desc": "设置视图纯逻辑",
                       "detail": [
                         "更新错误优先级、状态结论、进度格式化、",
@@ -730,6 +824,7 @@
                       ]
                     },
                     "TemplateHelpCard.tsx": {
+                      "kind": "file",
                       "desc": "模板说明折叠卡",
                       "detail": [
                         "模板编写说明折叠卡：变量、字段速查、",
@@ -737,6 +832,7 @@
                       ]
                     },
                     "TitleBar.tsx": {
+                      "kind": "file",
                       "desc": "自定义标题栏",
                       "detail": [
                         "自定义标题栏：拖动/双击最大化、GitHub 仓库链接",
@@ -745,16 +841,55 @@
                       ]
                     },
                     "ui.tsx": {
+                      "kind": "file",
                       "desc": "共享基础组件",
                       "detail": [
                         "按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件",
                         "（Dialog 以 body Portal 保证主窗居中，含 Escape、",
                         "焦点圈定与关闭后焦点恢复）"
                       ]
+                    },
+                    "usageChartView.test.ts": {
+                      "kind": "file",
+                      "desc": "统计图表逻辑测试",
+                      "detail": [
+                        "覆盖历史分组/桶聚合、剩余百分比与绝对余额语义、缺失分段、拟合/标尺、滚动视窗及绘图区 Ctrl+滚轮契约"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageChartView.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "usageChartView.ts": {
+                      "kind": "file",
+                      "desc": "统计图表纯逻辑",
+                      "detail": [
+                        "HistoryPoint 按 Scope/小时桶构造序列，百分比优先 remaining 并在缺失时倒置 used；含分段/刻度/拟合、视窗推进与滚轮分流"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageChartView.test.ts",
+                        "apps/quota-desktop/src/components/UsageStatsPage.tsx"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "UsageStatsPage.tsx": {
+                      "kind": "file",
+                      "desc": "使用统计趋势页",
+                      "detail": [
+                        "真实历史驱动的双轴 SVG 趋势图：百分比 Scope 展示剩余额度、绝对值展示余额；滚动最近 7 天/1h 桶、实时跟随/历史保留、Scope、缺失留白、Tooltip、拖拽与绘图区 Ctrl+滚轮缩放"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/queries.ts"
+                      ]
                     }
                   }
                 },
                 "display.test.ts": {
+                  "kind": "file",
                   "desc": "display 文案测试",
                   "detail": [
                     "时间/百分比/文案格式化的 Vitest 契约测试"
@@ -767,6 +902,7 @@
                   ]
                 },
                 "display.ts": {
+                  "kind": "file",
                   "desc": "时间与百分比文案",
                   "detail": [
                     "相对/精确时间、已用百分比、数据文案（双语，与 tray.rs 成对）、",
@@ -779,43 +915,54 @@
                   ]
                 },
                 "i18n": {
+                  "kind": "dir",
                   "desc": "轻量自写 i18n",
                   "children": {
                     "en.ts": {
+                      "kind": "file",
                       "desc": "英文字典（编译锁键）",
                       "detail": [
-                        "英文字典（Record<TextKey,string> 编译期锁键完整）"
+                        "英文字典（Record<TextKey,string> 编译期锁键完整），与中文使用统计文案成对"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/i18n/zh.ts"
                       ]
                     },
                     "index.tsx": {
+                      "kind": "file",
                       "desc": "LangProvider 与 t()",
                       "detail": [
                         "LangProvider + resolveUiLang + TextKey re-export"
                       ]
                     },
                     "zh.ts": {
+                      "kind": "file",
                       "desc": "中文字典（类型基准）",
                       "detail": [
-                        "中文字典（as const 类型基准）"
+                        "中文字典（as const 类型基准），含使用统计示意页文案"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/i18n/en.ts"
                       ]
                     }
                   }
                 },
                 "index.css": {
+                  "kind": "file",
                   "desc": "设计令牌与全局样式",
                   "detail": [
-                    "明暗设计令牌（暗色 #161616 中性系；color-scheme 随主题；",
-                    "全局 webkit 滚动条暗色 #2e2e2e）、Mica-like 基底、",
-                    "主窗响应式系统 + 悬停面板样式"
+                    "明暗设计令牌（含图表外轴/内部虚线网格/缺失纹理）、Mica-like 基底、主窗响应式系统、使用统计图与悬停面板样式"
                   ]
                 },
                 "main.tsx": {
+                  "kind": "file",
                   "desc": "React 入口",
                   "detail": [
                     "入口按 URL 分派主窗/悬停窗"
                   ]
                 },
                 "mainPanelView.test.ts": {
+                  "kind": "file",
                   "desc": "面板切换测试",
                   "detail": [
                     "面板切换状态机的 Vitest 契约测试"
@@ -828,6 +975,7 @@
                   ]
                 },
                 "mainPanelView.ts": {
+                  "kind": "file",
                   "desc": "面板切换状态机",
                   "detail": [
                     "主窗口面板切换状态机：下沉模糊峰值换内容后上浮清晰，",
@@ -838,9 +986,10 @@
                   ]
                 },
                 "queries.test.ts": {
+                  "kind": "file",
                   "desc": "queries hooks 测试",
                   "detail": [
-                    "轮询/失效/快照 hooks 的 Vitest 契约测试"
+                    "缓存精确/全量失效、显示设置隔离与滚动历史下界计算的 Vitest 契约"
                   ],
                   "rel": [
                     "apps/quota-desktop/src/queries.ts"
@@ -850,16 +999,14 @@
                   ]
                 },
                 "queries.ts": {
+                  "kind": "file",
                   "desc": "React Query hooks",
                   "detail": [
-                    "React Query hooks：轮询（staleTime 对齐轮询周期，重挂载/",
-                    "恢复聚焦不追加查询）/快照/refresh-now/自动更新状态事件 +",
-                    "Provider 变更按条目 id 失效（其余条目不陪查）/配置导入",
-                    "全量失效跨窗口契约 + CLI 可改 native/custom model 短缓存 +",
-                    "usePeakFlipTick 峰谷翻转事件锚点（#15，常驻视图重算标签）"
+                    "React Query hooks：Provider 轮询、按当前时间读取滚动历史并响应成功查询事件失效、快照/更新/Provider 缓存失效与峰谷 tick"
                   ]
                 },
                 "theme.tsx": {
+                  "kind": "file",
                   "desc": "ThemeProvider 三态",
                   "detail": [
                     "ThemeProvider：三态解析、system 实时跟随、setTheme 联动",
@@ -868,6 +1015,7 @@
                   ]
                 },
                 "themeTransition.test.ts": {
+                  "kind": "file",
                   "desc": "扩散动效测试",
                   "detail": [
                     "扩散动效纯函数与时序契约的 Vitest 测试"
@@ -880,6 +1028,7 @@
                   ]
                 },
                 "themeTransition.ts": {
+                  "kind": "file",
                   "desc": "主题扩散动效",
                   "detail": [
                     "主题切换圆形扩散动效（View Transitions）：CSS 变量传参 +",
@@ -892,14 +1041,14 @@
                   ]
                 },
                 "types.ts": {
+                  "kind": "file",
                   "desc": "core serde 的 TS 镜像",
                   "detail": [
-                    "core serde 形状的 TS 镜像（模型级 plan/windows、PlanVariant、",
-                    "reset_at、自定义模型库/按币种预置 DTO、更新下载进度/",
-                    "已下载路径、KEEP_LAST_GOOD_MS）"
+                    "core serde 形状的 TS 镜像：UsageData/HistoryPoint、Provider/定价/设置/更新与 KEEP_LAST_GOOD_MS"
                   ]
                 },
                 "vite-env.d.ts": {
+                  "kind": "file",
                   "desc": "Vite 资源类型声明",
                   "detail": [
                     "Vite 静态资源（品牌 PNG 等）模块类型声明"
@@ -908,21 +1057,25 @@
               }
             },
             "src-tauri": {
+              "kind": "dir",
               "desc": "Tauri Rust 后端",
               "detail": [
                 "Rust 后端（crate quota-desktop，入 workspace）"
               ],
               "children": {
                 "build.rs": {
+                  "kind": "file",
                   "desc": "Tauri 构建脚本",
                   "detail": [
                     "tauri-build：能力清单/图标/资源嵌入构建期生成"
                   ]
                 },
                 "capabilities": {
+                  "kind": "dir",
                   "desc": "权限 ACL",
                   "children": {
                     "default.json": {
+                      "kind": "file",
                       "desc": "主窗 ACL",
                       "detail": [
                         "主窗口事件/主题/无装饰窗口控制 + opener +",
@@ -930,6 +1083,7 @@
                       ]
                     },
                     "hover-panel.json": {
+                      "kind": "file",
                       "desc": "悬停窗 ACL",
                       "detail": [
                         "悬停窗口事件与主题最小 ACL"
@@ -938,15 +1092,18 @@
                   }
                 },
                 "Cargo.toml": {
+                  "kind": "file",
                   "desc": "桌面端 crate 清单",
                   "detail": [
                     "版本号经 workspace 继承"
                   ]
                 },
                 "examples": {
+                  "kind": "dir",
                   "desc": "示例注入器",
                   "children": {
                     "smoke_setup.rs": {
+                      "kind": "file",
                       "desc": "GUI 冒烟注入器",
                       "detail": [
                         "GUI 冒烟注入器（沙箱 config.json，手动跑）"
@@ -955,6 +1112,7 @@
                   }
                 },
                 "icons": {
+                  "kind": "dir",
                   "desc": "应用图标集",
                   "detail": [
                     "品牌主图导出的 PNG/ICO/ICNS/Windows 尺寸集 + manifest；",
@@ -963,30 +1121,19 @@
                   "children": {}
                 },
                 "src": {
+                  "kind": "dir",
                   "desc": "后端源码",
                   "children": {
                     "commands.rs": {
+                      "kind": "file",
                       "desc": "IPC 命令集",
                       "detail": [
-                        "主业务 IPC 20 命令：key 写入策略（空=保持不变）、",
-                        "试查经引擎、upsert 清结果后携条目 id 广播 providers-changed，",
-                        "由主窗按条目失效驱动卡片重查（卡片常挂载保证观察者在；",
-                        "后端不补查——与前端失效驱动会并发双查同一平台 API；",
-                        "成功分支顺写历史库 M5，结果表锁外执行、失败仅告警）+",
-                        "Provider 增删改跨 WebView 失效事件（payload 条目 id）、",
-                        "快照落盘过滤、设置顺序（磁盘权威）、set_resolved_theme、",
-                        "更新四命令（检测/下载/install_update 运行安装包后",
-                        "退出应用）+ 配置导入导出（导入清结果/快照并广播；",
-                        "M5 起随迁移包携带历史；remove_provider 同步清条目历史）+",
-                        "script 双命令（validate_script 干跑/test_script 全链路，",
-                        "镜像 template 对，key 缺省语义同）；",
-                        "validate_entry 统一校验（含峰谷配置）、",
-                        "list_native_metas 携带模型级 plan/windows 与",
-                        "supports_plan_variant、DeepSeek CNY/USD 预置套与",
-                        "按 native id 聚类的自定义模型 DTO"
+                        "主业务 IPC 21 命令：既有 Provider/设置/更新/迁移/试查链路 + get_history 只读 SQLite 历史；成功查询写历史后广播 provider-state-changed",
+                        "key 写入仍执行空值保持与前端不回显安全策略；配置导入导出携带历史，删除 Provider 同步清历史"
                       ]
                     },
                     "hover_panel.rs": {
+                      "kind": "file",
                       "desc": "悬停窗口状态机",
                       "detail": [
                         "悬停窗口创建/四边定位/延迟收起状态机 + IPC 命令；",
@@ -1001,6 +1148,7 @@
                       ]
                     },
                     "i18n.rs": {
+                      "kind": "file",
                       "desc": "托盘/命令双语文案",
                       "detail": [
                         "Lang 三态 + sys-locale + 托盘/命令双语文案表（Texts，",
@@ -1008,19 +1156,24 @@
                       ]
                     },
                     "lib.rs": {
+                      "kind": "file",
                       "desc": "Tauri Builder 装配",
                       "detail": [
-                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/",
-                        "更新调度/命令注册"
+                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含 get_history）"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/src/commands.rs"
                       ]
                     },
                     "main.rs": {
+                      "kind": "file",
                       "desc": "薄壳入口",
                       "detail": [
                         "薄壳（release 隐藏控制台）"
                       ]
                     },
                     "ring.rs": {
+                      "kind": "file",
                       "desc": "托盘圆环渲染",
                       "detail": [
                         "托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/",
@@ -1031,6 +1184,7 @@
                       ]
                     },
                     "settings.rs": {
+                      "kind": "file",
                       "desc": "settings.json 读写",
                       "detail": [
                         "settings.json 读写（原子写、损坏回退；主题/语言三态、",
@@ -1040,12 +1194,14 @@
                       ]
                     },
                     "snapshot.rs": {
+                      "kind": "file",
                       "desc": "cache.json 快照",
                       "detail": [
                         "cache.json 快照（{id:{data,at}}，原子写、容错）"
                       ]
                     },
                     "state.rs": {
+                      "kind": "file",
                       "desc": "AppState",
                       "detail": [
                         "AppState：引擎+保险库+结果表+resolved_theme+update_ctl",
@@ -1056,6 +1212,7 @@
                       ]
                     },
                     "tray.rs": {
+                      "kind": "file",
                       "desc": "托盘菜单与图标",
                       "detail": [
                         "托盘：菜单文本（双语参数化）/圆环图标（数据源门控、",
@@ -1069,6 +1226,7 @@
                       ]
                     },
                     "update_ctl.rs": {
+                      "kind": "file",
                       "desc": "更新检测控制",
                       "detail": [
                         "更新检测控制：状态表（含已下载安装包记录，资产名随",
@@ -1084,6 +1242,7 @@
                   }
                 },
                 "tauri.conf.json": {
+                  "kind": "file",
                   "desc": "Tauri 配置",
                   "detail": [
                     "版本经 crate 继承 workspace；CSP 基线；decorations:false；",
@@ -1093,12 +1252,14 @@
               }
             },
             "tsconfig.json": {
+              "kind": "file",
               "desc": "TS 编译配置",
               "detail": [
                 "TypeScript 编译选项（React JSX、严格模式）"
               ]
             },
             "vite.config.ts": {
+              "kind": "file",
               "desc": "Vite 配置",
               "detail": [
                 "端口 1420 固定、chrome110 目标、Tailwind 插件"
@@ -1109,57 +1270,68 @@
       }
     },
     "Cargo.lock": {
+      "kind": "file",
       "desc": "依赖锁文件",
       "detail": [
         "workspace 依赖锁定版本（含 Tauri 链路）"
       ]
     },
     "Cargo.toml": {
+      "kind": "file",
       "desc": "workspace 根配置",
       "detail": [
         "workspace 根：成员、共享依赖版本、release 配置"
       ]
     },
     "CHANGELOG.md": {
+      "kind": "file",
       "desc": "版本变更记录",
       "detail": [
         "版本变更记录（Keep a CHANGELOG，按 PR 归纳）"
       ]
     },
     "CLAUDE.md": {
+      "kind": "file",
       "desc": "AGENTS 导入+专属补充",
       "detail": [
         "@AGENTS.md 导入主文件，仅附加 Claude 专属补充规则"
       ]
     },
     "clean.cmd": {
+      "kind": "file",
       "desc": "开发目录清理入口",
       "detail": [
         "Windows 开发目录清理入口：交互或 Level 1/2/3"
       ]
     },
     "crates": {
+      "kind": "dir",
       "desc": "workspace crates 根",
       "children": {
         "quota-core": {
+          "kind": "dir",
           "desc": "业务核心库（无 UI）",
           "detail": [
             "业务核心库（无 UI 依赖）"
           ],
           "children": {
             "Cargo.toml": {
+              "kind": "file",
               "desc": "core crate 清单",
               "detail": [
                 "core crate 依赖声明（serde/reqwest/rusqlite/rquickjs 等）"
               ]
             },
             "src": {
+              "kind": "dir",
               "desc": "core 源码",
               "children": {
                 "config": {
+                  "kind": "dir",
                   "desc": "配置层",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "AppConfig 原子读写",
                       "detail": [
                         "AppConfig（providers + custom_models 自定义模型库；",
@@ -1168,6 +1340,7 @@
                       ]
                     },
                     "provider.rs": {
+                      "kind": "file",
                       "desc": "凭据与条目类型",
                       "detail": [
                         "Credentials / ProviderKind（serde tag 分派：native/",
@@ -1177,6 +1350,7 @@
                       ]
                     },
                     "transfer.rs": {
+                      "kind": "file",
                       "desc": "配置跨机器迁移",
                       "detail": [
                         "完整配置跨机器迁移：一次性迁移密钥转写、私有认证",
@@ -1192,9 +1366,11 @@
                   }
                 },
                 "history": {
+                  "kind": "dir",
                   "desc": "历史数据存储（M5）",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "HistoryStore（SQLite）",
                       "detail": [
                         "HistoryStore：成功查询结果时序落库（一条 UsageData 一行，",
@@ -1214,9 +1390,11 @@
                   }
                 },
                 "http": {
+                  "kind": "dir",
                   "desc": "HTTP 抽象",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "HttpClient trait 与错误",
                       "detail": [
                         "HttpClient trait + 请求/响应/错误类型（Debug 打码，",
@@ -1225,6 +1403,7 @@
                       ]
                     },
                     "redact.rs": {
+                      "kind": "file",
                       "desc": "错误详情脱敏",
                       "detail": [
                         "错误详情脱敏（参考 opencode）：结构化正则 + 本次请求",
@@ -1235,6 +1414,7 @@
                       ]
                     },
                     "reqwest.rs": {
+                      "kind": "file",
                       "desc": "reqwest 生产实现",
                       "detail": [
                         "生产实现（rustls；错误去 URL 防凭据泄漏；",
@@ -1244,12 +1424,14 @@
                   }
                 },
                 "lib.rs": {
+                  "kind": "file",
                   "desc": "模块声明与 re-export",
                   "detail": [
                     "模块声明与 re-export（对外 API 面单一出口）"
                   ]
                 },
                 "model.rs": {
+                  "kind": "file",
                   "desc": "用量模型与错误分类",
                   "detail": [
                     "UsageData（含窗口重置时刻 reset_at）/ QueryError 双轨分类",
@@ -1257,6 +1439,7 @@
                   ]
                 },
                 "pricing.rs": {
+                  "kind": "file",
                   "desc": "峰谷定价纯函数",
                   "detail": [
                     "峰谷定价：周几+时间段判定与下次翻转（epoch ms 纯函数、",
@@ -1273,9 +1456,11 @@
                   ]
                 },
                 "provider": {
+                  "kind": "dir",
                   "desc": "预置平台查询",
                   "children": {
                     "claude.rs": {
+                      "kind": "file",
                       "desc": "Claude 订阅查询",
                       "detail": [
                         "Claude 订阅（Pro/Max）：CLI 凭据复用——只读",
@@ -1286,6 +1471,7 @@
                       ]
                     },
                     "codex.rs": {
+                      "kind": "file",
                       "desc": "Codex 订阅查询",
                       "detail": [
                         "Codex（ChatGPT 订阅）：CLI 凭据复用——只读",
@@ -1296,12 +1482,14 @@
                       ]
                     },
                     "deepseek.rs": {
+                      "kind": "file",
                       "desc": "/user/balance 单站双币",
                       "detail": [
                         "/user/balance（单站双币，余额 API 返回币种）"
                       ]
                     },
                     "gemini.rs": {
+                      "kind": "file",
                       "desc": "Gemini Code Assist",
                       "detail": [
                         "Gemini Code Assist：CLI 凭据复用——只读",
@@ -1313,6 +1501,7 @@
                       ]
                     },
                     "grok.rs": {
+                      "kind": "file",
                       "desc": "Grok 订阅 credits 查询",
                       "detail": [
                         "Grok 订阅 credits：CLI 凭据复用——只读 ~/.grok/auth.json",
@@ -1324,6 +1513,7 @@
                       ]
                     },
                     "kimi.rs": {
+                      "kind": "file",
                       "desc": "Kimi 开放平台余额",
                       "detail": [
                         "/v1/users/me/balance（国内/国际双站，",
@@ -1331,6 +1521,7 @@
                       ]
                     },
                     "kimi_coding.rs": {
+                      "kind": "file",
                       "desc": "Kimi Code 用量",
                       "detail": [
                         "Kimi Code 国内/国际双站 /coding/v1/usages：",
@@ -1338,6 +1529,7 @@
                       ]
                     },
                     "minimax.rs": {
+                      "kind": "file",
                       "desc": "MiniMax Coding Plan",
                       "detail": [
                         "MiniMax Coding Plan 国内/国际双站 coding_plan/remains：",
@@ -1346,6 +1538,7 @@
                       ]
                     },
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "trait 与注册表（20 项）",
                       "detail": [
                         "NativeProvider trait（query 收套餐变体）+ 注册表（20 项）+",
@@ -1357,30 +1550,35 @@
                       ]
                     },
                     "novita.rs": {
+                      "kind": "file",
                       "desc": "/v3/user/balance",
                       "detail": [
                         "/v3/user/balance（availableBalance÷10000=USD）"
                       ]
                     },
                     "openrouter.rs": {
+                      "kind": "file",
                       "desc": "/api/v1/credits",
                       "detail": [
                         "/api/v1/credits（remaining = credits − usage）"
                       ]
                     },
                     "siliconflow.rs": {
+                      "kind": "file",
                       "desc": "硅基流动国内/国际",
                       "detail": [
                         "/v1/user/info（国内/国际双站参数化，CNY/USD）"
                       ]
                     },
                     "stepfun.rs": {
+                      "kind": "file",
                       "desc": "/v1/accounts（CNY）",
                       "detail": [
                         "/v1/accounts（顶层 balance，CNY）"
                       ]
                     },
                     "zhipu.rs": {
+                      "kind": "file",
                       "desc": "GLM Coding Plan 用量",
                       "detail": [
                         "GLM Coding Plan 用量（智谱/Z.ai 双站，非文档端点、裸 key、",
@@ -1391,6 +1589,7 @@
                       ]
                     },
                     "zhipu_metered.rs": {
+                      "kind": "file",
                       "desc": "智谱按量余额",
                       "detail": [
                         "智谱/Z.ai 通用 API 按量余额：Bearer、credit grants 优先，",
@@ -1400,9 +1599,11 @@
                   }
                 },
                 "query": {
+                  "kind": "dir",
                   "desc": "查询引擎",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "QueryEngine 路由",
                       "detail": [
                         "QueryEngine：双通道路由（条目 use_proxy 走代理通道，",
@@ -1414,9 +1615,11 @@
                   }
                 },
                 "script": {
+                  "kind": "dir",
                   "desc": "脚本查询（M4）",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "QuickJS 沙箱脚本查询",
                       "detail": [
                         "QuickJS 沙箱脚本查询（M4）：{request, extractor} 两阶段协议",
@@ -1437,9 +1640,11 @@
                   }
                 },
                 "template": {
+                  "kind": "dir",
                   "desc": "声明式模板 DSL（M2a）",
                   "children": {
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "DSL 结构与执行器",
                       "detail": [
                         "DSL 结构/静态校验/执行器（变量替换、URL 安全、",
@@ -1448,6 +1653,7 @@
                       ]
                     },
                     "path.rs": {
+                      "kind": "file",
                       "desc": "JSONPath 子集",
                       "detail": [
                         "JSONPath 子集（$.a.b[0]，拒绝过滤器/通配符）"
@@ -1456,6 +1662,7 @@
                   }
                 },
                 "update.rs": {
+                  "kind": "file",
                   "desc": "更新检测与下载",
                   "detail": [
                     "更新检测（M4-b）：版本三段比较、GitHub release 解析与资产",
@@ -1466,12 +1673,14 @@
                   ]
                 },
                 "vault": {
+                  "kind": "dir",
                   "desc": "凭据保险库",
                   "detail": [
                     "凭据保险库（主密钥存系统凭据库 + AES-GCM 密文）"
                   ],
                   "children": {
                     "cipher.rs": {
+                      "kind": "file",
                       "desc": "AES-256-GCM 密文格式",
                       "detail": [
                         "AES-256-GCM 与 v1: 密文格式（nonce 随机、AAD 绑定）"
@@ -1481,6 +1690,7 @@
                       ]
                     },
                     "mod.rs": {
+                      "kind": "file",
                       "desc": "Vault 门面",
                       "detail": [
                         "open（取/建主密钥）+ encrypt/decrypt"
@@ -1490,6 +1700,7 @@
                       ]
                     },
                     "store.rs": {
+                      "kind": "file",
                       "desc": "密钥存储抽象",
                       "detail": [
                         "SecretStore trait + KeyringStore（生产）/ InMemoryStore（测试）"
@@ -1507,18 +1718,22 @@
       }
     },
     "docs": {
+      "kind": "dir",
       "desc": "文档",
       "children": {
         "CC-Switch调研报告.md": {
+          "kind": "file",
           "desc": "cc-switch 调研",
           "detail": [
             "cc-switch 代码级调研（技术栈/密钥安全/余额查询）"
           ]
         },
         "design": {
+          "kind": "dir",
           "desc": "设计文档",
           "children": {
             "tray-ring-demo.html": {
+              "kind": "file",
               "desc": "圆环视觉规格",
               "detail": [
                 "托盘圆环视觉规格（层结构/颜色/溢出/红点定案）"
@@ -1527,36 +1742,41 @@
           }
         },
         "specs": {
+          "kind": "dir",
           "desc": "规格文档",
           "children": {
             "CLI-spec.md": {
+              "kind": "file",
               "desc": "CLI 规格（M2b）",
               "detail": [
                 "quota-cli 规格（M2b）：子命令/退出码/dev-smoke"
               ]
             },
             "GUI-spec.md": {
+              "kind": "file",
               "desc": "GUI 规格（M3）",
               "detail": [
                 "quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化"
               ]
             },
             "history-spec.md": {
+              "kind": "file",
               "desc": "历史存储规格（M5）",
               "detail": [
-                "历史存储规格（M5）：数据模型/滚动清理/schema 迁移/",
-                "迁移容器 v2/CLI 命令（含 SQLite 决策边界）"
+                "历史存储规格（M5）：数据模型/迁移、CLI、get_history IPC、GUI 滚动 7 天、剩余额度分轴与视窗语义"
               ]
             }
           }
         },
         "项目方案预研.md": {
+          "kind": "file",
           "desc": "项目方案预研",
           "detail": [
             "架构、凭据安全、查询体系、CLI/GUI 设计与里程碑"
           ]
         },
         "预置Provider缺口预研.md": {
+          "kind": "file",
           "desc": "预置缺口预研",
           "detail": [
             "预置平台缺口对照 cc-switch（A/B/C 分层、批次标记与",
@@ -1566,9 +1786,11 @@
       }
     },
     "examples": {
+      "kind": "dir",
       "desc": "可运行示例",
       "children": {
         "scripts": {
+          "kind": "dir",
           "desc": "脚本查询示例",
           "detail": [
             "JS 脚本查询可运行示例（basic 最小闭环/多窗口字段间运算+reset_at，",
@@ -1576,18 +1798,21 @@
           ],
           "children": {
             "basic.js": {
+              "kind": "file",
               "desc": "最小闭环脚本示例",
               "detail": [
                 "最小闭环示例：单 request+extractor 拿余额"
               ]
             },
             "multi-window.js": {
+              "kind": "file",
               "desc": "多窗口脚本示例",
               "detail": [
                 "字段间运算 + reset_at"
               ]
             },
             "README.md": {
+              "kind": "file",
               "desc": "脚本示例说明",
               "detail": [
                 "协议说明与已知边界"
@@ -1596,6 +1821,7 @@
           }
         },
         "templates": {
+          "kind": "dir",
           "desc": "模板示例（5 形态）",
           "detail": [
             "声明式模板可运行示例（5 形态：字符串数字单对象/双站 baseUrl/",
@@ -1604,36 +1830,42 @@
           ],
           "children": {
             "deepseek.json": {
+              "kind": "file",
               "desc": "单对象余额示例",
               "detail": [
                 "字符串数字单对象形态示例"
               ]
             },
             "multi-window.json": {
+              "kind": "file",
               "desc": "多窗口示例",
               "detail": [
                 "多窗口字段映射形态示例"
               ]
             },
             "newapi.json": {
+              "kind": "file",
               "desc": "NewAPI 中转示例",
               "detail": [
                 "NewAPI 系中转示例（New-Api-User 头）"
               ]
             },
             "openrouter.json": {
+              "kind": "file",
               "desc": "总额已用示例",
               "detail": [
                 "总额-已用差值形态示例"
               ]
             },
             "README.md": {
+              "kind": "file",
               "desc": "模板示例说明",
               "detail": [
                 "使用说明与已知边界"
               ]
             },
             "siliconflow.json": {
+              "kind": "file",
               "desc": "双站 baseUrl 示例",
               "detail": [
                 "双站 baseUrl 参数化形态示例"
@@ -1644,18 +1876,21 @@
       }
     },
     "LICENSE": {
+      "kind": "file",
       "desc": "MIT 许可证全文",
       "detail": [
         "MIT 许可证全文（参考项目 cc-switch 同为 MIT）"
       ]
     },
     "README.en.md": {
+      "kind": "file",
       "desc": "英文自述，互链中文",
       "detail": [
         "英文版自述，与中文版结构对齐，顶部互链"
       ]
     },
     "README.md": {
+      "kind": "file",
       "desc": "中文项目自述",
       "detail": [
         "项目自述（中文，默认展示）：定位/功能/预置平台/",
@@ -1663,21 +1898,25 @@
       ]
     },
     "rust-toolchain.toml": {
+      "kind": "file",
       "desc": "锁定 stable 工具链",
       "detail": [
         "锁定 stable 工具链"
       ]
     },
     "scripts": {
+      "kind": "dir",
       "desc": "维护脚本",
       "children": {
         "clean.ps1": {
+          "kind": "file",
           "desc": "分级清理器",
           "detail": [
             "固定白名单分级清理器（仓库边界校验 + WhatIf）"
           ]
         },
         "clean.tests.ps1": {
+          "kind": "file",
           "desc": "清理器契约测试",
           "detail": [
             "隔离沙箱契约测试：三级目标/预览/受保护文件"

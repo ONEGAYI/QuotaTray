@@ -624,6 +624,24 @@ pub fn get_provider_state(state: State<'_, AppState>, id: String) -> QueryOutcom
     }
 }
 
+fn get_history_from_store(
+    store: &quota_core::HistoryStore,
+    id: &str,
+    from_ms: u64,
+) -> Result<Vec<quota_core::HistoryPoint>, String> {
+    store.range(id, from_ms).map_err(|e| e.to_string())
+}
+
+/// 读取单条 Provider 自指定时刻起的全部历史窗口，不触发平台查询。
+#[tauri::command]
+pub fn get_history(
+    state: State<'_, AppState>,
+    id: String,
+    from_ms: u64,
+) -> Result<Vec<quota_core::HistoryPoint>, String> {
+    get_history_from_store(&state.history.lock().unwrap(), &id, from_ms)
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.read().unwrap().clone()
@@ -806,6 +824,47 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join(name)
+    }
+
+    #[test]
+    fn history_query_helper_filters_provider_and_start_time() {
+        let store = quota_core::HistoryStore::open_in_memory().unwrap();
+        store
+            .merge_rows(&[
+                quota_core::HistoryExportRow {
+                    provider_id: "p1".into(),
+                    window_key: "five_hour".into(),
+                    sampled_at: 1_000,
+                    used: Some(10.0),
+                    remaining: Some(90.0),
+                    total: Some(100.0),
+                    unit: Some("%".into()),
+                },
+                quota_core::HistoryExportRow {
+                    provider_id: "p1".into(),
+                    window_key: "five_hour".into(),
+                    sampled_at: 2_000,
+                    used: Some(20.0),
+                    remaining: Some(80.0),
+                    total: Some(100.0),
+                    unit: Some("%".into()),
+                },
+                quota_core::HistoryExportRow {
+                    provider_id: "p2".into(),
+                    window_key: "balance".into(),
+                    sampled_at: 3_000,
+                    used: None,
+                    remaining: Some(42.0),
+                    total: None,
+                    unit: Some("CNY".into()),
+                },
+            ])
+            .unwrap();
+
+        let points = get_history_from_store(&store, "p1", 1_500).unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].sampled_at, 2_000);
+        assert_eq!(points[0].window_key, "five_hour");
     }
 
     #[test]

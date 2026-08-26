@@ -1,6 +1,7 @@
 // IPC 封装：全部后端交互收敛于此，组件不直接触碰 invoke。
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  HistoryPoint,
   NativeMeta,
   ProviderEntry,
   QueryOutcome,
@@ -44,6 +45,9 @@ export const api = {
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
   /** 只读后端共享结果表，不触发平台网络请求（悬停面板使用）。 */
   getProviderState: (id: string): Promise<QueryOutcome> => invoke("get_provider_state", { id }),
+  /** 读取本地 SQLite 历史，不触发平台网络请求。 */
+  getHistory: (id: string, fromMs: number): Promise<HistoryPoint[]> =>
+    invoke("get_history", { id, fromMs }),
   getSettings: (): Promise<Settings> => invoke("get_settings"),
   saveSettings: (settings: Settings): Promise<void> => invoke("save_settings", { settings }),
   /** 将完整配置导出到系统保存对话框选定的路径。 */

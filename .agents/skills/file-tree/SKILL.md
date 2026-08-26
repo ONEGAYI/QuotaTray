@@ -7,7 +7,7 @@ description: 项目文件树的唯一数据源与维护入口。当需要新增/
 
 ## 核心约定
 
-- **tree.json 是唯一数据源**：JSON 嵌套 = 目录嵌套（有 `children` 键即文件夹，空目录写 `"children": {}`）。
+- **tree.json 是唯一数据源**：JSON 嵌套 = 目录嵌套（有 `children` 键即文件夹，空目录写 `"children": {}`）；条目类型由 children 判据推导为 `kind` 字段（`"file"`/`"dir"`）随规范化落盘。
 - **脚本是唯一写入口**：对 tree.json、tags 词表、AGENTS.md 树块的一切增删改都必须走 `scripts/tree_tool.py`；手改会被 `check` 的规范形态与产物一致性校验当场暴露。
 - **渲染目标为 AGENTS.md**：两个标记块（简版树 / 标签词表），有标记则替换内容、无标记自动附加到文件尾部、无 AGENTS.md 则生成最小骨架；`detail` 完整描述只存于 tree.json 供 `get`/`query` 查询，不渲染。
 - **多树冲突时以技能为准**：仓库内其他手写文件树一律惰性对待（不同步、不维护、不删除），文件树相关问答与维护只认 tree.json。
@@ -21,6 +21,7 @@ python .agents/skills/file-tree/scripts/tree_tool.py <命令>
 
 # 新增/更新条目（upsert：未给的字段保留旧值；自动建父目录，写后自动渲染）
 add <path> -d "一句话≤20字" [--detail "完整描述行"]... [--rel 相关路径]... [--tags a,b] [--dir]
+           [--collapsed|--no-collapsed] [--hidden|--no-hidden]   # 渲染控制，见条目字段
 
 rm <path>                        # 删除条目并修剪变空的父目录
 get <path>                       # 查看单条目全部字段
@@ -40,13 +41,18 @@ render                           # 重渲染 AGENTS.md 两个标记块（缺标�
 
 | 字段 | 形态 | 语义 |
 | --- | --- | --- |
+| `kind` | `"file"` / `"dir"`，自动派生 | 条目类型标识：由 children 判据自动推导并落盘，供 `query --json` 等机器消费；不参与渲染，手改会在下次写操作时被规范化纠正 |
 | `desc` | string，必填 | 一句话简介（≤20 字，超长 `check` 告警）；渲染简版树；空串表示目录待补 |
 | `detail` | string[]，文件条目应填 | 完整描述，存于 tree.json 供 `get`/`query` 查询，不参与渲染；缺失时文件条目 `check` 告警（目录不强制） |
 | `rel` | string[]，可选 | 语义相关/成对文件的仓库相对路径（如双语文案成对、测试指向被测文件）；只存正向边，反查用 `query --rel-of` |
 | `tags` | string[]，可选 | 受控标签，必须已在词表登记（词表渲染于 AGENTS.md 词表块） |
+| `collapsed` | bool，目录可选 | 简版树折叠渲染：目录行带 `…` 不展开 children；默认 false（false 不落盘）。仅目录可用，文件条目报错 |
+| `hidden` | bool，可选 | 简版树隐藏渲染：条目及整个子树不出现在 AGENTS.md；默认 false（false 不落盘）。文件与目录均可用 |
 | `children` | object | 目录子条目；有此键即目录 |
 
-**字段完整性检测**：`check` 对每个条目做全量字段校验——未知字段、字段类型错误、缺 `desc` 报为错误；`desc` 为空或超长、文件条目缺 `detail` 报为告警（`--strict` 下告警也视为失败）。
+**字段完整性检测**：`check` 对每个条目做全量字段校验——未知字段、字段类型错误、缺 `desc` 报为错误；`desc` 为空或超长、文件条目缺 `detail` 报为告警（`--strict` 下告警也视为失败）。`collapsed`/`hidden` 类型不是布尔、文件条目带 `collapsed` 报为错误。技能目录内自身测试产生的 `__pycache__` 豁免"未收录"告警（运行时缓存）；仓库其他位置的 `__pycache__` 照常报。
+
+**渲染控制只影响展示**：`collapsed`/`hidden` 仅改变 AGENTS.md 简版树的渲染形态——tree.json 数据始终全量，`get`/`query` 照常可查，`check` 的磁盘对照与产物一致性校验也不受影响（隐藏 ≠ 删除，隐藏条目漏录磁盘文件照样报错）。
 
 ## 渲染产物索引
 
