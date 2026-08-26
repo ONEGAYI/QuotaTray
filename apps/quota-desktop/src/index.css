@@ -652,6 +652,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-edit-basics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .qt-credential-field { padding: 13px; border: 1px solid var(--qt-border); border-radius: 10px; background: var(--qt-surface-soft); }
 .qt-credential-field small { display: block; margin: -1px 0 8px; color: var(--qt-text-faint); font-size: 11px; }
+.qt-credential-field small.qt-cli-bridge-hint { color: var(--qt-warning); margin-top: -6px; }
 .qt-template-form { display: grid; gap: 12px; }
 .qt-template-presets { display: flex; flex-wrap: wrap; gap: 7px; }
 .qt-template-presets button { min-height: 30px; border: 0; border-radius: 8px; padding: 5px 12px; background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 12px; cursor: pointer; }
