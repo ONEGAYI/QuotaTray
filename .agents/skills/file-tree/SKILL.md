@@ -23,7 +23,11 @@ python .agents/skills/file-tree/scripts/tree_tool.py <命令>
 add <path> -d "一句话≤20字" [--detail "完整描述行"]... [--rel 相关路径]... [--tags a,b] [--dir]
            [--collapsed|--no-collapsed] [--hidden|--no-hidden]   # 渲染控制，见条目字段
 
+# 批量 upsert（JSON 清单）：一份清单 = 一次数据变更 = 一步撤销历史；任一条非法整批拒绝
+add-batch <manifest.json>         # {"entries": [{"path": "a.ts", "desc": "简介"}, ...]}，条目字段同 add
+
 rm <path>                        # 删除条目并修剪变空的父目录
+rm-batch <path>...               # 批量删除：同样一次变更一步历史；预校验全部存在，任一缺失整批拒绝
 get <path>                       # 查看单条目全部字段
 query [--kw 关键词] [--tag 标签] [--rel-of 路径] [--json]   # 组合过滤；--rel-of 反查谁关联到我
 tag-add <名> -d "说明"           # 登记受控标签
@@ -32,6 +36,8 @@ undo / redo / history            # 撤销/重做最近的数据变更（默认�
 check [--strict]                 # 全量不变量校验（--strict 时告警也算失败）
 render                           # 重渲染 AGENTS.md 两个标记块（缺标记自动附加到尾部）
 ```
+
+**批量命令（add-batch / rm-batch）**：一份清单 = 一次数据变更 = 一步撤销历史，批量录入不再逐条挤兑撤销栈（默认各留 20 步）。**整批原子生效**：任一条非法（未知标签、路径冲突、字段类型错误、条目不存在等）整批拒绝，tree.json 与 AGENTS.md 保持原状。清单条目字段与单条 `add` 完全同语义（全可选、upsert 保留未给字段），但含未知字段或批内重复路径直接拒绝；`rel` 在整批应用后的最终树上统一校验，**批内条目互引合法**。`rm-batch` 额外预校验批内不得互为祖先-后代（删祖先已覆盖后代），逐条删除保留"修剪变空父目录"语义。
 
 **撤销历史（防误操作）**：每次数据变更前自动快照当前 tree.json 全量；undo 恢复后自动重渲染 AGENTS.md，新操作会截断 redo 分支（编辑器语义）。历史存放于 **git 私有区 `<gitdir>/file-tree/history.json`**——天然不被 git 追踪、不入库、clone 不携带；判定以 `<gitdir>/HEAD` 存在为准（空 `.git` 目录不算仓库），且脚本绝不创建 `.git`；非 git 环境退化为技能目录本地文件 `.history.json`。**仓库初始化晚于技能使用时自动收敛**：加载按 git 私有区 → 旧位置顺序找历史（撤销栈不断裂），保存永远写 git 私有区并删除旧位置文件；check 对待收敛状态给出告警。历史基线是「上一次脚本操作前」，中途手改 tree.json 的内容会随回滚丢失（手改本就被禁止）。
 

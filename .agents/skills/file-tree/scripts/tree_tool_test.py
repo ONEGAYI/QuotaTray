@@ -18,7 +18,9 @@ from tree_tool import (  # noqa: E402
     ToolError,
     TreeTool,
     _cmd_add,
+    _cmd_add_batch,
     _cmd_query,
+    _cmd_rm_batch,
     default_history_path,
     normalize_data,
     replace_block,
@@ -765,6 +767,236 @@ class QueryTest(SandboxTest):
         tool = self.make_tool()
         with self.assertRaises(ToolError):
             tool.get("nope.rs")
+
+
+class AddBatchTest(SandboxTest):
+    """add-batch：批量 upsert 一次变更一步历史，任一条非法整批拒绝，不变量校验照常。"""
+
+    def entries_basic(self) -> list[dict]:
+        return [
+            {"path": "apps/new.ts", "desc": "新页面", "detail": ["路由与视图"], "tags": ["pure"]},
+            {"path": "docs/guide.md", "desc": "指南"},
+            {"path": "lib.rs", "desc": "库根", "detail": ["公共 API"]},
+        ]
+
+    def test_writes_all_entries_with_auto_parents(self):
+        tool = self.make_tool()
+        n = tool.add_batch(self.entries_basic())
+        self.assertEqual(n, 3)
+        node = tool.get("apps/new.ts")
+        self.assertEqual(node["desc"], "新页面")
+        self.assertEqual(node["tags"], ["pure"])
+        self.assertEqual(tool.get("docs/guide.md")["desc"], "指南")
+        self.assertEqual(tool.get("lib.rs")["detail"], ["公共 API"])
+        self.assertIn("guide.md", tool.load()["tree"]["docs"]["children"])
+
+    def test_single_history_step_undo_rolls_back_all(self):
+        tool = self.make_tool()
+        tool.add_batch(self.entries_basic())
+        undo, redo = tool.history_summary()
+        self.assertEqual(len(undo), 1)
+        self.assertIn("add-batch", undo[0])
+        self.assertEqual(redo, [])
+        tool.undo()
+        data = tool.load()
+        self.assertNotIn("lib.rs", data["tree"])
+        self.assertNotIn("docs", data["tree"])
+        self.assertNotIn("new.ts", data["tree"]["apps"]["children"])
+
+    def test_upsert_keeps_untouched_fields(self):
+        tool = self.make_tool()
+        tool.add_batch([{"path": "apps/util.ts", "desc": "工具集"}])
+        node = tool.get("apps/util.ts")
+        self.assertEqual(node["desc"], "工具集")
+        self.assertEqual(node["detail"], ["纯函数工具集"])
+        self.assertEqual(node["tags"], ["pure"])
+
+    def test_internal_rel_between_batch_entries(self):
+        tool = self.make_tool()
+        tool.add_batch([
+            {"path": "apps/a.ts", "desc": "甲", "rel": ["apps/b.ts"]},
+            {"path": "apps/b.ts", "desc": "乙", "rel": ["apps/a.ts"]},
+        ])
+        self.assertEqual(tool.get("apps/a.ts")["rel"], ["apps/b.ts"])
+        self.assertEqual(tool.get("apps/b.ts")["rel"], ["apps/a.ts"])
+
+    def test_atomic_reject_unknown_tag(self):
+        tool = self.make_tool()
+        before = tool.tree_json.read_text(encoding="utf-8")
+        with self.assertRaises(ToolError):
+            tool.add_batch([
+                {"path": "apps/ok.ts", "desc": "没问题"},
+                {"path": "apps/bad.ts", "desc": "坏标签", "tags": ["ghost"]},
+            ])
+        self.assertEqual(tool.tree_json.read_text(encoding="utf-8"), before)
+        undo, _ = tool.history_summary()
+        self.assertEqual(undo, [])
+
+    def test_atomic_reject_mid_path_conflict(self):
+        tool = self.make_tool()
+        before = tool.tree_json.read_text(encoding="utf-8")
+        with self.assertRaises(ToolError):
+            tool.add_batch([
+                {"path": "apps/x.ts", "desc": "文件"},
+                {"path": "apps/x.ts/child.rs", "desc": "路径中段冲突"},
+            ])
+        self.assertEqual(tool.tree_json.read_text(encoding="utf-8"), before)
+
+    def test_atomic_reject_rel_missing_target(self):
+        tool = self.make_tool()
+        before = tool.tree_json.read_text(encoding="utf-8")
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "apps/c.ts", "desc": "丙", "rel": ["not/in/tree.rs"]}])
+        self.assertEqual(tool.tree_json.read_text(encoding="utf-8"), before)
+
+    def test_reject_rel_self_reference(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "apps/d.ts", "desc": "丁", "rel": ["apps/d.ts"]}])
+
+    def test_reject_duplicate_paths_in_batch(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([
+                {"path": "apps/e.ts", "desc": "一"},
+                {"path": "apps/e.ts", "desc": "二"},
+            ])
+
+    def test_reject_unknown_entry_field(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "a.ts", "desc": "x", "typo_field": 1}])
+
+    def test_reject_bad_field_types(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": 123, "desc": "x"}])
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "a.ts", "desc": "x", "detail": "不是数组"}])
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "a.ts", "desc": "x", "tags": ["pure", 1]}])
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "a.ts", "desc": "x", "collapsed": "yes"}])
+
+    def test_dir_entry_with_collapsed(self):
+        tool = self.make_tool()
+        tool.add_batch([{"path": "assets/icons", "desc": "图标集", "dir": True, "collapsed": True}])
+        node = tool.get("assets/icons")
+        self.assertEqual(node["children"], {})
+        self.assertTrue(node["collapsed"])
+
+    def test_collapsed_on_file_rejected(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "apps/f.ts", "desc": "x", "collapsed": True}])
+
+    def test_empty_entries_rejected(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([])
+
+
+class RmBatchTest(SandboxTest):
+    """rm-batch：批量删除一次变更一步历史，原子生效，修剪变空父目录语义保留。"""
+
+    def test_removes_all_and_prunes_emptied_roots(self):
+        tool = self.make_tool()
+        tool.add_batch([
+            {"path": "tmp/a.rs", "desc": "临时"},
+            {"path": "tmp/b.rs", "desc": "临时"},
+            {"path": "tmp/sub/c.rs", "desc": "临时"},
+        ])
+        n = tool.rm_batch(["tmp/a.rs", "tmp/sub/c.rs", "tmp/b.rs"])
+        self.assertEqual(n, 3)
+        self.assertNotIn("tmp", tool.load()["tree"])
+
+    def test_single_history_step_undo_restores_all(self):
+        tool = self.make_tool()
+        tool.rm_batch(["apps/main.tsx", "Cargo.toml"])
+        undo, _ = tool.history_summary()
+        self.assertEqual(len(undo), 1)
+        self.assertIn("rm-batch", undo[0])
+        tool.undo()
+        data = tool.load()
+        self.assertIn("main.tsx", data["tree"]["apps"]["children"])
+        self.assertIn("Cargo.toml", data["tree"])
+
+    def test_parent_kept_when_sibling_remains(self):
+        tool = self.make_tool()
+        tool.rm_batch(["apps/util.ts"])
+        self.assertIn("main.tsx", tool.load()["tree"]["apps"]["children"])
+
+    def test_atomic_reject_missing_entry(self):
+        tool = self.make_tool()
+        before = tool.tree_json.read_text(encoding="utf-8")
+        with self.assertRaises(ToolError):
+            tool.rm_batch(["apps/main.tsx", "no/such.rs"])
+        self.assertEqual(tool.tree_json.read_text(encoding="utf-8"), before)
+        undo, _ = tool.history_summary()
+        self.assertEqual(undo, [])
+
+    def test_reject_duplicate_paths(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.rm_batch(["apps/util.ts", "apps/util.ts"])
+
+    def test_reject_ancestor_descendant_mix(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.rm_batch(["apps", "apps/main.tsx"])
+
+
+class CmdBatchTest(SandboxTest):
+    """CLI 层：add-batch 清单读取/解析契约，rm-batch 参数直通。"""
+
+    def write_manifest(self, tool: TreeTool, obj) -> str:
+        path = tool.tree_json.parent / "batch.json"
+        path.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_cmd_add_batch_reads_manifest_and_renders(self):
+        import types
+
+        tool = self.make_tool()
+        manifest = self.write_manifest(tool, {"entries": [{"path": "apps/cli.ts", "desc": "CLI"}]})
+        _cmd_add_batch(tool, types.SimpleNamespace(manifest=manifest))
+        self.assertEqual(tool.get("apps/cli.ts")["desc"], "CLI")
+        self.assertIn("cli.ts", tool.agents_md.read_text(encoding="utf-8"))
+
+    def test_cmd_add_batch_missing_file(self):
+        import types
+
+        tool = self.make_tool()
+        args = types.SimpleNamespace(manifest=str(tool.tree_json.parent / "nope.json"))
+        with self.assertRaises(ToolError):
+            _cmd_add_batch(tool, args)
+
+    def test_cmd_add_batch_rejects_non_object_and_bad_entries(self):
+        import types
+
+        tool = self.make_tool()
+        for obj in ([], {}, {"no_entries": []}, {"entries": "x"}):
+            manifest = self.write_manifest(tool, obj)
+            with self.assertRaises(ToolError):
+                _cmd_add_batch(tool, types.SimpleNamespace(manifest=manifest))
+
+    def test_cmd_add_batch_rejects_bad_json(self):
+        import types
+
+        tool = self.make_tool()
+        path = tool.tree_json.parent / "batch.json"
+        path.write_text("{不是JSON", encoding="utf-8")
+        with self.assertRaises(ToolError):
+            _cmd_add_batch(tool, types.SimpleNamespace(manifest=str(path)))
+
+    def test_cmd_rm_batch_passes_paths(self):
+        import types
+
+        tool = self.make_tool()
+        _cmd_rm_batch(tool, types.SimpleNamespace(paths=["apps/main.tsx", "Cargo.toml"]))
+        data = tool.load()
+        self.assertEqual(data["tree"]["apps"]["children"], {"util.ts": data["tree"]["apps"]["children"]["util.ts"]})
+        self.assertNotIn("Cargo.toml", data["tree"])
 
 
 class SelfHostTest(unittest.TestCase):
