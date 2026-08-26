@@ -392,20 +392,13 @@ class TreeTool:
             node = child
         return parts, node
 
-    def add(self, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> None:
-        data = self.load()
+    def _apply_add(self, data, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> None:
+        """在内存 data 上应用单条 add 的校验与变换（不校验 rel、不落盘）。"""
         vocab = set(data.get("tags", {}))
         if tags:
             unknown = [t for t in tags if t not in vocab]
             if unknown:
                 raise ToolError(f"未知标签 {unknown}，先 tag-add 登记再使用")
-        if rel:
-            for r in rel:
-                parts_r = split_rel_path(r)
-                if parts_r == split_rel_path(path):
-                    raise ToolError(f"rel 不能指向自身: {path}")
-                if _find_node(data["tree"], parts_r) is None:
-                    raise ToolError(f"rel 目标不在树中（先 add 目标或修正路径）: {r}")
         parts, parent = self._resolve_for_write(data, path)
         name = parts[-1]
         node = parent["children"].get(name)
@@ -419,7 +412,8 @@ class TreeTool:
         if detail is not None:
             node["detail"] = [d for d in detail if d]
         if rel is not None:
-            node["rel"] = list(rel)
+            # 统一规范为正斜杠形式落盘，与 check 的精确字符串比较收敛（非规范分隔符不再漏过）
+            node["rel"] = ["/".join(split_rel_path(r)) for r in rel]
         if tags is not None:
             node["tags"] = list(tags)
         if collapsed is not None:
@@ -434,25 +428,136 @@ class TreeTool:
                 node["hidden"] = True
             else:
                 node.pop("hidden", None)
+
+    def _validate_rel(self, data, path, rel) -> None:
+        """rel 引用校验：不为空串、不指自身、目标必须在树中。批量在整批应用后统一调用，批内互引合法。"""
+        for r in rel:
+            if not r:
+                raise ToolError(f"rel 不能为空串: {path}")
+            parts_r = split_rel_path(r)
+            if parts_r == split_rel_path(path):
+                raise ToolError(f"rel 不能指向自身: {path}")
+            if _find_node(data["tree"], parts_r) is None:
+                raise ToolError(f"rel 目标不在树中（先 add 目标或修正路径）: {r}")
+
+    def add(self, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> None:
+        data = self.load()
+        if rel:
+            self._validate_rel(data, path, rel)
+        self._apply_add(data, path, desc=desc, detail=detail, rel=rel, tags=tags,
+                        is_dir_entry=is_dir_entry, collapsed=collapsed, hidden=hidden)
         self._record_undo(f"add {path}")
         self.write_data(data)
 
-    def rm(self, path) -> None:
-        parts = split_rel_path(path)
-        data = self.load()
+    def _remove_entry(self, data, parts, path=None) -> None:
+        """删除 parts 指向的条目并修剪变空的父目录链（根不删），不落盘。"""
         parent = _find_node(data["tree"], parts[:-1])  # parts[:-1]==[] 时返回根包装
         if parent is None or not is_dir(parent) or parts[-1] not in parent["children"]:
-            raise ToolError(f"条目不存在: {path}")
+            raise ToolError(f"条目不存在: {path or '/'.join(parts)}")
         del parent["children"][parts[-1]]
-        # 仅沿本路径修剪变空的父目录（根不删）
         nodes: list[dict] = [{"children": data["tree"]}]
         for part in parts[:-1]:
             nodes.append(nodes[-1]["children"][part])
         for i in range(len(nodes) - 1, 0, -1):
             if not nodes[i]["children"]:
                 del nodes[i - 1]["children"][parts[i - 1]]
+
+    def rm(self, path) -> None:
+        parts = split_rel_path(path)
+        data = self.load()
+        self._remove_entry(data, parts, path)
         self._record_undo(f"rm {path}")
         self.write_data(data)
+
+    # ---------- 批量（一次变更 = 一步历史，整批原子生效） ----------
+
+    BATCH_ENTRY_FIELDS = frozenset({"path", "desc", "detail", "rel", "tags", "dir", "collapsed", "hidden"})
+
+    def _normalize_batch_entry(self, idx: int, entry) -> dict:
+        """清单条目 → _apply_add 参数：字段全可选（语义同单条 add），类型不符即拒绝。"""
+        if not isinstance(entry, dict):
+            raise ToolError(f"add-batch 第 {idx} 条不是对象: {entry!r}")
+        unknown = [k for k in entry if k not in self.BATCH_ENTRY_FIELDS]
+        if unknown:
+            raise ToolError(f"add-batch 条目含未知字段 {unknown}: {entry.get('path')!r}")
+        path = entry.get("path")
+        if not isinstance(path, str) or not path:
+            raise ToolError(f"add-batch 第 {idx} 条 path 缺失或非字符串")
+
+        def opt_list(field: str):
+            val = entry.get(field)
+            if val is None:
+                return None
+            if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+                raise ToolError(f"add-batch 条目 {path} 的 {field} 须为字符串数组")
+            return val
+
+        desc = entry.get("desc")
+        if desc is not None and not isinstance(desc, str):
+            raise ToolError(f"add-batch 条目 {path} 的 desc 须为字符串")
+        is_dir_entry = entry.get("dir")
+        if is_dir_entry is None:  # 显式 null 与缺省同义（与 collapsed/hidden 一致）
+            is_dir_entry = False
+        if not isinstance(is_dir_entry, bool):
+            raise ToolError(f"add-batch 条目 {path} 的 dir 须为布尔")
+        spec = {"path": path, "desc": desc, "detail": opt_list("detail"), "rel": opt_list("rel"),
+                "tags": opt_list("tags"), "is_dir_entry": is_dir_entry,
+                "collapsed": None, "hidden": None}
+        for field in ("collapsed", "hidden"):
+            val = entry.get(field)
+            if val is not None and not isinstance(val, bool):
+                raise ToolError(f"add-batch 条目 {path} 的 {field} 须为布尔")
+            spec[field] = val
+        return spec
+
+    def add_batch(self, entries) -> int:
+        """批量 upsert：内存上应用全部条目后一次快照、一次落盘；任一条非法整批拒绝（原子）。"""
+        if not isinstance(entries, list) or not entries:
+            raise ToolError("add-batch 清单须为非空 entries 数组")
+        specs = [self._normalize_batch_entry(i + 1, e) for i, e in enumerate(entries)]
+        seen: set[str] = set()
+        for spec in specs:  # 判重用归一化路径（与 rm_batch 一致）：反斜杠/双斜杠变体同判
+            key = "/".join(split_rel_path(spec["path"]))
+            if key in seen:
+                raise ToolError(f"批内重复路径: {spec['path']}")
+            seen.add(key)
+        data = self.load()
+        for spec in specs:
+            self._apply_add(data, **spec)
+        # rel 在最终树上统一校验：批内条目互引合法（check 的 rel 不变量同样在落盘前收口）
+        for spec in specs:
+            if spec["rel"]:
+                self._validate_rel(data, spec["path"], spec["rel"])
+        self._record_undo(f"add-batch {len(specs)} 条")
+        self.write_data(data)
+        return len(specs)
+
+    def rm_batch(self, paths) -> int:
+        """批量删除：预校验（全部存在、无重复、无祖先-后代包含）后统一删除，任一非法整批拒绝。"""
+        if not isinstance(paths, (list, tuple)) or not paths:
+            raise ToolError("rm-batch 至少需要一个路径")
+        for p in paths:
+            if not isinstance(p, str) or not p:
+                raise ToolError(f"rm-batch 路径非法: {p!r}")
+        joined = ["/".join(split_rel_path(p)) for p in paths]
+        if len(set(joined)) != len(joined):
+            dup = sorted({p for p in joined if joined.count(p) > 1})
+            raise ToolError(f"批内重复路径: {', '.join(dup)}")
+        for a in joined:
+            for b in joined:
+                if a != b and b.startswith(a + "/"):
+                    raise ToolError(f"批内路径互为祖先-后代（删祖先即覆盖后代）: {a} ⊃ {b}")
+        all_parts = [split_rel_path(p) for p in paths]
+        data = self.load()
+        for parts in all_parts:  # 预校验全部存在，避免删一半才发现缺失
+            parent = _find_node(data["tree"], parts[:-1])
+            if parent is None or not is_dir(parent) or parts[-1] not in parent["children"]:
+                raise ToolError(f"条目不存在: {'/'.join(parts)}")
+        for parts in all_parts:
+            self._remove_entry(data, parts)
+        self._record_undo(f"rm-batch {len(all_parts)} 条")
+        self.write_data(data)
+        return len(all_parts)
 
     # ---------- 词表 ----------
 
@@ -709,6 +814,29 @@ def _cmd_rm(tool: TreeTool, args) -> None:
     print(f"已删除并重渲染: {args.path}")
 
 
+def _cmd_add_batch(tool: TreeTool, args) -> None:
+    manifest = Path(args.manifest)
+    try:
+        raw = manifest.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"清单文件不可读: {manifest}（{exc}）")
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ToolError(f"清单 JSON 解析失败: {exc}")
+    if not isinstance(obj, dict) or not isinstance(obj.get("entries"), list):
+        raise ToolError('清单顶层须为对象且含 "entries" 数组，如 {"entries": [{"path": "a.ts", "desc": "简介"}]}')
+    n = tool.add_batch(obj["entries"])
+    tool.render()
+    print(f"已批量写入并重渲染: {n} 条（一次变更，单步历史）")
+
+
+def _cmd_rm_batch(tool: TreeTool, args) -> None:
+    n = tool.rm_batch(list(args.paths))
+    tool.render()
+    print(f"已批量删除并重渲染: {n} 条（一次变更，单步历史）")
+
+
 def _cmd_get(tool: TreeTool, args) -> None:
     node = tool.get(args.path)
     print(args.path)
@@ -836,8 +964,14 @@ def main(argv=None) -> int:
         help="隐藏渲染（简版树中条目及子树不出现），--no-hidden 取消",
     )
 
+    p = sub.add_parser("add-batch", help="批量新增/更新（JSON 清单）：一次变更单步历史，任一条非法整批拒绝")
+    p.add_argument("manifest", help='清单 JSON 路径，顶层为 {"entries": [{"path": "a.ts", "desc": "简介"}, ...]}')
+
     p = sub.add_parser("rm", help="删除条目并修剪空父目录")
     p.add_argument("path")
+
+    p = sub.add_parser("rm-batch", help="批量删除条目：一次变更单步历史，任一条不存在整批拒绝")
+    p.add_argument("paths", nargs="+", help="仓库相对路径，可多个")
 
     p = sub.add_parser("get", help="查看单个条目")
     p.add_argument("path")
@@ -875,7 +1009,9 @@ def main(argv=None) -> int:
     )
     handlers = {
         "add": _cmd_add,
+        "add-batch": _cmd_add_batch,
         "rm": _cmd_rm,
+        "rm-batch": _cmd_rm_batch,
         "get": _cmd_get,
         "query": _cmd_query,
         "tag-add": _cmd_tag_add,
