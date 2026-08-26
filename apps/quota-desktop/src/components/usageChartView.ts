@@ -38,6 +38,32 @@ export interface HistorySeries {
   samples: UsageSample[];
 }
 
+export type UsageDomain = [number, number];
+
+function clampUsageDomain(view: UsageDomain, total: UsageDomain): UsageDomain {
+  const span = Math.min(view[1] - view[0], total[1] - total[0]);
+  if (view[0] < total[0]) return [total[0], total[0] + span];
+  if (view[1] > total[1]) return [total[1] - span, total[1]];
+  return view;
+}
+
+/**
+ * 最近时间窗推进时：正在看实时边缘则保持缩放跨度并跟随；用户已平移到
+ * 历史区间则保留绝对位置，只在其滑出保留期时做最小钳制。
+ */
+export function advanceUsageViewDomain(
+  view: UsageDomain,
+  previousTotal: UsageDomain,
+  nextTotal: UsageDomain,
+): UsageDomain {
+  const atLiveEdge = Math.abs(view[1] - previousTotal[1]) <= 1;
+  if (atLiveEdge) {
+    const span = view[1] - view[0];
+    return clampUsageDomain([nextTotal[1] - span, nextTotal[1]], nextTotal);
+  }
+  return clampUsageDomain(view, nextTotal);
+}
+
 export function historyPointValue(
   point: HistoryPoint,
 ): { metric: UsageMetricType; value: number; unit: string } | null {
@@ -99,9 +125,12 @@ export function buildHistorySeries(
   return series;
 }
 
-/** 普通滚轮归外层页面；仅显式按住 Ctrl（含触控板捏合映射）时缩放图表。 */
-export function shouldZoomUsageChart(event: { ctrlKey: boolean }): boolean {
-  return event.ctrlKey;
+/** 普通滚轮与轴标签区归外层页面；仅绘图区 Ctrl+滚轮（含捏合）缩放。 */
+export function shouldZoomUsageChart(
+  event: { ctrlKey: boolean },
+  insidePlot: boolean,
+): boolean {
+  return event.ctrlKey && insidePlot;
 }
 
 /**

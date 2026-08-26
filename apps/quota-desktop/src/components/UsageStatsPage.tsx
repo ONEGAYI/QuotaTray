@@ -13,6 +13,7 @@ import { useHistory } from "../queries";
 import type { ProviderEntry } from "../types";
 import { Button } from "./ui";
 import {
+  advanceUsageViewDomain,
   buildHistorySeries,
   buildLineGeometry,
   niceAbsoluteScale,
@@ -85,22 +86,36 @@ function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string 
 
 export function UsageStatsPage({ providers, providersLoading, providersError }: Props) {
   const { lang, t } = useLang();
-  const [rangeAnchor] = useState(() => Date.now());
+  const [rangeNow, setRangeNow] = useState(() => Date.now());
   const totalDomain = useMemo<[number, number]>(
-    () => [rangeAnchor - HISTORY_SPAN_MS, rangeAnchor],
-    [rangeAnchor],
+    () => [rangeNow - HISTORY_SPAN_MS, rangeNow],
+    [rangeNow],
   );
   const [providerId, setProviderId] = useState("");
   const [scopeId, setScopeId] = useState("");
   const [viewDomain, setViewDomain] = useState<[number, number]>(totalDomain);
   const [hover, setHover] = useState<HoverState>(null);
   const [chartHovered, setChartHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  const previousTotalRef = useRef(totalDomain);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
     domain: [number, number];
   } | null>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRangeNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const previousTotal = previousTotalRef.current;
+    if (previousTotal[0] === totalDomain[0] && previousTotal[1] === totalDomain[1]) return;
+    setViewDomain((view) => advanceUsageViewDomain(view, previousTotal, totalDomain));
+    previousTotalRef.current = totalDomain;
+  }, [totalDomain]);
 
   useEffect(() => {
     if (providers.length === 0) {
@@ -115,15 +130,27 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
   }, [providerId, providers, totalDomain]);
 
   const provider = providers.find((item) => item.id === providerId);
-  const history = useHistory(providerId, totalDomain[0]);
+  const history = useHistory(providerId, HISTORY_SPAN_MS);
+  useEffect(() => {
+    const newest = (history.data ?? []).reduce(
+      (latest, point) => Math.max(latest, point.sampled_at),
+      0,
+    );
+    if (newest > rangeNow) setRangeNow(newest);
+  }, [history.data, rangeNow]);
   const scopes = useMemo<UsageScope[]>(
-    () => buildHistorySeries(history.data ?? [], HISTORY_BUCKET_MS).map((series, index) => ({
+    () => buildHistorySeries(
+      (history.data ?? []).filter((point) => (
+        point.sampled_at >= totalDomain[0] && point.sampled_at <= totalDomain[1]
+      )),
+      HISTORY_BUCKET_MS,
+    ).map((series, index) => ({
       ...series,
       name: scopeName(series.windowKey, index, lang),
       color: SERIES_COLORS[index % SERIES_COLORS.length],
       bucketMs: HISTORY_BUCKET_MS,
     })),
-    [history.data, lang],
+    [history.data, lang, totalDomain],
   );
 
   useEffect(() => {
@@ -173,6 +200,8 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
   });
 
   const selectProvider = (nextProviderId: string) => {
+    dragRef.current = null;
+    setIsDragging(false);
     setProviderId(nextProviderId);
     setScopeId("");
     setViewDomain(totalDomain);
@@ -180,6 +209,8 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
   };
 
   const selectScope = (nextScopeId: string) => {
+    dragRef.current = null;
+    setIsDragging(false);
     setScopeId(nextScopeId);
     setViewDomain(totalDomain);
     setHover(null);
@@ -230,6 +261,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
     const point = svgPoint(event.clientX, event.clientY);
     if (point.x < CHART.left || point.x > CHART.right || point.y < CHART.top || point.y > CHART.bottom) return;
     dragRef.current = { pointerId: event.pointerId, startX: point.x, domain: viewDomain };
+    setIsDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -254,17 +286,20 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
   const endPointer = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (dragRef.current?.pointerId !== event.pointerId) return;
     dragRef.current = null;
+    setIsDragging(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (!scope || !shouldZoomUsageChart(event)) return;
+    if (!scope) return;
+    const point = svgPoint(event.clientX, event.clientY);
+    const insidePlot = point.x >= CHART.left && point.x <= CHART.right
+      && point.y >= CHART.top && point.y <= CHART.bottom;
+    if (!shouldZoomUsageChart(event, insidePlot)) return;
     event.preventDefault();
     event.stopPropagation();
-    const point = svgPoint(event.clientX, event.clientY);
-    if (point.x < CHART.left || point.x > CHART.right) return;
     const totalSpan = totalDomain[1] - totalDomain[0];
     const currentSpan = viewDomain[1] - viewDomain[0];
     const minSpan = Math.max(scope.bucketMs * 4, totalSpan * 0.08);
@@ -363,7 +398,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
           </header>
 
           <div
-            className={`qt-usage-chart-wrap ${chartHovered ? "is-hovered" : ""} ${dragRef.current ? "is-dragging" : ""}`}
+            className={`qt-usage-chart-wrap ${chartHovered ? "is-hovered" : ""} ${isDragging ? "is-dragging" : ""}`}
             onWheelCapture={onWheel}
           >
             <svg
@@ -375,7 +410,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
               onPointerEnter={() => setChartHovered(true)}
               onPointerLeave={() => {
                 setChartHovered(false);
-                if (!dragRef.current) setHover(null);
+                if (!isDragging) setHover(null);
               }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}

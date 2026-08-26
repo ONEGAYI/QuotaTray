@@ -92,8 +92,12 @@ export function useProviderState(id: string, enabled: boolean) {
   });
 }
 
+export function historyFromNow(spanMs: number, nowMs: number = Date.now()): number {
+  return Math.max(0, nowMs - spanMs);
+}
+
 /** 单条 Provider 的本地历史；成功查询事件到达后立即刷新新落库点。 */
-export function useHistory(id: string, fromMs: number) {
+export function useHistory(id: string, spanMs: number) {
   const qc = useQueryClient();
   useEffect(() => {
     if (!id) return;
@@ -111,8 +115,8 @@ export function useHistory(id: string, fromMs: number) {
   }, [id, qc]);
 
   return useQuery({
-    queryKey: ["history", id, fromMs],
-    queryFn: () => api.getHistory(id, fromMs),
+    queryKey: ["history", id, spanMs],
+    queryFn: () => api.getHistory(id, historyFromNow(spanMs)),
     enabled: id.length > 0,
     staleTime: 60_000,
   });

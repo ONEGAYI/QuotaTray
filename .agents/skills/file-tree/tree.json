@@ -853,7 +853,7 @@
                       "kind": "file",
                       "desc": "统计图表逻辑测试",
                       "detail": [
-                        "覆盖真实历史分组/桶聚合/左右轴语义、连续/短缺失/长缺失分段、绝对值标尺、拟合路径和 Ctrl+滚轮契约"
+                        "覆盖历史分组/桶聚合/分轴语义、缺失分段、标尺与拟合、实时跟随/历史保留视窗及绘图区 Ctrl+滚轮契约"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.ts"
@@ -866,7 +866,7 @@
                       "kind": "file",
                       "desc": "统计图表纯逻辑",
                       "detail": [
-                        "HistoryPoint 按 Scope/小时桶构造可绘制序列并沿用卡片用量语义；采样分段、整洁刻度、限幅单调三次 Hermite 路径与滚轮手势分流"
+                        "HistoryPoint 按 Scope/小时桶构造序列；采样分段、整洁刻度、单调三次 Hermite 路径、实时/历史视窗推进和绘图区滚轮手势分流"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.test.ts",
@@ -880,7 +880,7 @@
                       "kind": "file",
                       "desc": "使用统计趋势页",
                       "detail": [
-                        "真实 Provider + SQLite 历史驱动的双轴 SVG 趋势图：最近 7 天/1h 桶、Scope 自动生成、百分比/绝对值自动分轴、分段拟合、真实缺失留白、点/空缺 Tooltip、Ctrl+滚轮缩放与拖拽平移"
+                        "真实 Provider + SQLite 历史驱动的双轴 SVG 趋势图：滚动最近 7 天/1h 桶、实时边缘跟随且历史观察视窗保留、Scope/分轴/分段拟合/缺失留白/Tooltip、拖拽与绘图区 Ctrl+滚轮缩放"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/queries.ts"
@@ -989,7 +989,7 @@
                   "kind": "file",
                   "desc": "queries hooks 测试",
                   "detail": [
-                    "轮询/失效/快照 hooks 的 Vitest 契约测试"
+                    "缓存精确/全量失效、显示设置隔离与滚动历史下界计算的 Vitest 契约"
                   ],
                   "rel": [
                     "apps/quota-desktop/src/queries.ts"
@@ -1002,7 +1002,7 @@
                   "kind": "file",
                   "desc": "React Query hooks",
                   "detail": [
-                    "React Query hooks：Provider 轮询、真实历史读取与成功查询事件失效、快照/refresh-now/自动更新事件、Provider 精确/全量缓存失效、峰谷翻转 tick"
+                    "React Query hooks：Provider 轮询、按当前时间读取滚动历史并响应成功查询事件失效、快照/更新/Provider 缓存失效与峰谷 tick"
                   ]
                 },
                 "theme.tsx": {
@@ -1763,7 +1763,7 @@
               "kind": "file",
               "desc": "历史存储规格（M5）",
               "detail": [
-                "历史存储规格（M5）：数据模型/清理与迁移、迁移容器 v2、CLI 命令、M5-b get_history IPC 与 GUI 最近 7 天趋势口径"
+                "历史存储规格（M5）：数据模型/迁移、CLI、get_history IPC、GUI 滚动最近 7 天与实时/历史视窗语义"
               ]
             }
           }

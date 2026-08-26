@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceUsageViewDomain,
   buildLineGeometry,
   buildHistorySeries,
   historyPointValue,
@@ -63,9 +64,19 @@ describe("使用统计图表纯逻辑", () => {
     expect(buildLineGeometry([point(3, 7)], () => 18, () => 24).path).toBe("");
   });
 
-  it("普通滚轮留给页面滚动，仅 Ctrl+滚轮进入图表缩放", () => {
-    expect(shouldZoomUsageChart({ ctrlKey: false })).toBe(false);
-    expect(shouldZoomUsageChart({ ctrlKey: true })).toBe(true);
+  it("普通滚轮和非绘图区 Ctrl+滚轮留给页面，仅绘图区 Ctrl+滚轮缩放", () => {
+    expect(shouldZoomUsageChart({ ctrlKey: false }, true)).toBe(false);
+    expect(shouldZoomUsageChart({ ctrlKey: true }, false)).toBe(false);
+    expect(shouldZoomUsageChart({ ctrlKey: true }, true)).toBe(true);
+  });
+
+  it("时间窗前进时跟随实时边缘，同时保留用户正在查看的历史区间", () => {
+    const previousTotal: [number, number] = [0, 100];
+    const nextTotal: [number, number] = [10, 110];
+
+    expect(advanceUsageViewDomain([50, 100], previousTotal, nextTotal)).toEqual([60, 110]);
+    expect(advanceUsageViewDomain([20, 60], previousTotal, nextTotal)).toEqual([20, 60]);
+    expect(advanceUsageViewDomain([0, 30], previousTotal, nextTotal)).toEqual([10, 40]);
   });
 
   it("真实历史点按 Scope 与小时桶分组，桶内保留最后一点", () => {
