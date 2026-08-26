@@ -6,6 +6,7 @@ import type {
   ProviderEntry,
   QueryOutcome,
   Settings,
+  SettingsPatch,
   SnapshotEntry,
   UpdateStateDto,
 } from "./types";
@@ -50,6 +51,9 @@ export const api = {
     invoke("get_history", { id, fromMs }),
   getSettings: (): Promise<Settings> => invoke("get_settings"),
   saveSettings: (settings: Settings): Promise<void> => invoke("save_settings", { settings }),
+  /** 局部更新设置：后端读现值合并 patch，避免前端缓存全量回写。 */
+  patchSettings: (patch: SettingsPatch): Promise<void> =>
+    invoke("patch_settings", { patch }),
   /** 将完整配置导出到系统保存对话框选定的路径。 */
   exportConfiguration: (path: string): Promise<void> =>
     invoke("export_configuration", { path }),

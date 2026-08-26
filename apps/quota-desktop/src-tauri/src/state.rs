@@ -146,6 +146,42 @@ pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpErro
     Ok(())
 }
 
+/// 代理端口磁盘对账自愈：内存端口为空时读磁盘 settings 比对，磁盘有
+/// 端口（典型成因：启动加载抖动回退了默认值）则整体以磁盘同步内存并
+/// 热重建引擎。返回 true = 已修复。
+///
+/// 窄触发设计：内存端口非空直接返回（一次读锁，零磁盘开销），只在
+/// "将要产生『未配置代理端口』确定性错误"的脱节状态才触碰磁盘——
+/// 正常态永不覆盖内存，避免与用户刚保存的设置竞争。
+/// rebuild 失败时回滚内存（get_settings 与引擎保持一致）并返回 false。
+pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
+    if state.settings.read().unwrap().update_proxy_port.is_some() {
+        return false;
+    }
+    let disk = Settings::load(&state.paths.settings());
+    if disk.update_proxy_port.is_none() {
+        return false;
+    }
+    let prev = state.settings.read().unwrap().clone();
+    // 先同步内存再 rebuild（rebuild_engine 读内存端口装配代理通道）
+    *state.settings.write().unwrap() = disk;
+    if let Err(e) = rebuild_engine(state) {
+        eprintln!("代理端口对账后重建查询引擎失败，回滚内存设置：{e}");
+        *state.settings.write().unwrap() = prev;
+        return false;
+    }
+    eprintln!(
+        "代理端口对账自愈：磁盘端口 {} 已同步进运行态并重建查询引擎",
+        state
+            .settings
+            .read()
+            .unwrap()
+            .update_proxy_port
+            .unwrap_or_default()
+    );
+    true
+}
+
 /// 按代理端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
 /// 全局网络代理端口时装配（条目 use_proxy 决定路由，未配端口而条目
 /// 开代理 → 引擎路由层确定性引导）。
@@ -240,5 +276,89 @@ mod tests {
             default.config().ends_with(".quotatray\\config.json")
                 || default.config().ends_with(".quotatray/config.json")
         );
+    }
+
+    /// 手工组装最小 AppState（AppState 依赖 keyring，测试绕开生产构造；
+    /// 与 update_ctl 测试的 sandbox_state 同款）。
+    fn sandbox_state(dir: &std::path::Path) -> AppState {
+        let paths = DataPaths::new(Some(dir.to_path_buf())).unwrap();
+        let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
+        let engine = quota_core::QueryEngine::with_default_client().unwrap();
+        AppState {
+            engine: std::sync::RwLock::new(engine),
+            vault,
+            paths,
+            settings: RwLock::new(Settings::default()),
+            results: RwLock::new(HashMap::new()),
+            resolved_theme: RwLock::new(false),
+            update_ctl: RwLock::new(crate::update_ctl::UpdateCtlState::default()),
+            last_peak: RwLock::new(HashMap::new()),
+            history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
+        }
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qt-reconcile-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 契约：内存端口为空而磁盘有端口（启动加载抖动丢字段）→ 同步内存
+    /// 并重建引擎，返回 true。
+    #[test]
+    fn reconcile_recovers_port_from_disk() {
+        let dir = temp_dir("recover");
+        let state = sandbox_state(&dir);
+        Settings {
+            update_proxy_port: Some(7897),
+            ..Settings::default()
+        }
+        .save(&state.paths.settings())
+        .unwrap();
+
+        assert!(reconcile_proxy_from_disk(&state), "脱节状态应修复");
+        assert_eq!(
+            state.settings.read().unwrap().update_proxy_port,
+            Some(7897),
+            "内存端口已从磁盘同步"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：内存端口非空（正常态）不触盘不改动——磁盘端口与内存不同
+    /// 也不覆盖，避免与用户刚保存的设置竞争。
+    #[test]
+    fn reconcile_noop_when_memory_has_port() {
+        let dir = temp_dir("noop");
+        let state = sandbox_state(&dir);
+        *state.settings.write().unwrap() = Settings {
+            update_proxy_port: Some(1080),
+            ..Settings::default()
+        };
+        Settings {
+            update_proxy_port: Some(7897),
+            ..Settings::default()
+        }
+        .save(&state.paths.settings())
+        .unwrap();
+
+        assert!(!reconcile_proxy_from_disk(&state));
+        assert_eq!(
+            state.settings.read().unwrap().update_proxy_port,
+            Some(1080),
+            "正常态内存不被磁盘覆盖"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：内存与磁盘都无端口（用户确实没配）→ 不动，返回 false。
+    #[test]
+    fn reconcile_noop_when_disk_also_empty() {
+        let dir = temp_dir("both-empty");
+        let state = sandbox_state(&dir);
+
+        assert!(!reconcile_proxy_from_disk(&state));
+        assert_eq!(state.settings.read().unwrap().update_proxy_port, None);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

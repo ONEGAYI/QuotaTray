@@ -73,11 +73,25 @@ pub fn load_prefs(config_path: &Path) -> UpdatePrefs {
 
 /// 写回 `update_last_check`（Value 读改写保留未知字段 + 原子写）。
 /// 文件不存在时新建仅含该字段的对象（桌面端加载时其余字段走默认）。
+///
+/// 读失败（非不存在）或内容损坏时**跳过写回**：从空对象重建再全量落盘
+/// 会把 GUI 写入的其余设置（代理端口、主题等）整个抹掉；节流时间戳
+/// 少记一次只导致下次多检一遍更新，无害。
 pub fn write_last_check(config_path: &Path, now_ms: u64) -> std::io::Result<()> {
     let p = settings_path(config_path);
     let mut root: serde_json::Value = match std::fs::read_to_string(&p) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
-        Err(_) => serde_json::json!({}),
+        Ok(s) => match serde_json::from_str(&s) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("settings.json 解析失败，跳过节流时间戳写回（保留原文件）：{e}");
+                return Ok(());
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => {
+            eprintln!("settings.json 读取失败，跳过节流时间戳写回（保留原文件）：{e}");
+            return Ok(());
+        }
     };
     // 合法 JSON 但非对象（如历史遗留数组）→ 重建为对象
     if !root.is_object() {
@@ -198,6 +212,38 @@ mod tests {
             .filter(|e| e.path().extension().is_some_and(|x| x == "tmp"))
             .collect();
         assert!(tmps.is_empty(), "不留 tmp 残留");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：settings.json 损坏时跳过写回——原文件内容原样保留，
+    /// 不得用空对象重建把 GUI 写入的其余设置抹掉。
+    #[test]
+    fn write_last_check_skips_on_corrupted_file() {
+        let dir = temp_dir("skip-corrupt");
+        let cfg = dir.join("config.json");
+        let corrupted = "{ not json";
+        std::fs::write(dir.join("settings.json"), corrupted).unwrap();
+
+        write_last_check(&cfg, 42).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json")).unwrap(),
+            corrupted,
+            "损坏文件原样保留，不重建为空壳"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：读取 IO 失败（非不存在）同样跳过写回——目录占位模拟
+    /// 文件锁定/权限类读错误，断言目录不被文件覆盖。
+    #[test]
+    fn write_last_check_skips_on_io_failure() {
+        let dir = temp_dir("skip-io");
+        let cfg = dir.join("config.json");
+        let blocker = dir.join("settings.json");
+        std::fs::create_dir_all(&blocker).unwrap();
+
+        write_last_check(&cfg, 42).unwrap();
+        assert!(blocker.is_dir(), "IO 失败时不产生覆盖写");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

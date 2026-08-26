@@ -76,6 +76,7 @@ pub fn run() {
             commands::get_history,
             commands::get_settings,
             commands::save_settings,
+            commands::patch_settings,
             commands::set_resolved_theme,
             commands::get_snapshots,
             commands::get_update_state,
