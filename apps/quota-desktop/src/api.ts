@@ -13,6 +13,9 @@ import type {
 
 export const api = {
   listProviders: (): Promise<ProviderEntry[]> => invoke("list_providers"),
+  /** 将用户预览过的无凭据 AI 诊断包写入指定路径。 */
+  writeAssistPackage: (path: string, contents: string): Promise<void> =>
+    invoke("write_assist_package", { path, contents }),
   upsertProvider: (
     entry: ProviderEntry,
     newApiKey: string | null,

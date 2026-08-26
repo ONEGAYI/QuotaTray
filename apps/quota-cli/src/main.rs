@@ -107,6 +107,9 @@ enum Command {
     /// 脚本工具
     #[command(subcommand)]
     Script(ScriptCmd),
+    /// 外部 Agent 调试工具（无凭据、无网络）
+    #[command(subcommand)]
+    Assist(AssistCmd),
     /// 凭据保险库
     #[command(subcommand)]
     Vault(VaultCmd),
@@ -138,6 +141,29 @@ enum Command {
         /// 平台访问被墙站点时的代理通道）
         #[arg(long)]
         proxy: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum AssistCmd {
+    /// 输出当前二进制支持的模板/脚本调试契约
+    Schema,
+    /// 静态校验纯配置或 .qtray-assist.json 诊断包
+    Validate {
+        #[arg(long, value_enum)]
+        mode: cmd::assist::AssistMode,
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+    },
+    /// 用脱敏响应样本离线验证取数逻辑
+    Simulate {
+        #[arg(long, value_enum)]
+        mode: cmd::assist::AssistMode,
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+        /// 响应 JSON；缺省时读取诊断包 responseSample
+        #[arg(long, value_name = "PATH")]
+        response: Option<PathBuf>,
     },
 }
 
@@ -337,6 +363,7 @@ async fn run(cli: Cli) -> i32 {
             | Command::Query { json: true, .. }
             | Command::Add { json: true }
             | Command::History(HistoryCmd::Show { json: true, .. })
+            | Command::Assist(_)
     );
     let is_update_cmd = matches!(&cli.command, Command::Update { .. });
 
@@ -379,6 +406,15 @@ async fn run(cli: Cli) -> i32 {
             json,
             base_url,
         }) => cmd::script::run(&ctx, entry, json, base_url).await,
+        Command::Assist(AssistCmd::Schema) => cmd::assist::run_schema(),
+        Command::Assist(AssistCmd::Validate { mode, input }) => {
+            cmd::assist::run_validate(mode, input)
+        }
+        Command::Assist(AssistCmd::Simulate {
+            mode,
+            input,
+            response,
+        }) => cmd::assist::run_simulate(mode, input, response),
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
         Command::History(HistoryCmd::Show {
             id,

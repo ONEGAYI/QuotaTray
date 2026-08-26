@@ -38,11 +38,13 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
    - template：二级子页（三选一下方的分段选单）——「运营商与模型」（名称 +
      base_url + key + 峰谷计价）与「设置模板」（预设模板按钮组：通用/单对象
      余额/站点可变/总额已用/多窗口 + CodeMirror JSON 编辑器 + 校验/试查 +
-     底部可展开的模板编写说明卡：变量与字段速查）
+     底部可展开的模板编写说明卡：变量与字段速查）+「AI」占位图标调试入口：
+     生成脱敏求助提示词、保存 `.qtray-assist.json` 诊断包、复制 CLI 调试指引；
+     提示外部 Agent 可联网搜索公开文档，但 QuotaTray 本身不提供 Agent
    - script（M4）：JS 编辑器（CodeMirror javascript 语言包）+ base_url +
      allowInsecure 开关（启用时显示明文 http 警告）+ key + 「校验」
      （调 validate_script，干跑）与「试查」（调 test_script，沙箱全链路）；
-     内置最小闭环默认示例
+     内置最小闭环默认示例；与 template 共用 AI 调试入口
 3. **设置**：常规页含自动刷新间隔、低额度提醒阈值、开机自启；更新页管理
    自动检测、下载安装包（存 `%TEMP%/QuotaTray/Downloads`）与下载完成后的
    「立即安装」（确认后运行安装包并退出应用，NSIS 向导接管）；数据迁移页
@@ -88,6 +90,7 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | `list_native_metas` | → `NativeMeta[]`（含峰谷预置 pricing 字段） | `provider::metas` + `pricing::preset` |
 | `validate_template` | `TemplateConfig` → `Ok / 字段定位错误` | `template::validate` |
 | `test_template` | `TemplateConfig + key输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
+| `write_assist_package` | 用户选定路径 + 已预览脱敏文本 → () | `update::write_atomic_bytes` |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
 | `get_settings / save_settings` | 设置对象 ↔ | desktop 自有存储 |
 | `export_configuration` | `path` → () | `export_config_to_path` |

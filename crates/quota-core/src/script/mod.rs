@@ -347,6 +347,27 @@ fn eval_error_to_query(e: EvalError, anchor: &HttpRequest) -> QueryError {
     }
 }
 
+/// 使用响应 JSON 离线执行脚本的 `extract(resp)`。
+///
+/// 静态校验仍会以假变量干跑 `request()`，随后仅在沙箱内解析提供的响应；
+/// 全程不访问网络、不读取真实凭据，适合作为 Agent 调试能力。
+pub fn simulate(config: &ScriptConfig, response: &Value) -> Result<Vec<UsageData>, QueryError> {
+    validate(config).map_err(|e| QueryError::deterministic(e.to_string()))?;
+    let code = template::substitute(&config.code, DUMMY_API_KEY, Some(DUMMY_BASE_URL))?;
+    let response_json = serde_json::to_string(response)
+        .map_err(|e| QueryError::deterministic(format!("响应样本序列化失败：{e}")))?;
+    let anchor = HttpRequest {
+        method: Method::Get,
+        url: String::new(),
+        headers: Vec::new(),
+        body: None,
+        declared_secrets: vec![DUMMY_API_KEY.to_string()],
+    };
+    let output = eval_extract(&code, &response_json, DEFAULT_EVAL_BUDGET)
+        .map_err(|e| eval_error_to_query(e, &anchor))?;
+    parse_usage_output(&output)
+}
+
 /// 保存期静态校验：浅校验 + 干跑（假变量替换后 eval 脚本、验证两个全局
 /// 函数存在、`request()` 产物形状——不发 HTTP、不调 `extract`）。
 /// 干跑用假凭据，错误消息无泄露风险。
@@ -421,6 +442,20 @@ mod tests {
             code: code.into(),
             allow_insecure: false,
         }
+    }
+
+    /// Agent 调试契约：离线模拟执行 extract(resp)，但不发请求、不需要真实 key。
+    #[test]
+    fn simulate_extracts_fixture_without_secret_or_network() {
+        let script = r#"
+            function request(){ return { url: "{{baseUrl}}/balance" }; }
+            function extract(resp){ return { remaining: resp.balance, unit: "USD" }; }
+        "#;
+        let rows = simulate(&config(script), &serde_json::json!({"balance": "42.5"})).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].remaining, Some(42.5));
+        assert_eq!(rows[0].unit.as_deref(), Some("USD"));
     }
 
     /// 基准脚本：POST + Bearer 头注入 + 单对象提取（字符串数字 → f64）。

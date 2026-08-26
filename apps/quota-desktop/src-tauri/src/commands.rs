@@ -1397,3 +1397,9 @@ mod tests {
         );
     }
 }
+/// 将用户预览过的无凭据 AI 诊断包原子写入保存对话框选定路径。
+#[tauri::command]
+pub fn write_assist_package(path: String, contents: String) -> Result<(), String> {
+    quota_core::update::write_atomic_bytes(std::path::Path::new(&path), contents.as_bytes())
+        .map_err(|e| format!("写入 AI 诊断包失败：{e}"))
+}

@@ -419,6 +419,15 @@ fn build_usage(config: &TemplateConfig, root: &Value) -> Result<Vec<UsageData>, 
     }
 }
 
+/// 使用已取得的响应 JSON 离线验证模板取数逻辑。
+///
+/// 此入口不构造请求、不访问网络，也不读取或替换任何真实凭据，供 CLI Agent
+/// 调试工具安全验证 `extract` / `windows` / `transforms`。
+pub fn simulate(config: &TemplateConfig, response: &Value) -> Result<Vec<UsageData>, QueryError> {
+    validate(config).map_err(|e| QueryError::deterministic(e.to_string()))?;
+    build_usage(config, response)
+}
+
 fn bad_path(e: String) -> QueryError {
     QueryError::deterministic(format!("模板路径语法错误：{e}"))
 }
@@ -645,6 +654,19 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    /// Agent 调试契约：离线模拟只消费模板与响应 JSON，不触发 HTTP 或凭据读取。
+    #[test]
+    fn simulate_extracts_response_without_http() {
+        let rows = simulate(
+            &simple_template(),
+            &serde_json::json!({"data": {"totalBalance": "62.97"}}),
+        )
+        .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].remaining, Some(62.97));
     }
 
     // ---- 静态校验 ---------------------------------------------------

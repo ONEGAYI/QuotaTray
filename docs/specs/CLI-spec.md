@@ -22,6 +22,7 @@
 | `quota natives` | 列出预置平台（来自 core 注册表，标注峰谷预置有无） |
 | `quota pricing show/set/clear` | 峰谷定价查看 / 自定义 / 清除 |
 | `quota template test` | 对模板执行静态校验 + 试查询 |
+| `quota assist schema/validate/simulate` | 外部 Agent 无凭据调试契约 |
 | `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
 | `quota history show/clear` | 查询历史走势查看（三档范围 + 分页）/ 清除 |
 | `quota config export/import` | 完整配置跨机器导出 / 整体导入（含查询历史） |
@@ -166,6 +167,26 @@ quota script test [--base-url <url>] [--entry <id> | --json < script.js]
 - `quota add` 向导含「script」第三选项（粘贴代码 + 干跑校验重试 +
   allowInsecure 确认，默认否）；`quota edit` 对 script 条目支持 baseUrl、
   代码重粘贴（无效保持原码）与 allowInsecure 修改。
+
+### quota assist（外部 Agent 调试）
+
+```text
+quota assist schema
+quota assist validate --mode template|script --input <配置或诊断包>
+quota assist simulate --mode template|script --input <配置或诊断包> [--response <响应 JSON>]
+```
+
+- 三个命令只输出版本化 JSON，不读取 Vault、不接收 API key、不发网络请求；
+  QuotaTray 只提供调试能力，不创建或内置 AI Agent。
+- `schema` 返回当前二进制支持的模板变量、方法、取数字段、算术转换与脚本
+  沙箱边界，供 Agent 避免依据过期提示词生成配置。
+- `validate` 接受纯模板/脚本配置或 GUI 导出的
+  `quotatray-assist-package` v1，执行与保存链路同口径的静态校验。
+- `simulate` 对脱敏响应 JSON 离线执行模板取数或脚本 `extract(resp)`；
+  `--response` 缺省时读取诊断包的 `responseSample`。
+- 输出统一为 `{schemaVersion, ok, stage, diagnostics, result}`；通过返回 0，
+  配置、样本、读取等确定性失败返回 1。真实网络试查仍由用户在 GUI 或既有
+  `template/script test` 中主动发起。
 
 ### quota dev-smoke（仅 debug 构建）
 

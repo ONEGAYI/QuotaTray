@@ -102,6 +102,7 @@ QuotaTray/
 │   │   └── src/       # CLI 源码
 │   │       ├── cmd/           # 子命令实现（每命令一模块）
 │   │       │   ├── add.rs            # 交互添加向导
+│   │       │   ├── assist.rs         # Agent 无凭据调试
 │   │       │   ├── config.rs         # 配置导入导出
 │   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
 │   │       │   ├── edit.rs           # 编辑向导与启停
@@ -140,6 +141,9 @@ QuotaTray/
 │       │   │   ├── brand-mark.png # 透明品牌主图
 │       │   │   └── providers/     # Provider SVG 图标集
 │       │   ├── components/             # 前端组件
+│       │   │   ├── aiAssistPack.test.ts         # AI 求助包测试
+│       │   │   ├── aiAssistPack.ts              # AI 求助包纯逻辑
+│       │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
