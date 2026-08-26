@@ -50,7 +50,7 @@ render                           # 重渲染 AGENTS.md 两个标记块（缺标�
 | `kind` | `"file"` / `"dir"`，自动派生 | 条目类型标识：由 children 判据自动推导并落盘，供 `query --json` 等机器消费；不参与渲染，手改会在下次写操作时被规范化纠正 |
 | `desc` | string，必填 | 一句话简介（≤20 字，超长 `check` 告警）；渲染简版树；空串表示目录待补 |
 | `detail` | string[]，文件条目应填 | 完整描述，存于 tree.json 供 `get`/`query` 查询，不参与渲染；缺失时文件条目 `check` 告警（目录不强制） |
-| `rel` | string[]，可选 | 语义相关/成对文件的仓库相对路径（如双语文案成对、测试指向被测文件）；只存正向边，反查用 `query --rel-of` |
+| `rel` | string[]，可选 | 语义相关/成对文件的仓库相对路径（如双语文案成对、测试指向被测文件）；只存正向边，反查用 `query --rel-of`；写入时统一规范为正斜杠形式 |
 | `tags` | string[]，可选 | 受控标签，必须已在词表登记（词表渲染于 AGENTS.md 词表块） |
 | `collapsed` | bool，目录可选 | 简版树折叠渲染：目录行带 `…` 不展开 children；默认 false（false 不落盘）。仅目录可用，文件条目报错 |
 | `hidden` | bool，可选 | 简版树隐藏渲染：条目及整个子树不出现在 AGENTS.md；默认 false（false 不落盘）。文件与目录均可用 |

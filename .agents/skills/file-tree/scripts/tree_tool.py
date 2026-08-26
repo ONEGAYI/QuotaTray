@@ -412,7 +412,8 @@ class TreeTool:
         if detail is not None:
             node["detail"] = [d for d in detail if d]
         if rel is not None:
-            node["rel"] = list(rel)
+            # 统一规范为正斜杠形式落盘，与 check 的精确字符串比较收敛（非规范分隔符不再漏过）
+            node["rel"] = ["/".join(split_rel_path(r)) for r in rel]
         if tags is not None:
             node["tags"] = list(tags)
         if collapsed is not None:
@@ -429,8 +430,10 @@ class TreeTool:
                 node.pop("hidden", None)
 
     def _validate_rel(self, data, path, rel) -> None:
-        """rel 引用校验：不指自身、目标必须在树中。批量在整批应用后统一调用，批内互引合法。"""
+        """rel 引用校验：不为空串、不指自身、目标必须在树中。批量在整批应用后统一调用，批内互引合法。"""
         for r in rel:
+            if not r:
+                raise ToolError(f"rel 不能为空串: {path}")
             parts_r = split_rel_path(r)
             if parts_r == split_rel_path(path):
                 raise ToolError(f"rel 不能指向自身: {path}")
@@ -446,11 +449,11 @@ class TreeTool:
         self._record_undo(f"add {path}")
         self.write_data(data)
 
-    def _remove_entry(self, data, parts) -> None:
+    def _remove_entry(self, data, parts, path=None) -> None:
         """删除 parts 指向的条目并修剪变空的父目录链（根不删），不落盘。"""
         parent = _find_node(data["tree"], parts[:-1])  # parts[:-1]==[] 时返回根包装
         if parent is None or not is_dir(parent) or parts[-1] not in parent["children"]:
-            raise ToolError(f"条目不存在: {'/'.join(parts)}")
+            raise ToolError(f"条目不存在: {path or '/'.join(parts)}")
         del parent["children"][parts[-1]]
         nodes: list[dict] = [{"children": data["tree"]}]
         for part in parts[:-1]:
@@ -462,7 +465,7 @@ class TreeTool:
     def rm(self, path) -> None:
         parts = split_rel_path(path)
         data = self.load()
-        self._remove_entry(data, parts)
+        self._remove_entry(data, parts, path)
         self._record_undo(f"rm {path}")
         self.write_data(data)
 
@@ -492,7 +495,9 @@ class TreeTool:
         desc = entry.get("desc")
         if desc is not None and not isinstance(desc, str):
             raise ToolError(f"add-batch 条目 {path} 的 desc 须为字符串")
-        is_dir_entry = entry.get("dir", False)
+        is_dir_entry = entry.get("dir")
+        if is_dir_entry is None:  # 显式 null 与缺省同义（与 collapsed/hidden 一致）
+            is_dir_entry = False
         if not isinstance(is_dir_entry, bool):
             raise ToolError(f"add-batch 条目 {path} 的 dir 须为布尔")
         spec = {"path": path, "desc": desc, "detail": opt_list("detail"), "rel": opt_list("rel"),
@@ -511,10 +516,11 @@ class TreeTool:
             raise ToolError("add-batch 清单须为非空 entries 数组")
         specs = [self._normalize_batch_entry(i + 1, e) for i, e in enumerate(entries)]
         seen: set[str] = set()
-        for spec in specs:
-            if spec["path"] in seen:
+        for spec in specs:  # 判重用归一化路径（与 rm_batch 一致）：反斜杠/双斜杠变体同判
+            key = "/".join(split_rel_path(spec["path"]))
+            if key in seen:
                 raise ToolError(f"批内重复路径: {spec['path']}")
-            seen.add(spec["path"])
+            seen.add(key)
         data = self.load()
         for spec in specs:
             self._apply_add(data, **spec)

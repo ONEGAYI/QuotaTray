@@ -895,6 +895,52 @@ class AddBatchTest(SandboxTest):
         with self.assertRaises(ToolError):
             tool.add_batch([])
 
+    def test_reject_path_variant_duplicates(self):
+        """反斜杠/双斜杠变体与正斜杠形式是同一路径，批内同现必须拒绝（判重按归一化路径）。"""
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([
+                {"path": "src/w.ts", "desc": "一"},
+                {"path": "src\\w.ts", "desc": "二"},
+            ])
+
+    def test_rel_normalized_to_forward_slashes_and_check_clean(self):
+        """rel 非规范分隔符形式应规范为正斜杠落盘，check 的精确比较不再报 E。"""
+        tool = self.make_tool()
+        tool.add_batch([{"path": "apps/ref.ts", "desc": "引用", "rel": ["apps\\main.tsx"]}])
+        self.assertEqual(tool.get("apps/ref.ts")["rel"], ["apps/main.tsx"])
+        tool.render()
+        errors, _ = tool.check()
+        self.assertEqual(errors, [])
+
+    def test_empty_rel_rejected(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.add_batch([{"path": "a.ts", "desc": "x", "rel": [""]}])
+
+    def test_redo_restores_whole_batch(self):
+        tool = self.make_tool()
+        tool.add_batch(self.entries_basic())
+        tool.undo()
+        op = tool.redo()
+        self.assertIn("add-batch", op)
+        data = tool.load()
+        self.assertIn("lib.rs", data["tree"])
+        self.assertIn("new.ts", data["tree"]["apps"]["children"])
+        self.assertIn("guide.md", data["tree"]["docs"]["children"])
+
+    def test_rel_to_auto_created_intermediate_dir(self):
+        """rel 指向批内自动创建的中间目录：最终树中存在该节点即合法。"""
+        tool = self.make_tool()
+        tool.add_batch([{"path": "x/y/z.ts", "desc": "深层", "rel": ["x"]}])
+        self.assertEqual(tool.get("x/y/z.ts")["rel"], ["x"])
+
+    def test_null_switches_treated_as_absent(self):
+        """dir/collapsed/hidden 显式 null 与缺省同义，不报类型错。"""
+        tool = self.make_tool()
+        tool.add_batch([{"path": "apps/n.ts", "desc": "x", "dir": None, "collapsed": None, "hidden": None}])
+        self.assertNotIn("children", tool.get("apps/n.ts"))
+
 
 class RmBatchTest(SandboxTest):
     """rm-batch：批量删除一次变更一步历史，原子生效，修剪变空父目录语义保留。"""
@@ -944,6 +990,16 @@ class RmBatchTest(SandboxTest):
         tool = self.make_tool()
         with self.assertRaises(ToolError):
             tool.rm_batch(["apps", "apps/main.tsx"])
+
+    def test_sibling_prefix_not_misjudged(self):
+        """a/b 与 a/bc 是兄弟而非祖先-后代，前缀判断不得误伤。"""
+        tool = self.make_tool()
+        tool.add_batch([
+            {"path": "tmp/a/b.rs", "desc": "临时"},
+            {"path": "tmp/a/bc.rs", "desc": "临时"},
+        ])
+        tool.rm_batch(["tmp/a/b.rs", "tmp/a/bc.rs"])
+        self.assertNotIn("tmp", tool.load()["tree"])
 
 
 class CmdBatchTest(SandboxTest):
