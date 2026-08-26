@@ -5,6 +5,7 @@ import {
   formatDownloadProgress,
   resolveUpdateAction,
   resolveUpdateError,
+  resolveUpdateErrorDetail,
   resolveUpdateStatus,
 } from "./settingsView";
 
@@ -60,6 +61,33 @@ describe("更新设置视图", () => {
         hasAvailable: true,
       }),
     ).toContain("下载失败");
+  });
+
+  it("悬停详情：主错误恰为后端 last_error 时透出 detail", () => {
+    const backendError = "网络错误：HTTP 403";
+    const detail = "API rate limit exceeded for 1.2.3.4.";
+    expect(
+      resolveUpdateErrorDetail({
+        operationError: backendError,
+        backendError,
+        backendErrorDetail: detail,
+      }),
+    ).toBe(detail);
+    // 操作错误（非后端文案）无对应详情
+    expect(
+      resolveUpdateErrorDetail({
+        operationError: "本次检测失败",
+        backendError,
+        backendErrorDetail: detail,
+      }),
+    ).toBeNull();
+    // 无错误 / 后端无详情均为 null
+    expect(
+      resolveUpdateErrorDetail({ operationError: null, backendError, backendErrorDetail: detail }),
+    ).toBeNull();
+    expect(
+      resolveUpdateErrorDetail({ operationError: backendError, backendError, backendErrorDetail: null }),
+    ).toBeNull();
   });
 
   it("主按钮分派：下载中 > 已下载可安装 > 可下载 > 检查", () => {

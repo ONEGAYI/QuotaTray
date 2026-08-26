@@ -434,8 +434,13 @@ async fn auto_update_hint(ctx: &Ctx) {
     ) {
         return;
     }
-    let Ok(http) = quota_core::http::ReqwestHttpClient::new(std::time::Duration::from_secs(4))
-    else {
+    // 与 `quota update` 子命令同口径：代理端口读 settings.json（GUI
+    // 设置页写入），保证两入口对 GitHub 的出口一致
+    let proxy = update::proxy_url_of(prefs.update_proxy_port);
+    let Ok(http) = quota_core::http::ReqwestHttpClient::new_with_proxy(
+        std::time::Duration::from_secs(4),
+        proxy.as_deref(),
+    ) else {
         return;
     };
     let result = tokio::time::timeout(

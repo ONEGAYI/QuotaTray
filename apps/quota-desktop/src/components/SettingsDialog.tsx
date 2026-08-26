@@ -6,6 +6,7 @@ import {
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
 import {
+  AlertCircle,
   AlertTriangle,
   ArchiveRestore,
   Check,
@@ -26,6 +27,7 @@ import {
   formatDownloadProgress,
   resolveUpdateAction,
   resolveUpdateError,
+  resolveUpdateErrorDetail,
   resolveUpdateStatus,
 } from "./settingsView";
 import {
@@ -185,6 +187,11 @@ export function SettingsDialog({ open, onClose }: Props) {
     installError: install.isError ? install.error : null,
     backendError: update?.last_error,
     hasAvailable: Boolean(available),
+  });
+  const operationErrorDetail = resolveUpdateErrorDetail({
+    operationError,
+    backendError: update?.last_error,
+    backendErrorDetail: update?.last_error_detail,
   });
   const updateStatus = resolveUpdateStatus({
     checking: checkNow.isPending,
@@ -434,7 +441,20 @@ export function SettingsDialog({ open, onClose }: Props) {
                 </a>
               )}
               {downloadedPath && <p className="qt-settings-success">{t("settings.downloaded", { path: downloadedPath })}</p>}
-              {operationError && <p className="qt-inline-error">{operationError}</p>}
+              {operationError && (
+                <p className="qt-inline-error">
+                  {operationError}
+                  {operationErrorDetail && (
+                    <span
+                      className="qt-error-detail-icon"
+                      title={operationErrorDetail}
+                      aria-label={operationErrorDetail}
+                    >
+                      <AlertCircle size={13} aria-hidden="true" />
+                    </span>
+                  )}
+                </p>
+              )}
             </>
           ) : (
             <>

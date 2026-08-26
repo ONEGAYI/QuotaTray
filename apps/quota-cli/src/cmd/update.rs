@@ -141,7 +141,9 @@ pub async fn run_with(
                 &ctx.config_path,
                 crate::settings_io::now_ms(),
             );
-            eprintln!("{}{e}", t(lang, T::UpdateCheckFail));
+            // 终端无悬停交互，直接展示完整文案（限流 403 等状态异常
+            // 在括号内附 GitHub 响应 message）
+            eprintln!("{}{}", t(lang, T::UpdateCheckFail), e.full_message());
             return if e.is_transient() { 2 } else { 1 };
         }
     };

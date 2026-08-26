@@ -52,6 +52,9 @@ pub struct UpdateCtlState {
     pub last_check: Option<u64>,
     pub info: Option<AvailableInfo>,
     pub last_error: Option<String>,
+    /// `last_error` 的详情（如限流 403 的 GitHub message）——主文案保持
+    /// 简短，详情由前端悬停展示；非状态类错误无详情（None）。
+    pub last_error_detail: Option<String>,
     pub downloaded: Option<DownloadedInstaller>,
 }
 
@@ -62,6 +65,8 @@ pub struct UpdateStateDto {
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
+    /// `last_error` 的详情（悬停展示；None = 无详情）。
+    pub last_error_detail: Option<String>,
     /// 后端自记录的已下载安装包路径；能否安装以其与当前 available
     /// 资产匹配为准（检测到不同版本时由失效逻辑清空）。
     pub downloaded_path: Option<String>,
@@ -73,6 +78,7 @@ pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
+        last_error_detail: inner.last_error_detail.clone(),
         downloaded_path: inner.downloaded.as_ref().map(|d| d.path.clone()),
     }
 }
@@ -107,6 +113,15 @@ pub const UPDATE_STATE_EVENT: &str = "update-state-changed";
 /// 检测与下载共用同一设置项。
 pub(crate) fn proxy_url(state: &AppState) -> Option<String> {
     quota_core::update::proxy_url_of(state.settings.read().unwrap().update_proxy_port)
+}
+
+/// 检测错误的悬停详情：仅状态类错误（[`update::UpdateError::HttpStatus`]）
+/// 携带响应体 message，其余（网络/解析）无详情。
+fn error_detail(e: &update::UpdateError) -> Option<String> {
+    match e {
+        update::UpdateError::HttpStatus { detail, .. } => detail.clone(),
+        _ => None,
+    }
 }
 
 struct TauriProgressReporter<'a> {
@@ -144,6 +159,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
                 asset_url: asset.map(|a| a.browser_download_url),
             }),
             last_error: None,
+            last_error_detail: None,
             downloaded: None,
         },
         // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
@@ -151,14 +167,17 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
             last_check: Some(now),
             info: None,
             last_error: None,
+            last_error_detail: None,
             downloaded: None,
         },
         // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
-        // 统一按资产名重判）
+        // 统一按资产名重判）。主文案用 Display（简短），限流等原因
+        // detail 单独携带——前端主文字不变，悬停展示完整信息。
         Err(e) => UpdateCtlState {
             last_check: Some(now),
             info: None,
             last_error: Some(e.to_string()),
+            last_error_detail: error_detail(&e),
             downloaded: prev_downloaded.clone(),
         },
     };
@@ -378,12 +397,14 @@ mod tests {
                     asset_url: asset.map(|a| a.browser_download_url),
                 }),
                 last_error: None,
+                last_error_detail: None,
                 downloaded: None,
             },
             _ => UpdateCtlState {
                 last_check: Some(1),
                 info: None,
                 last_error: None,
+                last_error_detail: None,
                 downloaded: None,
             },
         };
@@ -470,6 +491,44 @@ mod tests {
         assert!(inner.last_error.is_none());
         assert_eq!(inner.downloaded, None, "已最新时旧安装包记录失效");
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：状态类检测错误（限流 403）——主文案保持简短 Display，
+    /// 响应体 message 作为 detail 进状态表与 DTO；成功检测后两者一并清空。
+    #[tokio::test]
+    async fn run_check_status_error_carries_detail() {
+        let dir = std::env::temp_dir().join(format!("qt-updctl-det-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+
+        let http = RouteHttp {
+            routes: vec![(
+                "releases/latest",
+                403,
+                r#"{"message":"API rate limit exceeded for 1.2.3.4."}"#.into(),
+            )],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(
+            inner.last_error.as_deref(),
+            Some("网络错误：HTTP 403"),
+            "主文案与历史 Display 一致"
+        );
+        assert_eq!(
+            inner.last_error_detail.as_deref(),
+            Some("API rate limit exceeded for 1.2.3.4.")
+        );
+        let dto = dto_of(&inner);
+        assert_eq!(dto.last_error_detail, inner.last_error_detail, "DTO 透传");
+
+        // 成功检测（404 无 release）后错误与详情一并清空
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 404, "".into())],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(inner.last_error, None);
+        assert_eq!(inner.last_error_detail, None);
         std::fs::remove_dir_all(&dir).ok();
     }
 

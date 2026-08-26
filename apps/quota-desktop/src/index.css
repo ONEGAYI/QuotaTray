@@ -289,6 +289,7 @@ button:disabled { cursor: not-allowed; }
 .qt-empty-state p { margin: 0; color: var(--qt-text); font-weight: 600; }
 .qt-empty-state span { display: block; margin-top: 5px; font-size: 12px; }
 .qt-inline-error { border-radius: 10px; padding: 11px 13px; background: var(--qt-danger-soft); color: var(--qt-danger); }
+.qt-error-detail-icon { display: inline-flex; align-items: center; vertical-align: -2px; padding: 4px; margin-left: 2px; cursor: help; opacity: .85; }
 
 .qt-provider-card { position: relative; overflow: visible; border: 1px solid var(--qt-border); border-radius: 13px; background: var(--qt-surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 42%, transparent); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease, opacity .18s ease; }
 .qt-provider-card:hover, .qt-provider-card:focus-within, .qt-provider-card.is-expanded { border-color: color-mix(in srgb, var(--qt-accent) 58%, var(--qt-border)); box-shadow: 0 8px 26px var(--qt-shadow); transform: translateY(-1px); }
