@@ -67,17 +67,25 @@ export function advanceUsageViewDomain(
 export function historyPointValue(
   point: HistoryPoint,
 ): { metric: UsageMetricType; value: number; unit: string } | null {
-  if (point.unit === "%" && point.used != null && Number.isFinite(point.used)) {
-    return { metric: "percent", value: point.used, unit: "%" };
+  if (point.unit === "%") {
+    if (point.remaining != null && Number.isFinite(point.remaining)) {
+      return { metric: "percent", value: point.remaining, unit: "%" };
+    }
+    if (point.used != null && Number.isFinite(point.used)) {
+      return { metric: "percent", value: 100 - point.used, unit: "%" };
+    }
   }
   if (
-    point.used != null
-    && point.total != null
-    && Number.isFinite(point.used)
+    point.total != null
     && Number.isFinite(point.total)
     && point.total > 0
   ) {
-    return { metric: "percent", value: (point.used / point.total) * 100, unit: "%" };
+    if (point.remaining != null && Number.isFinite(point.remaining)) {
+      return { metric: "percent", value: (point.remaining / point.total) * 100, unit: "%" };
+    }
+    if (point.used != null && Number.isFinite(point.used)) {
+      return { metric: "percent", value: 100 - (point.used / point.total) * 100, unit: "%" };
+    }
   }
   if (point.remaining != null && Number.isFinite(point.remaining)) {
     return { metric: "absolute", value: point.remaining, unit: point.unit ?? "" };

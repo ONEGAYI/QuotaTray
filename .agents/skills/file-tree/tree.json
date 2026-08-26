@@ -853,7 +853,7 @@
                       "kind": "file",
                       "desc": "统计图表逻辑测试",
                       "detail": [
-                        "覆盖历史分组/桶聚合/分轴语义、缺失分段、标尺与拟合、实时跟随/历史保留视窗及绘图区 Ctrl+滚轮契约"
+                        "覆盖历史分组/桶聚合、剩余百分比与绝对余额语义、缺失分段、拟合/标尺、滚动视窗及绘图区 Ctrl+滚轮契约"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.ts"
@@ -866,7 +866,7 @@
                       "kind": "file",
                       "desc": "统计图表纯逻辑",
                       "detail": [
-                        "HistoryPoint 按 Scope/小时桶构造序列；采样分段、整洁刻度、单调三次 Hermite 路径、实时/历史视窗推进和绘图区滚轮手势分流"
+                        "HistoryPoint 按 Scope/小时桶构造序列，百分比优先 remaining 并在缺失时倒置 used；含分段/刻度/拟合、视窗推进与滚轮分流"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.test.ts",
@@ -880,7 +880,7 @@
                       "kind": "file",
                       "desc": "使用统计趋势页",
                       "detail": [
-                        "真实 Provider + SQLite 历史驱动的双轴 SVG 趋势图：滚动最近 7 天/1h 桶、实时边缘跟随且历史观察视窗保留、Scope/分轴/分段拟合/缺失留白/Tooltip、拖拽与绘图区 Ctrl+滚轮缩放"
+                        "真实历史驱动的双轴 SVG 趋势图：百分比 Scope 展示剩余额度、绝对值展示余额；滚动最近 7 天/1h 桶、实时跟随/历史保留、Scope、缺失留白、Tooltip、拖拽与绘图区 Ctrl+滚轮缩放"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/queries.ts"
@@ -1763,7 +1763,7 @@
               "kind": "file",
               "desc": "历史存储规格（M5）",
               "detail": [
-                "历史存储规格（M5）：数据模型/迁移、CLI、get_history IPC、GUI 滚动最近 7 天与实时/历史视窗语义"
+                "历史存储规格（M5）：数据模型/迁移、CLI、get_history IPC、GUI 滚动 7 天、剩余额度分轴与视窗语义"
               ]
             }
           }

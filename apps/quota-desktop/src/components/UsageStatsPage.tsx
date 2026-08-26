@@ -380,7 +380,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
               </p>
               <div className="qt-usage-current">
                 <strong>{formatNumber(current.value, scope.metric)}</strong>
-                <span>{scope.metric === "percent" ? t("usage.usedPercent") : scope.unit}</span>
+                <span>{scope.metric === "percent" ? t("usage.remainingQuota") : scope.unit}</span>
               </div>
               <p className="qt-usage-updated">{t("usage.lastSample", { time: dateFormatter.format(current.timestamp) })}</p>
             </div>
@@ -457,7 +457,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
                 })}
               </g>
               <g className={`qt-usage-axis qt-usage-axis-right ${scope.metric === "percent" ? "is-active" : ""}`}>
-                <text className="qt-usage-axis-title" x={CHART.right} y="20" textAnchor="end">{t("usage.percentAxisTitle")}</text>
+                <text className="qt-usage-axis-title" x={CHART.right} y="20" textAnchor="end">{t("usage.remainingPercentAxisTitle")}</text>
                 {percentTicks.map((tick) => {
                   const y = CHART.bottom - (tick / 100) * PLOT_HEIGHT;
                   return (

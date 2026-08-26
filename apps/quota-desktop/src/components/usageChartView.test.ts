@@ -93,7 +93,7 @@ describe("使用统计图表纯逻辑", () => {
         windowKey: "Codex（5h）",
         metric: "percent",
         unit: "%",
-        samples: [point(0.5, 18), point(1, 24)],
+        samples: [point(0.5, 82), point(1, 76)],
       },
       {
         windowKey: "DeepSeek",
@@ -104,14 +104,20 @@ describe("使用统计图表纯逻辑", () => {
     ]);
   });
 
-  it("历史值语义与现有卡片一致：百分比优先，否则展示剩余额度", () => {
+  it("百分比历史倒置为剩余额度，绝对值继续展示 remaining", () => {
     expect(historyPointValue({
       window_key: "credits",
       sampled_at: 0,
       used: 25,
       total: 200,
       unit: "credits",
-    })).toEqual({ metric: "percent", value: 12.5, unit: "%" });
+    })).toEqual({ metric: "percent", value: 87.5, unit: "%" });
+    expect(historyPointValue({
+      window_key: "percent",
+      sampled_at: 0,
+      used: 25,
+      unit: "%",
+    })).toEqual({ metric: "percent", value: 75, unit: "%" });
     expect(historyPointValue({
       window_key: "balance",
       sampled_at: 0,
