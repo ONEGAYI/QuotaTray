@@ -2,6 +2,38 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.6.0] - 2026-08-26
+
+本版本面向 AI 辅助调试与 new-api 系中转站适配：模板/脚本新增第二凭据槽 `{{apiKey2}}`（令牌之外再携用户 ID 等双凭据形态），AI 调试求助升级为可直接交给本机 Agent 的完整任务提示词（Windows 安装包内置 quota CLI），assist 调试契约附完整示例并新增复用本机凭据的端测子命令。
+
+### 新功能
+
+**第二凭据槽 apiKey2（core / quota-cli / quota-desktop）**
+
+- 模板与脚本支持 `{{apiKey2}}` 变量：new-api 系中转站余额查询需「系统访问令牌 + 用户 ID」双凭据（`Authorization` 与 `New-Api-User` 双头）。凭据经同一 vault 加密存储（空 = 保持不变、不回显）、迁移包转写、错误详情双槽脱敏；未配置第二槽时查询报确定性引导错误（#46）
+- GUI 编辑弹窗（模板/脚本形态）新增「第二凭据」输入框，保存与试查全链路接通；CLI `set-key --slot 1|2` 写入对应槽，stdin 试查在草稿引用时按需交互收集（#46）
+
+**AI 调试求助直连本机 Agent（quota-desktop）**
+
+- 模板/脚本编辑器内联 AI 调试面板：脱敏求助提示词、`.qtray-assist.json` 诊断包保存、复制给本机 Agent 的完整任务提示词——含 `resolve_quota_cli_path` 解析的真实 CLI 绝对路径、PowerShell 命令、联网查证指引、安全边界（不得索要凭据、唯一允许的真实试查是 assist test）与输出契约；保存路径随输入变化失效并在复制前重写，Agent 永远拿到最新现场（#46）
+- Windows 安装包内置 quota CLI：构建链暂存同 profile CLI 并映射为资源 `bin/quota.exe`，开发版与安装包中的 Agent 提示词都能给出真实可执行路径（#46）
+
+**assist 调试契约与端测（quota-cli）**
+
+- `assist schema` 内嵌模板/脚本完整示例（演示 `transforms` 顶层键与 `{"const": ...}` 字段形态、双凭据头写法），示例自身通过静态校验与离线解析的契约测试闭环——Agent 不再需要逆向 DSL；新增 `assistTest` 段落显式声明端测通道语义（#46）
+- 新增 `assist test --mode <m> --input <诊断包> [--base-url]`：诊断包携带已保存条目的 `entryId`（本地标识符，非凭据），CLI 以包内草稿覆盖条目查询配置、复用本机两槽凭据密文走引擎真实查询一次；凭据不出 vault、不进输出，失败输出透出已脱敏的响应体片段（detail），退出码遵循三分约定（#46）
+
+### Bug 修复
+
+- 编辑供应商弹窗的全屏遮罩不再盖住自定义标题栏——此前弹窗打开期间无边框窗口无法拖动、最小化或关闭（#46）
+- quota CLI 路径探测的 PATH 回退排除 System32/SysWOW64：Windows 自带同名 NTFS 配额工具不得被当作本软件 CLI 拼进 Agent 提示词（#46）
+- 构建链修复：release 缺 CLI 仅在 Tauri CLI 驱动的构建中硬失败，CI 与普通 `cargo check --release` 不再被误伤；CLI 路径契约测试按平台拼接 EXE_SUFFIX，Linux 矩阵确定性成立（#46）
+
+### 其他改进
+
+- 诊断包脱敏清理覆盖 `api_key2` 键与 `New-Api-User` 头的自家形态，两槽占位符（含 Bearer 前缀组合）不被误伤；schema 脚本示例字段名与产物解析器对齐（snake_case），Agent 照抄不再静默丢字段（#46）
+- 开发目录清理器纳管 CLI 暂存目录 `src-tauri/generated/`；脚本页签文案去除开发期里程碑标记（#46）
+
 ## [0.5.0] - 2026-08-26
 
 本版本交付 M5 使用历史底座与走势查看：查询结果滚动保留 30 天的时序存储（SQLite）、CLI 走势命令与迁移包携带历史，桌面端新增使用统计页签并以趋势曲线展示剩余额度；同时为主题切换加入圆形揭示动效、收敛 Provider 刷新语义，亮色主色调调整为中性灰白。
@@ -286,3 +318,4 @@
 [0.4.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.1...v0.4.2
 [0.4.3]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.2...v0.4.3
 [0.5.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.4.3...v0.5.0
+[0.6.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.5.0...v0.6.0
