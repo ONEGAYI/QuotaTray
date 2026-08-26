@@ -117,10 +117,21 @@ impl Settings {
     }
 
     /// 加载设置；文件缺失或损坏返回默认值（非关键数据，容错优先）。
+    ///
+    /// IO 失败（文件存在但读不出——开机自启时序下杀毒/同步盘短暂锁定
+    /// 等）与"缺失"分流：缺失是正常态直接默认；IO 失败短重试后仍失败
+    /// 才回退——静默回退会让引擎以"无代理端口"的幽灵默认运行，且启动
+    /// 首检（run_check）会把默认值全量落盘、连磁盘上的真实设置一起抹掉。
     pub fn load(path: &Path) -> Self {
-        match std::fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
-            Err(_) => Self::default(),
+        let Some(text) = read_with_retry(path) else {
+            return Self::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("settings.json 解析失败，回退默认设置：{e}");
+                Self::default()
+            }
         }
     }
 
@@ -140,6 +151,26 @@ impl Settings {
         })?;
         Ok(())
     }
+}
+
+/// 读取文件内容：不存在 → None（首次运行正常态）；存在但 IO 失败
+/// （Windows 文件锁定抖动）→ 短重试 3 次，仍失败告警回 None。
+/// 重试间隔 50ms：只吸收毫秒级锁定窗口，最坏多阻塞 ~150ms 不拖慢启动体感。
+fn read_with_retry(path: &Path) -> Option<String> {
+    let mut last_err = None;
+    for attempt in 1..=3 {
+        match std::fs::read_to_string(path) {
+            Ok(text) => return Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                eprintln!("settings.json 读取失败（第 {attempt} 次）：{e}");
+                last_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    eprintln!("settings.json 连续读取失败，回退默认设置：{last_err:?}");
+    None
 }
 
 #[cfg(test)]
@@ -217,6 +248,19 @@ mod tests {
         std::fs::write(&path, "{ not json").unwrap();
         assert_eq!(Settings::load(&path), Settings::default());
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// 契约：IO 失败（路径是目录，非 NotFound 的读错误）重试后仍回退默认，
+    /// 不 panic——启动路径上的文件锁定抖动必须能落到默认值继续启动。
+    #[test]
+    fn io_failure_falls_back_to_default_after_retry() {
+        let dir =
+            std::env::temp_dir().join(format!("quotatray-settings-iofail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 目录路径的 read_to_string 在 Windows（PermissionDenied）与
+        // Linux（IsADirectory）上均为非 NotFound 错误
+        assert_eq!(Settings::load(&dir), Settings::default());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 契约：sanitize 收口越界值（语言/主题白名单、每圈单位 clamp）。

@@ -136,10 +136,9 @@ function HoverPanelInner() {
   const hasDefault = modelChoices.some((choice) => choice.value === "default");
 
   const switchProvider = useMutation({
-    mutationFn: async (id: string) => {
-      if (!settings.data) throw new Error(t("app.loading"));
-      await api.saveSettings({ ...settings.data, tray_icon_entry_id: id });
-    },
+    // 图标源切换走后端 patch 合并（读现值→改单字段），不基于前端缓存
+    // 全量提交——缓存陈旧时会把手未提交的设置整体抹回默认
+    mutationFn: (id: string) => api.patchSettings({ tray_icon_entry_id: id }),
     onMutate: async (id) => {
       setActionError(null);
       await qc.cancelQueries({ queryKey: ["settings"] });

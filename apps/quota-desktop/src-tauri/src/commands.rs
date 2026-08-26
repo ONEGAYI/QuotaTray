@@ -548,6 +548,13 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         .ok_or_else(|| lang.err_entry_not_enabled(&id))?
         .clone();
 
+    // 代理端口对账自愈：条目开代理而运行态端口丢失（启动加载抖动回退
+    // 默认值等）时从磁盘恢复，避免"未配置代理端口"引导错误假阳性。
+    // 正常态（内存有端口）仅一次读锁即返回，无磁盘开销。
+    if entry.use_proxy {
+        crate::state::reconcile_proxy_from_disk(&state);
+    }
+
     let engine = state.engine.read().unwrap().clone();
     let result = engine.query(&state.vault, &entry).await;
     let outcome = {
@@ -647,20 +654,91 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.read().unwrap().clone()
 }
 
-/// 保存设置。顺序约定：磁盘为权威状态——
+/// 设置局部更新的 IPC 形状：仅覆盖提交的字段（外层 Some），其余保持
+/// 后端现值。供标题栏快切主题/语言、悬停面板切换图标源等单字段入口
+/// 使用——前端不再基于可能陈旧的缓存做全量提交（历史 bug：陈旧缓存
+/// 把代理端口等设置整体抹回默认值）。
+///
+/// `tray_icon_entry_id` / `update_proxy_port` 为双层 Option：
+/// 外层 Some 内层 None = 显式清空（恢复自动/不代理）；字段缺省 = 不动。
+/// 二者标注 `double_option`——serde 对 `Option<Option<T>>` 的默认行为
+/// 会把 JSON null 也折叠为外层 None（清空与不动不可区分）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct SettingsPatch {
+    pub refresh_interval_minutes: Option<u32>,
+    pub low_balance_threshold_percent: Option<u8>,
+    pub autostart: Option<bool>,
+    pub language: Option<String>,
+    pub theme: Option<String>,
+    pub ring_units_per_circle: Option<f64>,
+    #[serde(default, with = "double_option")]
+    pub tray_icon_entry_id: Option<Option<String>>,
+    pub update_check_enabled: Option<bool>,
+    pub update_check_time: Option<String>,
+    #[serde(default, with = "double_option")]
+    pub update_proxy_port: Option<Option<u16>>,
+}
+
+/// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
+/// JSON null 得内层 None（显式清空），有值得内层 Some，类型错误正常
+/// 透出；外层再包 Some。字段缺省不进此函数（serde default 路径）。
+mod double_option {
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        T: serde::Deserialize<'de>,
+        D: serde::Deserializer<'de>,
+    {
+        <Option<T> as serde::Deserialize>::deserialize(deserializer).map(Some)
+    }
+}
+
+/// 应用 patch 到现值：None 字段不动，Some 覆盖（纯函数，可单测）。
+pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
+    if let Some(v) = patch.refresh_interval_minutes {
+        base.refresh_interval_minutes = v;
+    }
+    if let Some(v) = patch.low_balance_threshold_percent {
+        base.low_balance_threshold_percent = v;
+    }
+    if let Some(v) = patch.autostart {
+        base.autostart = v;
+    }
+    if let Some(v) = patch.language.clone() {
+        base.language = v;
+    }
+    if let Some(v) = patch.theme.clone() {
+        base.theme = v;
+    }
+    if let Some(v) = patch.ring_units_per_circle {
+        base.ring_units_per_circle = v;
+    }
+    if let Some(v) = patch.tray_icon_entry_id.clone() {
+        base.tray_icon_entry_id = v;
+    }
+    if let Some(v) = patch.update_check_enabled {
+        base.update_check_enabled = v;
+    }
+    if let Some(v) = patch.update_check_time.clone() {
+        base.update_check_time = v;
+    }
+    if let Some(v) = patch.update_proxy_port {
+        base.update_proxy_port = v;
+    }
+}
+
+/// 设置落盘的共用副作用核心（save_settings / patch_settings 共用）。
+/// 顺序约定：磁盘为权威状态——
 /// 1. 先落盘（失败则内存不动，前端展示错误，三方一致）；
 /// 2. 落盘成功后同步内存；
 /// 3. 托盘按新阈值重建（阈值变更即时反映，不受后续自启失败影响）；
 /// 4. 自启系统注册失败：回滚磁盘与内存的 autostart 意图为旧值（保证
 ///    重按「保存」会真正重试注册，而非跳过比较后假成功），其余设置保留。
-#[tauri::command]
-pub fn save_settings(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    settings: Settings,
+fn persist_settings(
+    app: &AppHandle,
+    state: &AppState,
+    mut settings: Settings,
 ) -> Result<(), String> {
-    let lang = lang_of(&state);
-    let mut settings = settings;
+    let lang = Lang::parse(&settings.language);
     settings.sanitize();
     let old_autostart = state.settings.read().unwrap().autostart;
 
@@ -669,17 +747,17 @@ pub fn save_settings(
         .save(&state.paths.settings())
         .map_err(|e| lang.err_settings_save(&e))?;
     *state.settings.write().unwrap() = settings.clone();
-    tray::rebuild(&app, &state); // 阈值/语言/主题/每圈单位变化即时反映
+    tray::rebuild(app, state); // 阈值/语言/主题/每圈单位变化即时反映
     // 网络代理端口变更即时生效：热重建查询引擎（读锁内查询继续用旧
     // 客户端跑完，写锁仅在换新实例的瞬间持有）
     if old_proxy_port != settings.update_proxy_port {
-        if let Err(e) = crate::state::rebuild_engine(&state) {
+        if let Err(e) = crate::state::rebuild_engine(state) {
             eprintln!("代理变更后重建查询引擎失败：{e}");
         }
     }
 
     if old_autostart != settings.autostart {
-        if let Err(e) = apply_autostart(&app, settings.autostart, lang) {
+        if let Err(e) = apply_autostart(app, settings.autostart, lang) {
             // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
             settings.autostart = old_autostart;
             if let Err(io) = settings.save(&state.paths.settings()) {
@@ -690,6 +768,28 @@ pub fn save_settings(
         }
     }
     Ok(())
+}
+
+/// 全量保存设置（设置对话框「保存」按钮）。
+#[tauri::command]
+pub fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Result<(), String> {
+    persist_settings(&app, &state, settings)
+}
+
+/// 局部更新设置：后端读现值 → 应用 patch → 走统一的落盘副作用。
+#[tauri::command]
+pub fn patch_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    patch: SettingsPatch,
+) -> Result<(), String> {
+    let mut current = state.settings.read().unwrap().clone();
+    apply_settings_patch(&mut current, &patch);
+    persist_settings(&app, &state, current)
 }
 
 /// 前端推送解析后的实际主题（theme context 解析三态的结果）。
@@ -1232,5 +1332,68 @@ mod tests {
         assert!(snaps.entries.contains_key("failed"));
         assert!(!snaps.entries.contains_key("never"));
         assert_eq!(snaps.entries["ok"].at, 42);
+    }
+
+    /// 契约：patch 只覆盖提交的字段，其余保持现值——单字段快切入口
+    /// 不得把未提交的设置（代理端口等）抹回默认。
+    #[test]
+    fn settings_patch_overrides_only_submitted_fields() {
+        let mut base = Settings {
+            update_proxy_port: Some(7897),
+            theme: "light".into(),
+            language: "zh".into(),
+            tray_icon_entry_id: Some("A1B2C3".into()),
+            ring_units_per_circle: 500.0,
+            ..Settings::default()
+        };
+        // 仅提交主题，其余字段缺省
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                theme: Some("dark".into()),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.theme, "dark", "提交字段被覆盖");
+        assert_eq!(base.update_proxy_port, Some(7897), "未提交字段保持现值");
+        assert_eq!(base.language, "zh");
+        assert_eq!(base.tray_icon_entry_id, Some("A1B2C3".into()));
+        assert_eq!(base.ring_units_per_circle, 500.0);
+
+        // 双层 Option：显式清空（Some(None)）与不动（缺省）可区分
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                tray_icon_entry_id: Some(None),
+                update_proxy_port: Some(None),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.tray_icon_entry_id, None, "Some(None) 显式清空");
+        assert_eq!(base.update_proxy_port, None, "Some(None) 显式清空");
+        assert_eq!(base.theme, "dark", "其余字段仍不动");
+    }
+
+    /// 契约：serde 边界上 JSON null → Some(None)（显式清空）、字段缺省 →
+    /// 外层 None（不动）、类型错误正常透出——裸 `Option<Option<T>>` 的
+    /// serde 默认行为会把 null 也折叠为外层 None，两者不可区分，故双层
+    /// 字段必须走 double_option。
+    #[test]
+    fn settings_patch_serde_boundary() {
+        let p: SettingsPatch =
+            serde_json::from_str(r#"{"update_proxy_port": 7897, "tray_icon_entry_id": null}"#)
+                .unwrap();
+        assert_eq!(p.update_proxy_port, Some(Some(7897)), "有值 → 覆盖");
+        assert_eq!(p.tray_icon_entry_id, Some(None), "JSON null → 显式清空");
+
+        let p: SettingsPatch = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(p.theme, Some("dark".into()));
+        assert_eq!(p.tray_icon_entry_id, None, "字段缺省 → 不动");
+        assert_eq!(p.update_proxy_port, None, "字段缺省 → 不动");
+
+        assert!(
+            serde_json::from_str::<SettingsPatch>(r#"{"update_proxy_port": "abc"}"#).is_err(),
+            "类型错误透出而非静默清空"
+        );
     }
 }

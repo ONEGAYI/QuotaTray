@@ -18,7 +18,7 @@ import { useLang, type TextKey } from "../i18n";
 import { invalidateDisplaySettingsCache, useSettings } from "../queries";
 import { resolveSetting, useTheme } from "../theme";
 import { applyThemeTransition, shouldAnimate, themeTriggerOrigin } from "../themeTransition";
-import type { Settings } from "../types";
+import type { SettingsPatch } from "../types";
 import { BrandMark } from "./BrandMark";
 import { DropdownMenu, IconButton, MenuItem } from "./ui";
 
@@ -53,11 +53,10 @@ export function TitleBar() {
     return () => window.removeEventListener("resize", sync);
   }, [win]);
 
+  // 快切入口走后端 patch 合并（读现值→覆盖单字段），不基于前端缓存
+  // 全量提交——缓存陈旧时会把手未提交的设置整体抹回默认
   const save = useMutation({
-    mutationFn: (patch: Partial<Settings>) => {
-      if (!settings.data) throw new Error("settings not loaded");
-      return api.saveSettings({ ...settings.data, ...patch });
-    },
+    mutationFn: (patch: SettingsPatch) => api.patchSettings(patch),
     onSuccess: () => invalidateDisplaySettingsCache(qc),
   });
 
@@ -116,7 +115,7 @@ export function TitleBar() {
           <IconButton
             icon={Languages}
             label={t("titlebar.language")}
-            disabled={!settings.data || save.isPending}
+            disabled={save.isPending}
             aria-expanded={menu === "language"}
             onClick={() => setMenu(menu === "language" ? null : "language")}
           />
@@ -141,7 +140,7 @@ export function TitleBar() {
           <IconButton
             icon={ThemeTriggerIcon}
             label={t("titlebar.theme")}
-            disabled={!settings.data || save.isPending}
+            disabled={save.isPending}
             aria-expanded={menu === "theme"}
             onClick={() => setMenu(menu === "theme" ? null : "theme")}
           />

@@ -180,6 +180,23 @@ export interface Settings {
   update_proxy_port: number | null;
 }
 
+/** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
+ * 会被后端覆盖，其余保持现值——单字段快切入口不得全量提交缓存设置
+ * （历史 bug：陈旧缓存把代理端口等设置整体抹回默认值）。
+ * 嵌套可空字段（如 tray_icon_entry_id）显式传 null 表示清空。 */
+export interface SettingsPatch {
+  refresh_interval_minutes?: number;
+  low_balance_threshold_percent?: number;
+  autostart?: boolean;
+  language?: string;
+  theme?: string;
+  ring_units_per_circle?: number;
+  tray_icon_entry_id?: string | null;
+  update_check_enabled?: boolean;
+  update_check_time?: string;
+  update_proxy_port?: number | null;
+}
+
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */
 export interface ErrorInfo {
   kind: "transient" | "deterministic";
