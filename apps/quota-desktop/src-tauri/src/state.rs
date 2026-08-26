@@ -162,9 +162,18 @@ pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
     if disk.update_proxy_port.is_none() {
         return false;
     }
-    let prev = state.settings.read().unwrap().clone();
-    // 先同步内存再 rebuild（rebuild_engine 读内存端口装配代理通道）
-    *state.settings.write().unwrap() = disk;
+    // 写锁内 double-check（CAS 语义）：读盘期间并发保存（save/patch）
+    // 可能已把含端口的完整设置写入内存——此时不覆盖，用户刚保存的
+    // 值优先；写锁即取即释，锁释放后才 rebuild（内部拿读锁，无嵌套）。
+    let prev = {
+        let mut guard = state.settings.write().unwrap();
+        if guard.update_proxy_port.is_some() {
+            return false;
+        }
+        let prev = guard.clone();
+        *guard = disk;
+        prev
+    };
     if let Err(e) = rebuild_engine(state) {
         eprintln!("代理端口对账后重建查询引擎失败，回滚内存设置：{e}");
         *state.settings.write().unwrap() = prev;

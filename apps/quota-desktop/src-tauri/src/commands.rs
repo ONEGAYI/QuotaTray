@@ -661,6 +661,8 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 ///
 /// `tray_icon_entry_id` / `update_proxy_port` 为双层 Option：
 /// 外层 Some 内层 None = 显式清空（恢复自动/不代理）；字段缺省 = 不动。
+/// 二者标注 `double_option`——serde 对 `Option<Option<T>>` 的默认行为
+/// 会把 JSON null 也折叠为外层 None（清空与不动不可区分）。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct SettingsPatch {
     pub refresh_interval_minutes: Option<u32>,
@@ -669,10 +671,25 @@ pub struct SettingsPatch {
     pub language: Option<String>,
     pub theme: Option<String>,
     pub ring_units_per_circle: Option<f64>,
+    #[serde(default, with = "double_option")]
     pub tray_icon_entry_id: Option<Option<String>>,
     pub update_check_enabled: Option<bool>,
     pub update_check_time: Option<String>,
+    #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
+}
+
+/// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
+/// JSON null 得内层 None（显式清空），有值得内层 Some，类型错误正常
+/// 透出；外层再包 Some。字段缺省不进此函数（serde default 路径）。
+mod double_option {
+    pub fn deserialize<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+    where
+        T: serde::Deserialize<'de>,
+        D: serde::Deserializer<'de>,
+    {
+        <Option<T> as serde::Deserialize>::deserialize(deserializer).map(Some)
+    }
 }
 
 /// 应用 patch 到现值：None 字段不动，Some 覆盖（纯函数，可单测）。
@@ -1355,5 +1372,28 @@ mod tests {
         assert_eq!(base.tray_icon_entry_id, None, "Some(None) 显式清空");
         assert_eq!(base.update_proxy_port, None, "Some(None) 显式清空");
         assert_eq!(base.theme, "dark", "其余字段仍不动");
+    }
+
+    /// 契约：serde 边界上 JSON null → Some(None)（显式清空）、字段缺省 →
+    /// 外层 None（不动）、类型错误正常透出——裸 `Option<Option<T>>` 的
+    /// serde 默认行为会把 null 也折叠为外层 None，两者不可区分，故双层
+    /// 字段必须走 double_option。
+    #[test]
+    fn settings_patch_serde_boundary() {
+        let p: SettingsPatch =
+            serde_json::from_str(r#"{"update_proxy_port": 7897, "tray_icon_entry_id": null}"#)
+                .unwrap();
+        assert_eq!(p.update_proxy_port, Some(Some(7897)), "有值 → 覆盖");
+        assert_eq!(p.tray_icon_entry_id, Some(None), "JSON null → 显式清空");
+
+        let p: SettingsPatch = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(p.theme, Some("dark".into()));
+        assert_eq!(p.tray_icon_entry_id, None, "字段缺省 → 不动");
+        assert_eq!(p.update_proxy_port, None, "字段缺省 → 不动");
+
+        assert!(
+            serde_json::from_str::<SettingsPatch>(r#"{"update_proxy_port": "abc"}"#).is_err(),
+            "类型错误透出而非静默清空"
+        );
     }
 }
