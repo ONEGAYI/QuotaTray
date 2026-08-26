@@ -124,7 +124,8 @@ button:disabled { cursor: not-allowed; }
   background: linear-gradient(145deg, var(--qt-shell-highlight), var(--qt-shell));
 }
 
-.qt-titlebar { display: flex; height: 45px; flex: none; align-items: center; justify-content: space-between; border-bottom: 1px solid color-mix(in srgb, var(--qt-border) 74%, transparent); background: color-mix(in srgb, var(--qt-shell-highlight) 88%, transparent); user-select: none; }
+/* 弹窗遮罩(z-50)之上保持标题栏可交互：无边框窗口的拖动/最小化/关闭都在标题栏内 */
+.qt-titlebar { display: flex; height: 45px; flex: none; align-items: center; justify-content: space-between; position: relative; z-index: 60; border-bottom: 1px solid color-mix(in srgb, var(--qt-border) 74%, transparent); background: color-mix(in srgb, var(--qt-shell-highlight) 88%, transparent); user-select: none; }
 .qt-titlebar-drag { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 9px; padding-left: 13px; }
 .qt-app-mark { display: block; width: 24px; height: 24px; flex: none; object-fit: contain; }
 .qt-titlebar-name { font-size: 14px; font-weight: 650; }
