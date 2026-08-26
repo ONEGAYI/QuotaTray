@@ -8,8 +8,8 @@
   /* 原生控件（滚动条/select 弹层等）跟随主题，否则暗色下恒为亮色 */
   color-scheme: light;
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", sans-serif;
-  --qt-shell: #eaf0f7;
-  --qt-shell-highlight: #f6f9fc;
+  --qt-shell: #f8f8f8;
+  --qt-shell-highlight: #fdfdfd;
   --qt-surface: #ffffff;
   --qt-surface-soft: #f6f8fb;
   --qt-surface-hover: #fbfcfe;
