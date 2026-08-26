@@ -43,6 +43,22 @@ export function resolveUpdateError({
   return !hasAvailable ? backendError ?? null : null;
 }
 
+/** 错误行悬停详情：仅当主错误文案恰好来自后端 last_error（自动检测
+ * 失败）时才有对应 detail（如限流 403 的 GitHub message）；操作错误
+ * （手动检测/下载/安装）与无错误时返回 null。 */
+export function resolveUpdateErrorDetail({
+  operationError,
+  backendError,
+  backendErrorDetail,
+}: {
+  operationError: string | null;
+  backendError: string | null | undefined;
+  backendErrorDetail: string | null | undefined;
+}): string | null {
+  if (operationError == null) return null;
+  return operationError === backendError ? backendErrorDetail ?? null : null;
+}
+
 export function resolveUpdateStatus({
   checking,
   hasAvailable,

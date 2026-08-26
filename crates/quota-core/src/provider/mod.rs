@@ -375,6 +375,14 @@ pub(crate) mod testing {
             }
         }
 
+        /// 指定状态码 + 响应体（如 GitHub 限流 403 的 JSON message）。
+        pub fn status_body(status: u16, body: &str) -> Self {
+            Self {
+                body: body.into(),
+                ..Self::status(status)
+            }
+        }
+
         pub fn fail() -> Self {
             Self {
                 status: 0,

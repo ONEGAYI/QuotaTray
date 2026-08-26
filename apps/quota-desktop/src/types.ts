@@ -205,6 +205,8 @@ export interface UpdateStateDto {
   last_check: number | null;
   available: UpdateAvailable | null;
   last_error: string | null;
+  /** last_error 的详情（如限流 403 的 GitHub message），悬停展示；null = 无详情。 */
+  last_error_detail: string | null;
   /** 已下载安装包的完整路径（与当前 available 资产匹配；null = 未下载）。 */
   downloaded_path: string | null;
 }

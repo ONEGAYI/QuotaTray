@@ -88,17 +88,42 @@ struct GithubRelease {
 pub enum UpdateError {
     #[error("{0}")]
     Http(#[from] HttpError),
+    /// HTTP 状态异常（非 200/404，典型如 GitHub 对代理共享出口 IP 的
+    /// 限流 403）：`status_text` 为主文案（"HTTP 403"），`detail` 为响应
+    /// 体 message（限流原因等，None = 无可解析详情）。Display 只输出主
+    /// 文案保持简短，完整信息走 [`UpdateError::full_message`]——端侧按
+    /// 交互形态取舍（GUI 悬停展示详情，CLI 直接输出）。
+    #[error("网络错误：{status_text}")]
+    HttpStatus {
+        status_text: String,
+        detail: Option<String>,
+    },
     #[error("release 信息解析失败：{0}")]
     Parse(String),
 }
 
 impl UpdateError {
-    /// 是否瞬时（网络类，可重试/可静默）。
+    /// 是否瞬时（网络类，可重试/可静默）。限流 403 等状态异常与网络
+    /// 失败同归瞬时：自动检测静默、手动检测提示后由用户择机重试
+    /// （共享出口 IP 的配额会随窗口滚动恢复）。
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
             UpdateError::Http(HttpError::Network(_) | HttpError::Timeout)
+                | UpdateError::HttpStatus { .. }
         )
+    }
+
+    /// 完整错误文案：HttpStatus 有详情时以括号追加响应体 message，
+    /// 其余变体同 Display。无悬停交互的端（CLI）应展示此文案。
+    pub fn full_message(&self) -> String {
+        match self {
+            UpdateError::HttpStatus {
+                status_text,
+                detail: Some(detail),
+            } => format!("网络错误：{status_text}（{detail}）"),
+            _ => self.to_string(),
+        }
     }
 }
 
@@ -143,9 +168,15 @@ pub async fn check_update(
     match resp.status {
         200 => {}
         404 => return Ok(UpdateStatus::NoRelease),
-        // 限流/5xx 等归为网络类（端侧按瞬时处理）；HttpError 无状态码变体，
-        // 以 Network 携带状态描述，不为此扩枚举。
-        status => return Err(HttpError::Network(format!("HTTP {status}")).into()),
+        // 限流/5xx 等归为网络类（端侧按瞬时处理）；主文案只透状态码，
+        // 响应体 message（如限流 403 的 "API rate limit exceeded for
+        // IP..."）作为 detail 结构化携带，端侧按交互形态决定是否展示。
+        status => {
+            return Err(UpdateError::HttpStatus {
+                status_text: format!("HTTP {status}"),
+                detail: extract_error_message(&resp.body),
+            });
+        }
     }
     let release: GithubRelease =
         serde_json::from_str(&resp.body).map_err(|e| UpdateError::Parse(e.to_string()))?;
@@ -163,6 +194,28 @@ pub async fn check_update(
         // 解析失败（tag 不规范）也归入 UpToDate：不误报
         _ => Ok(UpdateStatus::UpToDate),
     }
+}
+
+/// 提取 GitHub 错误响应体的 `message` 字段（如限流 403 的
+/// "API rate limit exceeded for IP..."）；非 JSON / 无 message / 空白 → None。
+/// 按字符截断到 200 并加省略号，防异常响应塞超长文案刷屏。
+fn extract_error_message(body: &str) -> Option<String> {
+    #[derive(Deserialize)]
+    struct ErrorBody {
+        #[serde(default)]
+        message: String,
+    }
+    let message = serde_json::from_str::<ErrorBody>(body).ok()?.message;
+    let message = message.trim();
+    if message.is_empty() {
+        return None;
+    }
+    let truncated: String = message.chars().take(200).collect();
+    Some(if truncated.len() < message.len() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    })
 }
 
 /// 挑选安装包资产：名字含 "setup" 的 .exe 优先（NSIS 产物约定），
@@ -601,6 +654,83 @@ mod tests {
     async fn check_update_network_error_propagates_as_transient() {
         let err = check_update(&MockHttp::fail(), "0.1.0").await.unwrap_err();
         assert!(err.is_transient(), "网络错误应归瞬时：{err}");
+    }
+
+    /// 契约：限流 403 等状态异常——主文案保持 "网络错误：HTTP {status}"
+    /// （与历史行为一致），响应体 message 结构化为 detail；完整文案走
+    /// full_message。场景来源：代理共享出口 IP 被 GitHub 未认证限流。
+    #[tokio::test]
+    async fn check_update_status_error_keeps_short_text_and_carries_detail() {
+        let http = MockHttp::status_body(
+            403,
+            r#"{"message":"API rate limit exceeded for 103.190.179.2. (But here's the good news: Authenticated requests get a higher rate limit.)","documentation_url":"https://docs.github.com"}"#,
+        );
+        let err = check_update(&http, "0.1.0").await.unwrap_err();
+        let UpdateError::HttpStatus {
+            status_text,
+            detail,
+        } = &err
+        else {
+            panic!("非 200/404 应为 HttpStatus 变体：{err:?}");
+        };
+        assert_eq!(status_text, "HTTP 403");
+        assert!(
+            detail
+                .as_deref()
+                .unwrap_or_default()
+                .contains("API rate limit exceeded"),
+            "detail 应透出限流原因：{detail:?}"
+        );
+        // 主文案与历史 Display 完全一致——卡片主文字不因详情加入而变长
+        assert_eq!(err.to_string(), "网络错误：HTTP 403");
+        assert!(
+            err.full_message()
+                .starts_with("网络错误：HTTP 403（API rate limit exceeded"),
+            "完整文案括号追加详情：{}",
+            err.full_message()
+        );
+        assert!(err.is_transient(), "限流类状态异常归瞬时（可静默重试）");
+    }
+
+    /// 契约：非 JSON / 空 message 的错误响应体 → detail None，
+    /// 主文案与完整文案一致（无可追加的详情）。
+    #[tokio::test]
+    async fn check_update_status_error_without_message_falls_back() {
+        for body in ["", "<html>blocked</html>", r#"{"message":"  "}"#] {
+            let err = check_update(&MockHttp::status_body(403, body), "0.1.0")
+                .await
+                .unwrap_err();
+            let UpdateError::HttpStatus { detail, .. } = &err else {
+                panic!("应仍为 HttpStatus 变体：{err:?}");
+            };
+            assert_eq!(detail, &None, "body={body:?} 不应解析出 detail");
+            assert_eq!(err.full_message(), err.to_string());
+        }
+    }
+
+    /// 契约：detail 超长截断（200 字符 + 省略号），防异常响应刷屏。
+    #[test]
+    fn extract_error_message_truncates_long_text() {
+        let long = "x".repeat(500);
+        let detail = extract_error_message(&format!(r#"{{"message":"{long}"}}"#))
+            .expect("长 message 应被提取（截断后）");
+        assert!(detail.chars().count() <= 201, "截断到 200 字符加省略号");
+        assert!(detail.ends_with('…'));
+        // 恰好不超长时不加省略号
+        let exact = "y".repeat(200);
+        let detail = extract_error_message(&format!(r#"{{"message":"{exact}"}}"#)).unwrap();
+        assert_eq!(detail, exact);
+        assert!(!detail.ends_with('…'));
+    }
+
+    /// 契约：多字节字符（中文）截断不 panic 且不出半截字符。
+    #[test]
+    fn extract_error_message_truncates_on_char_boundary() {
+        let long = "错".repeat(300);
+        let detail = extract_error_message(&format!(r#"{{"message":"{long}"}}"#)).unwrap();
+        let chars: Vec<char> = detail.chars().collect();
+        assert!(chars.len() <= 201);
+        assert!(chars.iter().all(|c| *c != '\u{FFFD}'), "不得出现替换字符");
     }
 
     #[tokio::test]
