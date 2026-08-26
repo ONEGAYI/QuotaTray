@@ -1010,15 +1010,20 @@ mod tests {
     }
 
     /// AI 调试契约：返回真实存在的 CLI 绝对路径；开发同目录优先，安装包资源兜底。
+    /// 文件名按平台拼接 EXE_SUFFIX（Linux 无后缀），保证跨矩阵确定性。
     #[test]
     fn resolves_existing_quota_cli_path() {
-        let current_exe = transfer_path("assist-cli", "app/quota-desktop.exe");
-        let dev_cli = current_exe.with_file_name("quota.exe");
+        let cli_name = format!("quota{}", std::env::consts::EXE_SUFFIX);
+        let current_exe = transfer_path(
+            "assist-cli",
+            &format!("app/quota-desktop{}", std::env::consts::EXE_SUFFIX),
+        );
+        let dev_cli = current_exe.with_file_name(&cli_name);
         std::fs::create_dir_all(current_exe.parent().unwrap()).unwrap();
         std::fs::write(&dev_cli, b"dev-cli").unwrap();
 
         let resource_dir = transfer_path("assist-cli", "resources");
-        let bundled_cli = resource_dir.join("bin/quota.exe");
+        let bundled_cli = resource_dir.join("bin").join(&cli_name);
         std::fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
         std::fs::write(&bundled_cli, b"bundled-cli").unwrap();
 
