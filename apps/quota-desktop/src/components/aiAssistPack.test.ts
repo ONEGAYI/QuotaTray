@@ -62,8 +62,9 @@ describe("AI 调试求助包", () => {
     expect(prompt).toContain("--input $diagnosticPackage");
     expect(prompt).toContain("联网搜索");
     expect(prompt).toContain("不得索要、泄露或输出 API key");
-    // entryId 存在 → 给出端测指引；不存在 → 明确跳过
-    expect(prompt).toContain("assist test");
+    // entryId 存在 → 给出端测指引；不存在 → 明确跳过（结尾句同步分支化，
+    // 不指涉不存在的命令块）
+    expect(prompt).toContain("assist test --mode");
     expect(prompt).toContain("entryId");
     const noEntry = buildLocalAgentPrompt(
       "D:\\Temp\\relay.qtray-assist.json",
@@ -73,6 +74,7 @@ describe("AI 调试求助包", () => {
       false,
     );
     expect(noEntry).not.toContain("assist test --mode");
+    expect(noEntry).not.toContain("唯一允许的真实试查");
     expect(noEntry).toContain("无法端测");
   });
 
@@ -94,5 +96,22 @@ describe("AI 调试求助包", () => {
     expect(cleaned).not.toContain("session-secret");
     expect(cleaned).not.toContain("eyJhbGciOiJIUzI1NiJ9");
     expect(cleaned).toContain("12");
+  });
+
+  it("自家生态形态参与清理：api_key2 键与 New-Api-User 头的真实值被替换，占位符保留原样", () => {
+    const cleaned = sanitizeSharedText(
+      '{"api_key2":"user-9","New-Api-User":"12345678","headers":{"New-Api-User":"{{apiKey2}}","Authorization":"Bearer {{apiKey}}"}}',
+    );
+
+    expect(cleaned).not.toContain("user-9");
+    expect(cleaned).not.toContain("12345678");
+    // 纯占位符值不被误伤（误换会破坏草稿语义）
+    expect(cleaned).toContain('"New-Api-User":"{{apiKey2}}"');
+    expect(cleaned).toContain('"Bearer {{apiKey}}"');
+    // Bearer + 第二槽占位的组合形态同样保留（Bearer 规则的前瞻覆盖两槽）
+    expect(sanitizeSharedText("Bearer {{apiKey2}}")).toBe("Bearer {{apiKey2}}");
+    expect(sanitizeSharedText('{"Authorization":"Bearer {{apiKey2}}"}')).toContain(
+      '"Bearer {{apiKey2}}"',
+    );
   });
 });

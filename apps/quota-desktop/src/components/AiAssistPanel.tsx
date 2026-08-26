@@ -1,7 +1,7 @@
 // 外部 AI/Agent 调试桥：生成脱敏求助包并暴露 CLI 指引；QuotaTray 本身不提供 Agent。
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { Check, Copy, FileDown, Terminal, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
 import { Button } from "./ui";
@@ -26,9 +26,10 @@ interface Props {
 }
 
 function ensureAssistExtension(path: string): string {
-  return path.toLowerCase().endsWith(".qtray-assist.json")
-    ? path
-    : `${path}.qtray-assist.json`;
+  if (path.toLowerCase().endsWith(".qtray-assist.json")) return path;
+  // 保存对话框 filter=json 会让 Windows 自动补 .json——替换而非追加，
+  // 避免 relay.json.qtray-assist.json 双扩展名
+  return path.replace(/\.json$/i, "") + ".qtray-assist.json";
 }
 
 export function AiAssistPanel(props: Props) {
@@ -69,6 +70,12 @@ export function AiAssistPanel(props: Props) {
   );
   const prompt = useMemo(() => buildAiAssistPrompt(input, lang), [input, lang]);
 
+  // 输入变化后旧保存路径即过期（文件内容是旧现场）：失效路径，
+  // 复制给 Agent 前会以当前输入重写文件
+  useEffect(() => {
+    setSavedPath(null);
+  }, [input]);
+
   const copyText = async (
     text: string,
     success: string,
@@ -108,7 +115,19 @@ export function AiAssistPanel(props: Props) {
   };
 
   const copyLocalAgentPrompt = async () => {
-    const path = savedPath ?? (await savePackage());
+    // 已保存路径仍有效（输入未变）时静默重写当前内容再复制，Agent 永远拿到最新现场
+    let path: string | null = savedPath;
+    if (path) {
+      const pkg = JSON.stringify(buildAiAssistPackage(input), null, 2);
+      try {
+        await api.writeAssistPackage(path, pkg);
+      } catch (error) {
+        setFeedback(t("edit.ai.saveFailed", { error: String(error) }));
+        return;
+      }
+    } else {
+      path = await savePackage();
+    }
     if (!path) return;
     try {
       const quotaCliPath = await api.resolveQuotaCliPath();

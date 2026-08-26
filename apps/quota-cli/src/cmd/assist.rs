@@ -28,6 +28,9 @@ struct Diagnostic {
     code: &'static str,
     field: String,
     message: String,
+    /// 可选排查详情（如已脱敏的响应体片段）；None 时省略不输出。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -51,6 +54,17 @@ fn print_output<T: Serialize>(output: &AssistOutput<T>) {
 }
 
 fn fail(stage: &'static str, code: &'static str, field: &str, message: String) -> i32 {
+    fail_with_detail(stage, code, field, message, None)
+}
+
+/// 带可选排查详情的失败输出；返回退出码由调用方决定的版本见 [`fail_exit`]。
+fn fail_with_detail(
+    stage: &'static str,
+    code: &'static str,
+    field: &str,
+    message: String,
+    detail: Option<String>,
+) -> i32 {
     print_output(&AssistOutput::<Value> {
         schema_version: 1,
         ok: false,
@@ -59,10 +73,24 @@ fn fail(stage: &'static str, code: &'static str, field: &str, message: String) -
             code,
             field: field.into(),
             message,
+            detail,
         }],
         result: None,
     });
     1
+}
+
+/// 失败输出 + 显式退出码（assist test 的查询失败按三分约定返回 0/1/2）。
+fn fail_exit(
+    stage: &'static str,
+    code: &'static str,
+    field: &str,
+    message: String,
+    detail: Option<String>,
+    exit: i32,
+) -> i32 {
+    fail_with_detail(stage, code, field, message, detail);
+    exit
 }
 
 fn read_text(path: &Path) -> Result<String, String> {
@@ -170,6 +198,8 @@ fn example_template() -> Value {
 }
 
 /// schema 内嵌的最小可用脚本示例（双凭据变量注入演示）。
+/// extract 字段名为 snake_case（plan_name/is_valid），与脚本产物解析器
+/// 的键名一致（schema 的 usageFields 声明同口径）。
 fn example_script() -> String {
     r#"function request() {
   return {
@@ -182,11 +212,11 @@ fn example_script() -> String {
 }
 function extract(resp) {
   return {
-    planName: resp.data.display_name,
+    plan_name: resp.data.display_name,
     remaining: resp.data.quota / 500000,
     used: resp.data.used_quota / 500000,
     unit: "USD",
-    isValid: resp.success === true
+    is_valid: resp.success === true
   };
 }"#
     .to_owned()
@@ -392,15 +422,17 @@ pub async fn run_test(
             0
         }
         Err(e) => {
-            // 退出码对齐全局三分约定：瞬时 2（可重试）/ 确定性 1
+            // 退出码对齐全局三分约定：瞬时 2（可重试）/ 确定性 1；
+            // detail 为已过 declared_secrets 脱敏的响应体片段，端测排查用
             let code = if e.is_transient() { 2 } else { 1 };
-            fail(
+            fail_exit(
                 "test",
                 "QT_ASSIST_QUERY_FAILED",
                 "(query)",
                 e.message().to_string(),
+                e.detail().map(str::to_string),
+                code,
             )
-            .max(code)
         }
     }
 }
@@ -500,6 +532,8 @@ mod tests {
 
     /// 契约：schema 内嵌示例必须本身合法（可反序列化 + 静态校验通过），
     /// 演示 transforms 顶层键与 const 字段两种形态——Agent 按示例写不再需要猜 DSL。
+    /// 脚本示例额外过 simulate：extract 字段名必须能被产物解析器读回
+    /// （snake_case，防 camelCase 静默丢字段的回归）。
     #[test]
     fn schema_examples_are_valid_configs() {
         let schema = schema_value();
@@ -516,6 +550,18 @@ mod tests {
             allow_insecure: false,
         };
         quota_core::script::validate(&script_config).unwrap();
+        let sample = serde_json::json!({
+            "success": true,
+            "data": { "display_name": "demo", "quota": 500000, "used_quota": 100000 }
+        });
+        let rows = quota_core::script::simulate(&script_config, &sample).unwrap();
+        assert_eq!(
+            rows[0].plan_name.as_deref(),
+            Some("demo"),
+            "字段名应可解析回"
+        );
+        assert_eq!(rows[0].is_valid, Some(true), "is_valid 应可解析回");
+        assert_eq!(rows[0].remaining, Some(1.0));
     }
 
     /// 契约：schema 声明的变量含 apiKey2（与 core KNOWN_VARS 一致）。

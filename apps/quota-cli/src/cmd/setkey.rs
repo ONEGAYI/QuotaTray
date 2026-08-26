@@ -100,13 +100,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 契约：--slot 仅接受 1/2，其他值在读 stdin 前拦截。
+    /// 契约：--slot 仅接受 1/2，非法值在读 stdin 之前拦截（条目必须真实
+    /// 存在——否则会先命中「条目不存在」路径，slot 分支未被覆盖）。
     #[test]
     fn setkey_rejects_invalid_slot_before_input() {
         let dir = std::env::temp_dir().join(format!("quota-cli-slot-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ctx = Ctx::with_store(dir.join("config.json"), Arc::new(InMemoryStore::new()));
-        assert_eq!(run(&ctx, "zzz".into(), Some(3)), 1);
+        AppConfig {
+            providers: vec![quota_core::config::ProviderEntry {
+                id: "tpl1".into(),
+                name: "Relay".into(),
+                kind: ProviderKind::Template(Box::new(
+                    serde_json::from_str(
+                        r#"{"request":{"url":"https://a.com"},"extract":{"remaining":"$.a"}}"#,
+                    )
+                    .unwrap(),
+                )),
+                enabled: true,
+                api_key_enc: None,
+                api_key2_enc: None,
+                base_url: None,
+                pricing: None,
+                plan_variant: quota_core::config::PlanVariant::Auto,
+                use_proxy: false,
+            }],
+            ..Default::default()
+        }
+        .save(&ctx.config_path)
+        .unwrap();
+        assert_eq!(run(&ctx, "tpl1".into(), Some(3)), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

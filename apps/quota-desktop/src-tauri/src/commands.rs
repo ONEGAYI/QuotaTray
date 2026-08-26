@@ -1033,6 +1033,19 @@ mod tests {
         );
     }
 
+    /// 契约：PATH 回退排除 Windows 系统目录（System32 自带同名 NTFS 配额
+    /// 工具 quota.exe，不得被当作本软件 CLI 拼进 Agent 提示词）。
+    #[test]
+    #[cfg(windows)]
+    fn system_dirs_are_excluded_from_path_fallback() {
+        assert!(is_system_dir(std::path::Path::new("C:\\Windows\\System32")));
+        assert!(is_system_dir(std::path::Path::new("C:\\WINDOWS\\SYSWOW64")));
+        assert!(!is_system_dir(std::path::Path::new("D:\\Tools\\bin")));
+        assert!(!is_system_dir(std::path::Path::new(
+            "D:\\Apps\\System32Tools"
+        )));
+    }
+
     #[test]
     fn history_query_helper_filters_provider_and_start_time() {
         let store = quota_core::HistoryStore::open_in_memory().unwrap();
@@ -1547,7 +1560,13 @@ fn resolve_quota_cli_path_from(
         candidates.push(resources.join(&file_name));
     }
     if let Some(path_value) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path_value).map(|dir| dir.join(&file_name)));
+        candidates.extend(
+            std::env::split_paths(&path_value)
+                // Windows 系统目录自带同名 quota.exe（NTFS 配额工具），
+                // 与本项目 CLI 无关且会拼进外部 Agent 的 PowerShell 提示词，排除
+                .filter(|dir| !is_system_dir(dir))
+                .map(|dir| dir.join(&file_name)),
+        );
     }
     for candidate in &candidates {
         if candidate.is_file() {
@@ -1564,6 +1583,20 @@ fn resolve_quota_cli_path_from(
             .collect::<Vec<_>>()
             .join("；")
     ))
+}
+
+/// PATH 条目是否为 Windows 系统目录（System32/SysWOW64，大小写不敏感）。
+fn is_system_dir(dir: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        let text = dir.to_string_lossy().to_ascii_lowercase();
+        text.ends_with("\\system32") || text.ends_with("\\syswow64")
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        false
+    }
 }
 
 /// 返回当前开发版或安装包内真实存在的 quota CLI 绝对路径。

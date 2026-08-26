@@ -45,17 +45,20 @@ export interface AiAssistPackage {
 
 /**
  * 分享前的保守清理。无法识别所有厂商私有 key 形态，因此 UI 仍必须提供
- * 最终预览；已覆盖常见 Bearer、JWT、sk-* 与敏感 JSON 字段。
+ * 最终预览；已覆盖常见 Bearer、JWT、sk-*、敏感 JSON 字段与自家生态形态
+ * （api_key2 键、New-Api-User 头值）。
  */
 export function sanitizeSharedText(text: string): string {
   return text
-    .replace(/(Bearer\s+)(?!\{\{apiKey\}\})[^\s"'`,}]+/gi, "$1{{apiKey}}")
+    .replace(/(Bearer\s+)(?!\{\{apiKey2?\}\})[^\s"'`,}]+/gi, "$1{{apiKey}}")
     .replace(/eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "{{apiKey}}")
     .replace(/\bsk-[A-Za-z0-9_+\-/.=]{8,}\b/g, "{{apiKey}}")
     .replace(
-      /("(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|authorization|cookie|secret)"\s*:\s*")([^"]*)(")/gi,
+      /("(?:api[_-]?key2?|token|access[_-]?token|refresh[_-]?token|authorization|cookie|secret|new[_-]?api[_-]?user)"\s*:\s*")([^"]*)(")/gi,
       (_match, prefix: string, value: string, suffix: string) =>
-        `${prefix}${value.includes("{{apiKey}}") ? value : "{{apiKey}}"}${suffix}`,
+        /^(?:Bearer\s+)?\{\{apiKey2?\}\}$/.test(value)
+          ? `${prefix}${value}${suffix}`
+          : `${prefix}{{apiKey}}${suffix}`,
     );
 }
 
@@ -176,7 +179,11 @@ Use PowerShell and the exact executable path below. First inspect the schema and
 ${commands}
 \`\`\`
 ${testGuideEn}
-Return exactly one quotatray-ai-result version 1 JSON object with mode, config or code, explanation, and questions. Do not modify QuotaTray's saved providers and never craft credentialed requests yourself — the only permitted live test is the assist test command above.`;
+Return exactly one quotatray-ai-result version 1 JSON object with mode, config or code, explanation, and questions. Do not modify QuotaTray's saved providers and never craft credentialed requests yourself${
+    hasEntry
+      ? " — the only permitted live test is the assist test command above."
+      : "."
+  }`;
   }
 
   return `你是 QuotaTray 配置调试 Agent。请诊断并修复本机诊断包中的 ${mode === "template" ? "请求模板" : "查询脚本"}。
@@ -189,7 +196,9 @@ Return exactly one quotatray-ai-result version 1 JSON object with mode, config o
 ${commands}
 \`\`\`
 ${testGuideZh}
-最终只输出一个 quotatray-ai-result v1 JSON 对象，包含 mode、config 或 code、explanation、questions。不要修改 QuotaTray 已保存的 Provider，也不要自行构造携带真实凭据的请求——唯一允许的真实试查是上面的 assist test 命令。`;
+最终只输出一个 quotatray-ai-result v1 JSON 对象，包含 mode、config 或 code、explanation、questions。不要修改 QuotaTray 已保存的 Provider，也不要自行构造携带真实凭据的请求${
+    hasEntry ? "——唯一允许的真实试查是上面的 assist test 命令。" : "。"
+  }`;
 }
 
 export function defaultAssistFileName(providerName: string): string {
