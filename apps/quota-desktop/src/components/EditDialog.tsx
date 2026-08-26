@@ -242,11 +242,14 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
     </label>
   );
   // CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
-  // 以提示卡替代 key 输入框（apiKey 恒空，保存走「空=保持」路径）
+  // 以提示卡替代 key 输入框（apiKey 恒空，保存走「空=保持」路径）；
+  // 桥接警示：本方案只统计官方端点订阅用量，CC-Switch 等桥接到
+  // 非官方端点的流量须走「请求模板」——文案见 cliCredentialBridgeHint
   const cliCredentialField = (
     <label className="qt-field qt-credential-field">
       <span>{t("edit.apiKey")}</span>
       <small>{t("edit.cliCredentialHint")}</small>
+      <small className="qt-cli-bridge-hint">{t("edit.cliCredentialBridgeHint")}</small>
     </label>
   );
   const pricingSection = (

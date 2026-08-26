@@ -151,6 +151,8 @@ export const en: Record<TextKey, string> = {
   "edit.apiKeyHint": "Credentials are sent only to the backend, encrypted, and never shown in plaintext.",
   "edit.cliCredentialHint":
     "Credentials are read automatically from the locally signed-in official CLI at query time (no API key to fill in)",
+  "edit.cliCredentialBridgeHint":
+    "Queries hit the official endpoint for subscription usage; traffic bridged to non-official endpoints via tools like CC-Switch is not covered — use a request template to track that endpoint instead",
   "edit.keyConfigured": "Configured (leave blank to keep)",
   "edit.keyMissing": "Not configured",
 
