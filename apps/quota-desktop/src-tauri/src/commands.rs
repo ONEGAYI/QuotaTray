@@ -118,6 +118,27 @@ pub fn apply_key_policy(
     }
 }
 
+/// 第二凭据槽（{{apiKey2}}）的同款写入策略：非空加密写入，空/缺省保留
+/// 既有密文；前端传入的 `api_key2_enc` 同样被忽略。
+pub fn apply_key2_policy(
+    entry: &mut ProviderEntry,
+    existing: Option<&ProviderEntry>,
+    new_api_key2: Option<&str>,
+    vault: &Vault,
+    lang: Lang,
+) -> Result<(), String> {
+    let trimmed = new_api_key2.map(str::trim).filter(|s| !s.is_empty());
+    match trimmed {
+        Some(key) => entry
+            .set_api_key2(vault, key)
+            .map_err(|e| lang.err_encrypt_failed(&e)),
+        None => {
+            entry.api_key2_enc = existing.and_then(|e| e.api_key2_enc.clone());
+            Ok(())
+        }
+    }
+}
+
 /// 当前界面语言（按 settings.language 解析，system 折叠为具体语言）。
 fn lang_of(state: &AppState) -> Lang {
     Lang::parse(&state.settings.read().unwrap().language)
@@ -129,6 +150,11 @@ fn lang_of(state: &AppState) -> Lang {
 /// 同一语义，避免本地字面量扫描漂移。
 pub fn template_needs_api_key(config: &TemplateConfig) -> bool {
     quota_core::template::uses_api_key(config)
+}
+
+/// 模板是否引用了 `{{apiKey2}}`（决定试查时第二凭据是否必填）。
+pub fn template_needs_api_key2(config: &TemplateConfig) -> bool {
+    quota_core::template::uses_api_key2(config)
 }
 
 /// 结果表 → 快照（仅保留有成功数据的条目）。
@@ -283,6 +309,7 @@ pub fn upsert_provider(
     state: State<'_, AppState>,
     entry: ProviderEntry,
     new_api_key: Option<String>,
+    new_api_key2: Option<String>,
 ) -> Result<(), String> {
     let lang = lang_of(&state);
     validate_entry(&entry, lang)?;
@@ -293,6 +320,13 @@ pub fn upsert_provider(
         &mut entry,
         existing.as_ref(),
         new_api_key.as_deref(),
+        &state.vault,
+        lang,
+    )?;
+    apply_key2_policy(
+        &mut entry,
+        existing.as_ref(),
+        new_api_key2.as_deref(),
         &state.vault,
         lang,
     )?;
@@ -396,6 +430,7 @@ pub async fn test_template(
     state: State<'_, AppState>,
     config_json: String,
     api_key: Option<String>,
+    api_key2: Option<String>,
     base_url: Option<String>,
 ) -> Result<QueryOutcome, String> {
     let lang = lang_of(&state);
@@ -417,6 +452,24 @@ pub async fn test_template(
         }
         None => "-".into(),
     };
+    // 第二凭据槽：引用 {{apiKey2}} 而未填 → 同款确定性引导（缺省占位 "-"
+    // 长度 < 4 不进脱敏收集，与主 key 一致）
+    let key2 = match api_key2.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(k) => Some(k.to_string()),
+        None if template_needs_api_key2(&config) => {
+            return Ok(QueryOutcome {
+                ok: false,
+                data: None,
+                error: Some(ErrorInfo {
+                    kind: "deterministic".into(),
+                    message: lang.err_template_needs_key2(),
+                    detail: None,
+                }),
+                at: None,
+            });
+        }
+        None => None,
+    };
 
     let mut entry = ProviderEntry {
         id: TEMPLATE_TEST_ID.into(),
@@ -424,6 +477,7 @@ pub async fn test_template(
         kind: ProviderKind::Template(Box::new(config)),
         enabled: true,
         api_key_enc: None,
+        api_key2_enc: None,
         base_url,
         pricing: None,
         plan_variant: PlanVariant::Auto,
@@ -432,6 +486,11 @@ pub async fn test_template(
     entry
         .set_api_key(&state.vault, &key)
         .map_err(|e| lang.err_encrypt_failed(&e))?;
+    if let Some(k2) = key2 {
+        entry
+            .set_api_key2(&state.vault, &k2)
+            .map_err(|e| lang.err_encrypt_failed(&e))?;
+    }
     entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
 
     // clone（Arc 浅拷贝）后立即释放读锁，避免 guard 跨 await 破坏 Send
@@ -477,6 +536,7 @@ pub async fn test_script(
     state: State<'_, AppState>,
     config_json: String,
     api_key: Option<String>,
+    api_key2: Option<String>,
     base_url: Option<String>,
 ) -> Result<QueryOutcome, String> {
     let lang = lang_of(&state);
@@ -498,6 +558,22 @@ pub async fn test_script(
         }
         None => "-".into(),
     };
+    let key2 = match api_key2.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(k) => Some(k.to_string()),
+        None if quota_core::script::uses_api_key2(&config) => {
+            return Ok(QueryOutcome {
+                ok: false,
+                data: None,
+                error: Some(ErrorInfo {
+                    kind: "deterministic".into(),
+                    message: lang.err_template_needs_key2(),
+                    detail: None,
+                }),
+                at: None,
+            });
+        }
+        None => None,
+    };
 
     let mut entry = ProviderEntry {
         id: SCRIPT_TEST_ID.into(),
@@ -505,6 +581,7 @@ pub async fn test_script(
         kind: ProviderKind::Script(Box::new(config)),
         enabled: true,
         api_key_enc: None,
+        api_key2_enc: None,
         base_url,
         pricing: None,
         plan_variant: PlanVariant::Auto,
@@ -513,6 +590,11 @@ pub async fn test_script(
     entry
         .set_api_key(&state.vault, &key)
         .map_err(|e| lang.err_encrypt_failed(&e))?;
+    if let Some(k2) = key2 {
+        entry
+            .set_api_key2(&state.vault, &k2)
+            .map_err(|e| lang.err_encrypt_failed(&e))?;
+    }
     entry.base_url = entry.base_url.filter(|u| !u.trim().is_empty());
 
     // clone（Arc 浅拷贝）后立即释放读锁，避免 guard 跨 await 破坏 Send
@@ -910,6 +992,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -924,6 +1007,48 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join(name)
+    }
+
+    /// AI 调试契约：返回真实存在的 CLI 绝对路径；开发同目录优先，安装包资源兜底。
+    /// 文件名按平台拼接 EXE_SUFFIX（Linux 无后缀），保证跨矩阵确定性。
+    #[test]
+    fn resolves_existing_quota_cli_path() {
+        let cli_name = format!("quota{}", std::env::consts::EXE_SUFFIX);
+        let current_exe = transfer_path(
+            "assist-cli",
+            &format!("app/quota-desktop{}", std::env::consts::EXE_SUFFIX),
+        );
+        let dev_cli = current_exe.with_file_name(&cli_name);
+        std::fs::create_dir_all(current_exe.parent().unwrap()).unwrap();
+        std::fs::write(&dev_cli, b"dev-cli").unwrap();
+
+        let resource_dir = transfer_path("assist-cli", "resources");
+        let bundled_cli = resource_dir.join("bin").join(&cli_name);
+        std::fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        std::fs::write(&bundled_cli, b"bundled-cli").unwrap();
+
+        assert_eq!(
+            resolve_quota_cli_path_from(&current_exe, Some(&resource_dir)).unwrap(),
+            dev_cli.canonicalize().unwrap()
+        );
+        std::fs::remove_file(&dev_cli).unwrap();
+        assert_eq!(
+            resolve_quota_cli_path_from(&current_exe, Some(&resource_dir)).unwrap(),
+            bundled_cli.canonicalize().unwrap()
+        );
+    }
+
+    /// 契约：PATH 回退排除 Windows 系统目录（System32 自带同名 NTFS 配额
+    /// 工具 quota.exe，不得被当作本软件 CLI 拼进 Agent 提示词）。
+    #[test]
+    #[cfg(windows)]
+    fn system_dirs_are_excluded_from_path_fallback() {
+        assert!(is_system_dir(std::path::Path::new("C:\\Windows\\System32")));
+        assert!(is_system_dir(std::path::Path::new("C:\\WINDOWS\\SYSWOW64")));
+        assert!(!is_system_dir(std::path::Path::new("D:\\Tools\\bin")));
+        assert!(!is_system_dir(std::path::Path::new(
+            "D:\\Apps\\System32Tools"
+        )));
     }
 
     #[test]
@@ -1097,6 +1222,31 @@ mod tests {
         e.api_key_enc = Some("v1:forged".into());
         apply_key_policy(&mut e, None, Some(""), &vault, Lang::Zh).unwrap();
         assert!(e.api_key_enc.is_none());
+    }
+
+    /// 契约：第二凭据槽与主 key 同策略——非空写入、空/缺省保留、
+    /// 前端伪造 api_key2_enc 被忽略。
+    #[test]
+    fn key2_policy_mirrors_primary_key_policy() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut old = entry("p1");
+        old.set_api_key2(&vault, "1024").unwrap();
+        let old_enc2 = old.api_key2_enc.clone();
+
+        let mut e = entry("p1");
+        e.api_key2_enc = Some("v1:forged-2".into());
+        apply_key2_policy(&mut e, Some(&old), Some("  "), &vault, Lang::Zh).unwrap();
+        assert_eq!(e.api_key2_enc, old_enc2, "空第二凭据应保留旧密文");
+
+        apply_key2_policy(&mut e, Some(&old), None, &vault, Lang::Zh).unwrap();
+        assert_eq!(e.api_key2_enc, old_enc2, "缺省第二凭据应保留旧密文");
+
+        apply_key2_policy(&mut e, None, Some("2048"), &vault, Lang::Zh).unwrap();
+        assert_ne!(e.api_key2_enc, old_enc2, "非空第二凭据应加密写入");
+        assert!(
+            e.credentials(&vault).is_err(),
+            "未配主 key 时解密仍应失败（主 key 必填语义不变）"
+        );
     }
 
     /// 契约：validate_entry——合法条目通过；未知 native、非法峰谷逐一拦截（双语前缀）。
@@ -1396,4 +1546,69 @@ mod tests {
             "类型错误透出而非静默清空"
         );
     }
+}
+/// 将用户预览过的无凭据 AI 诊断包原子写入保存对话框选定路径。
+#[tauri::command]
+pub fn write_assist_package(path: String, contents: String) -> Result<(), String> {
+    quota_core::update::write_atomic_bytes(std::path::Path::new(&path), contents.as_bytes())
+        .map_err(|e| format!("写入 AI 诊断包失败：{e}"))
+}
+
+fn resolve_quota_cli_path_from(
+    current_exe: &std::path::Path,
+    resource_dir: Option<&std::path::Path>,
+) -> Result<std::path::PathBuf, String> {
+    let file_name = format!("quota{}", std::env::consts::EXE_SUFFIX);
+    let mut candidates = vec![current_exe.with_file_name(&file_name)];
+    if let Some(resources) = resource_dir {
+        candidates.push(resources.join("bin").join(&file_name));
+        candidates.push(resources.join(&file_name));
+    }
+    if let Some(path_value) = std::env::var_os("PATH") {
+        candidates.extend(
+            std::env::split_paths(&path_value)
+                // Windows 系统目录自带同名 quota.exe（NTFS 配额工具），
+                // 与本项目 CLI 无关且会拼进外部 Agent 的 PowerShell 提示词，排除
+                .filter(|dir| !is_system_dir(dir))
+                .map(|dir| dir.join(&file_name)),
+        );
+    }
+    for candidate in &candidates {
+        if candidate.is_file() {
+            return candidate
+                .canonicalize()
+                .map_err(|e| format!("解析 quota CLI 路径失败：{e}"));
+        }
+    }
+    Err(format!(
+        "未找到 quota CLI 可执行文件；已检查：{}",
+        candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("；")
+    ))
+}
+
+/// PATH 条目是否为 Windows 系统目录（System32/SysWOW64，大小写不敏感）。
+fn is_system_dir(dir: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        let text = dir.to_string_lossy().to_ascii_lowercase();
+        text.ends_with("\\system32") || text.ends_with("\\syswow64")
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        false
+    }
+}
+
+/// 返回当前开发版或安装包内真实存在的 quota CLI 绝对路径。
+#[tauri::command]
+pub fn resolve_quota_cli_path(app: AppHandle) -> Result<String, String> {
+    let current_exe = std::env::current_exe().map_err(|e| format!("读取当前程序路径失败：{e}"))?;
+    let resource_dir = app.path().resource_dir().ok();
+    resolve_quota_cli_path_from(&current_exe, resource_dir.as_deref())
+        .map(|path| path.to_string_lossy().into_owned())
 }

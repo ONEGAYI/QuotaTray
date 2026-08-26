@@ -115,12 +115,15 @@ pub async fn run(
             } else {
                 Zeroizing::new(String::new())
             };
+            // 第二凭据槽：脚本引用 {{apiKey2}} 时收集（空输入同主 key 语义）
+            let needs_key2 = script::uses_api_key2(&config);
             let mut e = ProviderEntry {
                 id: TEST_ENTRY_ID.into(),
                 name: t(lang, T::ScriptTestEntryName).into(),
                 kind: ProviderKind::Script(config),
                 enabled: true,
                 api_key_enc: None,
+                api_key2_enc: None,
                 base_url,
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
@@ -133,6 +136,32 @@ pub async fn run(
                     t(lang, T::TryQueryEncryptFail)
                 );
                 return 1;
+            }
+            if needs_key2 {
+                let k = match io::read_secret(t(lang, T::NeedsKey2Prompt), lang) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::KeyReadFail));
+                        return 1;
+                    }
+                };
+                if k.trim().is_empty() {
+                    let hint = if std::io::stdin().is_terminal() {
+                        T::KeyEmptyHint
+                    } else {
+                        T::KeyEmptyRedirect
+                    };
+                    eprintln!("{}{}", t(lang, T::Err), t(lang, hint));
+                    return 1;
+                }
+                if let Err(err) = e.set_api_key2(&vault, k.trim()) {
+                    eprintln!(
+                        "{}{}{err}",
+                        t(lang, T::Err),
+                        t(lang, T::TryQueryEncryptFail)
+                    );
+                    return 1;
+                }
             }
             e
         }

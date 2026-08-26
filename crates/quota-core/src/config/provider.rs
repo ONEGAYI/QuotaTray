@@ -6,18 +6,29 @@ use zeroize::Zeroizing;
 /// 明文凭据。
 ///
 /// 生命周期：解密创建 → 构造请求头 → 发出请求后尽快 drop。
-/// `api_key` 用 [`Zeroizing`]`<String>` 包装，drop 时擦除堆内存；
+/// `Zeroizing``<String>` 包装，drop 时擦除堆内存；
 /// Debug 输出打码，不得把明文带进任何日志。
+///
+/// `api_key2` 为可选第二凭据（如 new-api 系站点的用户 ID 槽：
+/// `Authorization` 令牌 + `New-Api-User` 头双凭据形态），
+/// 未配置为 None。
 #[derive(Clone)]
 pub struct Credentials {
     pub api_key: Zeroizing<String>,
+    pub api_key2: Option<Zeroizing<String>>,
 }
 
 impl Credentials {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: Zeroizing::new(api_key.into()),
+            api_key2: None,
         }
+    }
+
+    pub fn with_api_key2(mut self, api_key2: impl Into<String>) -> Self {
+        self.api_key2 = Some(Zeroizing::new(api_key2.into()));
+        self
     }
 }
 
@@ -26,6 +37,7 @@ impl std::fmt::Debug for Credentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Credentials")
             .field("api_key", &"<redacted>")
+            .field("api_key2", &self.api_key2.as_ref().map(|_| "<redacted>"))
             .finish()
     }
 }
@@ -72,12 +84,13 @@ impl PlanVariant {
 mod tests {
     use super::*;
 
-    /// 安全契约：Debug 输出打码，明文 key 不得出现。
+    /// 安全契约：Debug 输出打码，明文 key 不得出现（含第二凭据槽）。
     #[test]
     fn debug_masks_api_key() {
-        let creds = Credentials::new("sk-plaintext-secret");
+        let creds = Credentials::new("sk-plaintext-secret").with_api_key2("1024-secret-id");
         let dbg = format!("{creds:?}");
         assert!(!dbg.contains("sk-plaintext-secret"), "明文泄漏：{dbg}");
+        assert!(!dbg.contains("1024-secret-id"), "第二槽明文泄漏：{dbg}");
         assert!(dbg.contains("<redacted>"), "应有打码占位：{dbg}");
     }
 }

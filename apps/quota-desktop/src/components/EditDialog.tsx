@@ -19,6 +19,7 @@ import type {
   TemplateErrorDto,
 } from "../types";
 import { NativeProviderPicker } from "./NativeProviderPicker";
+import { AiAssistPanel } from "./AiAssistPanel";
 import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } from "./presetTemplates";
 import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
@@ -91,10 +92,12 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
   );
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [apiKey2, setApiKey2] = useState("");
   const [error, setError] = useState<string | null>(null);
   // id 在打开期间保持稳定（新增时生成一次）
   const id = useMemo(() => initial?.id ?? newEntryId(), [initial]);
   const configured = Boolean(initial?.api_key_enc);
+  const configured2 = Boolean(initial?.api_key2_enc);
 
   // 峰谷定价：ref 收集（PricingSection 内聚草稿态，mount/变更时上报）
   const pricingRef = useRef<PricingConfig | undefined>(undefined);
@@ -192,7 +195,10 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
           : apiKey.trim()
             ? apiKey
             : null;
-      await api.upsertProvider(entry, saveKey);
+      // 第二凭据槽同语义：native 不写；template/script 空输入 = 保持不变
+      const saveKey2 =
+        tab === "native" ? null : apiKey2.trim() ? apiKey2 : null;
+      await api.upsertProvider(entry, saveKey, saveKey2);
     },
     onSuccess: () => {
       // 只失效本条目派生缓存：其余条目的查询不陪查（事件侧同键失效，幂等）
@@ -237,6 +243,22 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         onChange={(event) => setApiKey(event.target.value)}
         autoComplete="new-password"
         placeholder={configured ? t("edit.keyConfigured") : t("edit.keyMissing")}
+        className={inputCls}
+      />
+    </label>
+  );
+  // 第二凭据槽（{{apiKey2}}）：仅 template/script 形态渲染（native 平台单 key）；
+  // 与主 key 同红线——空 = 保持不变，永不回显
+  const credential2Field = (
+    <label className="qt-field qt-credential-field">
+      <span>{t("edit.apiKey2")}</span>
+      <small>{t("edit.apiKey2Hint")}</small>
+      <input
+        type="password"
+        value={apiKey2}
+        onChange={(event) => setApiKey2(event.target.value)}
+        autoComplete="new-password"
+        placeholder={configured2 ? t("edit.keyConfigured") : t("edit.key2Optional")}
         className={inputCls}
       />
     </label>
@@ -337,15 +359,19 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
               {baseUrlField}
               {pricingSection}
               {credentialField}
+              {credential2Field}
             </div>
             {/* 子页「设置模板」：条件渲染——内部校验/试查结论允许丢失，
                 避免 CodeMirror 挂在隐藏容器的测量问题 */}
             {templateSub === "template" && (
               <TemplateForm
+                providerName={name}
                 templateJson={templateJson}
                 setTemplateJson={setTemplateJson}
                 baseUrl={baseUrl}
                 apiKey={apiKey}
+                apiKey2={apiKey2}
+                entryId={initial?.id ?? null}
               />
             )}
           </>
@@ -400,6 +426,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
 
             {tab === "script" && (
               <ScriptForm
+                providerName={name}
                 code={scriptCode}
                 setCode={setScriptCode}
                 allowInsecure={scriptInsecure}
@@ -407,6 +434,8 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                 baseUrl={baseUrl}
                 setBaseUrl={setBaseUrl}
                 apiKey={apiKey}
+                apiKey2={apiKey2}
+                entryId={initial?.id ?? null}
               />
             )}
 
@@ -414,6 +443,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
             {tab === "native" && selectedNativeMeta?.uses_cli_credentials
               ? cliCredentialField
               : credentialField}
+            {tab !== "native" && credential2Field}
           </>
         )}
 
@@ -425,17 +455,22 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
 
 /** 模板形态：预设模板 + JSON 编辑器 + 校验/试查 + 编写说明。 */
 function TemplateForm(props: {
+  providerName: string;
   templateJson: string;
   setTemplateJson: (v: string) => void;
   /** 试查只读取值（输入框在「运营商与模型」子页） */
   baseUrl: string;
   apiKey: string;
+  apiKey2: string;
+  /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
+  entryId: string | null;
 }) {
   const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
+  const [assistOpen, setAssistOpen] = useState(false);
   const activePreset = matchedPresetId(props.templateJson);
   const presetLabels: Record<PresetTemplate["id"], TextKey> = {
     custom: "edit.preset.custom",
@@ -473,6 +508,7 @@ function TemplateForm(props: {
         props.templateJson,
         props.apiKey.trim() || null,
         props.baseUrl.trim() || null,
+        props.apiKey2.trim() || null,
       );
       setTestResult(r);
     } catch (e) {
@@ -539,6 +575,10 @@ function TemplateForm(props: {
         <Button type="button" onClick={() => void test()} disabled={testing}>
           {testing ? t("edit.testing") : t("edit.test")}
         </Button>
+        <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
+          <span className="qt-ai-placeholder-icon" aria-hidden="true">AI</span>
+          {t("edit.ai.open")}
+        </Button>
         {validateOk && !validateMsg && (
           <span className="qt-text-success">{t("edit.validated")}</span>
         )}
@@ -566,6 +606,19 @@ function TemplateForm(props: {
         </div>
       )}
 
+      {assistOpen && (
+        <AiAssistPanel
+          mode="template"
+          providerName={props.providerName}
+          baseUrl={props.baseUrl}
+          draft={props.templateJson}
+          entryId={props.entryId}
+          validationMessage={validateMsg}
+          testError={testResult?.ok ? null : testResult?.error?.message}
+          onClose={() => setAssistOpen(false)}
+        />
+      )}
+
       <TemplateHelpCard />
     </div>
   );
@@ -573,6 +626,7 @@ function TemplateForm(props: {
 
 /** 脚本形态：JS 编辑器 + baseUrl + allowInsecure + 校验/试查（镜像 TemplateForm 骨架）。 */
 function ScriptForm(props: {
+  providerName: string;
   code: string;
   setCode: (v: string) => void;
   allowInsecure: boolean;
@@ -580,12 +634,16 @@ function ScriptForm(props: {
   baseUrl: string;
   setBaseUrl: (v: string) => void;
   apiKey: string;
+  apiKey2: string;
+  /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
+  entryId: string | null;
 }) {
   const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
+  const [assistOpen, setAssistOpen] = useState(false);
 
   // 后端 IPC 形状：ScriptConfig JSON（code + allowInsecure）
   const configJson = JSON.stringify({
@@ -620,6 +678,7 @@ function ScriptForm(props: {
         configJson,
         props.apiKey.trim() || null,
         props.baseUrl.trim() || null,
+        props.apiKey2.trim() || null,
       );
       setTestResult(r);
     } catch (e) {
@@ -683,6 +742,10 @@ function ScriptForm(props: {
         <Button type="button" onClick={() => void test()} disabled={testing}>
           {testing ? t("edit.testing") : t("edit.test")}
         </Button>
+        <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
+          <span className="qt-ai-placeholder-icon" aria-hidden="true">AI</span>
+          {t("edit.ai.open")}
+        </Button>
         {validateOk && !validateMsg && (
           <span className="qt-text-success">{t("edit.validated")}</span>
         )}
@@ -708,6 +771,18 @@ function ScriptForm(props: {
             </p>
           )}
         </div>
+      )}
+      {assistOpen && (
+        <AiAssistPanel
+          mode="script"
+          providerName={props.providerName}
+          baseUrl={props.baseUrl}
+          draft={configJson}
+          entryId={props.entryId}
+          validationMessage={validateMsg}
+          testError={testResult?.ok ? null : testResult?.error?.message}
+          onClose={() => setAssistOpen(false)}
+        />
       )}
     </div>
   );

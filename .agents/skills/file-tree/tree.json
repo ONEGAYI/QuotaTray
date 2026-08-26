@@ -123,8 +123,7 @@
       "kind": "file",
       "desc": "忽略清单（密钥/生成物）",
       "detail": [
-        "含 .DevApiKey.json / .DevApiKey.json 被忽略、前端与 gen/schemas 生成物、",
-        "Python 字节码（file-tree 技能脚本）"
+        "忽略本地密钥、target/前端/schema 构建物、Tauri generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
     },
     "AGENTS.md": {
@@ -171,6 +170,13 @@
                         "交互向导（订阅型平台问套餐变体；template 粘贴/",
                         "script 代码粘贴 + allowInsecure 确认双形态）/",
                         "--json stdin（拒收 api_key_enc，script 干跑校验）"
+                      ]
+                    },
+                    "assist.rs": {
+                      "kind": "file",
+                      "desc": "Agent 无凭据调试",
+                      "detail": [
+                        "assist 家族：schema（内嵌模板/脚本完整示例与 assistTest 声明）/validate/simulate 无凭据调试；test 子命令借诊断包 entryId 复用本机条目两槽密文真实端测一次，退出码走三分约定"
                       ]
                     },
                     "config.rs": {
@@ -225,7 +231,7 @@
                       "kind": "file",
                       "desc": "子模块声明",
                       "detail": [
-                        "devsmoke 仅 debug 编入"
+                        "CLI 子命令模块声明；devsmoke 仅 debug 编入，assist 为外部 Agent 无凭据调试入口"
                       ]
                     },
                     "natives.rs": {
@@ -286,7 +292,7 @@
                       "kind": "file",
                       "desc": "写入 API key",
                       "detail": [
-                        "隐藏读 key → vault 加密写配置"
+                        "set-key --slot 1|2：隐藏输入读主/第二凭据槽，经 vault 加密写配置；CLI 凭据型平台拦截提示"
                       ],
                       "tags": [
                         "security"
@@ -361,9 +367,9 @@
                   "kind": "file",
                   "desc": "clap 定义与 dispatch",
                   "detail": [
-                    "clap 定义子命令（含 pricing model / config 迁移组）+ dispatch",
+                    "clap 定义子命令（含 assist/pricing model/config 迁移组）+ dispatch",
                     "+ --lang 全局参数（两阶段解析）+ 启动更新提示钩子",
-                    "（stderr、节流、--json 与 update 子命令自身豁免）"
+                    "（stderr、节流、机器 JSON 与 update 子命令自身豁免）"
                   ]
                 },
                 "render.rs": {
@@ -457,7 +463,7 @@
                   "kind": "file",
                   "desc": "invoke 封装",
                   "detail": [
-                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移 + 短 id 生成"
+                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移/AI 诊断包写入与 CLI 路径解析 + 短 id 生成"
                   ],
                   "rel": [
                     "apps/quota-desktop/src-tauri/src/commands.rs"
@@ -503,6 +509,42 @@
                   "kind": "dir",
                   "desc": "前端组件",
                   "children": {
+                    "aiAssistPack.test.ts": {
+                      "kind": "file",
+                      "desc": "AI 求助包测试",
+                      "detail": [
+                        "AI 求助包脱敏、未保存现场收集、本机 Agent 提示词的真实 CLI 路径/命令/联网搜索/安全边界契约测试"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/aiAssistPack.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "aiAssistPack.ts": {
+                      "kind": "file",
+                      "desc": "AI 求助包纯逻辑",
+                      "detail": [
+                        "AI 求助提示词/qtray-assist v1 包（编辑已存条目时携带 entryId）/本机 Agent 任务提示词生成；Agent 提示词含 PowerShell 实际 CLI/诊断包路径、apiKey2 占位边界与 assist test 端测指引、联网搜索及输出契约"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/aiAssistPack.test.ts"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "AiAssistPanel.tsx": {
+                      "kind": "file",
+                      "desc": "AI 调试求助面板",
+                      "detail": [
+                        "模板/脚本编辑器内联 AI 调试面板：脱敏提示词预览、诊断包保存、复制给本机 Agent；复制按钮就地显示已复制，Agent 提示词仅在解析到真实 quota CLI 路径后生成"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/aiAssistPack.ts"
+                      ]
+                    },
                     "BrandMark.tsx": {
                       "kind": "file",
                       "desc": "品牌标志薄组件",
@@ -537,13 +579,7 @@
                       "kind": "file",
                       "desc": "添加/编辑弹窗",
                       "detail": [
-                        "Modal：native 下拉（订阅型带套餐变体选择）/",
-                        "template 分支二级子页（运营商与模型＝名称/baseUrl/key/",
-                        "峰谷计价；设置模板＝预设模板+JSON 编辑器+校验/试查+",
-                        "编写说明卡。子页 A 用 CSS 隐藏切换保草稿态不丢）/",
-                        "script JS 编辑器（M4：校验/试查镜像 template，",
-                        "allowInsecure 开关带警告 + 默认最小闭环示例）、",
-                        "分组表单、独立凭据区与固定页脚"
+                        "三形态编辑弹窗：主/第二凭据双写入通道（空=保持）、峰谷定价、模板/脚本编辑与试查；诊断包携带已存条目 entryId 供 assist test 端测"
                       ]
                     },
                     "HoverPanel.tsx": {
@@ -922,7 +958,7 @@
                       "kind": "file",
                       "desc": "英文字典（编译锁键）",
                       "detail": [
-                        "英文字典（Record<TextKey,string> 编译期锁键完整），与中文使用统计文案成对"
+                        "英文字典（Record<TextKey,string> 编译期锁键完整），与中文使用统计及 AI 调试文案成对"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/i18n/zh.ts"
@@ -939,7 +975,7 @@
                       "kind": "file",
                       "desc": "中文字典（类型基准）",
                       "detail": [
-                        "中文字典（as const 类型基准），含使用统计示意页文案"
+                        "中文字典（as const 类型基准），含使用统计与 AI 调试求助文案"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/i18n/en.ts"
@@ -951,7 +987,7 @@
                   "kind": "file",
                   "desc": "设计令牌与全局样式",
                   "detail": [
-                    "明暗设计令牌（含图表外轴/内部虚线网格/缺失纹理）、Mica-like 基底、主窗响应式系统、使用统计图与悬停面板样式"
+                    "明暗设计令牌、Mica-like 基底、主窗响应式系统、图表/悬停面板与 AI 调试面板样式"
                   ]
                 },
                 "main.tsx": {
@@ -1067,7 +1103,7 @@
                   "kind": "file",
                   "desc": "Tauri 构建脚本",
                   "detail": [
-                    "tauri-build：能力清单/图标/资源嵌入构建期生成"
+                    "tauri-build 前暂存同 profile quota CLI：release 缺失硬失败；debug/test 缺失可建仅供配置校验的 ignored 占位；为 Windows bundle 资源清单提供稳定源路径"
                   ]
                 },
                 "capabilities": {
@@ -1128,8 +1164,7 @@
                       "kind": "file",
                       "desc": "IPC 命令集",
                       "detail": [
-                        "主业务 IPC 21 命令：既有 Provider/设置/更新/迁移/试查链路 + get_history 只读 SQLite 历史；成功查询写历史后广播 provider-state-changed",
-                        "key 写入仍执行空值保持与前端不回显安全策略；配置导入导出携带历史，删除 Provider 同步清历史"
+                        "IPC 命令集：Provider/查询/历史/设置/迁移/AI 诊断包与 CLI 路径解析；upsert 与 test_template/test_script 支持第二凭据槽（apply_key2_policy 空=保持），template_needs_api_key2 判定"
                       ]
                     },
                     "hover_panel.rs": {
@@ -1159,7 +1194,7 @@
                       "kind": "file",
                       "desc": "Tauri Builder 装配",
                       "detail": [
-                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含 get_history）"
+                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含历史、AI 诊断包写入与 CLI 路径解析）"
                       ],
                       "rel": [
                         "apps/quota-desktop/src-tauri/src/commands.rs"
@@ -1245,8 +1280,14 @@
                   "kind": "file",
                   "desc": "Tauri 配置",
                   "detail": [
-                    "版本经 crate 继承 workspace；CSP 基线；decorations:false；",
-                    "NSIS 安装包"
+                    "版本继承 workspace、CSP/decorations/NSIS；dev/build 前分别构建 debug/release quota CLI，build.rs 再暂存给 Windows bundle"
+                  ]
+                },
+                "tauri.windows.conf.json": {
+                  "kind": "file",
+                  "desc": "Windows Tauri 覆盖配置",
+                  "detail": [
+                    "Windows bundle 资源映射：把 build.rs 暂存的 generated/quota.exe 打入安装包 bin/quota.exe，供 Agent 调试提示词解析真实绝对路径"
                   ]
                 }
               }
@@ -1334,19 +1375,17 @@
                       "kind": "file",
                       "desc": "AppConfig 原子读写",
                       "detail": [
-                        "AppConfig（providers + custom_models 自定义模型库；",
-                        "原子写、密文落盘、旧文件兼容）+ ProviderEntry",
-                        "（含 use_proxy 条目级查询代理开关，默认 false）"
+                        "ProviderEntry（api_key_enc/api_key2_enc 双槽密文、set_api_key/2、credentials 双解密）与 AppConfig 原子读写"
                       ]
                     },
                     "provider.rs": {
                       "kind": "file",
                       "desc": "凭据与条目类型",
                       "detail": [
-                        "Credentials / ProviderKind（serde tag 分派：native/",
-                        "template/script，script 为 M4 新增——旧版二进制",
-                        "读到会报未知 tag，升级单向）、PlanVariant",
-                        "订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）"
+                        "Credentials 双凭据槽（api_key + 可选 api_key2，Debug 打码）、ProviderKind 三形态与 PlanVariant；set_api_key2 走同 vault AAD"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/config/mod.rs"
                       ]
                     },
                     "transfer.rs": {
@@ -1622,16 +1661,7 @@
                       "kind": "file",
                       "desc": "QuickJS 沙箱脚本查询",
                       "detail": [
-                        "QuickJS 沙箱脚本查询（M4）：{request, extractor} 两阶段协议",
-                        "（rquickjs 默认内嵌编译 QuickJS-NG）；",
-                        "六环节——变量替换（代码字符串层面，脚本可分享）→ 沙箱",
-                        "eval request 产物（JSON 桥出入箱）→ URL 安全校验 →",
-                        "宿主发请求（fetch_json 收口错误分类与脱敏、apiKey 从根",
-                        "登记）→ 沙箱 eval extract → 产物转 UsageData（parse_num",
-                        "语义）；沙箱限制：内存 16MiB/栈 256KiB/单次 eval 5s CPU",
-                        "中断器（eval 在 spawn_blocking 线程）；validate 干跑",
-                        "（假变量+形状校验）；JS 异常消息可能回显注入 key——",
-                        "全错误路径 redact 收口"
+                        "脚本查询：request/extract 沙箱执行与变量替换（apiKey/apiKey2/baseUrl）、declared_secrets 双槽脱敏、simulate 离线取数与 uses_api_key2 判定"
                       ],
                       "tags": [
                         "security"
@@ -1647,9 +1677,10 @@
                       "kind": "file",
                       "desc": "DSL 结构与执行器",
                       "detail": [
-                        "DSL 结构/静态校验/执行器（变量替换、URL 安全、",
-                        "多窗口、uses_api_key；错误文案不含明文凭据；",
-                        "substitute/check_url_safety 与 script 查询共用）"
+                        "模板 DSL：变量 apiKey/apiKey2/baseUrl、FieldSource 两形态、顶层 transforms、validate/execute/simulate；declared_secrets 双槽登记，uses_api_key/uses_api_key2 判定"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/template/path.rs"
                       ]
                     },
                     "path.rs": {
@@ -1749,14 +1780,14 @@
               "kind": "file",
               "desc": "CLI 规格（M2b）",
               "detail": [
-                "quota-cli 规格（M2b）：子命令/退出码/dev-smoke"
+                "quota-cli 规格：子命令/退出码/dev-smoke/外部 Agent 无凭据 assist 调试契约"
               ]
             },
             "GUI-spec.md": {
               "kind": "file",
               "desc": "GUI 规格（M3）",
               "detail": [
-                "quota-desktop 规格（M3）：窗口托盘/IPC/快照持久化"
+                "quota-desktop 规格：窗口托盘/IPC/快照/AI 求助与本机 Agent 提示词；CLI dev/release 暂存、Windows 安装包资源映射及真实路径解析契约"
               ]
             },
             "history-spec.md": {

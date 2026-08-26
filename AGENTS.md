@@ -66,6 +66,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 配置迁移包 | QuotaTray 私有、带版本和认证校验的二进制配置导出；虽然不可直接阅读，但因携带迁移密钥，保密级别等同明文凭据 |
 | 预置平台（native provider） | core 内置 Rust 实现的官方查询（如 DeepSeek、SiliconFlow），随版本发布 |
 | 声明式模板（template provider） | JSON 描述的查询配置（URL/头/字段映射/算术），零代码 |
+| 第二凭据槽（apiKey2） | 模板/脚本可用的第二个加密凭据变量 `{{apiKey2}}`（如 new-api 系站点的用户 ID，注入 `New-Api-User` 头）；与主 key 同 vault 加密、同「空=保持不变」写入语义 |
 | 脚本查询（script provider） | QuickJS 沙箱内运行的 `{request, extractor}` 脚本，兜底复杂平台 |
 | 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
 | keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |
@@ -102,6 +103,7 @@ QuotaTray/
 │   │   └── src/       # CLI 源码
 │   │       ├── cmd/           # 子命令实现（每命令一模块）
 │   │       │   ├── add.rs            # 交互添加向导
+│   │       │   ├── assist.rs         # Agent 无凭据调试
 │   │       │   ├── config.rs         # 配置导入导出
 │   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
 │   │       │   ├── edit.rs           # 编辑向导与启停
@@ -140,6 +142,9 @@ QuotaTray/
 │       │   │   ├── brand-mark.png # 透明品牌主图
 │       │   │   └── providers/     # Provider SVG 图标集
 │       │   ├── components/             # 前端组件
+│       │   │   ├── aiAssistPack.test.ts         # AI 求助包测试
+│       │   │   ├── aiAssistPack.ts              # AI 求助包纯逻辑
+│       │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
@@ -192,15 +197,15 @@ QuotaTray/
 │       │   ├── types.ts                # core serde 的 TS 镜像
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
-│       │   ├── build.rs        # Tauri 构建脚本
-│       │   ├── capabilities/   # 权限 ACL
+│       │   ├── build.rs                # Tauri 构建脚本
+│       │   ├── capabilities/           # 权限 ACL
 │       │   │   ├── default.json     # 主窗 ACL
 │       │   │   └── hover-panel.json # 悬停窗 ACL
-│       │   ├── Cargo.toml      # 桌面端 crate 清单
-│       │   ├── examples/       # 示例注入器
+│       │   ├── Cargo.toml              # 桌面端 crate 清单
+│       │   ├── examples/               # 示例注入器
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
-│       │   ├── icons/          # 应用图标集
-│       │   ├── src/            # 后端源码
+│       │   ├── icons/                  # 应用图标集
+│       │   ├── src/                    # 后端源码
 │       │   │   ├── commands.rs    # IPC 命令集
 │       │   │   ├── hover_panel.rs # 悬停窗口状态机
 │       │   │   ├── i18n.rs        # 托盘/命令双语文案
@@ -212,7 +217,8 @@ QuotaTray/
 │       │   │   ├── state.rs       # AppState
 │       │   │   ├── tray.rs        # 托盘菜单与图标
 │       │   │   └── update_ctl.rs  # 更新检测控制
-│       │   └── tauri.conf.json # Tauri 配置
+│       │   ├── tauri.conf.json         # Tauri 配置
+│       │   └── tauri.windows.conf.json # Windows Tauri 覆盖配置
 │       ├── tsconfig.json       # TS 编译配置
 │       └── vite.config.ts      # Vite 配置
 ├── Cargo.lock              # 依赖锁文件

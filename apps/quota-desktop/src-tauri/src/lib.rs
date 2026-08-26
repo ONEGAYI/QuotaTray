@@ -62,6 +62,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_providers,
+            commands::write_assist_package,
+            commands::resolve_quota_cli_path,
             commands::export_configuration,
             commands::import_configuration,
             commands::upsert_provider,

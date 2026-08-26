@@ -30,7 +30,7 @@ use crate::http::{HttpClient, HttpRequest, Method};
 use crate::model::{QueryError, UsageData};
 
 /// 支持的模板变量（`{{apiKey}}` / `{{baseUrl}}`）。
-pub(crate) const KNOWN_VARS: &[&str] = &["apiKey", "baseUrl"];
+pub(crate) const KNOWN_VARS: &[&str] = &["apiKey", "apiKey2", "baseUrl"];
 
 // ---- DSL 结构 -----------------------------------------------------------
 
@@ -334,6 +334,14 @@ pub fn uses_api_key(config: &TemplateConfig) -> bool {
         || config.request.body.as_deref().is_some_and(uses)
 }
 
+/// 模板是否引用了 `{{apiKey2}}`（第二凭据槽，语义与 [`uses_api_key`] 一致）。
+pub fn uses_api_key2(config: &TemplateConfig) -> bool {
+    let uses = |s: &str| extract_var_names(s).iter().any(|v| v == "apiKey2");
+    uses(&config.request.url)
+        || config.request.headers.values().any(|v| uses(v))
+        || config.request.body.as_deref().is_some_and(uses)
+}
+
 // ---- 错误 ---------------------------------------------------------------
 
 #[derive(Debug, thiserror::Error)]
@@ -345,23 +353,35 @@ pub enum TemplateError {
 
 // ---- 变量替换与执行 ------------------------------------------------------
 
-/// 执行模板查询。`api_key` 来自 vault 解密，`base_url` 为条目配置（均可缺省）。
+/// 两槽凭据的脱敏登记表（错误详情按字面量替换用；api_key2 未配置时省略）。
+pub(crate) fn declared_secrets_of(creds: &crate::config::Credentials) -> Vec<String> {
+    let mut secrets = vec![creds.api_key.to_string()];
+    if let Some(key2) = &creds.api_key2 {
+        secrets.push(key2.to_string());
+    }
+    secrets
+}
+
+/// 执行模板查询。凭据来自 vault 解密（`api_key2` 为可选第二槽），
+/// `base_url` 为条目配置。
 pub(crate) async fn execute(
     http: &dyn HttpClient,
     config: &TemplateConfig,
-    api_key: &str,
+    creds: &crate::config::Credentials,
     base_url: Option<&str>,
 ) -> Result<Vec<UsageData>, QueryError> {
-    let url = substitute(&config.request.url, api_key, base_url)?;
+    let api_key = creds.api_key.as_str();
+    let api_key2 = creds.api_key2.as_deref().map(|s| s.as_str());
+    let url = substitute(&config.request.url, api_key, api_key2, base_url)?;
     let headers: Result<Vec<_>, _> = config
         .request
         .headers
         .iter()
-        .map(|(k, v)| Ok((k.clone(), substitute(v, api_key, base_url)?)))
+        .map(|(k, v)| Ok((k.clone(), substitute(v, api_key, api_key2, base_url)?)))
         .collect();
     let headers = headers?;
     let body = match &config.request.body {
-        Some(b) => Some(substitute(b, api_key, base_url)?),
+        Some(b) => Some(substitute(b, api_key, api_key2, base_url)?),
         None => None,
     };
 
@@ -372,10 +392,10 @@ pub(crate) async fn execute(
         url,
         headers,
         body,
-        // apiKey 可能被替换进任意自定义头/参数（敏感名判断覆盖不到），
-        // 从根登记供错误详情脱敏做字面量替换；短占位值（如 "-"）在
-        // 收集侧因长度 < 4 自然跳过
-        declared_secrets: vec![api_key.to_string()],
+        // apiKey/apiKey2 可能被替换进任意自定义头/参数（敏感名判断覆盖
+        // 不到），从根登记供错误详情脱敏做字面量替换；短占位值（如 "-"）
+        // 在收集侧因长度 < 4 自然跳过
+        declared_secrets: declared_secrets_of(creds),
     };
     req.headers
         .push(("Accept".into(), "application/json".into()));
@@ -419,6 +439,15 @@ fn build_usage(config: &TemplateConfig, root: &Value) -> Result<Vec<UsageData>, 
     }
 }
 
+/// 使用已取得的响应 JSON 离线验证模板取数逻辑。
+///
+/// 此入口不构造请求、不访问网络，也不读取或替换任何真实凭据，供 CLI Agent
+/// 调试工具安全验证 `extract` / `windows` / `transforms`。
+pub fn simulate(config: &TemplateConfig, response: &Value) -> Result<Vec<UsageData>, QueryError> {
+    validate(config).map_err(|e| QueryError::deterministic(e.to_string()))?;
+    build_usage(config, response)
+}
+
 fn bad_path(e: String) -> QueryError {
     QueryError::deterministic(format!("模板路径语法错误：{e}"))
 }
@@ -432,6 +461,7 @@ fn bad_path(e: String) -> QueryError {
 pub(crate) fn substitute(
     s: &str,
     api_key: &str,
+    api_key2: Option<&str>,
     base_url: Option<&str>,
 ) -> Result<String, QueryError> {
     let mut out = String::with_capacity(s.len());
@@ -444,6 +474,14 @@ pub(crate) fn substitute(
                 let var = after[..end].trim();
                 match var {
                     "apiKey" => out.push_str(api_key),
+                    "apiKey2" => match api_key2 {
+                        Some(key2) => out.push_str(key2),
+                        None => {
+                            return Err(QueryError::deterministic(
+                                "变量 {{apiKey2}} 未提供（附加凭据需在条目中配置）",
+                            ));
+                        }
+                    },
                     "baseUrl" => match base_url {
                         Some(base) => out.push_str(base),
                         None => {
@@ -454,7 +492,7 @@ pub(crate) fn substitute(
                     },
                     other => {
                         return Err(QueryError::deterministic(format!(
-                            "未知变量 {{{{{other}}}}}（支持 apiKey / baseUrl）"
+                            "未知变量 {{{{{other}}}}}（支持 apiKey / apiKey2 / baseUrl）"
                         )));
                     }
                 }
@@ -630,6 +668,7 @@ fn apply_transforms(data: &mut UsageData, transforms: &[Transform]) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Credentials;
     use crate::provider::testing::MockHttp;
 
     fn simple_template() -> TemplateConfig {
@@ -645,6 +684,19 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    /// Agent 调试契约：离线模拟只消费模板与响应 JSON，不触发 HTTP 或凭据读取。
+    #[test]
+    fn simulate_extracts_response_without_http() {
+        let rows = simulate(
+            &simple_template(),
+            &serde_json::json!({"data": {"totalBalance": "62.97"}}),
+        )
+        .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].remaining, Some(62.97));
     }
 
     // ---- 静态校验 ---------------------------------------------------
@@ -737,7 +789,7 @@ mod tests {
         let data = execute(
             &MockHttp::ok(RESP),
             &t,
-            "sk-key",
+            &Credentials::new("sk-key"),
             Some("https://api.demo.com"),
         )
         .await
@@ -762,9 +814,14 @@ mod tests {
                 digits: Some(4),
             },
         ];
-        let data = execute(&MockHttp::ok(RESP), &t, "k", Some("https://a.com"))
-            .await
-            .unwrap();
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &t,
+            &Credentials::new("k"),
+            Some("https://a.com"),
+        )
+        .await
+        .unwrap();
         assert_eq!(data[0].remaining, Some(0.0001)); // 42.5 / 500000 = 0.000085 → round4 = 0.0001
     }
 
@@ -788,7 +845,9 @@ mod tests {
         .unwrap();
         validate(&t).unwrap();
         let resp = r#"{"limits":[{"limit":100,"remaining":60},{"limit":500,"remaining":120}]}"#;
-        let data = execute(&MockHttp::ok(resp), &t, "k", None).await.unwrap();
+        let data = execute(&MockHttp::ok(resp), &t, &Credentials::new("k"), None)
+            .await
+            .unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].total, Some(100.0));
         assert_eq!(data[0].remaining, Some(60.0));
@@ -801,17 +860,25 @@ mod tests {
     async fn url_safety_rules() {
         let mut t = simple_template();
         t.request.url = "http://api.demo.com/x".into();
-        let err = execute(&MockHttp::ok(RESP), &t, "k", None)
+        let err = execute(&MockHttp::ok(RESP), &t, &Credentials::new("k"), None)
             .await
             .unwrap_err();
         assert!(!err.is_transient() && err.message().contains("allowInsecure"));
 
         t.allow_insecure = true;
-        assert!(execute(&MockHttp::ok(RESP), &t, "k", None).await.is_ok());
+        assert!(
+            execute(&MockHttp::ok(RESP), &t, &Credentials::new("k"), None)
+                .await
+                .is_ok()
+        );
 
         t.allow_insecure = false;
         t.request.url = "http://127.0.0.1:8080/x".into();
-        assert!(execute(&MockHttp::ok(RESP), &t, "k", None).await.is_ok());
+        assert!(
+            execute(&MockHttp::ok(RESP), &t, &Credentials::new("k"), None)
+                .await
+                .is_ok()
+        );
     }
 
     /// 契约：运行期变量缺失 / 路径缺失 / 非数字值 → 确定性失败。
@@ -819,7 +886,7 @@ mod tests {
     async fn runtime_errors_are_deterministic() {
         // baseUrl 变量但调用未提供 base_url → 指名报错（不带替换后全文）
         let t = simple_template();
-        let err = execute(&MockHttp::ok(RESP), &t, "k", None)
+        let err = execute(&MockHttp::ok(RESP), &t, &Credentials::new("k"), None)
             .await
             .unwrap_err();
         assert!(!err.is_transient() && err.message().contains("baseUrl"));
@@ -827,17 +894,27 @@ mod tests {
         // 路径缺失
         let mut t = simple_template();
         t.extract.remaining = Some(FieldSource::Path("$.data.nonexistent".into()));
-        let err = execute(&MockHttp::ok(RESP), &t, "k", Some("https://a.com"))
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &t,
+            &Credentials::new("k"),
+            Some("https://a.com"),
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient() && err.message().contains("不存在"));
 
         // 值非数字
         let mut t = simple_template();
         t.extract.remaining = Some(FieldSource::Path("$.data.name".into()));
-        let err = execute(&MockHttp::ok(RESP), &t, "k", Some("https://a.com"))
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &t,
+            &Credentials::new("k"),
+            Some("https://a.com"),
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient());
     }
 
@@ -858,7 +935,7 @@ mod tests {
         let err = execute(
             &http,
             &t,
-            "custom-echo-secret-99",
+            &Credentials::new("custom-echo-secret-99"),
             Some("https://api.demo.com"),
         )
         .await
@@ -878,9 +955,14 @@ mod tests {
         let mut t = simple_template();
         t.extract.remaining = Some(FieldSource::Path("$.data.name".into()));
         let body = r#"{"code":20000,"data":{"totalBalance":"42.50","name":"sk-key"}}"#;
-        let err = execute(&MockHttp::ok(body), &t, "sk-key", Some("https://a.com"))
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(body),
+            &t,
+            &Credentials::new("sk-key"),
+            Some("https://a.com"),
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient());
         assert!(
             !err.message().contains("sk-key"),
@@ -899,16 +981,26 @@ mod tests {
     async fn http_errors_classified() {
         let t = simple_template();
         assert!(
-            !execute(&MockHttp::status(401), &t, "k", Some("https://a.com"))
-                .await
-                .unwrap_err()
-                .is_transient()
+            !execute(
+                &MockHttp::status(401),
+                &t,
+                &Credentials::new("k"),
+                Some("https://a.com")
+            )
+            .await
+            .unwrap_err()
+            .is_transient()
         );
         assert!(
-            execute(&MockHttp::fail(), &t, "k", Some("https://a.com"))
-                .await
-                .unwrap_err()
-                .is_transient()
+            execute(
+                &MockHttp::fail(),
+                &t,
+                &Credentials::new("k"),
+                Some("https://a.com")
+            )
+            .await
+            .unwrap_err()
+            .is_transient()
         );
     }
 
@@ -921,7 +1013,7 @@ mod tests {
         // 场景 1：key 已替换进 URL query，http 非 loopback 被安全检查拒绝
         let mut t = simple_template();
         t.request.url = format!("http://api.demo.com/v1?token={key}");
-        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+        let err = execute(&MockHttp::ok(RESP), &t, &Credentials::new(key), None)
             .await
             .unwrap_err();
         assert!(!err.message().contains(key), "泄漏：{err}");
@@ -929,7 +1021,7 @@ mod tests {
         // 场景 2：未知变量出现在 key 变量之后（key 已替换进缓冲）
         let mut t = simple_template();
         t.request.url = "{{apiKey}}-{{nope}}".to_string();
-        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+        let err = execute(&MockHttp::ok(RESP), &t, &Credentials::new(key), None)
             .await
             .unwrap_err();
         assert!(!err.message().contains(key), "泄漏：{err}");
@@ -938,7 +1030,7 @@ mod tests {
         // 场景 3：未知变量在前、带空格写法（validate 接受的形态执行期同样报错而非静默）
         let mut t = simple_template();
         t.request.url = "{{ oops }}{{apiKey}}".into();
-        let err = execute(&MockHttp::ok(RESP), &t, key, None)
+        let err = execute(&MockHttp::ok(RESP), &t, &Credentials::new(key), None)
             .await
             .unwrap_err();
         assert!(!err.message().contains(key), "泄漏：{err}");
@@ -952,9 +1044,14 @@ mod tests {
         t.request
             .headers
             .insert("Authorization".into(), "Bearer {{ apiKey }}".into());
-        let data = execute(&MockHttp::ok(RESP), &t, "sk-key", Some("https://a.com"))
-            .await
-            .unwrap();
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &t,
+            &Credentials::new("sk-key"),
+            Some("https://a.com"),
+        )
+        .await
+        .unwrap();
         assert_eq!(data[0].remaining, Some(42.5), "带空格变量应正常替换执行");
     }
 
@@ -985,5 +1082,70 @@ mod tests {
         )
         .unwrap();
         assert!(uses_api_key(&in_body), "body 引用应识别");
+    }
+
+    /// 契约：{{apiKey2}} 第二凭据槽——双凭据完整替换执行；
+    /// 未配置第二槽时确定性报错且不泄漏主 key。
+    #[tokio::test]
+    async fn api_key2_substitutes_and_reports_missing() {
+        let resp = r#"{"success":true,"data":{"quota":500000,"used_quota":0}}"#;
+        let mut t: TemplateConfig = serde_json::from_str(
+            r#"{
+                "request": {
+                    "url": "{{baseUrl}}/api/user/self",
+                    "headers": {
+                        "Authorization": "Bearer {{apiKey}}",
+                        "New-Api-User": "{{apiKey2}}"
+                    }
+                },
+                "extract": { "remaining": "$.data.quota" }
+            }"#,
+        )
+        .unwrap();
+        let creds = Credentials::new("sys-access-token").with_api_key2("1024");
+        let data = execute(
+            &MockHttp::ok(resp),
+            &t,
+            &creds,
+            Some("https://relay.example"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(data[0].remaining, Some(500000.0));
+
+        // 未配置第二槽：替换期确定性失败，错误只指名变量不回显替换值
+        let err = execute(
+            &MockHttp::ok(resp),
+            &t,
+            &Credentials::new("sys-access-token"),
+            Some("https://relay.example"),
+        )
+        .await
+        .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("apiKey2"), "应指名缺失变量：{err}");
+        assert!(!err.message().contains("sys-access-token"), "泄漏：{err}");
+
+        // uses_api_key2 与执行期同一变量解析（header 引用应识别）
+        assert!(uses_api_key2(&t));
+        t.request.headers.remove("New-Api-User");
+        assert!(!uses_api_key2(&t));
+    }
+
+    /// 契约：第二凭据注入自定义头后，错误详情同样脱敏（declared_secrets 双槽登记）。
+    #[tokio::test]
+    async fn error_details_never_leak_api_key2() {
+        let mut t = simple_template();
+        t.request
+            .headers
+            .insert("New-Api-User".into(), "{{apiKey2}}".into());
+        let creds = Credentials::new("k").with_api_key2("user-id-98765-secret");
+        let err = execute(&MockHttp::status(403), &t, &creds, Some("https://a.com"))
+            .await
+            .unwrap_err();
+        assert!(
+            !err.message().contains("user-id-98765-secret"),
+            "第二槽泄漏：{err}"
+        );
     }
 }

@@ -38,11 +38,14 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
    - template：二级子页（三选一下方的分段选单）——「运营商与模型」（名称 +
      base_url + key + 峰谷计价）与「设置模板」（预设模板按钮组：通用/单对象
      余额/站点可变/总额已用/多窗口 + CodeMirror JSON 编辑器 + 校验/试查 +
-     底部可展开的模板编写说明卡：变量与字段速查）
+     底部可展开的模板编写说明卡：变量与字段速查）+「AI」占位图标调试入口：
+     生成脱敏求助提示词、保存 `.qtray-assist.json` 诊断包、复制可直接交给
+     本机 Agent 的调试提示词（含真实 `quota` CLI 绝对路径与命令）；
+     提示外部 Agent 可联网搜索公开文档，但 QuotaTray 本身不提供 Agent
    - script（M4）：JS 编辑器（CodeMirror javascript 语言包）+ base_url +
      allowInsecure 开关（启用时显示明文 http 警告）+ key + 「校验」
      （调 validate_script，干跑）与「试查」（调 test_script，沙箱全链路）；
-     内置最小闭环默认示例
+     内置最小闭环默认示例；与 template 共用 AI 调试入口
 3. **设置**：常规页含自动刷新间隔、低额度提醒阈值、开机自启；更新页管理
    自动检测、下载安装包（存 `%TEMP%/QuotaTray/Downloads`）与下载完成后的
    「立即安装」（确认后运行安装包并退出应用，NSIS 向导接管）；数据迁移页
@@ -83,11 +86,14 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | command | 入 → 出 | 对应 core |
 |---|---|---|
 | `list_providers` | → `ProviderEntry[]`（含密文字段，供编辑回显结构） | `AppConfig::load` |
-| `upsert_provider` | `ProviderEntry` → ()（含 `pricing` 字段校验） | `AppConfig::save` + `pricing::validate` |
+| `upsert_provider` | `ProviderEntry + newApiKey + newApiKey2` → ()（含 `pricing` 字段校验；两槽 key 均走空=保持策略） | `AppConfig::save` + `pricing::validate` |
 | `remove_provider` | `id` → () | 同上 |
 | `list_native_metas` | → `NativeMeta[]`（含峰谷预置 pricing 字段） | `provider::metas` + `pricing::preset` |
 | `validate_template` | `TemplateConfig` → `Ok / 字段定位错误` | `template::validate` |
-| `test_template` | `TemplateConfig + key输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
+| `test_template` | `TemplateConfig + key输入 + apiKey2输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
+| `test_script` | `ScriptConfig + key输入 + apiKey2输入 + baseUrl` → `UsageData[] / QueryError` | `script::execute`（经引擎） |
+| `write_assist_package` | 用户选定路径 + 已预览脱敏文本 → () | `update::write_atomic_bytes` |
+| `resolve_quota_cli_path` | → 安装包资源或开发产物中的真实 CLI 绝对路径 | `current_exe/resource_dir` 探测 |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
 | `get_settings / save_settings` | 设置对象 ↔ | desktop 自有存储 |
 | `export_configuration` | `path` → () | `export_config_to_path` |
@@ -95,6 +101,9 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 
 **红线 3 落实**：key 写入走「空值 = 保持不变」约定，前端永不回显明文、
 永不接收明文（编辑表单的 key 框初始为空，占位符显示"已配置"/"未配置"）。
+模板/脚本形态另有第二凭据输入框（`{{apiKey2}}` 槽，如 new-api 系站点的
+用户 ID 注入 `New-Api-User` 头），同款加密保存与不回显语义；诊断包携带
+已保存条目的 `entryId` 供 `quota assist test` 端测复用本机凭据。
 
 ## 5. 快照持久化（desktop 侧）
 
@@ -110,6 +119,10 @@ M5-a 起同一成功链路另行写入查询历史库（`~/.quotatray/history.db
 ## 6. 打包与分发
 
 - Windows 优先：NSIS 或 MSI（tauri bundler 默认），目标 `x86_64-pc-windows-msvc`。
+- Tauri 构建前先构建 release CLI，开发启动前构建 debug CLI；`build.rs`
+  将同 profile CLI 暂存到 ignored 的 `generated/quota.exe`，Windows 安装包再
+  映射为资源目录 `bin/quota.exe`。运行时仅在桌面端同目录、安装包资源目录或
+  PATH 中找到真实可执行文件时生成本机 Agent 提示词，否则明确报错。
 - 自动更新：接入 tauri-plugin-updater（端点待定，发布前完成签名与密钥对）。
 - CI：push 到 main 跑 fmt/clippy/test（已有）+ 前端 lint/build；release tag 触发打包。
 

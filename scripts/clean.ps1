@@ -70,7 +70,8 @@ if ($Level -eq 0) {
 
 $generated = @(
     "apps/quota-desktop/dist",
-    "apps/quota-desktop/src-tauri/gen/schemas"
+    "apps/quota-desktop/src-tauri/gen/schemas",
+    "apps/quota-desktop/src-tauri/generated"
 )
 $relativeTargets = switch ($Level) {
     1 {

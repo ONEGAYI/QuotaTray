@@ -22,6 +22,7 @@
 | `quota natives` | 列出预置平台（来自 core 注册表，标注峰谷预置有无） |
 | `quota pricing show/set/clear` | 峰谷定价查看 / 自定义 / 清除 |
 | `quota template test` | 对模板执行静态校验 + 试查询 |
+| `quota assist schema/validate/simulate/test` | 外部 Agent 调试契约（test 复用已存凭据端测） |
 | `quota vault status` | 主密钥健康检查（系统凭据库可读性） |
 | `quota history show/clear` | 查询历史走势查看（三档范围 + 分页）/ 清除 |
 | `quota config export/import` | 完整配置跨机器导出 / 整体导入（含查询历史） |
@@ -58,7 +59,9 @@ quota query [<id>...] [--json] [--watch] [--interval <分钟>]
   脚本条目追加 allowInsecure 确认（默认否）、API key（隐藏输入，直接回车跳过）。
 - 高级用法：`quota add --json < entry.json`（entry.json 为 ProviderEntry 的
   JSON，api_key_enc/base_url 由后续 set-key/edit 维护，密文不经手）。
-- `quota set-key <id>`：隐藏输入读取 key（终端回显关闭），经 vault 加密后写配置。
+- `quota set-key <id> [--slot 1|2]`：隐藏输入读取 key（终端回显关闭），经
+  vault 加密后写配置；`--slot 2` 写第二凭据槽（`{{apiKey2}}`，如 new-api
+  系站点的用户 ID），默认写主 key 槽。
   不接受命令行参数形式的 key（避免进入 shell history）；管道 stdin 允许
   （`echo $KEY | quota set-key id` 场景）。
 - `quota remove`：确认提示（`--yes` 跳过）。
@@ -166,6 +169,32 @@ quota script test [--base-url <url>] [--entry <id> | --json < script.js]
 - `quota add` 向导含「script」第三选项（粘贴代码 + 干跑校验重试 +
   allowInsecure 确认，默认否）；`quota edit` 对 script 条目支持 baseUrl、
   代码重粘贴（无效保持原码）与 allowInsecure 修改。
+
+### quota assist（外部 Agent 调试）
+
+```text
+quota assist schema
+quota assist validate --mode template|script --input <配置或诊断包>
+quota assist simulate --mode template|script --input <配置或诊断包> [--response <响应 JSON>]
+quota assist test --mode template|script --input <诊断包> [--base-url <URL>]
+```
+
+- 前三个命令只输出版本化 JSON，不读取 Vault、不接收 API key、不发网络请求；
+  QuotaTray 只提供调试能力，不创建或内置 AI Agent。
+- `schema` 返回当前二进制支持的模板变量、方法、取数字段、算术转换与脚本
+  沙箱边界，并内嵌模板/脚本完整示例（演示 `transforms` 顶层键与
+  `{"const": ...}` 字段形态），供 Agent 避免依据过期提示词生成配置。
+- `validate` 接受纯模板/脚本配置或 GUI 导出的
+  `quotatray-assist-package` v1，执行与保存链路同口径的静态校验。
+- `simulate` 对脱敏响应 JSON 离线执行模板取数或脚本 `extract(resp)`；
+  `--response` 缺省时读取诊断包的 `responseSample`。
+- `test` 是 Agent 端测通道：取诊断包 `entryId` 指向的本机已保存条目，
+  用包内草稿覆盖其查询配置、复用条目两槽凭据密文与 baseUrl
+  （`--base-url` 可覆盖），走引擎完整链路真实请求一次。凭据密文不出
+  vault、不进入命令输出（schema 的 `assistTest` 段落同样声明该通道
+  使用已存凭据且发真实请求，与 assist 家族默认的无凭据契约区分）。
+- 输出统一为 `{schemaVersion, ok, stage, diagnostics, result}`；通过返回 0，
+  配置、样本、读取等确定性失败返回 1，查询瞬时失败返回 2（三分约定同全局）。
 
 ### quota dev-smoke（仅 debug 构建）
 

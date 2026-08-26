@@ -33,6 +33,10 @@ pub struct ProviderEntry {
     /// API key 密文（`v1:...`）。None = 尚未配置凭据。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_enc: Option<String>,
+    /// 第二凭据密文（`v1:...`，如 new-api 系站点的用户 ID 槽）。
+    /// None = 未使用双凭据形态；旧配置无此字段天然兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key2_enc: Option<String>,
     /// 模板供应商的 {{baseUrl}} 变量来源（明文，非敏感，如 `https://api.xxx.com`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
@@ -64,7 +68,19 @@ impl ProviderEntry {
         Ok(())
     }
 
-    /// 解密凭据。未配置凭据视为确定性失败（引导用户补配，而非重试）。
+    /// 写入/更新第二凭据：与主 key 同一 AAD（条目 id）。
+    pub fn set_api_key2(
+        &mut self,
+        vault: &Vault,
+        key: &str,
+    ) -> Result<(), crate::vault::VaultError> {
+        self.api_key2_enc = Some(vault.encrypt(key, &self.id)?);
+        Ok(())
+    }
+
+    /// 解密凭据。未配置凭据视为确定性失败（引导用户补配，而非重试）；
+    /// 第二凭据为可选槽，未配置时 `api_key2` 为 None（引用它的模板在
+    /// 替换期得到确定性错误）。
     pub fn credentials(&self, vault: &Vault) -> Result<Credentials, QueryError> {
         let enc = self.api_key_enc.as_ref().ok_or_else(|| {
             QueryError::deterministic(format!("供应商 {}（{}）未配置 API key", self.name, self.id))
@@ -72,7 +88,15 @@ impl ProviderEntry {
         let api_key = vault
             .decrypt(enc, &self.id)
             .map_err(|e| QueryError::deterministic(format!("凭据解密失败：{e}")))?;
-        Ok(Credentials::new(api_key))
+        let creds = Credentials::new(api_key);
+        Ok(match self.api_key2_enc.as_ref() {
+            Some(enc2) => creds.with_api_key2(
+                vault
+                    .decrypt(enc2, &self.id)
+                    .map_err(|e| QueryError::deterministic(format!("凭据解密失败：{e}")))?,
+            ),
+            None => creds,
+        })
     }
 }
 
@@ -219,6 +243,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -252,6 +277,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -262,6 +288,50 @@ mod tests {
             entry.credentials(&vault).unwrap().api_key.as_str(),
             "sk-abc"
         );
+    }
+
+    /// 契约：第二凭据槽独立加密落盘 + 与主 key 一并解密取回；
+    /// 未配置第二槽时 credentials().api_key2 为 None（可选语义）。
+    #[test]
+    fn api_key2_roundtrip_and_optional() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut entry = ProviderEntry {
+            id: "p1".into(),
+            name: "Relay".into(),
+            kind: ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            use_proxy: false,
+        };
+        entry.set_api_key(&vault, "sys-access-token").unwrap();
+        assert!(entry.credentials(&vault).unwrap().api_key2.is_none());
+
+        entry.set_api_key2(&vault, "1024").unwrap();
+        let creds = entry.credentials(&vault).unwrap();
+        assert_eq!(creds.api_key.as_str(), "sys-access-token");
+        assert_eq!(creds.api_key2.as_ref().unwrap().as_str(), "1024");
+        assert_ne!(
+            entry.api_key_enc, entry.api_key2_enc,
+            "两槽密文应各自独立加密"
+        );
+    }
+
+    /// 契约：旧配置 JSON（无 api_key2_enc 字段）反序列化兼容。
+    #[test]
+    fn api_key2_absent_in_legacy_config_is_none() {
+        let json = r#"{
+            "id": "p1", "name": "X",
+            "kind": { "type": "native", "provider": "deepseek" },
+            "enabled": true
+        }"#;
+        let entry: ProviderEntry = serde_json::from_str(json).unwrap();
+        assert!(entry.api_key2_enc.is_none());
     }
 
     /// 契约：未配置凭据 → 确定性失败（不触发重试）。
@@ -276,6 +346,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -297,6 +368,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,

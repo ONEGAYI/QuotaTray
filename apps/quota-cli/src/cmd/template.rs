@@ -26,6 +26,7 @@ enum TestSource {
     Stdin {
         template: Box<TemplateConfig>,
         api_key: Zeroizing<String>,
+        api_key2: Option<Zeroizing<String>>,
         base_url: Option<String>,
     },
 }
@@ -93,6 +94,7 @@ pub async fn run(
         TestSource::Stdin {
             template,
             api_key,
+            api_key2,
             base_url,
         } => {
             let mut e = ProviderEntry {
@@ -101,6 +103,7 @@ pub async fn run(
                 kind: ProviderKind::Template(template),
                 enabled: true,
                 api_key_enc: None,
+                api_key2_enc: None,
                 base_url,
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
@@ -113,6 +116,16 @@ pub async fn run(
                     t(lang, T::TryQueryEncryptFail)
                 );
                 return 1;
+            }
+            if let Some(key2) = api_key2.as_deref() {
+                if let Err(err) = e.set_api_key2(&vault, key2.trim()) {
+                    eprintln!(
+                        "{}{}{err}",
+                        t(lang, T::Err),
+                        t(lang, T::TryQueryEncryptFail)
+                    );
+                    return 1;
+                }
             }
             e
         }
@@ -181,11 +194,33 @@ fn build_from_stdin(base_url_override: Option<String>, lang: Lang) -> Result<Tes
     } else {
         Zeroizing::new(String::new())
     };
+    // 第二凭据槽：模板引用 {{apiKey2}} 时收集（空输入同样拦截重定向场景）
+    let api_key2 = if template_needs_api_key2(&template) {
+        let k = io::read_secret(t(lang, T::NeedsKey2Prompt), lang)
+            .map_err(|e| format!("{}{e}", t(lang, T::KeyReadFail)))?;
+        if k.trim().is_empty() {
+            let hint = if std::io::stdin().is_terminal() {
+                T::KeyEmptyHint
+            } else {
+                T::KeyEmptyRedirect
+            };
+            return Err(t(lang, hint).into());
+        }
+        Some(k)
+    } else {
+        None
+    };
     Ok(TestSource::Stdin {
         template: Box::new(template),
         api_key,
+        api_key2,
         base_url: base_url_override,
     })
+}
+
+/// 模板文本是否引用 `{{apiKey2}}`（request 的 URL/头/体）。
+pub fn template_needs_api_key2(tpl: &TemplateConfig) -> bool {
+    quota_core::template::uses_api_key2(tpl)
 }
 
 /// 模板文本是否引用 `{{apiKey}}`（request 的 URL/头/体）。
@@ -253,6 +288,18 @@ mod tests {
     fn exit_code_reflects_error_track() {
         assert_eq!(exit_code_for(&QueryError::transient("timeout")), 2);
         assert_eq!(exit_code_for(&QueryError::deterministic("401")), 1);
+    }
+
+    /// 契约：apiKey2 引用检测与 apiKey 同一语义（URL/头/体任一处引用即需要）。
+    #[test]
+    fn detects_api_key2_usage() {
+        let mut t = tpl("https://a.com/x");
+        assert!(!template_needs_api_key2(&t));
+        t.request
+            .headers
+            .insert("New-Api-User".into(), "{{apiKey2}}".into());
+        assert!(template_needs_api_key2(&t));
+        assert!(!template_needs_key(&t), "第二槽引用不应要求主 key");
     }
 
     /// 契约：print_usage 的标签行双语形态（标签与是/否随语言切换）。

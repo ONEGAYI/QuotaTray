@@ -140,7 +140,11 @@ pub enum T {
 
     // ---- setkey ----
     SetKeyPrompt,
+    /// 第二凭据槽（{{apiKey2}}）的输入提示。
+    SetKey2Prompt,
     KeyEmptyRejected,
+    /// --slot 仅接受 1/2。
+    KeySlotInvalid,
 
     // ---- template ----
     NeedEntryOrJson,
@@ -152,6 +156,8 @@ pub enum T {
     TryQueryEncryptFail,
     TryQueryFail,
     NeedsKeyPrompt,
+    /// 第二凭据槽（{{apiKey2}}）的试查输入提示。
+    NeedsKey2Prompt,
     /// 试查交互输入的 key 为空（终端场景）。
     KeyEmptyHint,
     /// 试查 key 为空且 stdin 被输入重定向占用（无法交互补输）。
@@ -421,7 +427,11 @@ fn zh(key: T) -> &'static str {
         T::EmptyInputKeep => "空输入（保持不变）",
 
         T::SetKeyPrompt => "输入新的 API key（输入显示为星号）",
+        T::SetKey2Prompt => {
+            "输入第二凭据（{{apiKey2}} 槽，如 new-api 系站点的用户 ID；输入显示为星号）"
+        }
         T::KeyEmptyRejected => "输入为空，key 未变更（如需删除条目请用 quota remove）",
+        T::KeySlotInvalid => "--slot 仅支持 1（主 key）或 2（第二凭据槽）",
 
         T::NeedEntryOrJson => "需要 --entry <id> 或 --json 之一（--help 查看用法）",
         T::StaticCheckOk => "静态校验通过",
@@ -431,6 +441,9 @@ fn zh(key: T) -> &'static str {
         T::TryQueryFail => "试查失败：",
         T::NeedsKeyPrompt => {
             "该查询引用 {{apiKey}}，输入测试用 key（仅本次不落盘；输入显示为星号）"
+        }
+        T::NeedsKey2Prompt => {
+            "该查询引用 {{apiKey2}}，输入第二凭据（如用户 ID；仅本次不落盘；输入显示为星号）"
         }
         T::KeyEmptyHint => "key 为空；引用 {{apiKey}} 的查询需要 key，请重新运行并输入",
         T::KeyEmptyRedirect => {
@@ -680,7 +693,11 @@ fn en(key: T) -> &'static str {
         T::EmptyInputKeep => "empty input (kept unchanged)",
 
         T::SetKeyPrompt => "Enter the new API key (input is masked)",
+        T::SetKey2Prompt => {
+            "Enter the second credential ({{apiKey2}} slot, e.g. the user ID on new-api style sites; input is masked)"
+        }
         T::KeyEmptyRejected => "empty input, key unchanged (use quota remove to delete the entry)",
+        T::KeySlotInvalid => "--slot only supports 1 (primary key) or 2 (second credential slot)",
 
         T::NeedEntryOrJson => "either --entry <id> or --json is required (see --help)",
         T::StaticCheckOk => "static validation passed",
@@ -690,6 +707,9 @@ fn en(key: T) -> &'static str {
         T::TryQueryFail => "live query failed: ",
         T::NeedsKeyPrompt => {
             "this query references {{apiKey}}; enter a test key (this run only, not persisted; input is masked)"
+        }
+        T::NeedsKey2Prompt => {
+            "this query references {{apiKey2}}; enter the second credential (e.g. user ID; this run only, not persisted; input is masked)"
         }
         T::KeyEmptyHint => {
             "key is empty; queries referencing {{apiKey}} need one — rerun and enter it"
