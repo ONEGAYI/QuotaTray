@@ -21,7 +21,13 @@ export const api = {
   upsertProvider: (
     entry: ProviderEntry,
     newApiKey: string | null,
-  ): Promise<void> => invoke("upsert_provider", { entry, newApiKey: newApiKey ?? undefined }),
+    newApiKey2: string | null = null,
+  ): Promise<void> =>
+    invoke("upsert_provider", {
+      entry,
+      newApiKey: newApiKey ?? undefined,
+      newApiKey2: newApiKey2 ?? undefined,
+    }),
   removeProvider: (id: string): Promise<void> => invoke("remove_provider", { id }),
   listNativeMetas: (): Promise<NativeMeta[]> => invoke("list_native_metas"),
   validateTemplate: (configJson: string): Promise<void> =>
@@ -30,11 +36,13 @@ export const api = {
     configJson: string,
     apiKey: string | null,
     baseUrl: string | null,
+    apiKey2: string | null = null,
   ): Promise<QueryOutcome> =>
     invoke("test_template", {
       configJson,
       apiKey: apiKey ?? undefined,
       baseUrl: baseUrl ?? undefined,
+      apiKey2: apiKey2 ?? undefined,
     }),
   validateScript: (configJson: string): Promise<void> =>
     invoke("validate_script", { configJson }),
@@ -42,11 +50,13 @@ export const api = {
     configJson: string,
     apiKey: string | null,
     baseUrl: string | null,
+    apiKey2: string | null = null,
   ): Promise<QueryOutcome> =>
     invoke("test_script", {
       configJson,
       apiKey: apiKey ?? undefined,
       baseUrl: baseUrl ?? undefined,
+      apiKey2: apiKey2 ?? undefined,
     }),
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
   /** 只读后端共享结果表，不触发平台网络请求（悬停面板使用）。 */

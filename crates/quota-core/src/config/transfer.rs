@@ -234,6 +234,11 @@ fn rewrap_credentials(
         };
         let plaintext = Zeroizing::new(source_vault.decrypt(ciphertext, &provider.id)?);
         provider.api_key_enc = Some(target_vault.encrypt(&plaintext, &provider.id)?);
+        // 第二凭据槽同规则转写（未配置则跳过）
+        if let Some(ciphertext2) = provider.api_key2_enc.as_deref() {
+            let plaintext2 = Zeroizing::new(source_vault.decrypt(ciphertext2, &provider.id)?);
+            provider.api_key2_enc = Some(target_vault.encrypt(&plaintext2, &provider.id)?);
+        }
     }
     Ok(())
 }
@@ -292,6 +297,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: Some("https://sensitive.example.test".into()),
             pricing: Some(PricingConfig {
                 model: Some("private-model".into()),
@@ -320,6 +326,7 @@ mod tests {
             kind: ProviderKind::Template(Box::new(template)),
             enabled: false,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: Some("https://template.example.test".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,

@@ -10,7 +10,7 @@ use crate::ctx::Ctx;
 use crate::io;
 use crate::texts::{self, T, t};
 
-pub fn run(ctx: &Ctx, id: String) -> i32 {
+pub fn run(ctx: &Ctx, id: String, slot: Option<u8>) -> i32 {
     let lang = ctx.lang;
     let mut cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
@@ -30,8 +30,21 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
         println!("{}", t(lang, T::CliCredentialNote));
         return 0;
     }
+    let second = match slot {
+        None | Some(1) => false,
+        Some(2) => true,
+        Some(_) => {
+            eprintln!("{}{}", t(lang, T::Err), t(lang, T::KeySlotInvalid));
+            return 1;
+        }
+    };
 
-    let key = match io::read_secret(t(lang, T::SetKeyPrompt), lang) {
+    let prompt = if second {
+        t(lang, T::SetKey2Prompt)
+    } else {
+        t(lang, T::SetKeyPrompt)
+    };
+    let key = match io::read_secret(prompt, lang) {
         Ok(k) => k,
         Err(e) => {
             eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::KeyReadFail));
@@ -50,7 +63,12 @@ pub fn run(ctx: &Ctx, id: String) -> i32 {
             return 1;
         }
     };
-    let name = if let Err(e) = entry.set_api_key(&vault, key.trim()) {
+    let write = if second {
+        entry.set_api_key2(&vault, key.trim())
+    } else {
+        entry.set_api_key(&vault, key.trim())
+    };
+    let name = if let Err(e) = write {
         eprintln!("{}{}{e}", t(lang, T::Err), t(lang, T::EncryptFail));
         return 1;
     } else {
@@ -77,7 +95,18 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("quota-cli-sk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ctx = Ctx::with_store(dir.join("config.json"), Arc::new(InMemoryStore::new()));
-        assert_eq!(run(&ctx, "zzz".into()), 1);
+        assert_eq!(run(&ctx, "zzz".into(), None), 1);
+        assert_eq!(run(&ctx, "zzz".into(), Some(2)), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 契约：--slot 仅接受 1/2，其他值在读 stdin 前拦截。
+    #[test]
+    fn setkey_rejects_invalid_slot_before_input() {
+        let dir = std::env::temp_dir().join(format!("quota-cli-slot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = Ctx::with_store(dir.join("config.json"), Arc::new(InMemoryStore::new()));
+        assert_eq!(run(&ctx, "zzz".into(), Some(3)), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

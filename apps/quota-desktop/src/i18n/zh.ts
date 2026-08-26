@@ -123,7 +123,7 @@ export const zh = {
   "edit.descriptionAdd": "接入新的 AI 平台账户",
   "edit.tabNative": "预置平台",
   "edit.tabTemplate": "模板",
-  "edit.tabScript": "脚本（M4）",
+  "edit.tabScript": "脚本",
   "edit.name": "名称",
   "edit.namePlaceholder": "如 DeepSeek 主号",
   "edit.nameRequired": "名称不能为空",
@@ -158,6 +158,10 @@ export const zh = {
     "查询直连官方端点统计订阅用量；通过 CC-Switch 等工具桥接到非官方端点的流量不在此统计，需改用「请求模板」对接实际端点",
   "edit.keyConfigured": "已配置（留空保持不变）",
   "edit.keyMissing": "未配置",
+  "edit.apiKey2": "第二凭据（apiKey2）",
+  "edit.apiKey2Hint":
+    "模板/脚本引用 {{apiKey2}} 时使用（如 new-api 系站点的用户 ID，填入 New-Api-User 头）；同样加密保存、不回显。",
+  "edit.key2Optional": "选填（留空保持不变）",
 
   // ---- 模板分支二级子页与预设 ----
   "edit.subProvider": "运营商与模型",

@@ -18,6 +18,8 @@ interface Props {
   providerName: string;
   baseUrl: string;
   draft: string;
+  /** 已保存条目 id（新增草稿为 null）：携带进诊断包供 assist test 端测 */
+  entryId?: string | null;
   validationMessage?: string | null;
   testError?: string | null;
   onClose: () => void;
@@ -47,6 +49,7 @@ export function AiAssistPanel(props: Props) {
       docsUrl,
       goal,
       draft: props.draft,
+      entryId: props.entryId,
       validationMessage: props.validationMessage,
       testError: props.testError,
       responseSample,
@@ -56,6 +59,7 @@ export function AiAssistPanel(props: Props) {
       props.providerName,
       props.baseUrl,
       props.draft,
+      props.entryId,
       props.validationMessage,
       props.testError,
       docsUrl,
@@ -109,7 +113,7 @@ export function AiAssistPanel(props: Props) {
     try {
       const quotaCliPath = await api.resolveQuotaCliPath();
       await copyText(
-        buildLocalAgentPrompt(path, props.mode, quotaCliPath, lang),
+        buildLocalAgentPrompt(path, props.mode, quotaCliPath, lang, Boolean(props.entryId)),
         t("edit.ai.agentPromptCopied"),
         "agent",
       );

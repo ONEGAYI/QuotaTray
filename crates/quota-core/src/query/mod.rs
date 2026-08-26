@@ -94,22 +94,12 @@ impl QueryEngine {
             }
             ProviderKind::Template(config) => {
                 let creds = entry.credentials(vault)?;
-                let fut = crate::template::execute(
-                    http,
-                    config,
-                    creds.api_key.as_str(),
-                    entry.base_url.as_deref(),
-                );
+                let fut = crate::template::execute(http, config, &creds, entry.base_url.as_deref());
                 self.with_timeout(fut).await
             }
             ProviderKind::Script(config) => {
                 let creds = entry.credentials(vault)?;
-                let fut = crate::script::execute(
-                    http,
-                    config,
-                    creds.api_key.as_str(),
-                    entry.base_url.as_deref(),
-                );
+                let fut = crate::script::execute(http, config, &creds, entry.base_url.as_deref());
                 self.with_timeout(fut).await
             }
         }
@@ -146,6 +136,7 @@ mod tests {
             },
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -295,6 +286,7 @@ mod tests {
             kind: ProviderKind::Template(Box::new(template)),
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: Some("https://api.demo.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
@@ -330,6 +322,7 @@ mod tests {
             kind: ProviderKind::Script(Box::new(script)),
             enabled: true,
             api_key_enc: None,
+            api_key2_enc: None,
             base_url: Some("https://api.demo.com".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,

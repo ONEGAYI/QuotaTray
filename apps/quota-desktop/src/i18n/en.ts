@@ -120,7 +120,7 @@ export const en: Record<TextKey, string> = {
   "edit.descriptionAdd": "Connect a new AI platform account",
   "edit.tabNative": "Built-in",
   "edit.tabTemplate": "Template",
-  "edit.tabScript": "Script (M4)",
+  "edit.tabScript": "Script",
   "edit.name": "Name",
   "edit.namePlaceholder": "e.g. DeepSeek main",
   "edit.nameRequired": "Name is required",
@@ -155,6 +155,10 @@ export const en: Record<TextKey, string> = {
     "Queries hit the official endpoint for subscription usage; traffic bridged to non-official endpoints via tools like CC-Switch is not covered — use a request template to track that endpoint instead",
   "edit.keyConfigured": "Configured (leave blank to keep)",
   "edit.keyMissing": "Not configured",
+  "edit.apiKey2": "Second credential (apiKey2)",
+  "edit.apiKey2Hint":
+    "Used when the template/script references {{apiKey2}} (e.g. the user ID on new-api style sites, sent in the New-Api-User header); encrypted and never echoed back.",
+  "edit.key2Optional": "Optional (leave blank to keep)",
 
   // ---- Template sub-tabs and presets ----
   "edit.subProvider": "Provider & model",

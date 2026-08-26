@@ -207,6 +207,15 @@ impl Lang {
         }
     }
 
+    pub fn err_template_needs_key2(&self) -> String {
+        match self {
+            Self::Zh => "该查询引用了 {{apiKey2}}，试查前请填写第二凭据".into(),
+            Self::En => {
+                "This query references {{apiKey2}}; fill in the second credential first".into()
+            }
+        }
+    }
+
     pub fn err_settings_save(&self, e: &dyn std::fmt::Display) -> String {
         match self {
             Self::Zh => format!("设置写入失败：{e}"),

@@ -95,6 +95,9 @@ enum Command {
     SetKey {
         /// 条目 id
         id: String,
+        /// 写入第二凭据槽（{{apiKey2}}，如 new-api 系站点的用户 ID）
+        #[arg(long, value_name = "SLOT")]
+        slot: Option<u8>,
     },
     /// 列出预置平台
     Natives,
@@ -164,6 +167,16 @@ enum AssistCmd {
         /// 响应 JSON；缺省时读取诊断包 responseSample
         #[arg(long, value_name = "PATH")]
         response: Option<PathBuf>,
+    },
+    /// 真实试查一次：复用诊断包 entryId 指向条目的已存凭据（密文不出 vault）
+    Test {
+        #[arg(long, value_enum)]
+        mode: cmd::assist::AssistMode,
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+        /// 覆盖条目 baseUrl（换域试查）
+        #[arg(long, value_name = "URL")]
+        base_url: Option<String>,
     },
 }
 
@@ -382,7 +395,7 @@ async fn run(cli: Cli) -> i32 {
             disable,
         } => cmd::edit::run(&ctx, id, enable, disable),
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
-        Command::SetKey { id } => cmd::setkey::run(&ctx, id),
+        Command::SetKey { id, slot } => cmd::setkey::run(&ctx, id, slot),
         Command::Natives => cmd::natives::run(ctx.lang),
         Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
         Command::Pricing(PricingCmd::Set { id }) => cmd::pricing::run_set(&ctx, &id),
@@ -415,6 +428,11 @@ async fn run(cli: Cli) -> i32 {
             input,
             response,
         }) => cmd::assist::run_simulate(mode, input, response),
+        Command::Assist(AssistCmd::Test {
+            mode,
+            input,
+            base_url,
+        }) => cmd::assist::run_test(&ctx, mode, input, base_url).await,
         Command::Vault(VaultCmd::Status) => cmd::vault::run(&ctx),
         Command::History(HistoryCmd::Show {
             id,

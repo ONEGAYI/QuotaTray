@@ -176,7 +176,7 @@
                       "kind": "file",
                       "desc": "Agent 无凭据调试",
                       "detail": [
-                        "quota assist schema/validate/simulate：稳定 JSON 输出，读取纯配置或 qtray-assist 诊断包；不读 Vault、不接收 API key、不发网络请求"
+                        "assist 家族：schema（内嵌模板/脚本完整示例与 assistTest 声明）/validate/simulate 无凭据调试；test 子命令借诊断包 entryId 复用本机条目两槽密文真实端测一次，退出码走三分约定"
                       ]
                     },
                     "config.rs": {
@@ -292,7 +292,7 @@
                       "kind": "file",
                       "desc": "写入 API key",
                       "detail": [
-                        "隐藏读 key → vault 加密写配置"
+                        "set-key --slot 1|2：隐藏输入读主/第二凭据槽，经 vault 加密写配置；CLI 凭据型平台拦截提示"
                       ],
                       "tags": [
                         "security"
@@ -526,7 +526,7 @@
                       "kind": "file",
                       "desc": "AI 求助包纯逻辑",
                       "detail": [
-                        "AI 求助提示词/qtray-assist v1 包/本机 Agent 任务提示词生成、常见凭据清理与安全文件名；Agent 提示词含 PowerShell 实际 CLI/诊断包路径、联网搜索及输出契约"
+                        "AI 求助提示词/qtray-assist v1 包（编辑已存条目时携带 entryId）/本机 Agent 任务提示词生成；Agent 提示词含 PowerShell 实际 CLI/诊断包路径、apiKey2 占位边界与 assist test 端测指引、联网搜索及输出契约"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/aiAssistPack.test.ts"
@@ -579,7 +579,7 @@
                       "kind": "file",
                       "desc": "添加/编辑弹窗",
                       "detail": [
-                        "Modal：native 下拉（订阅型带套餐变体选择）/ template 二级子页（运营商与模型、设置模板）/ script JS 编辑器；模板与脚本共享 AI 占位图标调试入口、校验/试查、凭据区与固定页脚"
+                        "三形态编辑弹窗：主/第二凭据双写入通道（空=保持）、峰谷定价、模板/脚本编辑与试查；诊断包携带已存条目 entryId 供 assist test 端测"
                       ]
                     },
                     "HoverPanel.tsx": {
@@ -1164,7 +1164,7 @@
                       "kind": "file",
                       "desc": "IPC 命令集",
                       "detail": [
-                        "主业务 IPC：Provider/设置/更新/迁移/试查/历史/AI 诊断包写入；新增同目录、预留资源目录及 PATH 的真实 quota CLI 绝对路径解析，找不到即拒绝生成 Agent 指令"
+                        "IPC 命令集：Provider/查询/历史/设置/迁移/AI 诊断包与 CLI 路径解析；upsert 与 test_template/test_script 支持第二凭据槽（apply_key2_policy 空=保持），template_needs_api_key2 判定"
                       ]
                     },
                     "hover_panel.rs": {
@@ -1375,19 +1375,17 @@
                       "kind": "file",
                       "desc": "AppConfig 原子读写",
                       "detail": [
-                        "AppConfig（providers + custom_models 自定义模型库；",
-                        "原子写、密文落盘、旧文件兼容）+ ProviderEntry",
-                        "（含 use_proxy 条目级查询代理开关，默认 false）"
+                        "ProviderEntry（api_key_enc/api_key2_enc 双槽密文、set_api_key/2、credentials 双解密）与 AppConfig 原子读写"
                       ]
                     },
                     "provider.rs": {
                       "kind": "file",
                       "desc": "凭据与条目类型",
                       "detail": [
-                        "Credentials / ProviderKind（serde tag 分派：native/",
-                        "template/script，script 为 M4 新增——旧版二进制",
-                        "读到会报未知 tag，升级单向）、PlanVariant",
-                        "订阅套餐变体（auto/no_weekly/weekly，智谱 v1 无周限）"
+                        "Credentials 双凭据槽（api_key + 可选 api_key2，Debug 打码）、ProviderKind 三形态与 PlanVariant；set_api_key2 走同 vault AAD"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/config/mod.rs"
                       ]
                     },
                     "transfer.rs": {
@@ -1663,7 +1661,7 @@
                       "kind": "file",
                       "desc": "QuickJS 沙箱脚本查询",
                       "detail": [
-                        "QuickJS request/extract 两阶段沙箱查询：变量替换、URL 安全、宿主 HTTP、结果校验与全错误脱敏；16MiB/256KiB/5s 限制；新增用假变量执行 extract(resp) 的无网络离线 simulate"
+                        "脚本查询：request/extract 沙箱执行与变量替换（apiKey/apiKey2/baseUrl）、declared_secrets 双槽脱敏、simulate 离线取数与 uses_api_key2 判定"
                       ],
                       "tags": [
                         "security"
@@ -1679,7 +1677,10 @@
                       "kind": "file",
                       "desc": "DSL 结构与执行器",
                       "detail": [
-                        "DSL 结构/静态校验/执行器（变量替换、URL 安全、多窗口、uses_api_key）及无网络无凭据响应离线 simulate；substitute/check_url_safety 与 script 共用"
+                        "模板 DSL：变量 apiKey/apiKey2/baseUrl、FieldSource 两形态、顶层 transforms、validate/execute/simulate；declared_secrets 双槽登记，uses_api_key/uses_api_key2 判定"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/template/path.rs"
                       ]
                     },
                     "path.rs": {

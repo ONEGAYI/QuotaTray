@@ -66,6 +66,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 配置迁移包 | QuotaTray 私有、带版本和认证校验的二进制配置导出；虽然不可直接阅读，但因携带迁移密钥，保密级别等同明文凭据 |
 | 预置平台（native provider） | core 内置 Rust 实现的官方查询（如 DeepSeek、SiliconFlow），随版本发布 |
 | 声明式模板（template provider） | JSON 描述的查询配置（URL/头/字段映射/算术），零代码 |
+| 第二凭据槽（apiKey2） | 模板/脚本可用的第二个加密凭据变量 `{{apiKey2}}`（如 new-api 系站点的用户 ID，注入 `New-Api-User` 头）；与主 key 同 vault 加密、同「空=保持不变」写入语义 |
 | 脚本查询（script provider） | QuickJS 沙箱内运行的 `{request, extractor}` 脚本，兜底复杂平台 |
 | 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
 | keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |

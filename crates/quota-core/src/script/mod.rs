@@ -43,7 +43,13 @@ const DEFAULT_EVAL_BUDGET: Duration = Duration::from_secs(5);
 const VALIDATE_EVAL_BUDGET: Duration = Duration::from_secs(2);
 /// 干跑注入的假变量值（贴近真实凭据形状，本身无敏感性）。
 const DUMMY_API_KEY: &str = "qt-dryrun-dummy-key";
+const DUMMY_API_KEY2: &str = "qt-dryrun-dummy-key2";
 const DUMMY_BASE_URL: &str = "https://dryrun.invalid";
+
+/// 干跑用假凭据（两槽全给假值：暴露未知变量占位，又不误报缺失）。
+fn dummy_credentials() -> crate::config::Credentials {
+    crate::config::Credentials::new(DUMMY_API_KEY).with_api_key2(DUMMY_API_KEY2)
+}
 
 /// 脚本查询配置（`kind: "script"` 条目的载荷）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,12 +64,21 @@ pub struct ScriptConfig {
 
 /// 脚本是否用到 `{{apiKey}}`（GUI/CLI 判断 key 必填，与模板同语义）。
 pub fn uses_api_key(config: &ScriptConfig) -> bool {
+    script_uses_var(config, "apiKey")
+}
+
+/// 脚本是否用到 `{{apiKey2}}`（第二凭据槽，与模板同语义）。
+pub fn uses_api_key2(config: &ScriptConfig) -> bool {
+    script_uses_var(config, "apiKey2")
+}
+
+fn script_uses_var(config: &ScriptConfig, name: &str) -> bool {
     config
         .code
         .split("{{")
         .skip(1)
         .filter_map(|rest| rest.split("}}").next())
-        .any(|var| var.trim() == "apiKey")
+        .any(|var| var.trim() == name)
 }
 
 /// 静态校验失败（保存脚本时），带字段定位——与 TemplateError 同构，
@@ -180,9 +195,12 @@ struct RequestDesc {
     body: Option<String>,
 }
 
-/// 解析 request() 产物 JSON 并构造宿主请求（apiKey 从根登记脱敏，模板
+/// 解析 request() 产物 JSON 并构造宿主请求（凭据从根登记脱敏，模板
 /// 同款）。错误文案不携带产物内容（url 可能已含明文 key）。
-fn parse_request_desc(json: &str, api_key: &str) -> Result<HttpRequest, QueryError> {
+fn parse_request_desc(
+    json: &str,
+    creds: &crate::config::Credentials,
+) -> Result<HttpRequest, QueryError> {
     let desc: RequestDesc = serde_json::from_str(json).map_err(|_| {
         QueryError::deterministic(
             "request() 产物形状不符（需对象：url 非空字符串、method/headers/body 可选，值均为字符串）",
@@ -213,7 +231,7 @@ fn parse_request_desc(json: &str, api_key: &str) -> Result<HttpRequest, QueryErr
         url,
         headers: desc.headers.into_iter().collect(),
         body: desc.body,
-        declared_secrets: vec![api_key.to_string()],
+        declared_secrets: template::declared_secrets_of(creds),
     })
 }
 
@@ -271,21 +289,22 @@ fn parse_usage_output(json: &str) -> Result<Vec<UsageData>, QueryError> {
     Ok(out)
 }
 
-/// 执行脚本查询。`api_key` 来自 vault 解密，`base_url` 为条目配置。
+/// 执行脚本查询。凭据来自 vault 解密（`api_key2` 为可选第二槽），
+/// `base_url` 为条目配置。
 pub(crate) async fn execute(
     http: &dyn HttpClient,
     config: &ScriptConfig,
-    api_key: &str,
+    creds: &crate::config::Credentials,
     base_url: Option<&str>,
 ) -> Result<Vec<UsageData>, QueryError> {
-    execute_with_eval_budget(http, config, api_key, base_url, DEFAULT_EVAL_BUDGET).await
+    execute_with_eval_budget(http, config, creds, base_url, DEFAULT_EVAL_BUDGET).await
 }
 
 /// 带自定义 eval CPU 时限的执行（测试注入缩短值驱动中断契约）。
 pub(crate) async fn execute_with_eval_budget(
     http: &dyn HttpClient,
     config: &ScriptConfig,
-    api_key: &str,
+    creds: &crate::config::Credentials,
     base_url: Option<&str>,
     eval_budget: Duration,
 ) -> Result<Vec<UsageData>, QueryError> {
@@ -296,11 +315,12 @@ pub(crate) async fn execute_with_eval_budget(
         url: String::new(),
         headers: Vec::new(),
         body: None,
-        declared_secrets: vec![api_key.to_string()],
+        declared_secrets: template::declared_secrets_of(creds),
     };
 
     // ① 变量替换（代码字符串层面，与模板同一函数与安全契约）
-    let code = template::substitute(&config.code, api_key, base_url)?;
+    let api_key2 = creds.api_key2.as_deref().map(|s| s.as_str());
+    let code = template::substitute(&config.code, creds.api_key.as_str(), api_key2, base_url)?;
 
     // ② request 阶段（同步 eval → blocking 线程）
     let code_for_req = code.clone();
@@ -311,7 +331,7 @@ pub(crate) async fn execute_with_eval_budget(
 
     // ③④ 产物解析（含从根登记脱敏）+ URL 校验 + 发送。
     // 解析错误统一过脱敏：产物任何字段都可能携带注入的明文凭据
-    let req = parse_request_desc(&req_json, api_key)
+    let req = parse_request_desc(&req_json, creds)
         .map_err(|e| crate::provider::redact_error_message(e, &redact_anchor))?;
     template::check_url_safety(&req.url, config.allow_insecure)?;
     let resp_root = crate::provider::fetch_json(http, req.clone()).await?;
@@ -353,7 +373,12 @@ fn eval_error_to_query(e: EvalError, anchor: &HttpRequest) -> QueryError {
 /// 全程不访问网络、不读取真实凭据，适合作为 Agent 调试能力。
 pub fn simulate(config: &ScriptConfig, response: &Value) -> Result<Vec<UsageData>, QueryError> {
     validate(config).map_err(|e| QueryError::deterministic(e.to_string()))?;
-    let code = template::substitute(&config.code, DUMMY_API_KEY, Some(DUMMY_BASE_URL))?;
+    let code = template::substitute(
+        &config.code,
+        DUMMY_API_KEY,
+        Some(DUMMY_API_KEY2),
+        Some(DUMMY_BASE_URL),
+    )?;
     let response_json = serde_json::to_string(response)
         .map_err(|e| QueryError::deterministic(format!("响应样本序列化失败：{e}")))?;
     let anchor = HttpRequest {
@@ -361,7 +386,7 @@ pub fn simulate(config: &ScriptConfig, response: &Value) -> Result<Vec<UsageData
         url: String::new(),
         headers: Vec::new(),
         body: None,
-        declared_secrets: vec![DUMMY_API_KEY.to_string()],
+        declared_secrets: template::declared_secrets_of(&dummy_credentials()),
     };
     let output = eval_extract(&code, &response_json, DEFAULT_EVAL_BUDGET)
         .map_err(|e| eval_error_to_query(e, &anchor))?;
@@ -385,9 +410,14 @@ pub fn validate(config: &ScriptConfig) -> Result<(), ScriptError> {
             format!("脚本源码超过大小上限（{} KB）", MAX_CODE_BYTES / 1024),
         ));
     }
-    // baseUrl 以假值提供：暴露未知变量占位，又不误报缺失
-    let dry = template::substitute(&config.code, DUMMY_API_KEY, Some(DUMMY_BASE_URL))
-        .map_err(|e| err("code", e.message().to_string()))?;
+    // baseUrl/apiKey2 以假值提供：暴露未知变量占位，又不误报缺失
+    let dry = template::substitute(
+        &config.code,
+        DUMMY_API_KEY,
+        Some(DUMMY_API_KEY2),
+        Some(DUMMY_BASE_URL),
+    )
+    .map_err(|e| err("code", e.message().to_string()))?;
 
     let check = with_sandbox(VALIDATE_EVAL_BUDGET, |ctx| {
         ctx.eval::<(), _>(dry.as_str())
@@ -422,7 +452,7 @@ pub fn validate(config: &ScriptConfig) -> Result<(), ScriptError> {
         }
         Err(EvalError::Shape(reason)) => return Err(err("request", reason)),
     };
-    if let Err(e) = parse_request_desc(&req_json, DUMMY_API_KEY) {
+    if let Err(e) = parse_request_desc(&req_json, &dummy_credentials()) {
         return Err(err("request", e.message().to_string()));
     }
     Ok(())
@@ -431,6 +461,7 @@ pub fn validate(config: &ScriptConfig) -> Result<(), ScriptError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Credentials;
     use crate::config::ProviderKind;
     use crate::http::Method;
     use crate::provider::testing::MockHttp;
@@ -478,9 +509,14 @@ mod tests {
     #[tokio::test]
     async fn happy_path_two_phase() {
         let http = MockHttp::ok(RESP);
-        let data = execute(&http, &config(OK_SCRIPT), "sk-live-secret-000", None)
-            .await
-            .unwrap();
+        let data = execute(
+            &http,
+            &config(OK_SCRIPT),
+            &Credentials::new("sk-live-secret-000"),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].remaining, Some(62.97));
         assert_eq!(data[0].total, Some(100.0));
@@ -511,9 +547,14 @@ mod tests {
                 ];
             }
         "#;
-        let data = execute(&MockHttp::ok(RESP), &config(multi), "k", None)
-            .await
-            .unwrap();
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(multi),
+            &Credentials::new("k"),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].plan_name.as_deref(), Some("five_hour"));
         assert_eq!(data[1].used, Some(18.5));
@@ -522,9 +563,14 @@ mod tests {
             function request() { return { url: "https://a.com" }; }
             function extract(resp) { return { remaining: resp.balance }; }
         "#;
-        let data = execute(&MockHttp::ok(RESP), &config(single), "k", None)
-            .await
-            .unwrap();
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(single),
+            &Credentials::new("k"),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(data.len(), 1);
         assert_eq!(data[0].remaining, Some(62.97));
     }
@@ -537,9 +583,14 @@ mod tests {
             function extract(resp) { return { remaining: resp.balance }; }
         "#;
         let http = MockHttp::ok(RESP);
-        let data = execute(&http, &config(script), "k", Some("https://api.demo.com"))
-            .await
-            .unwrap();
+        let data = execute(
+            &http,
+            &config(script),
+            &Credentials::new("k"),
+            Some("https://api.demo.com"),
+        )
+        .await
+        .unwrap();
         assert_eq!(data[0].remaining, Some(62.97));
         assert_eq!(
             http.captured_requests()[0].url,
@@ -555,23 +606,37 @@ mod tests {
             function request() { return { url: "http://api.demo.com/x" }; }
             function extract(resp) { return { remaining: resp.balance }; }
         "#;
-        let err = execute(&MockHttp::ok(RESP), &config(script), "k", None)
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &config(script),
+            &Credentials::new("k"),
+            None,
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient() && err.message().contains("allowInsecure"));
 
         let mut cfg = config(script);
         cfg.allow_insecure = true;
-        assert!(execute(&MockHttp::ok(RESP), &cfg, "k", None).await.is_ok());
+        assert!(
+            execute(&MockHttp::ok(RESP), &cfg, &Credentials::new("k"), None)
+                .await
+                .is_ok()
+        );
 
         let loopback = r#"
             function request() { return { url: "http://127.0.0.1:8080/x" }; }
             function extract(resp) { return { remaining: resp.balance }; }
         "#;
         assert!(
-            execute(&MockHttp::ok(RESP), &config(loopback), "k", None)
-                .await
-                .is_ok()
+            execute(
+                &MockHttp::ok(RESP),
+                &config(loopback),
+                &Credentials::new("k"),
+                None
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -588,7 +653,7 @@ mod tests {
         let err = execute(
             &MockHttp::ok(RESP),
             &config(script),
-            "sk-live-secret-000",
+            &Credentials::new("sk-live-secret-000"),
             None,
         )
         .await
@@ -628,9 +693,14 @@ mod tests {
                 "缺少全局函数 request()",
             ),
         ] {
-            let err = execute(&MockHttp::ok(RESP), &config(script), "k", None)
-                .await
-                .unwrap_err();
+            let err = execute(
+                &MockHttp::ok(RESP),
+                &config(script),
+                &Credentials::new("k"),
+                None,
+            )
+            .await
+            .unwrap_err();
             assert!(!err.is_transient(), "应确定性：{err}");
             assert!(err.message().contains(frag), "文案应含 {frag}：{err}");
         }
@@ -647,7 +717,7 @@ mod tests {
         let err = execute(
             &MockHttp::ok(RESP),
             &config(script),
-            "sk-live-secret-000",
+            &Credentials::new("sk-live-secret-000"),
             None,
         )
         .await
@@ -680,7 +750,7 @@ mod tests {
         let data = execute(
             &MockHttp::ok(RESP),
             &config(&mk("1893456000000")),
-            "k",
+            &Credentials::new("k"),
             None,
         )
         .await
@@ -690,7 +760,7 @@ mod tests {
         let data = execute(
             &MockHttp::ok(RESP),
             &config(&mk("\"1893456000000\"")),
-            "k",
+            &Credentials::new("k"),
             None,
         )
         .await
@@ -700,7 +770,7 @@ mod tests {
         let data = execute(
             &MockHttp::ok(RESP),
             &config(&mk("1893456000000.5")),
-            "k",
+            &Credentials::new("k"),
             None,
         )
         .await
@@ -715,9 +785,14 @@ mod tests {
             function request(){ return { url: "https://a.com" }; }
             function extract(r){ const a = {}; a.self = a; return a; }
         "#;
-        let err = execute(&MockHttp::ok(RESP), &config(script), "k", None)
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &config(script),
+            &Credentials::new("k"),
+            None,
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("序列化"), "应指明序列化失败：{err}");
     }
@@ -744,9 +819,14 @@ mod tests {
                 "数值字段",
             ),
         ] {
-            let err = execute(&MockHttp::ok(RESP), &config(script), "k", None)
-                .await
-                .unwrap_err();
+            let err = execute(
+                &MockHttp::ok(RESP),
+                &config(script),
+                &Credentials::new("k"),
+                None,
+            )
+            .await
+            .unwrap_err();
             assert!(!err.is_transient(), "应确定性：{err}");
             assert!(err.message().contains(frag), "文案应含 {frag}：{err}");
         }
@@ -762,7 +842,7 @@ mod tests {
         let err = execute_with_eval_budget(
             &MockHttp::ok(RESP),
             &config(script),
-            "k",
+            &Credentials::new("k"),
             None,
             Duration::from_millis(100),
         )
@@ -782,7 +862,7 @@ mod tests {
         let err = execute_with_eval_budget(
             &MockHttp::ok(RESP),
             &config(script),
-            "k",
+            &Credentials::new("k"),
             None,
             Duration::from_secs(2),
         )
@@ -801,9 +881,14 @@ mod tests {
             function request(){ return { url: "https://a.com/?t={{token}}" }; }
             function extract(r){ return {remaining: 1}; }
         "#;
-        let err = execute(&MockHttp::ok(RESP), &config(script), "sk-secret", None)
-            .await
-            .unwrap_err();
+        let err = execute(
+            &MockHttp::ok(RESP),
+            &config(script),
+            &Credentials::new("sk-secret"),
+            None,
+        )
+        .await
+        .unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("token"), "实际：{err}");
         assert!(!err.message().contains("sk-secret"));
@@ -817,9 +902,14 @@ mod tests {
             function request(){ return { url: "https://a.com" }; }
             function extract(r){ return { remaining: NaN, used: 12 }; }
         "#;
-        let data = execute(&MockHttp::ok(RESP), &config(script), "k", None)
-            .await
-            .unwrap();
+        let data = execute(
+            &MockHttp::ok(RESP),
+            &config(script),
+            &Credentials::new("k"),
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(data[0].remaining, None);
         assert_eq!(data[0].used, Some(12.0));
     }

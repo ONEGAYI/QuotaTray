@@ -86,11 +86,12 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | command | 入 → 出 | 对应 core |
 |---|---|---|
 | `list_providers` | → `ProviderEntry[]`（含密文字段，供编辑回显结构） | `AppConfig::load` |
-| `upsert_provider` | `ProviderEntry` → ()（含 `pricing` 字段校验） | `AppConfig::save` + `pricing::validate` |
+| `upsert_provider` | `ProviderEntry + newApiKey + newApiKey2` → ()（含 `pricing` 字段校验；两槽 key 均走空=保持策略） | `AppConfig::save` + `pricing::validate` |
 | `remove_provider` | `id` → () | 同上 |
 | `list_native_metas` | → `NativeMeta[]`（含峰谷预置 pricing 字段） | `provider::metas` + `pricing::preset` |
 | `validate_template` | `TemplateConfig` → `Ok / 字段定位错误` | `template::validate` |
-| `test_template` | `TemplateConfig + key输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
+| `test_template` | `TemplateConfig + key输入 + apiKey2输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |
+| `test_script` | `ScriptConfig + key输入 + apiKey2输入 + baseUrl` → `UsageData[] / QueryError` | `script::execute`（经引擎） |
 | `write_assist_package` | 用户选定路径 + 已预览脱敏文本 → () | `update::write_atomic_bytes` |
 | `resolve_quota_cli_path` | → 安装包资源或开发产物中的真实 CLI 绝对路径 | `current_exe/resource_dir` 探测 |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
@@ -100,6 +101,9 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 
 **红线 3 落实**：key 写入走「空值 = 保持不变」约定，前端永不回显明文、
 永不接收明文（编辑表单的 key 框初始为空，占位符显示"已配置"/"未配置"）。
+模板/脚本形态另有第二凭据输入框（`{{apiKey2}}` 槽，如 new-api 系站点的
+用户 ID 注入 `New-Api-User` 头），同款加密保存与不回显语义；诊断包携带
+已保存条目的 `entryId` 供 `quota assist test` 端测复用本机凭据。
 
 ## 5. 快照持久化（desktop 侧）
 

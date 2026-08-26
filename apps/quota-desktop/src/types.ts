@@ -74,13 +74,15 @@ export type ProviderKind =
   | ({ type: "template" } & TemplateConfig)
   | { type: "script"; code: string; allowInsecure?: boolean };
 
-/** 供应商条目（api_key_enc 为密文，仅结构回显；key 写入走单独通道）。 */
+/** 供应商条目（api_key_enc/api_key2_enc 为密文，仅结构回显；key 写入走单独通道）。 */
 export interface ProviderEntry {
   id: string;
   name: string;
   kind: ProviderKind;
   enabled: boolean;
   api_key_enc?: string;
+  /** 第二凭据槽密文（{{apiKey2}}，如 new-api 系站点的用户 ID） */
+  api_key2_enc?: string;
   base_url?: string;
   /** 峰谷定价自定义（缺省 = 回退预置，见 core pricing::resolve） */
   pricing?: PricingConfig;

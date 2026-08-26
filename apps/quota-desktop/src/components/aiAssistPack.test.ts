@@ -53,6 +53,7 @@ describe("AI 调试求助包", () => {
       "template",
       "D:\\Apps\\QuotaTray\\quota.exe",
       "zh",
+      true,
     );
 
     expect(prompt).toContain("你是 QuotaTray 配置调试 Agent");
@@ -61,6 +62,27 @@ describe("AI 调试求助包", () => {
     expect(prompt).toContain("--input $diagnosticPackage");
     expect(prompt).toContain("联网搜索");
     expect(prompt).toContain("不得索要、泄露或输出 API key");
+    // entryId 存在 → 给出端测指引；不存在 → 明确跳过
+    expect(prompt).toContain("assist test");
+    expect(prompt).toContain("entryId");
+    const noEntry = buildLocalAgentPrompt(
+      "D:\\Temp\\relay.qtray-assist.json",
+      "template",
+      "D:\\Apps\\QuotaTray\\quota.exe",
+      "zh",
+      false,
+    );
+    expect(noEntry).not.toContain("assist test --mode");
+    expect(noEntry).toContain("无法端测");
+  });
+
+  it("已保存条目携带 entryId，新增草稿不带", () => {
+    const withEntry = buildAiAssistPackage({ ...input, entryId: "p7" });
+    expect(withEntry.entryId).toBe("p7");
+
+    const fresh = buildAiAssistPackage({ ...input, entryId: null });
+    expect(fresh.entryId).toBeUndefined();
+    expect(JSON.stringify(fresh)).not.toContain("entryId");
   });
 
   it("会清理 Bearer、JWT 与敏感 JSON 字段", () => {
