@@ -1,6 +1,6 @@
 // 外部 AI/Agent 调试桥：生成脱敏求助包并暴露 CLI 指引；QuotaTray 本身不提供 Agent。
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Copy, FileDown, Terminal, X } from "lucide-react";
+import { Check, Copy, FileDown, Terminal, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
@@ -8,7 +8,7 @@ import { Button } from "./ui";
 import {
   buildAiAssistPackage,
   buildAiAssistPrompt,
-  buildCliDebugGuide,
+  buildLocalAgentPrompt,
   defaultAssistFileName,
   type AiAssistMode,
 } from "./aiAssistPack";
@@ -36,6 +36,7 @@ export function AiAssistPanel(props: Props) {
   const [responseSample, setResponseSample] = useState("");
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [copiedAction, setCopiedAction] = useState<"prompt" | "agent" | null>(null);
   const [saving, setSaving] = useState(false);
 
   const input = useMemo(
@@ -64,12 +65,18 @@ export function AiAssistPanel(props: Props) {
   );
   const prompt = useMemo(() => buildAiAssistPrompt(input, lang), [input, lang]);
 
-  const copyText = async (text: string, success: string) => {
+  const copyText = async (
+    text: string,
+    success: string,
+    action: "prompt" | "agent",
+  ) => {
     try {
       await navigator.clipboard.writeText(text);
       setFeedback(success);
+      setCopiedAction(action);
     } catch {
       setFeedback(t("edit.ai.copyFailed"));
+      setCopiedAction(null);
     }
   };
 
@@ -96,13 +103,20 @@ export function AiAssistPanel(props: Props) {
     }
   };
 
-  const copyCliGuide = async () => {
+  const copyLocalAgentPrompt = async () => {
     const path = savedPath ?? (await savePackage());
     if (!path) return;
-    await copyText(
-      buildCliDebugGuide(path, props.mode, lang),
-      t("edit.ai.cliCopied"),
-    );
+    try {
+      const quotaCliPath = await api.resolveQuotaCliPath();
+      await copyText(
+        buildLocalAgentPrompt(path, props.mode, quotaCliPath, lang),
+        t("edit.ai.agentPromptCopied"),
+        "agent",
+      );
+    } catch (error) {
+      setCopiedAction(null);
+      setFeedback(t("edit.ai.cliMissing", { error: String(error) }));
+    }
   };
 
   return (
@@ -160,21 +174,21 @@ export function AiAssistPanel(props: Props) {
       </label>
 
       <div className="qt-ai-assist-actions">
-        <Button type="button" onClick={() => void copyText(prompt, t("edit.ai.promptCopied"))}>
-          <Copy size={14} aria-hidden="true" />
-          {t("edit.ai.copyPrompt")}
+        <Button type="button" onClick={() => void copyText(prompt, t("edit.ai.promptCopied"), "prompt")}>
+          {copiedAction === "prompt" ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          {copiedAction === "prompt" ? t("edit.ai.copied") : t("edit.ai.copyPrompt")}
         </Button>
         <Button type="button" disabled={saving} onClick={() => void savePackage()}>
           <FileDown size={14} aria-hidden="true" />
           {saving ? t("edit.ai.saving") : t("edit.ai.savePackage")}
         </Button>
-        <Button type="button" disabled={saving} onClick={() => void copyCliGuide()}>
-          <Terminal size={14} aria-hidden="true" />
-          {t("edit.ai.cliGuide")}
+        <Button type="button" disabled={saving} onClick={() => void copyLocalAgentPrompt()}>
+          {copiedAction === "agent" ? <Check size={14} aria-hidden="true" /> : <Terminal size={14} aria-hidden="true" />}
+          {copiedAction === "agent" ? t("edit.ai.copied") : t("edit.ai.localAgentPrompt")}
         </Button>
       </div>
       <p className="qt-ai-assist-service-note">{t("edit.ai.serviceNote")}</p>
-      {feedback && <p className="qt-ai-assist-feedback">{feedback}</p>}
+      {feedback && <p className="qt-ai-assist-feedback" role="status">{feedback}</p>}
     </section>
   );
 }

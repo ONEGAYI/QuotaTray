@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "generated/quota.exe": "bin/quota.exe"
+    }
+  }
+}

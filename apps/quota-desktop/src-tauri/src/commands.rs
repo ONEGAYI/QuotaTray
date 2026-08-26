@@ -926,6 +926,30 @@ mod tests {
         dir.join(name)
     }
 
+    /// AI 调试契约：返回真实存在的 CLI 绝对路径；开发同目录优先，安装包资源兜底。
+    #[test]
+    fn resolves_existing_quota_cli_path() {
+        let current_exe = transfer_path("assist-cli", "app/quota-desktop.exe");
+        let dev_cli = current_exe.with_file_name("quota.exe");
+        std::fs::create_dir_all(current_exe.parent().unwrap()).unwrap();
+        std::fs::write(&dev_cli, b"dev-cli").unwrap();
+
+        let resource_dir = transfer_path("assist-cli", "resources");
+        let bundled_cli = resource_dir.join("bin/quota.exe");
+        std::fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        std::fs::write(&bundled_cli, b"bundled-cli").unwrap();
+
+        assert_eq!(
+            resolve_quota_cli_path_from(&current_exe, Some(&resource_dir)).unwrap(),
+            dev_cli.canonicalize().unwrap()
+        );
+        std::fs::remove_file(&dev_cli).unwrap();
+        assert_eq!(
+            resolve_quota_cli_path_from(&current_exe, Some(&resource_dir)).unwrap(),
+            bundled_cli.canonicalize().unwrap()
+        );
+    }
+
     #[test]
     fn history_query_helper_filters_provider_and_start_time() {
         let store = quota_core::HistoryStore::open_in_memory().unwrap();
@@ -1402,4 +1426,43 @@ mod tests {
 pub fn write_assist_package(path: String, contents: String) -> Result<(), String> {
     quota_core::update::write_atomic_bytes(std::path::Path::new(&path), contents.as_bytes())
         .map_err(|e| format!("写入 AI 诊断包失败：{e}"))
+}
+
+fn resolve_quota_cli_path_from(
+    current_exe: &std::path::Path,
+    resource_dir: Option<&std::path::Path>,
+) -> Result<std::path::PathBuf, String> {
+    let file_name = format!("quota{}", std::env::consts::EXE_SUFFIX);
+    let mut candidates = vec![current_exe.with_file_name(&file_name)];
+    if let Some(resources) = resource_dir {
+        candidates.push(resources.join("bin").join(&file_name));
+        candidates.push(resources.join(&file_name));
+    }
+    if let Some(path_value) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path_value).map(|dir| dir.join(&file_name)));
+    }
+    for candidate in &candidates {
+        if candidate.is_file() {
+            return candidate
+                .canonicalize()
+                .map_err(|e| format!("解析 quota CLI 路径失败：{e}"));
+        }
+    }
+    Err(format!(
+        "未找到 quota CLI 可执行文件；已检查：{}",
+        candidates
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join("；")
+    ))
+}
+
+/// 返回当前开发版或安装包内真实存在的 quota CLI 绝对路径。
+#[tauri::command]
+pub fn resolve_quota_cli_path(app: AppHandle) -> Result<String, String> {
+    let current_exe = std::env::current_exe().map_err(|e| format!("读取当前程序路径失败：{e}"))?;
+    let resource_dir = app.path().resource_dir().ok();
+    resolve_quota_cli_path_from(&current_exe, resource_dir.as_deref())
+        .map(|path| path.to_string_lossy().into_owned())
 }

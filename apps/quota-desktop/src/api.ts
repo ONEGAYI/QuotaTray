@@ -16,6 +16,8 @@ export const api = {
   /** 将用户预览过的无凭据 AI 诊断包写入指定路径。 */
   writeAssistPackage: (path: string, contents: string): Promise<void> =>
     invoke("write_assist_package", { path, contents }),
+  /** 返回开发版或安装包内真实存在的 quota CLI 绝对路径。 */
+  resolveQuotaCliPath: (): Promise<string> => invoke("resolve_quota_cli_path"),
   upsertProvider: (
     entry: ProviderEntry,
     newApiKey: string | null,

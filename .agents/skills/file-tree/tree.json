@@ -123,8 +123,7 @@
       "kind": "file",
       "desc": "忽略清单（密钥/生成物）",
       "detail": [
-        "含 .DevApiKey.json / .DevApiKey.json 被忽略、前端与 gen/schemas 生成物、",
-        "Python 字节码（file-tree 技能脚本）"
+        "忽略本地密钥、target/前端/schema 构建物、Tauri generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
     },
     "AGENTS.md": {
@@ -464,7 +463,7 @@
                   "kind": "file",
                   "desc": "invoke 封装",
                   "detail": [
-                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移/AI 诊断包写入 + 短 id 生成"
+                    "全部 invoke 封装：Provider/查询/历史/设置/主题/更新/配置迁移/AI 诊断包写入与 CLI 路径解析 + 短 id 生成"
                   ],
                   "rel": [
                     "apps/quota-desktop/src-tauri/src/commands.rs"
@@ -514,7 +513,7 @@
                       "kind": "file",
                       "desc": "AI 求助包测试",
                       "detail": [
-                        "AI 求助包脱敏、未保存草稿/错误收集、联网搜索指令与 QuotaTray 非 Agent 声明契约测试"
+                        "AI 求助包脱敏、未保存现场收集、本机 Agent 提示词的真实 CLI 路径/命令/联网搜索/安全边界契约测试"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/aiAssistPack.ts"
@@ -527,7 +526,7 @@
                       "kind": "file",
                       "desc": "AI 求助包纯逻辑",
                       "detail": [
-                        "AI 求助提示词与 qtray-assist v1 包生成、常见凭据模式清理、CLI 指引及安全文件名；输入契约不接收 apiKey/api_key_enc"
+                        "AI 求助提示词/qtray-assist v1 包/本机 Agent 任务提示词生成、常见凭据清理与安全文件名；Agent 提示词含 PowerShell 实际 CLI/诊断包路径、联网搜索及输出契约"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/aiAssistPack.test.ts"
@@ -540,7 +539,7 @@
                       "kind": "file",
                       "desc": "AI 调试求助面板",
                       "detail": [
-                        "模板/脚本编辑器内联 AI 调试面板：文档/目标/响应样本补充、脱敏提示词预览、复制提示词、保存诊断包与复制 CLI 调试指引；明确 QuotaTray 不提供 Agent"
+                        "模板/脚本编辑器内联 AI 调试面板：脱敏提示词预览、诊断包保存、复制给本机 Agent；复制按钮就地显示已复制，Agent 提示词仅在解析到真实 quota CLI 路径后生成"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/aiAssistPack.ts"
@@ -1104,7 +1103,7 @@
                   "kind": "file",
                   "desc": "Tauri 构建脚本",
                   "detail": [
-                    "tauri-build：能力清单/图标/资源嵌入构建期生成"
+                    "tauri-build 前暂存同 profile quota CLI：release 缺失硬失败；debug/test 缺失可建仅供配置校验的 ignored 占位；为 Windows bundle 资源清单提供稳定源路径"
                   ]
                 },
                 "capabilities": {
@@ -1165,7 +1164,7 @@
                       "kind": "file",
                       "desc": "IPC 命令集",
                       "detail": [
-                        "主业务 IPC：Provider/设置/更新/迁移/试查/历史链路，新增用户选定路径的脱敏 AI 诊断包原子写入；key 仍执行空值保持与前端不回显安全策略"
+                        "主业务 IPC：Provider/设置/更新/迁移/试查/历史/AI 诊断包写入；新增同目录、预留资源目录及 PATH 的真实 quota CLI 绝对路径解析，找不到即拒绝生成 Agent 指令"
                       ]
                     },
                     "hover_panel.rs": {
@@ -1195,7 +1194,7 @@
                       "kind": "file",
                       "desc": "Tauri Builder 装配",
                       "detail": [
-                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含历史与 AI 诊断包写入）"
+                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含历史、AI 诊断包写入与 CLI 路径解析）"
                       ],
                       "rel": [
                         "apps/quota-desktop/src-tauri/src/commands.rs"
@@ -1281,8 +1280,14 @@
                   "kind": "file",
                   "desc": "Tauri 配置",
                   "detail": [
-                    "版本经 crate 继承 workspace；CSP 基线；decorations:false；",
-                    "NSIS 安装包"
+                    "版本继承 workspace、CSP/decorations/NSIS；dev/build 前分别构建 debug/release quota CLI，build.rs 再暂存给 Windows bundle"
+                  ]
+                },
+                "tauri.windows.conf.json": {
+                  "kind": "file",
+                  "desc": "Windows Tauri 覆盖配置",
+                  "detail": [
+                    "Windows bundle 资源映射：把 build.rs 暂存的 generated/quota.exe 打入安装包 bin/quota.exe，供 Agent 调试提示词解析真实绝对路径"
                   ]
                 }
               }
@@ -1781,7 +1786,7 @@
               "kind": "file",
               "desc": "GUI 规格（M3）",
               "detail": [
-                "quota-desktop 规格：窗口托盘/IPC/快照持久化/模板与脚本 AI 调试求助入口"
+                "quota-desktop 规格：窗口托盘/IPC/快照/AI 求助与本机 Agent 提示词；CLI dev/release 暂存、Windows 安装包资源映射及真实路径解析契约"
               ]
             },
             "history-spec.md": {

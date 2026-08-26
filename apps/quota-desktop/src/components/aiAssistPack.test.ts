@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiAssistPackage,
   buildAiAssistPrompt,
-  buildCliDebugGuide,
+  buildLocalAgentPrompt,
   sanitizeSharedText,
 } from "./aiAssistPack";
 
@@ -47,12 +47,20 @@ describe("AI 调试求助包", () => {
     expect(prompt).toContain("quotatray-ai-result");
   });
 
-  it("CLI 指引明确 QuotaTray 只提供调试能力", () => {
-    const guide = buildCliDebugGuide("D:\\Temp\\relay.qtray-assist.json", "template", "zh");
+  it("本机 Agent 提示词包含真实 CLI 路径、任务步骤与安全边界", () => {
+    const prompt = buildLocalAgentPrompt(
+      "D:\\Temp\\relay.qtray-assist.json",
+      "template",
+      "D:\\Apps\\QuotaTray\\quota.exe",
+      "zh",
+    );
 
-    expect(guide).toContain("不提供 AI Agent");
-    expect(guide).toContain("quota assist schema");
-    expect(guide).toContain("--input \"D:\\Temp\\relay.qtray-assist.json\"");
+    expect(prompt).toContain("你是 QuotaTray 配置调试 Agent");
+    expect(prompt).toContain("$quotaCli = 'D:\\Apps\\QuotaTray\\quota.exe'");
+    expect(prompt).toContain("& $quotaCli assist schema");
+    expect(prompt).toContain("--input $diagnosticPackage");
+    expect(prompt).toContain("联网搜索");
+    expect(prompt).toContain("不得索要、泄露或输出 API key");
   });
 
   it("会清理 Bearer、JWT 与敏感 JSON 字段", () => {

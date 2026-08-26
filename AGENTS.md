@@ -196,15 +196,15 @@ QuotaTray/
 │       │   ├── types.ts                # core serde 的 TS 镜像
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
-│       │   ├── build.rs        # Tauri 构建脚本
-│       │   ├── capabilities/   # 权限 ACL
+│       │   ├── build.rs                # Tauri 构建脚本
+│       │   ├── capabilities/           # 权限 ACL
 │       │   │   ├── default.json     # 主窗 ACL
 │       │   │   └── hover-panel.json # 悬停窗 ACL
-│       │   ├── Cargo.toml      # 桌面端 crate 清单
-│       │   ├── examples/       # 示例注入器
+│       │   ├── Cargo.toml              # 桌面端 crate 清单
+│       │   ├── examples/               # 示例注入器
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
-│       │   ├── icons/          # 应用图标集
-│       │   ├── src/            # 后端源码
+│       │   ├── icons/                  # 应用图标集
+│       │   ├── src/                    # 后端源码
 │       │   │   ├── commands.rs    # IPC 命令集
 │       │   │   ├── hover_panel.rs # 悬停窗口状态机
 │       │   │   ├── i18n.rs        # 托盘/命令双语文案
@@ -216,7 +216,8 @@ QuotaTray/
 │       │   │   ├── state.rs       # AppState
 │       │   │   ├── tray.rs        # 托盘菜单与图标
 │       │   │   └── update_ctl.rs  # 更新检测控制
-│       │   └── tauri.conf.json # Tauri 配置
+│       │   ├── tauri.conf.json         # Tauri 配置
+│       │   └── tauri.windows.conf.json # Windows Tauri 覆盖配置
 │       ├── tsconfig.json       # TS 编译配置
 │       └── vite.config.ts      # Vite 配置
 ├── Cargo.lock              # 依赖锁文件
