@@ -465,6 +465,9 @@ export const ProviderCard = memo(function ProviderCard({
               className={`qt-provider-error ${
                 view.kind === "deterministic" || view.kind === "invalid" ? "is-danger" : ""
               }`}
+              // 悬停显示完整报错（headline + 已脱敏 detail），与复制内容一致；
+              // invalid 业务失效无 detail，文案已完整展示，不挂 title
+              title={copyable ? errorCopyText(view) : undefined}
             >
               {displayedError}
               {copyable && (
