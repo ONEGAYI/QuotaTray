@@ -2,7 +2,7 @@
 // 关闭窗口 = 隐藏收托盘（Rust 侧处理），React 不参与退出逻辑。
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Plus, Settings as SettingsIcon } from "lucide-react";
-import { useCallback, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "./api";
 import { EditDialog } from "./components/EditDialog";
 import { MainPanelTabs } from "./components/MainPanelTabs";
@@ -48,6 +48,11 @@ function AppInner() {
     () => (providers.data ?? []).map((entry) => entry.id),
     [providers.data],
   );
+  // 落库尾随合并：乐观更新即时生效，后端写盘按 300ms 合并——键盘长按
+  // 调序（系统按键重复 ~30 次/秒）不再每次 keydown 都触发全量 config
+  // 保存 + 托盘重建；快速连续拖拽同理。最后一次的顺序即最终落库序。
+  const persistReorderRef = useRef(0);
+  useEffect(() => () => window.clearTimeout(persistReorderRef.current), []);
   const commitDragOrder = useCallback(
     (orderedIds: string[]) => {
       const current = providers.data;
@@ -60,10 +65,13 @@ function AppInner() {
         .filter((entry): entry is ProviderEntry => entry != null);
       if (reordered.length !== orderedIds.length) return;
       qc.setQueryData(["providers"], reordered);
-      void api.reorderProviders(orderedIds).catch(() => {
-        // 后端集合失配（如 CLI 同时删卡）：拉取真实状态恢复
-        void qc.invalidateQueries({ queryKey: ["providers"] });
-      });
+      window.clearTimeout(persistReorderRef.current);
+      persistReorderRef.current = window.setTimeout(() => {
+        void api.reorderProviders(orderedIds).catch(() => {
+          // 后端集合失配（如 CLI 同时删卡）：拉取真实状态恢复
+          void qc.invalidateQueries({ queryKey: ["providers"] });
+        });
+      }, 300);
     },
     [providers.data, qc],
   );
@@ -72,6 +80,12 @@ function AppInner() {
     ids: providerIds,
     onCommit: commitDragOrder,
   });
+  const handleEdit = useCallback((provider: ProviderEntry, usageCurrency?: string) => {
+    setEditing(provider);
+    setEditingCurrency(usageCurrency);
+    setDialogSeq((sequence) => sequence + 1);
+    setEditOpen(true);
+  }, []);
 
   return (
     <div className="qt-app-shell">
@@ -162,12 +176,7 @@ function AppInner() {
                         ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
                         : undefined
                     }
-                    onEdit={(provider, usageCurrency) => {
-                      setEditing(provider);
-                      setEditingCurrency(usageCurrency);
-                      setDialogSeq((sequence) => sequence + 1);
-                      setEditOpen(true);
-                    }}
+                    onEdit={handleEdit}
                     dragHandleProps={dragSort.handleProps(entry.id)}
                     dragShift={
                       dragSort.active && entry.id !== dragSort.dragId

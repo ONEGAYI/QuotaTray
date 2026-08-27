@@ -323,41 +323,58 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
     };
   }, [beginDrag, clearCardInline, endDrag]);
 
+  // 按 id 缓存把手 props：ProviderCard 走 memo，稳定的对象引用让未位移
+  // 卡片在让位重渲染中整体跳过；仅单/多卡边界翻转（disabled 变化）时失效
+  const handlePropsCacheRef = useRef({ single: false, map: new Map<string, DragHandleProps>() });
+
   const handleProps = useCallback(
-    (id: string): DragHandleProps => ({
-      onPointerDown: (event) => {
-        if (event.button !== 0) return;
-        // 会话互斥：既有会话（含 settle/cancel 动画期）或另一指针 armed
-        // 期间拒绝开启新会话——旧会话 finalize 会复位全局拖拽状态并可能
-        // flushSync 重排 DOM，摧毁进行中新会话的几何与直写
-        if (sessionRef.current || armRef.current || phaseRef.current !== "idle") return;
-        armRef.current = { pointerId: event.pointerId, startY: event.clientY, dragId: id };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      },
-      onKeyDown: (event) => {
-        // 拖拽会话进行中忽略键盘调序：idsRef 已非本会话快照，索引错位
-        if (sessionRef.current || phaseRef.current !== "idle") return;
-        const index = idsRef.current.indexOf(id);
-        if (index < 0) return;
-        let to: number | null = null;
-        if (event.key === "ArrowUp") to = Math.max(0, index - 1);
-        else if (event.key === "ArrowDown") to = Math.min(idsRef.current.length - 1, index + 1);
-        else if (event.key === "Home") to = 0;
-        else if (event.key === "End") to = idsRef.current.length - 1;
-        if (to == null || to === index) return;
-        event.preventDefault();
-        // 键盘调序无直写残留，走普通提交即可
-        onCommitRef.current(reorderIds(idsRef.current, index, to));
-        // commit 后卡片 DOM 换位，把手元素重建——下一帧找回焦点保持键盘操作连续
-        requestAnimationFrame(() => {
-          // id 由 newEntryId 生成的 base32 字母数字构成，可安全拼进选择器
-          containerRef.current
-            ?.querySelector<HTMLElement>(`[data-card-id="${id}"] .qt-drag-handle`)
-            ?.focus();
-        });
-      },
-      disabled: idsRef.current.length < 2,
-    }),
+    (id: string): DragHandleProps => {
+      const cache = handlePropsCacheRef.current;
+      const single = idsRef.current.length < 2;
+      if (cache.single !== single) {
+        cache.single = single;
+        cache.map.clear();
+      }
+      let props = cache.map.get(id);
+      if (!props) {
+        props = {
+          onPointerDown: (event) => {
+            if (event.button !== 0) return;
+            // 会话互斥：既有会话（含 settle/cancel 动画期）或另一指针 armed
+            // 期间拒绝开启新会话——旧会话 finalize 会复位全局拖拽状态并可能
+            // flushSync 重排 DOM，摧毁进行中新会话的几何与直写
+            if (sessionRef.current || armRef.current || phaseRef.current !== "idle") return;
+            armRef.current = { pointerId: event.pointerId, startY: event.clientY, dragId: id };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          },
+          onKeyDown: (event) => {
+            // 拖拽会话进行中忽略键盘调序：idsRef 已非本会话快照，索引错位
+            if (sessionRef.current || phaseRef.current !== "idle") return;
+            const index = idsRef.current.indexOf(id);
+            if (index < 0) return;
+            let to: number | null = null;
+            if (event.key === "ArrowUp") to = Math.max(0, index - 1);
+            else if (event.key === "ArrowDown") to = Math.min(idsRef.current.length - 1, index + 1);
+            else if (event.key === "Home") to = 0;
+            else if (event.key === "End") to = idsRef.current.length - 1;
+            if (to == null || to === index) return;
+            event.preventDefault();
+            // 键盘调序无直写残留，走普通提交即可
+            onCommitRef.current(reorderIds(idsRef.current, index, to));
+            // commit 后卡片 DOM 换位，把手元素重建——下一帧找回焦点保持键盘操作连续
+            requestAnimationFrame(() => {
+              // id 由 newEntryId 生成的 base32 字母数字构成，可安全拼进选择器
+              containerRef.current
+                ?.querySelector<HTMLElement>(`[data-card-id="${id}"] .qt-drag-handle`)
+                ?.focus();
+            });
+          },
+          disabled: single,
+        };
+        cache.map.set(id, props);
+      }
+      return props;
+    },
     [containerRef],
   );
 

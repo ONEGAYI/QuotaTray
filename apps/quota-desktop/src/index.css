@@ -255,6 +255,9 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-list.is-drag-active .qt-provider-card:focus-within,
 .qt-provider-list.is-drag-active .qt-provider-card.is-expanded { transform: none; }
 .qt-provider-list.is-drag-active .qt-provider-secondary { transition: none; }
+/* 轮询/操作反馈横幅随 isFetching 翻转挂卸（约 31px、in-flow）：拖拽中
+   必须隐藏，否则高度变化污染已冻结的槽位几何，让位偏移整段错位 */
+.qt-provider-list.is-drag-active .qt-provider-feedback { display: none; }
 .qt-provider-list.is-drag-active .qt-provider-card:hover .qt-provider-secondary,
 .qt-provider-list.is-drag-active .qt-provider-card:focus-within .qt-provider-secondary,
 .qt-provider-list.is-drag-active .qt-provider-card.is-expanded .qt-provider-secondary {
@@ -265,11 +268,14 @@ button:disabled { cursor: not-allowed; }
   border-top-color: transparent;
   opacity: 0;
 }
-/* 被拖卡片：浮起强化（跟手 transform/transition 由 useCardDragSort 直写 inline） */
+/* 被拖卡片：浮起强化（跟手 transform/transition 由 useCardDragSort 直写 inline）；
+   will-change 只挂本卡：JS 每帧直写不自动合成，提层后阴影随层绘制、
+   每帧重绘归零（常态卡片不提层，避免 N 个常驻层） */
 .qt-provider-card.is-drag-source {
   z-index: 10;
   border-color: color-mix(in srgb, var(--qt-accent) 62%, var(--qt-border));
   box-shadow: 0 18px 44px var(--qt-shadow);
+  will-change: transform;
 }
 @media (prefers-reduced-motion: reduce) {
   .qt-provider-list.is-drag-active .qt-provider-card,

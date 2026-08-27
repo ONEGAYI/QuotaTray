@@ -15,7 +15,7 @@ import {
   Trash2,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { api } from "../api";
 import {
   amountText,
@@ -95,7 +95,9 @@ function providerInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
-export function ProviderCard({
+/** memo：拖拽让位重渲染只触达位移变化的卡片——依赖调用方保持
+ *  onEdit/dragHandleProps 等引用稳定（App useCallback + hook 内缓存）。 */
+export const ProviderCard = memo(function ProviderCard({
   entry,
   intervalMinutes,
   thresholdPercent,
@@ -560,4 +562,4 @@ export function ProviderCard({
       />
     </article>
   );
-}
+});
