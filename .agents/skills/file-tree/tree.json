@@ -102,7 +102,7 @@
     },
     ".githooks": {
       "kind": "dir",
-      "desc": "",
+      "desc": "Git hooks 本地门禁",
       "children": {
         "pre-commit": {
           "kind": "file",
@@ -154,8 +154,9 @@
       "kind": "file",
       "desc": "项目规则单一事实源",
       "detail": [
-        "本文件：项目规则单一事实源（设计决策快照/工程规范/安全红线/术语表）",
-        "文件树简版速览与标签词表由 file-tree 技能渲染于文末标记块，禁止手改"
+        "本文件：项目规则单一事实源（设计决策快照/工程规范/发布惯例/安全红线/术语表）。",
+        "固化 Portable 方案 A、ARM64 Preview 口径，以及 Release/README/首次初始化必须原样使用的安全与预览声明。",
+        "文件树简版速览与标签词表由 file-tree 技能渲染于文末标记块，禁止手改。"
       ]
     },
     "apps": {
@@ -1866,6 +1867,15 @@
               ]
             }
           }
+        },
+        "WoA与便携版预研报告.md": {
+          "kind": "file",
+          "desc": "WoA 与便携版预研",
+          "detail": [
+            "Windows on ARM 原生构建与 Windows Portable（含组合形态）的可行性、约束与分阶段路线预研。",
+            "落档 Portable 方案 A 与 ARM64 Preview 决策，区分交叉编译、x64 上的 QEMU 仿真、Azure Arm VM 和真实 WoA 验收。",
+            "覆盖目标感知 CLI 暂存、Windows-only CI、WebView2 数据便携、首次密钥确认、分发 flavor 精确更新及风险登记。"
+          ]
         },
         "项目方案预研.md": {
           "kind": "file",

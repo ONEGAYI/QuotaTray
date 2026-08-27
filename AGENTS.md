@@ -7,7 +7,8 @@
 
 ## 设计决策快照
 
-以下决策已由项目所有者确认（2026-08-22），修改需重新确认：
+以下决策已由项目所有者确认。初始快照形成于 2026-08-22；后续新增决策在决策项中
+注明日期。修改既有结论需重新确认：
 
 | 决策项 | 结论 | 备选（未采纳） |
 |---|---|---|
@@ -15,6 +16,8 @@
 | 凭据加密 | 随机 32 字节主密钥存系统凭据库（keyring crate），凭据字段 AES-GCM 加密后存配置文件 | AES-SIV 确定性加密；凭据直存系统库；DPAPI 整体加密 |
 | 自定义查询 | 声明式模板优先（零代码），QuickJS 沙箱脚本兜底复杂场景 | 全 JS 脚本；纯声明式 |
 | 目标平台 | Windows 优先，全程使用跨平台库，不为未支持平台花工作量 | 仅 Windows（锁死）；三平台同步支持 |
+| 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
+| WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -52,20 +55,56 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
     --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
   - 开发目录清理：仓库根执行 `.\clean 1|2|3`；先预览用 `.\clean 3 -WhatIf`
   - 清理器契约测试：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean.tests.ps1`
-- **发布惯例**：每个 Release 必须附带桌面端安装包——先把 workspace `Cargo.toml`
-  版本号改为目标版本，再于 `apps/quota-desktop` 跑 `pnpm tauri build`，
-  产物取 NSIS `target/release/bundle/nsis/*-setup.exe` 随 `gh release create`
-  上传（安装包版本随 crate 继承 workspace，先改版本再构建）。
 - 文档用中文编写。
+
+## 发布惯例
+
+本章是本项目对通用发布规范的附加门禁。生成 Release notes、README 下载说明和发布
+资产时必须同时遵守；固定文本不得缩写、改写或仅以链接代替。
+
+### 基础产物
+
+- 每个 Release 必须附带桌面端 x64 安装包：先把 workspace `Cargo.toml` 版本号改为
+  目标版本，再于 `apps/quota-desktop` 运行 `pnpm tauri build`；上传 NSIS 产物
+  `target/release/bundle/nsis/*-setup.exe`。
+- Portable 与 ARM64 资产接入后，打包脚本必须验证包内 GUI/CLI 的 PE 架构与资产名称
+  一致；更新选择不得跨架构、跨安装/便携形态回退。
+
+### ARM64 Preview 声明
+
+- 在真实 WoA 完整验收并经项目所有者重新确认前，所有 ARM64 资产名必须含
+  `preview`，README 下载项必须写作“ARM64（预览版）”。
+- 只要本次 Release 包含 ARM64 资产，Release notes 与 README 下载节都必须原样包含：
+
+> 🧪 **ARM64 预览版**：ARM64 构建已通过交叉编译与产物架构检查，但尚未完成真实 Windows on ARM 设备的完整运行验收。该资产仅供预览和反馈，不应视为稳定支持。
+
+### Portable 固定安全提示
+
+- 从首次提供 Portable 资产起，**每个 Release** 的 notes 都必须在完整 CHANGELOG 内容
+  之后原样追加下段文本；即使该版本未修改 Portable 功能，也不得省略。
+- README 的 Portable 下载说明、便携包内说明和首次创建 `portable.key` 前的确认界面，
+  同样必须原样展示下段文本：
+
+> ⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。
+
+- 使用 `gh release create --notes` 时，notes 顺序为：版本 CHANGELOG 完整内容 → Portable
+  固定安全提示 → ARM64 Preview 声明（本次含 ARM64 资产时）。
 
 ## 安全红线（凭据处理）
 
 本项目以"凭据不落明文"为差异化设计，以下为硬性红线，违反即 bug：
 
-1. **主密钥与凭据**只允许存在于：系统凭据库（运行时取用）、内存、AES-GCM 密文。任何日志、错误信息、调试输出不得包含明文或密钥材料。
+1. **主密钥与凭据的允许位置**：安装版主密钥只存系统凭据库与内存；已确认的
+   Portable 例外允许便携主密钥常驻 `Data/portable.key`；凭据明文只允许短暂存在于
+   内存，持久化配置中必须是 AES-GCM 密文。任何日志、错误信息、调试输出不得包含
+   凭据明文或密钥材料。
 2. **源码零密钥**：不得硬编码任何密钥、盐、派生参数；配置文件中凭据字段必须是密文（`v1:<base64>` 格式，含版本号以便未来算法升级）。
 3. **前端/GUI 永不接收明文凭据**：查询由 core 在后端完成，GUI 只展示结果；编辑凭据时走"写入专用"通道（空值 = 保持不变，不回显）。
 4. **机器主密钥永不导出**。普通 `config.json` 不含任何解密能力，离开本机不可解；显式生成的 `.qtray-export` 迁移包例外携带每次导出新生成的一次性迁移密钥，敏感级别等同明文凭据。CLI/GUI 接入导出时必须在写文件前显式警告并建议用户迁移后删除。
+5. **Portable 是受控安全例外**：`portable.key` 与配置密文同目录，整个 `Data/` 的
+   保密等级等同明文凭据。首次创建前必须显示“发布惯例”中的固定安全提示并取得显式
+   确认；FAT/exFAT/NTFS 文件权限均不得作为安全承诺。Release、README 与便携包说明
+   必须持续携带同一固定提示。
 
 ## 外部接口停用追踪（止血备忘）
 
@@ -81,6 +120,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 术语 | 含义 |
 |---|---|
 | 主密钥（KEK） | 首次运行随机生成的 32 字节密钥，存系统凭据库，仅用于加解密配置中的凭据字段 |
+| 便携主密钥 | Portable 方案 A 使用的随机 32 字节主密钥，常驻 `Data/portable.key`；因与配置密文同行，整个便携数据目录保密等级等同明文凭据 |
 | 一次性迁移密钥 | 每次导出随机生成的 32 字节密钥；源凭据先转写到该密钥，密钥随 `.qtray-export` 包携带，导入后再转写到目标机器主密钥 |
 | 配置迁移包 | QuotaTray 私有、带版本和认证校验的二进制配置导出；虽然不可直接阅读，但因携带迁移密钥，保密级别等同明文凭据 |
 | 预置平台（native provider） | core 内置 Rust 实现的官方查询（如 DeepSeek、SiliconFlow），随版本发布 |
@@ -111,7 +151,7 @@ QuotaTray/
 │           └── tree.json # 文件树唯一数据源
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
-├── .githooks/
+├── .githooks/              # Git hooks 本地门禁
 │   ├── pre-commit # 提交级轻量门禁（fmt+前端lint）
 │   └── pre-push   # 推送级重门禁（clippy+tsc）
 ├── .github/                # GitHub 配置
@@ -304,6 +344,7 @@ QuotaTray/
 │   │   ├── CLI-spec.md     # CLI 规格（M2b）
 │   │   ├── GUI-spec.md     # GUI 规格（M3）
 │   │   └── history-spec.md # 历史存储规格（M5）
+│   ├── WoA与便携版预研报告.md    # WoA 与便携版预研
 │   ├── 项目方案预研.md         # 项目方案预研
 │   └── 预置Provider缺口预研.md # 预置缺口预研
 ├── examples/               # 可运行示例

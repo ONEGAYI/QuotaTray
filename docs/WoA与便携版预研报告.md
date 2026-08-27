@@ -1,0 +1,378 @@
+# WoA 与便携版可行性与路线预研
+
+- 日期：2026-08-27
+- 背景：评估 QuotaTray 支持 **Windows on ARM（WoA）原生构建** 与 **Windows 便携版（Portable）**，以及两者组合形态 **WoA Portable** 的可行性、难度与实施路线。
+- 范围：仅 Windows 桌面端；不涉及 Android/iOS 移动端（另见结论速览末行）。
+- 结论效力：预研文档；项目所有者已于 2026-08-27 确认便携版采用**方案 A：包内密钥**，WoA 首发按**预览版**发布。实现仍须遵守本文安全门槛与 AGENTS.md 固定发布提示。
+
+---
+
+## 一、结论速览
+
+| 特性 | 可行性 | 难度 | 核心结论 |
+|---|---|---|---|
+| WoA 原生（aarch64） | ✅ | 2.5/5 | 查询等业务代码预计无需修改；本机已通过 workspace 交叉 `cargo check` 与 ARM64 CLI 链接，但桌面端资源暂存仍按宿主架构取 CLI，需修正构建编排；完成真实 WoA 验收前统一标记为 Preview |
+| Windows 便携版 | ✅ | 代码 3/5 · 决策 4/5 | **已确认方案 A**：`Data/portable.key` 与密文配置同目录，保密等级等同明文凭据；实现必须覆盖首次安全确认、WebView2 用户数据目录、更新资产分流三条产品链路 |
+| WoA Portable（组合） | ✅ | 1.5/5（在前两项之上） | 指令架构与运行时数据模式基本正交；组合发布本身简单，但必须保证 zip 内 GUI/CLI 同架构、更新资产与运行模式严格匹配 |
+
+**实施路径**：先完成 WoA 目标感知构建并以 Preview 发布 → 按已确认的方案 A 实现
+Portable 主体 → 按明确的 flavor 契约完成组合发布。真实 WoA 验收通过后，另行确认
+是否移除 Preview 标记。
+
+> 附注：Android/iOS 移动端（ARM64）为另一量级的工程——keyring 无官方 Android 支持、桌面壳需全量 cfg 分层、产品形态需重做（移动端无托盘概念），本报告不展开。若未来立项建议单独立项，复用本报告 §2 的架构利好结论。
+
+---
+
+## 二、现状盘点：与两项特性直接相关的代码事实
+
+预研确认了以下架构事实。现有抽象显著降低了改造成本，但构建资源、WebView2
+数据和更新资产不在原有四文件抽象内，不能据此推导为“各改一处”：
+
+**业务数据目录已有覆盖机制，但 WebView2 数据另走系统目录。** 桌面端
+`DataPaths::new(override_dir)`（`apps/quota-desktop/src-tauri/src/state.rs:27`）已支持
+`--data-dir` 覆盖默认 `~/.quotatray`，config/settings/snapshot/history 四个文件统一从
+root 派生。CLI 的配置路径在 `Ctx::production`（`apps/quota-cli/src/ctx.rs:29`）注入，
+历史库与配置同目录（`ctx.rs:71`）。但 Tauri 2 在 Windows 默认把 WebView2 用户
+数据放到 Local AppData；便携模式还需把主窗口与悬停窗口的缓存、DOM Storage 等
+统一定向到 `Data/WebView2/`。
+
+**密钥后端已抽象，但首次确认必须先于 Vault 初始化。** `SecretStore` trait
+（`crates/quota-core/src/vault/store.rs:24`）定义了主密钥读写接口，现有
+`KeyringStore` 与 `InMemoryStore` 两个实现；AES-GCM 密文格式无需修改。不过
+`Vault::open(&store)` 在 key 不存在时会立即生成并写入，桌面端当前又在窗口可交互前
+初始化 Vault。方案 A 因此不仅是新增 `FileStore`，还需增加“告知并确认 → 创建密钥
+→ 初始化状态”的启动门控。
+
+**CLI 运行时查找兼容便携布局，但 ARM64 构建暂存尚不兼容。**
+`resolve_quota_cli_path_from`（`apps/quota-desktop/src-tauri/src/commands.rs:1646`）的第一
+候选确是 GUI exe 同目录；便携包运行时无需改这段解析。当前
+`beforeBuildCommand` 却固定构建宿主 target，`build.rs` 也固定从
+`target/<profile>/quota.exe` 暂存资源。ARM64 包必须先改为目标感知构建，否则 GUI
+可以是 ARM64，旁边或包内的 CLI 仍可能是 x64。
+
+**发布链已能产出裸 exe，但 zip 需要独立组装契约。** `pnpm tauri build --no-bundle`
+会输出嵌入前端资源的 GUI exe；NSIS 另带 CLI 资源。便携 zip 不需要新的 Rust 编译
+形态，但打包脚本必须从同一目标目录取得 GUI/CLI，并验证两者 PE 架构一致。
+
+**更新机制目前只有 x64 安装包语义。** core 的资产选择不接收架构或分发形态，
+优先挑任意名称含 `setup` 的 exe；GUI 下载状态和路径校验也只接受 exe。加入四类资产
+后必须显式传入“架构 × 分发形态”，否则 ARM64/Portable 可能选中错误资产（见 §4.4）。
+
+**CI 已是双 OS 矩阵。** `.github/workflows/ci.yml` 跑 windows-latest +
+ubuntu-latest。WoA 交叉检查只能在 Windows 条件分支执行，且需先安装 Rust target；
+不能把无条件步骤直接加入双 OS job。
+
+---
+
+## 三、WoA（Windows on ARM）原生支持
+
+### 3.1 技术可行性
+
+现有证据足以确认 `aarch64-pc-windows-msvc` **编译可行**，但不能替代真实 WoA
+运行验收。下表将“已交叉编译检查”与“待 ARM64 设备验证”的范围分开：
+
+| 依赖 | 用途 | WoA 交叉编译 | 说明 |
+|---|---|---|---|
+| keyring 3（windows-native） | 主密钥存储 | ✅ 已 check | Windows API 绑定可编译；真实凭据管理器读写待 WoA 冒烟 |
+| **ring 0.17（rustls 后端）** | TLS 密码学 | ✅ 但**强制要求 clang** | ring 的 `.S` 汇编在 Windows ARM64 目标只有 clang 集成汇编器能编（cl.exe 不行），这是相对常规 x64 构建新增的关键工具链前提 |
+| rquickjs 0.12 | 脚本沙箱 | ✅ 已 check | QuickJS-NG C 代码随 workspace 检查通过；当前组合无需 `bindgen` feature，升级大版本需回归 |
+| rusqlite（bundled） | 历史库 | ✅ 已 check | SQLite C 代码随 workspace 检查通过 |
+| reqwest + rustls | HTTP | ✅ 已 check | 无 OpenSSL；rustls 走 ring（见上） |
+| tauri 2（tray-icon） | 桌面壳 | ✅ 已 check | crate 可交叉检查；窗口、托盘、单实例、自启动仍需真实 WoA 冒烟 |
+| tiny-skia / windows-sys | 圆环绘制 / Win32 | ✅ 已 check | 编译路径通过；托盘圆环显示效果待真实设备确认 |
+| WebView2 运行时 | 前端渲染 | ⚠️ 运行时待验 | Windows 11 通常预装 Evergreen Runtime，但应用仍应处理 Runtime 缺失；ARM64 WebView 启动与双窗口待实机验证 |
+
+**实测记录（2026-08-27，x64 Windows 本机）**：
+`cargo check --workspace --target aarch64-pc-windows-msvc` 通过（29 秒，覆盖默认
+workspace targets 与相关 build script）；
+`cargo build -p quota-cli --release --target aarch64-pc-windows-msvc` 链接通过，产物经
+`file` 验证为 ARM64 PE32+。这证明 workspace 默认目标可交叉检查、CLI 可完成 ARM64
+链接；**尚未证明桌面端完整链接、包内 CLI 架构、WebView2/托盘等运行时行为。**
+过程中确认了三个环境前提：rustup 组件本机需走 rsproxy 镜像；VS 需 ARM64 构建
+工具；ring 需要 clang，经 VS Clang 组件（clang 19.1.5，需加入 PATH）满足。
+
+### 3.2 构建与 CI 方案
+
+**本地构建**（一次性环境准备 + 常规构建）：
+
+```bash
+# 1. Rust 目标（国内网络注：官方源与代理均不稳，TUNA 镜像缺新组件，
+#    rsproxy 镜像实测可用——RUSTUP_DIST_SERVER=https://rsproxy.cn）
+rustup target add aarch64-pc-windows-msvc
+
+# 2. VS Installer 勾选两个组件（或 setup.exe --add 静默安装，需管理员）：
+#    - 「MSVC v143 C++ ARM64 生成工具」(VC.Tools.ARM64)：cl.exe + ARM64 CRT/SDK 库
+#    - 「适用于 Windows 的 C++ Clang 工具」(VC.Llvm.Clang)：ring 的 .S 汇编必需
+
+# 3. 构建（VS 的 clang 默认不在 PATH，需显式带入；装了独立 LLVM 则可省）
+export PATH="/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin:$PATH"
+
+# CLI 必须显式构建同一 target；当前 beforeBuildCommand 仍会额外构建宿主版，
+# 实现 P1 时须同步把 build.rs 暂存源改为目标感知路径。
+cargo build -p quota-cli --release --target aarch64-pc-windows-msvc
+
+# --target 是 Tauri build 选项，不能放在表示 runner 参数起点的 "--" 之后。
+pnpm tauri build --no-bundle --target aarch64-pc-windows-msvc   # 于 apps/quota-desktop
+```
+
+前端 `dist` 内容与 CPU 架构无关；是否复用由打包脚本决定。P1 的关键不是重复构建
+前端，而是让 `beforeBuildCommand`、`build.rs` 和发布脚本共享同一个目标三元组。
+
+**CI 扩展**（保留现有矩阵，只在 Windows 分支安装 target 并交叉检查）：
+
+```yaml
+- name: 安装 WoA Rust 目标
+  if: runner.os == 'Windows'
+  run: rustup target add aarch64-pc-windows-msvc
+
+- name: WoA 交叉编译检查
+  if: runner.os == 'Windows'
+  run: cargo check --workspace --all-targets --target aarch64-pc-windows-msvc
+```
+
+单测仍在 x64 目标上执行；`--all-targets` 只负责把测试/examples 也交叉编译出来，
+x64 Windows 不能执行 ARM64 测试二进制。GitHub 当前 windows-latest 镜像清单包含
+ARM64 MSVC 工具与 LLVM，但 Rust target 仍需工作流安装；clang 是否已在 ring 可发现的
+PATH 上以首次 CI 为准。
+
+**运行验收与发布口径**：ARM64 首发已决定采用 Preview。发布前仍应尽可能在真实 WoA
+或 Azure Windows on Arm VM 验证 GUI 启动、双窗口 WebView2、托盘圆环、系统凭据库、
+单实例、查询与退出；在真实 WoA 完整验收并重新确认前，Release 和 README 必须保留
+“ARM64 预览版”标记，仅 `cargo check` 通过不得写成稳定支持。
+
+**发布产物**：随 release 附 `QuotaTray_<版本>_arm64-preview.zip`（裸 exe + CLI），与
+既有 x64 NSIS 安装包并列。ARM64 是否补 NSIS 安装包留待有真实需求再验证；Preview
+阶段先用 zip，降低安装器变量并与便携版共享打包脚本。
+
+### 3.3 为什么仍应提供原生版
+
+Windows 11 on ARM 支持 x86/x64 模拟；**Prism 是 Windows 11 24H2 引入的新模拟器**，
+不能用它统称所有 Windows 11 on ARM 的历史模拟实现。x64 版可作为兼容回退，原生版
+仍有明确价值：
+
+- 原生进程不承担 x64 指令翻译开销，并减少跨架构组件组合；微软也建议重编译 ARM
+  版本以获得原生性能收益；
+- Windows 10 on ARM 只支持 x86 模拟，不支持 x64，现有 x64 构建无法运行；
+- [WebView2Feedback #5075](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5075)
+  是一个 ARM64 组件缺失的开放回归报告，可证明跨架构组件确有风险，但**不能据此
+  断言所有 x64 宿主的 WebView2 渲染进程必然以 x64 模拟运行**。
+
+因此发布策略为：**WoA 用户引导下载 arm64 原生包**，README 下载节与 release 资产命名需明确架构标识。
+
+### 3.4 x64 主机上的 WoA 验证路线
+
+这里需要区分两个概念：**虚拟化**让 guest 直接使用同架构 CPU，接近原生速度；
+**全系统仿真**则由软件翻译另一套 CPU 指令。
+
+- **常规 x64 虚拟机不可行。** 微软明确说明：x64 硬件上的 Hyper-V 不支持 Arm64
+  VM。VMware/VirtualBox 一类以硬件虚拟化为主的产品也不能仅靠普通 VM 配置，把 x64
+  CPU 变成 ARM64 CPU。
+- **QEMU TCG 原理上可行。** QEMU 的 Tiny Code Generator（TCG）能在受支持的 host 上
+  仿真 AArch64 CPU，因此 x64 主机不是“绝对无法启动 ARM64 guest”。但 Windows on Arm
+  还依赖 UEFI、TPM、设备模型、驱动和图形栈；该路径不属于微软支持的 x64 Hyper-V
+  方案，速度和设备行为也不足以代表真实 WoA。
+- **Azure Arm VM 是更可靠的远程路线。** 微软当前提供基于 Ampere Altra Arm 处理器的
+  Windows 11 Arm64 Azure VM（本身仍标记 Preview）。它运行在真实 ARM64 CPU 上，适合
+  自动化或远程功能冒烟；但 RDP、托盘交互和消费级 Snapdragon 设备体验仍不能完全
+  替代物理 WoA 设备。
+
+验收可信度从高到低为：**物理 WoA 设备 → Azure Windows on Arm VM → QEMU TCG
+全系统仿真 → 仅交叉编译**。QEMU 可用于提前发现“程序完全无法启动”一类问题，不应
+作为移除 ARM64 Preview 标记的唯一依据。
+
+---
+
+## 四、便携版（Windows Portable）
+
+### 4.1 核心矛盾与密钥方案（已确认方案 A）
+
+便携版的本质矛盾不在编译（裸 exe 天然可携），而在密钥：
+
+> 现行设计 = 主密钥存系统凭据库，配置离开本机不可解（安全红线 §1/§4）。
+> 便携语义 = 数据随身携带、即插即用。
+> 两者直接冲突——U 盘插到别的机器，凭据库里没有主密钥，密文配置解不开。
+
+三个候选方案：
+
+| 方案 | 机制 | 安全性 | 体验 | 复用面 |
+|---|---|---|---|---|
+| **A. 包内密钥（已采纳）** | 便携数据目录内放密钥文件（`Data/portable.key`，32 字节随机），`FileStore` 后端直读 | 等同明文凭据；介质失窃即可解密 | 即插即用 | 迁移包警示文案可复用，但密钥暴露周期更长 |
+| B. 口令派生密钥 | Argon2id 从用户口令派生主密钥；盐与参数版本化落盘，主密钥不落盘 | 介质失窃后仍需破解口令 | 每次启动输口令 | 需新增 KDF、解锁 UI 与口令恢复说明 |
+| C. 便携不带凭据 | 只携带非敏感配置，凭据每机重录 | 最好 | 便携价值大减 | 无 |
+
+**已确认的产品取舍**：项目优先提供“无需输入、插入即用”的 Portable 体验，接受
+方案 A 在介质失窃、目录被复制时保密等级等同明文凭据。方案 B/C 保留为未采纳备选；
+方案 A 的安全边界如下：
+
+1. `.qtray-export` 与 `portable.key` 的保密等级都等同明文凭据，但前者是短期、显式
+   生成的迁移物，后者是长期存在并可能被云同步、备份或恶意软件复制的密钥；两者
+   **等级相同，暴露周期不同**。
+2. 方案 A 无需修改 `Vault`/cipher/配置密文格式，主要新增共享 `FileStore`、运行模式
+   解析和首次初始化门控，成本仍最低。
+3. FAT/exFAT 等常见移动介质不能依赖 NTFS ACL 提供有效隔离；实现不得把文件权限
+   当作安全边界，只能用原子创建、防覆盖和明确警示降低误操作风险。
+4. 方案 B 若后置为增强，首版文案也必须明确：之后启用口令保护需要重写主密钥，
+   不是给现有 `portable.key` 简单加一个设置项。
+
+该决策已由项目所有者于 2026-08-27 确认。AGENTS.md 同步把便携主密钥列为安全红线
+的受控例外：首次创建前必须显式确认；从首次提供 Portable 资产起，每个 Release notes
+必须原样携带固定安全提示，不能用普通“配置已加密”措辞弱化风险。
+
+### 4.2 便携判定与目录布局
+
+**判定规则**：exe 同目录存在 `portable.marker`（空文件，内容忽略）→ 便携模式；
+`--portable` 可用于首次显式进入该模式。marker 只决定运行模式，**不代表用户已经接受
+明文级风险**。`portable.key` 不存在时必须先确认，确认后才创建 Data 与密钥；取消则
+不写入任何敏感文件。
+
+```
+QuotaTray/               ← U 盘或任意目录
+├── QuotaTray.exe        ← aarch64 或 x64
+├── quota.exe            ← CLI（GUI 的 CLI 查找第一候选就是 exe 同目录，零改动）
+├── portable.marker      ← 便携模式标记
+└── Data/                ← 数据根（等价 ~/.quotatray）
+    ├── portable.key     ← 主密钥（方案 A；等同明文级，文档警示）
+    ├── config.json
+    ├── settings.json
+    ├── cache.json
+    ├── history.db
+    └── WebView2/        ← 主窗口与悬停窗口共用的 WebView 用户数据
+```
+
+**运行模式解析不能继续只返回 `Option<PathBuf>`。** 路径与密钥来源必须绑定为一个
+显式结果，例如 `RuntimeMode::Installed` / `RuntimeMode::Portable { root }`，避免出现
+“配置写进 Data、密钥却仍取 keyring”的混合状态。优先级需写成契约测试：
+
+1. `--data-dir` 保持现有烟测隔离语义，默认仍用安装态 keyring；不得仅因路径可写就
+   推断成便携模式；
+2. `--portable` 显式选择 exe 旁 `Data/`，并在确认后创建 marker/key；
+3. 无显式参数时才检测 exe 旁 marker；
+4. CLI 的 `--config` 仍只覆盖配置路径，不隐式切换密钥后端。
+
+**实现落点**：
+
+- core：新增共享 `FileStore` 与不读取进程环境的运行模式纯函数；这是公开 API
+  变更，按并行开发约定先走独立 core PR；
+- 桌面端：在 `Vault::open` 前完成首次确认，再以确定的 mode 同时构造 DataPaths 与
+  store；主窗口和悬停窗口都把 WebView data directory 指向 `Data/WebView2/`；
+- CLI：增加明确的便携参数/模式解析；首次初始化在终端确认，非交互调用若尚无 key
+  应确定性失败并给出初始化指令，不能静默创建；
+- `FileStore`：校验密钥恰为 32 字节，原子 `create_new`，写后回读；Debug/错误信息
+  不得包含路径中的密钥内容。文件 ACL 只是尽力加固，不作为安全承诺。
+
+**不迁移的数据**：provider 读取的外部工具凭据（`~/.claude`、`~/.codex`、`~/.gemini` 等 OAuth token）不属于 QuotaTray 数据，便携包不携带；换机器后相关 provider 查询自然失败并按既有错误分类透出，属预期行为（文档说明即可）。
+
+### 4.3 与安装版的关系
+
+| 议题 | 结论 |
+|---|---|
+| 同机并存 | 允许。两者业务数据、WebView2 数据和密钥源均独立（安装版走 `~/.quotatray` + Local AppData + keyring；便携版统一走 `Data/` + `portable.key`） |
+| 同时运行 | 默认互斥：single-instance 插件按 identifier 建会话级 mutex，两者 identifier 相同。属合理默认（避免用户混淆数据源）；若需并存，便携构建改用独立 identifier（如 `com.quotatray.portable`），代价是被识别为两个不同应用——**列为实现期小决策，默认保持互斥** |
+| 自启动 | 便携模式禁止启用自启动：前端隐藏/禁用只是体验层，后端保存命令也必须拒绝，避免无效注册表项残留 |
+| 桌面/开始菜单 | 便携版不主动注册快捷方式或应用自启动；删除目录可移除 QuotaTray 自有持久数据，但 Windows 下载记录、SmartScreen 等系统级痕迹不作“零痕迹”承诺 |
+
+### 4.4 更新策略
+
+更新检测可复用 GitHub release 请求与版本比较，但资产选择必须新增显式的
+`DistributionFlavor`（至少区分 x64 安装包、x64 Portable、ARM64 普通 zip、ARM64
+Portable）。选择规则为**完整命名匹配、与 release 顺序无关、绝不跨架构/形态回退**。
+现有 `DownloadedInstaller`、`.exe` 文件名校验和 `run_installer` 只属于安装版；zip 应建模
+为普通下载资产，不能伪装成 installer。
+
+- **v1（从简）**：检测到匹配 zip → 下载到系统临时目录或用户选择位置 → 校验文件名
+  与目标版本 → 打开所在目录并引导用户退出后手动覆盖。禁止把更新包写入将被覆盖的
+  `Data/`，也不能在应用仍运行时提示直接覆盖。
+- **v2（增强，可选）**：自替换三步法——rename 运行中的旧 exe（Windows 允许 rename 同卷锁定文件）→ 拷新 exe → 提示重启，下次启动清理 `.old` 残留。
+
+---
+
+## 五、组合形态：WoA Portable
+
+两特性在业务逻辑上**基本正交**：WoA 解决指令架构，Portable 解决数据、密钥与
+WebView2 用户目录。组合产物可共享同一打包脚本，但脚本必须以目标三元组和分发形态
+为显式输入，并验证 GUI/CLI 架构、marker 有无和资产名称。
+
+最终发布矩阵（四资产）：
+
+| 资产 | 形态 | 受众 |
+|---|---|---|
+| `QuotaTray_<版本>_x64-setup.exe` | NSIS 安装包 | 主流 Windows 用户（现状） |
+| `QuotaTray_<版本>_x64-portable.zip` | 便携包 | 免安装/多机携带用户 |
+| `QuotaTray_<版本>_arm64-preview.zip` | ARM64 裸 exe 预览包 | WoA 预览用户（免安装诉求由下行覆盖） |
+| `QuotaTray_<版本>_arm64-preview-portable.zip` | ARM64 便携预览包 | WoA 便携预览用户 |
+
+普通 ARM64 zip 与 Portable zip 可以复用同一对二进制，但不建议首发合并资产：
+marker 决定密钥来源和数据位置，“删除一个文件即可切换安全模型”容易误操作。待实际
+用户反馈证明有价值后，再评估是否提供显式转换工具。
+
+---
+
+## 六、分阶段路线图
+
+### P0 · 决策落档（已完成）
+
+项目所有者已确认方案 A 与 WoA Preview 口径。四类资产名称按 §五作为实现契约；若
+以后修改便携安全模型或移除 Preview 标记，需重新确认并同步 AGENTS.md。
+
+### P1 · WoA 构建与验收打通（小~中，约 1~2 天）
+
+1. TDD：为“给定 target 只暂存同架构 CLI”增加构建脚本/纯逻辑契约测试；
+2. 修正 beforeBuild/build.rs 的 target 传播，按 §3.2 完成桌面端 ARM64 链接；
+3. CI 在 Windows 分支安装 target，执行 `--all-targets` 交叉检查；
+4. 组装 arm64 zip，并以 `file`/PE 读取工具断言 GUI、CLI 都是 ARM64；
+5. README 与 Release 按 AGENTS.md 固定文案标记 ARM64 Preview；真实 WoA 完成 §3.2
+   冒烟后仍需所有者重新确认，才可移除 Preview。
+
+### P2 · Portable 主体（中，约 4~7 天）
+
+1. core 独立 PR：运行模式纯函数 + `FileStore` + 并发首次创建/损坏密钥契约测试；
+2. 桌面端：首次安全确认状态机、mode/path/store 绑定、主窗口与悬停窗口 WebView2
+   数据定向、后端拒绝便携自启动；
+3. CLI：显式便携模式、交互确认与非交互失败契约；
+4. 烟测：安装态/便携态隔离、取消确认零敏感落盘、FAT/exFAT 等无 ACL 介质、拔盘或
+   只读目录错误文案、双窗口 WebView2 数据不外溢。
+
+### P3 · Portable 发布形态与更新（中，约 2~4 天）
+
+1. 打包脚本：四种 flavor 明确输入、架构与 marker 契约检查；
+2. core 独立 PR：更新选择 API 按架构 × 分发形态精确匹配，并覆盖资产乱序/缺失测试；
+3. GUI 下载状态从 installer 抽象为 asset，Portable 实现 v1 手动更新引导；
+4. README 下载节与便携版安全须知（持久密钥暴露周期、备份/同步风险）。
+
+### P4 · 组合发布与收尾（小，约 0.5~1 天）
+
+arm64 preview portable zip 进发布矩阵；AGENTS.md 文件树与安全红线章节更新；CHANGELOG。
+
+---
+
+## 七、风险登记册
+
+| # | 风险 | 概率 | 影响 | 缓解 |
+|---|---|---|---|---|
+| R1 | ring 或 rquickjs 升级后 Windows ARM64 构建路径变化 | 低 | 构建失败 | CI 持续做 `--all-targets` 交叉检查；升级相关大版本时回归 clang/bindgen 前提 |
+| R2 | 构建脚本把宿主 x64 CLI 混入 ARM64 包 | 中 | 原生包局部模拟或在 Win10 ARM 直接不可用 | target 感知暂存 + 发布包内每个 PE 的架构断言 |
+| R3 | 交叉编译通过但真实 WoA 的托盘/keyring/WebView2 异常 | 中 | 应用不可用 | 首发前真实 WoA 冒烟，运行验收与编译门禁分开记录 |
+| R4 | 便携密钥被移动介质失窃、云同步或备份复制 | 中 | 凭据泄露 | 首次写入前显式确认；不承诺 ACL；文档明确长期暴露；高安全需求选方案 B |
+| R5 | WebView2 用户数据仍写 Local AppData，或双窗口使用不一致目录 | 中 | 数据不便携、残留或窗口创建失败 | 两窗口共用 `Data/WebView2/`；烟测断言系统目录无项目 UDF |
+| R6 | 多资产 release 选错架构或分发形态 | 中 | 更新后不可运行或改变安全模型 | flavor 精确匹配、禁止跨形态回退、资产乱序契约测试 |
+| R7 | WebView2 Runtime 缺失（旧 Win10、Server、LTSC 等） | 低 | GUI 无法启动 | 启动失败文案与 README 引导 Evergreen 安装器；真实环境验证 |
+| R8 | 便携自更新覆盖失败（文件占用/介质只读） | 中 | 更新失败 | v1 手动替换；v2 采用 helper/rename、下次启动清理与回滚 |
+| R9 | 未签名 zip 触发 SmartScreen 警告 | 确定存在 | 下载转化率 | 现状已有同类问题；长期评估代码签名（成本决策，不在本路线） |
+
+---
+
+## 附录 A：参考资料
+
+- [Prism 模拟层工作原理（Microsoft Learn）](https://learn.microsoft.com/en-us/windows/arm/apps-on-arm-x86-emulation)
+- [Windows 11 Arm ISO 与 x64 Hyper-V 限制（Microsoft Learn）](https://learn.microsoft.com/en-us/windows/arm/iso)
+- [Azure Windows on Arm VM（Preview，Microsoft Learn）](https://learn.microsoft.com/en-us/windows/arm/create-arm-vm)
+- [QEMU TCG 跨架构系统仿真（QEMU 文档）](https://www.qemu.org/docs/master/about/emulation.html)
+- [ring Windows ARM64 构建前提（ring BUILDING.md）](https://github.com/briansmith/ring/blob/main/BUILDING.md)
+- [GitHub Windows Runner 镜像清单](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)
+- [WebView2 ARM64 组件安装问题（WebView2Feedback #5075）](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5075)
+- [WebView2 用户数据目录（Microsoft Learn）](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/user-data-folder)
+- [WebView2 Runtime 分发（Microsoft Learn）](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+- [rquickjs 交叉编译 bindgen 要求（docs.rs）](https://docs.rs/rquickjs)
+- [Tauri 2 配置参考](https://v2.tauri.app/reference/config/)
+- [Tauri Windows 默认 WebView data directory 实现](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri/src/manager/webview.rs)
+- Rust 平台支持：[aarch64-pc-windows-msvc](https://doc.rust-lang.org/rustc/platform-support/pc-windows-msvc.html)
