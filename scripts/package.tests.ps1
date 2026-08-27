@@ -56,6 +56,16 @@ $readme = Get-PortableReadme
 Assert-That ($readme.Contains("**便携版安全提示**")) "说明含粗体标记原文"
 Assert-That ($readme.Contains('`Data/portable.key`')) "说明含反引号路径原文"
 
+Write-Host "== Get-PortableReadmeEn =="
+# 契约：英文说明的固定安全提示与 README.en.md 逐字一致（同样含字面
+# ** 与反引号），供便携包双语收录
+$readmeEn = Get-PortableReadmeEn
+Assert-That ($readmeEn.Contains("**Portable security notice**")) "英文说明含粗体标记原文"
+Assert-That ($readmeEn.Contains('`Data/portable.key`')) "英文说明含反引号路径原文"
+$readmeEnNotice = [regex]::Match($readmeEn, "⚠️ .*?immediately\.").Value
+$readmeEnRef = [regex]::Match((Get-Content -LiteralPath (Join-Path $repoRoot "README.en.md") -Raw), "> ⚠️ \*\*Portable security notice\*\*: .*?immediately\.").Value.Substring(2)
+Assert-That ($readmeEnNotice -eq $readmeEnRef) "英文固定提示与 README.en.md 逐字一致"
+
 Write-Host "== Get-PEMachine =="
 # 契约：最小 PE 字节流读出 Machine 字段（0x8664=x64 / 0xAA64=ARM64）
 function New-MinimalPE {

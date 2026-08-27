@@ -264,9 +264,13 @@ export const zh = {
   "settings.downloadedPortable": "更新包已下载到：{path}。请退出 QuotaTray 后，将 zip 内容解压覆盖到便携目录（Data/ 数据不受影响）。",
   "settings.openDownloadDir": "打开下载目录",
 
-  // ---- 便携首启确认（固定安全提示原文，不得改写） ----
+  // ---- 便携首启确认（正文只放「为什么 + 不要做什么」，完整固定
+  // 提示收进问号悬停展开；noticeFull 与 AGENTS.md 固定提示逐字一致） ----
   "portable.initTitle": "首次运行便携版",
-  "portable.notice": "⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。",
+  "portable.noticeWhy": "主密钥与加密凭据同存于 `Data/` 目录，**整个目录等同明文凭据**，泄露即暴露其中全部 API Key。",
+  "portable.noticeRule": "请勿将便携目录上传网盘、提交版本库或交给他人；若目录泄露，请**立即轮换**其中全部 API Key。",
+  "portable.noticeFull": "⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。",
+  "portable.infoLabel": "查看完整安全说明",
   "portable.confirmHint": "确认后将在 Data/portable.key 创建便携主密钥并初始化数据目录；取消则不写入任何敏感文件并退出。",
   "portable.confirm": "我已了解风险，创建便携主密钥",
   "portable.confirmCountdown": "我已了解风险，创建便携主密钥（{seconds}s）",

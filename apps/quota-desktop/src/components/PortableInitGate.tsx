@@ -1,8 +1,9 @@
-// 便携首启门控：portable.key 缺失时接管整个窗口，先原样展示固定
-// 安全提示（AGENTS.md 红线 §5）并取得显式确认，确认后才由后端建钥。
+// 便携首启门控：portable.key 缺失时接管整个窗口，取得显式确认后才由
+// 后端建钥（AGENTS.md 红线 §5）。正文只放「为什么 + 不要做什么」两行，
+// 完整固定安全提示收进问号悬停展开（InlineMd 渲染，字典值保持文档原文）；
 // 倒计时锁定与清空配置确认共用同一交互语言（clearConfigView 纯函数）。
-import { KeyRound, ShieldAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CircleHelp, KeyRound, ShieldAlert } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
 import {
@@ -10,7 +11,48 @@ import {
   resolveConfirmButton,
   stepCountdown,
 } from "./clearConfigView";
-import { Button } from "./ui";
+import { Button, InlineMd } from "./ui";
+
+/** 便携门控正文块：右上角问号，hover 展开 / 点击钉住 / Esc 收起完整说明；
+ * 面板在正文之后占布局展开（不做浮动气泡，避免被卡片滚动区裁剪）。 */
+function InfoDisclosure({
+  label,
+  content,
+  children,
+}: {
+  label: string;
+  content: ReactNode;
+  children: ReactNode;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const open = hovered || pinned;
+  return (
+    <div className="qt-portable-gate-notice">
+      <button
+        type="button"
+        className="qt-gate-info-btn"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setPinned((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setPinned(false);
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onBlur={() => setHovered(false)}
+      >
+        <CircleHelp size={16} aria-hidden="true" />
+      </button>
+      {children}
+      {open && (
+        <div className="qt-gate-info-panel" role="note">
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function PortableInitGate({ onDone }: { onDone: () => void }) {
   const { t } = useLang();
@@ -60,7 +102,17 @@ export function PortableInitGate({ onDone }: { onDone: () => void }) {
           </span>
           <h1>{t("portable.initTitle")}</h1>
         </header>
-        <p className="qt-portable-gate-notice">{t("portable.notice")}</p>
+        <InfoDisclosure
+          label={t("portable.infoLabel")}
+          content={<InlineMd text={t("portable.noticeFull")} />}
+        >
+          <p>
+            <InlineMd text={t("portable.noticeWhy")} />
+          </p>
+          <p>
+            <InlineMd text={t("portable.noticeRule")} />
+          </p>
+        </InfoDisclosure>
         <p className="qt-portable-gate-hint">
           <KeyRound size={14} aria-hidden="true" />
           {t("portable.confirmHint")}

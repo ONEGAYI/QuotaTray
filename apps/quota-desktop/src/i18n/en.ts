@@ -282,9 +282,14 @@ export const en: Record<TextKey, string> = {
   "settings.downloadedPortable": "Update package downloaded to: {path}. Quit QuotaTray, then extract the zip over the portable directory (Data/ is unaffected).",
   "settings.openDownloadDir": "Open download folder",
 
-  // ---- Portable first-run confirmation ----
+  // ---- Portable first-run confirmation: body keeps only "why + do-not";
+  // the full fixed notice folds into the question-mark hover disclosure
+  // (noticeFull matches README.en.md verbatim). ----
   "portable.initTitle": "First run of the portable build",
-  "portable.notice": "⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.",
+  "portable.noticeWhy": "The master key lives next to your encrypted credentials in `Data/`, so **the whole folder equals plaintext credentials** — a leak exposes every API key inside.",
+  "portable.noticeRule": "Do not upload it to cloud drives, commit it to version control, or share it with others; if it leaks, **rotate every API key it contained immediately**.",
+  "portable.noticeFull": "⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.",
+  "portable.infoLabel": "View the full security notice",
   "portable.confirmHint": "Confirming creates the portable master key in Data/portable.key and initializes the data directory; cancelling writes no sensitive file and exits.",
   "portable.confirm": "I understand the risk, create the portable key",
   "portable.confirmCountdown": "I understand the risk, create the portable key ({seconds}s)",

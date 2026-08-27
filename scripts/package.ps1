@@ -9,7 +9,8 @@
 # 契约（AGENTS.md 发布惯例）：
 # - 版本号唯一来源是 workspace Cargo.toml，本脚本不做版本改写；
 # - 包内 GUI/CLI 的 PE 架构必须与资产名称一致（打包时逐个断言）；
-# - 便携 zip 必含 portable.marker 与「便携版说明.txt」（固定安全提示原文）。
+# - 便携 zip 必含 portable.marker 与中英两份说明（「便携版说明.txt」为固定
+#   安全提示中文原文；PORTABLE-README.txt 为对齐 README.en.md 的英文版）。
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
@@ -126,6 +127,27 @@ Releases 下载新的便携 zip，退出应用后解压覆盖（Data/ 数据不�
 '@
 }
 
+function Get-PortableReadmeEn {
+    # 便携包内英文说明：固定安全提示与 README.en.md 逐字一致，
+    # 结构对齐中文版（用法段为补充说明）。
+    return @'
+QuotaTray Portable Notes
+========================
+
+Extract the zip into any writable folder and run QuotaTray.exe. All data
+(config, history, master key) stays in the Data/ folder next to the
+executables - no registry entries, no system leftovers. quota.exe (the CLI)
+shares the same data with the GUI.
+
+⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.
+
+The first run asks for a security confirmation. Delete the whole folder
+to uninstall. To update, download the new portable zip from GitHub
+Releases, quit the app, and extract it over the folder (Data/ is
+untouched).
+'@
+}
+
 $root = Resolve-WorkspaceRoot -Path $WorkspaceRoot
 $version = Get-WorkspaceVersion -Root $root
 $targetDir = Join-Path $root "target/release"
@@ -208,6 +230,7 @@ if ($Flavor -in @("portable", "all")) {
     Copy-Item -LiteralPath $cliExe -Destination (Join-Path $staging "quota.exe")
     New-Item -ItemType File -Path (Join-Path $staging "portable.marker") | Out-Null
     Get-PortableReadme | Set-Content -LiteralPath (Join-Path $staging "便携版说明.txt") -Encoding UTF8
+    Get-PortableReadmeEn | Set-Content -LiteralPath (Join-Path $staging "PORTABLE-README.txt") -Encoding UTF8
 
     $zipName = Get-ExpectedAssetName -Version $version -Arch $Arch -FlavorKind "PortableZip"
     $zipPath = Join-Path $distDir $zipName

@@ -18,6 +18,7 @@
 | 目标平台 | Windows 优先，全程使用跨平台库，不为未支持平台花工作量 | 仅 Windows（锁死）；三平台同步支持 |
 | 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
+| 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号悬停展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -84,8 +85,11 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 - 从首次提供 Portable 资产起，**每个 Release** 的 notes 都必须在完整 CHANGELOG 内容
   之后原样追加下段文本；即使该版本未修改 Portable 功能，也不得省略。
-- README 的 Portable 下载说明、便携包内说明和首次创建 `portable.key` 前的确认界面，
-  同样必须原样展示下段文本：
+- README 的 Portable 下载说明与便携包内说明（中文 `便携版说明.txt` 原样中文、
+  英文 `PORTABLE-README.txt` 与 README.en.md 逐字一致）必须原样展示下段文本。
+  GUI 首启确认页为唯一例外（2026-08-27 所有者确认）：正文精简为核心警示两行，
+  完整原文收进问号悬停展开（文案键 `portable.noticeFull` 的值仍为下段原文），
+  「取得显式确认」的要求不变：
 
 > ⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。
 
@@ -211,8 +215,8 @@ QuotaTray/
 │       │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
 │       │   │   ├── ClearConfigDialog.tsx        # 清空配置二级确认弹窗
-│       │   │   ├── clearConfigView.test.ts      # 倒计时契约测试
-│       │   │   ├── clearConfigView.ts           # 清空确认倒计时纯逻辑
+│       │   │   ├── clearConfigView.test.ts      # 清空确认逻辑测试
+│       │   │   ├── clearConfigView.ts           # 清空确认纯逻辑
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
 │       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
@@ -221,13 +225,15 @@ QuotaTray/
 │       │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
 │       │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
 │       │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
+│       │   │   ├── inlineMd.test.ts             # 行内 Markdown 解析测试
+│       │   │   ├── inlineMd.ts                  # 行内 Markdown 解析纯函数
 │       │   │   ├── MainPanelTabs.tsx            # 页签与鼠标聚光
 │       │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
 │       │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
 │       │   │   ├── NativeProviderPicker.tsx     # 平台聚合选择器
-│       │   │   ├── PortableInitGate.tsx         # 便携首启安全确认页
+│       │   │   ├── PortableInitGate.tsx         # 便携首启确认页
 │       │   │   ├── presetTemplates.test.ts      # 预设库测试
 │       │   │   ├── presetTemplates.ts           # 模板预设库
 │       │   │   ├── pricingDraft.test.ts         # 定价草稿测试
@@ -367,14 +373,14 @@ QuotaTray/
 │       ├── README.md         # 模板示例说明
 │       └── siliconflow.json  # 双站 baseUrl 示例
 ├── LICENSE                 # MIT 许可证全文
-├── package.cmd             # 一键打包入口（包装脚本）
+├── package.cmd             # 一键打包入口包装器
 ├── README.en.md            # 英文自述，互链中文
 ├── README.md               # 中文项目自述
 ├── rust-toolchain.toml     # 锁定 stable 工具链
 ├── scripts/                # 维护脚本
 │   ├── clean.ps1         # 分级清理器
 │   ├── clean.tests.ps1   # 清理器契约测试
-│   ├── package.ps1       # 发布资产打包（setup+便携zip+PE断言）
+│   ├── package.ps1       # 一键发布资产打包脚本
 │   └── package.tests.ps1 # 打包脚本契约测试
 └── setup-hooks.cmd         # git hooks 配置入口（幂等）
 <!-- file-tree:tree:end -->

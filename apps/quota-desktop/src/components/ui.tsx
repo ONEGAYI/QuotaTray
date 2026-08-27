@@ -1,6 +1,7 @@
 import { Check, X, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { parseInlineMd } from "./inlineMd";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -120,6 +121,23 @@ export function Tooltip({ text, children }: { text: string; children: ReactNode 
     <span className="qt-tooltip-anchor" data-tooltip={text} aria-label={text}>
       {children}
     </span>
+  );
+}
+
+/** 把含 `**粗体**` 与 `` `代码` `` 标记的字典文案渲染为富文本（解析见 inlineMd.ts）。 */
+export function InlineMd({ text }: { text: string }) {
+  return (
+    <>
+      {parseInlineMd(text).map((token, i) =>
+        token.kind === "strong" ? (
+          <strong key={i}>{token.text}</strong>
+        ) : token.kind === "code" ? (
+          <code key={i}>{token.text}</code>
+        ) : (
+          <span key={i}>{token.text}</span>
+        ),
+      )}
+    </>
   );
 }
 
