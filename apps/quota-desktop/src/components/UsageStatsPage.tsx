@@ -19,6 +19,7 @@ import {
   niceAbsoluteScale,
   shouldZoomUsageChart,
   splitUsageSeries,
+  usageTooltipPlacement,
   type HistorySeries,
   type UsageBridge,
   type UsageMetricType,
@@ -315,7 +316,19 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
     setHover(null);
   };
 
-  const tooltipLeft = hover ? Math.min(82, Math.max(10, (hover.x / CHART.width) * 100)) : 0;
+  const tooltipPos = hover?.kind === "sample"
+    ? usageTooltipPlacement({ x: hover.x, y: hover.y }, CHART.width, CHART.height)
+    : null;
+  const tooltipClass = [
+    "qt-usage-tooltip",
+    hover?.kind === "gap" ? "is-gap" : "",
+    tooltipPos ? (tooltipPos.below ? "is-below" : "is-above") : "",
+  ].filter(Boolean).join(" ");
+  const tooltipStyle: CSSProperties = tooltipPos
+    ? { left: `${tooltipPos.leftPct}%`, top: `${tooltipPos.topPct}%` }
+    : hover
+      ? { left: `${Math.min(82, Math.max(10, (hover.x / CHART.width) * 100))}%` }
+      : {};
   const pageState = providersLoading
     ? { kind: "loading" as const, message: t("usage.loadingProviders") }
     : providersError
@@ -523,10 +536,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
             </svg>
 
             {hover && (
-              <div
-                className={`qt-usage-tooltip ${hover.kind === "gap" ? "is-gap" : ""}`}
-                style={{ left: `${tooltipLeft}%` }}
-              >
+              <div className={tooltipClass} style={tooltipStyle}>
                 {hover.kind === "sample" ? (
                   <>
                     <span className="qt-usage-tooltip-time">{dateFormatter.format(hover.sample.timestamp)}</span>

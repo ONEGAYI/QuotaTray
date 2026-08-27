@@ -40,6 +40,31 @@ export interface HistorySeries {
 
 export type UsageDomain = [number, number];
 
+/** 点位提示卡片与数据点的视觉间隙（SVG 纵向单位）。 */
+export const USAGE_TOOLTIP_GAP = 14;
+
+/**
+ * 点位提示卡片跟随数据点锚定：点在绘图区上半部时卡片放到点下方，
+ * 下半部时翻到点上方——调用侧用 translateY(±100%) 切换锚边，
+ * 因此无需估算卡片实际高度；水平沿用页面钳制区间避免左右溢出。
+ * 返回值为相对图表容器的百分比坐标。
+ */
+export function usageTooltipPlacement(
+  anchor: { x: number; y: number },
+  chartWidth: number,
+  chartHeight: number,
+): { leftPct: number; topPct: number; below: boolean } {
+  const below = anchor.y < chartHeight / 2;
+  const topPct = below
+    ? ((anchor.y + USAGE_TOOLTIP_GAP) / chartHeight) * 100
+    : ((anchor.y - USAGE_TOOLTIP_GAP) / chartHeight) * 100;
+  return {
+    leftPct: Math.min(82, Math.max(10, (anchor.x / chartWidth) * 100)),
+    topPct,
+    below,
+  };
+}
+
 function clampUsageDomain(view: UsageDomain, total: UsageDomain): UsageDomain {
   const span = Math.min(view[1] - view[0], total[1] - total[0]);
   if (view[0] < total[0]) return [total[0], total[0] + span];
