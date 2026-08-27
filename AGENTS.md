@@ -30,6 +30,16 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 - 通用行为准则、提交规范（中文、`类型: 简述` + 正文）、发布规范遵循用户全局 AGENTS.md，此处不重复。
 - **TDD**：实现功能、修复 BUG 前先添加契约测试；网络相关测试一律 mock（不依赖真实平台 API）。
 - **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
+- **Git hooks 本地门禁（两层）**：仓库内 `.githooks/` 提供按检查代价分层的钩子——
+  `pre-commit`（秒级：`cargo fmt --all --check` + 前端 `pnpm lint`，按暂存文件按需触发）与
+  `pre-push`（分钟级：`cargo clippy --workspace --all-targets -- -D warnings` + 前端
+  `tsc --noEmit`，按推送区间按需触发，对应 PR 前最后防线）。hooks 需本机
+  `core.hooksPath` 指向 `.githooks` 才生效，配置接口为仓库根 `setup-hooks.cmd`
+  （幂等可重复执行；Unix/macOS 等价 `git config core.hooksPath .githooks`）。
+  - **配置时机由人类决定**：仅当人类明确要求配置（如"这是第一次，配置一下 hooks"）时
+    才执行 setup；Agent 不得主动配置、不得在会话中探测 hooks 是否已配置或建议配置。
+  - hooks 是兜底而非替代：本机未配置 hooks 不免除上述手动硬门禁的执行义务。
+  - Agent 会话禁止用 `--no-verify` / `-n` 绕过（人类紧急情况自行判断）。
 - **构建与测试**：
   - 全量构建检查：`cargo build --workspace`（仅编译校验）
   - 测试：`cargo test --workspace`
@@ -92,6 +102,9 @@ QuotaTray/
 │           └── tree.json # 文件树唯一数据源
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
+├── .githooks/
+│   ├── pre-commit # 提交级轻量门禁（fmt+前端lint）
+│   └── pre-push   # 推送级重门禁（clippy+tsc）
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
 │       └── ci.yml # CI 双矩阵流水线
@@ -297,9 +310,10 @@ QuotaTray/
 ├── README.en.md            # 英文自述，互链中文
 ├── README.md               # 中文项目自述
 ├── rust-toolchain.toml     # 锁定 stable 工具链
-└── scripts/                # 维护脚本
-    ├── clean.ps1       # 分级清理器
-    └── clean.tests.ps1 # 清理器契约测试
+├── scripts/                # 维护脚本
+│   ├── clean.ps1       # 分级清理器
+│   └── clean.tests.ps1 # 清理器契约测试
+└── setup-hooks.cmd         # git hooks 配置入口（幂等）
 <!-- file-tree:tree:end -->
 ```
 

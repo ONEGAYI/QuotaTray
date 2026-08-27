@@ -1,0 +1,57 @@
+#!/bin/sh
+# QuotaTray pre-push：推送级重门禁（分钟级，对应 PR 前最后一道本地防线）
+# 职责分层：clippy 全量静态检查与前端类型检查在此拦截；轻检查见 pre-commit。
+# 绕过口：git push --no-verify（Agent 会话禁止使用，见 AGENTS.md 工程规范）。
+# 启用条件：git config core.hooksPath .githooks（仓库根 setup-hooks.cmd，由人类决定时机）。
+
+echo "QuotaTray pre-push: 重检查（clippy + 前端 tsc）..."
+
+# 全零 sha（引用被删除）判断：不含任何非 0 字符即为全零
+is_zero_sha() {
+    case "$1" in
+        *[!0]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+changed=$(mktemp)
+trap 'rm -f "$changed"' EXIT
+
+# stdin 每行：<local_ref> <local_sha> <remote_ref> <remote_sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    is_zero_sha "$local_sha" && continue          # 删除远端引用，无代码变更
+    if is_zero_sha "$remote_sha"; then
+        # 新建远端分支：与 origin/main 的合并基比较；找不到基点则回退全量
+        base=$(git merge-base origin/main "$local_sha" 2>/dev/null) || base=""
+        if [ -n "$base" ]; then
+            git diff --name-only "$base" "$local_sha" >>"$changed"
+        else
+            echo "__fallback__.rs" >>"$changed"
+            echo "（无法定位比较基点，回退全量检查）"
+        fi
+    else
+        git diff --name-only "$remote_sha" "$local_sha" >>"$changed" 2>/dev/null \
+            || echo "__fallback__.rs" >>"$changed"
+    fi
+done
+
+fail() {
+    echo ""
+    echo "pre-push 未通过：$1"
+    echo "修复并重新提交后推送；紧急情况可 --no-verify（Agent 禁用）。"
+    exit 1
+}
+
+if grep -qE '(__fallback__\.rs|\.rs)$' "$changed"; then
+    echo "-> cargo clippy --workspace --all-targets -- -D warnings"
+    cargo clippy --workspace --all-targets -- -D warnings \
+        || fail "clippy 存在告警，请修复后推送"
+fi
+
+if grep -qE '^apps/quota-desktop/.*\.(ts|tsx|js|jsx|mjs|cjs)$' "$changed"; then
+    echo "-> tsc --noEmit（apps/quota-desktop）"
+    (cd apps/quota-desktop && pnpm exec tsc --noEmit) \
+        || fail "前端类型检查未通过"
+fi
+
+echo "pre-push 通过。"
