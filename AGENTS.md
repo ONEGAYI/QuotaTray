@@ -64,11 +64,13 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ### 基础产物
 
-- 每个 Release 必须附带桌面端 x64 安装包：先把 workspace `Cargo.toml` 版本号改为
-  目标版本，再于 `apps/quota-desktop` 运行 `pnpm tauri build`；上传 NSIS 产物
-  `target/release/bundle/nsis/*-setup.exe`。
-- Portable 与 ARM64 资产接入后，打包脚本必须验证包内 GUI/CLI 的 PE 架构与资产名称
-  一致；更新选择不得跨架构、跨安装/便携形态回退。
+- 每个 Release 必须附带桌面端 x64 安装包与便携 zip：先把 workspace `Cargo.toml`
+  版本号改为目标版本，再于仓库根运行 `.\package`（内部执行 `pnpm tauri build` 并
+  组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
+  `target/release/dist/*-portable.zip`。
+- 打包脚本已验证包内 GUI/CLI 的 PE 架构与资产名称一致（`scripts/package.ps1`
+  逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
+  不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
 
 ### ARM64 Preview 声明
 
@@ -208,6 +210,9 @@ QuotaTray/
 │       │   │   ├── aiAssistPack.ts              # AI 求助包纯逻辑
 │       │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
+│       │   │   ├── ClearConfigDialog.tsx        # 清空配置二级确认弹窗
+│       │   │   ├── clearConfigView.test.ts      # 倒计时契约测试
+│       │   │   ├── clearConfigView.ts           # 清空确认倒计时纯逻辑
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
 │       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
@@ -222,6 +227,7 @@ QuotaTray/
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
 │       │   │   ├── NativeProviderPicker.tsx     # 平台聚合选择器
+│       │   │   ├── PortableInitGate.tsx         # 便携首启安全确认页
 │       │   │   ├── presetTemplates.test.ts      # 预设库测试
 │       │   │   ├── presetTemplates.ts           # 模板预设库
 │       │   │   ├── pricingDraft.test.ts         # 定价草稿测试
@@ -326,6 +332,7 @@ QuotaTray/
 │           │   └── zhipu_metered.rs # 智谱按量余额
 │           ├── query/     # 查询引擎
 │           │   └── mod.rs # QueryEngine 路由
+│           ├── runtime.rs # 运行模式纯函数（安装/便携）
 │           ├── script/    # 脚本查询（M4）
 │           │   └── mod.rs # QuickJS 沙箱脚本查询
 │           ├── template/  # 声明式模板 DSL（M2a）
@@ -360,12 +367,15 @@ QuotaTray/
 │       ├── README.md         # 模板示例说明
 │       └── siliconflow.json  # 双站 baseUrl 示例
 ├── LICENSE                 # MIT 许可证全文
+├── package.cmd             # 一键打包入口（包装脚本）
 ├── README.en.md            # 英文自述，互链中文
 ├── README.md               # 中文项目自述
 ├── rust-toolchain.toml     # 锁定 stable 工具链
 ├── scripts/                # 维护脚本
-│   ├── clean.ps1       # 分级清理器
-│   └── clean.tests.ps1 # 清理器契约测试
+│   ├── clean.ps1         # 分级清理器
+│   ├── clean.tests.ps1   # 清理器契约测试
+│   ├── package.ps1       # 发布资产打包（setup+便携zip+PE断言）
+│   └── package.tests.ps1 # 打包脚本契约测试
 └── setup-hooks.cmd         # git hooks 配置入口（幂等）
 <!-- file-tree:tree:end -->
 ```

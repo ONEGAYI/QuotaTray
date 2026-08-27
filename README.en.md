@@ -133,6 +133,14 @@ Sandbox limits: 16 MiB memory, a 5-second CPU cap per execution, no network/file
 
 Download the NSIS installer (`*-setup.exe`) from [Releases](https://github.com/ONEGAYI/QuotaTray/releases).
 
+### Portable (Windows x64)
+
+Download `*-portable.zip`, extract to any writable folder and run — all data stays
+in the adjacent `Data/` folder; deleting the folder uninstalls. First run shows a
+security confirmation.
+
+> ⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.
+
 ### Build from source
 
 Requires: Rust stable, Node.js, pnpm.

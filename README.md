@@ -132,6 +132,13 @@ function extract(resp) {
 
 从 [Releases](https://github.com/ONEGAYI/QuotaTray/releases) 下载 NSIS 安装包（`*-setup.exe`）安装。
 
+### 便携版（Windows x64）
+
+下载 `*-portable.zip` 解压到任意可写目录运行，数据全部保留在旁边的
+`Data/` 目录；删除整个目录即卸载。首次运行会展示安全确认。
+
+> ⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。
+
 ### 从源码构建
 
 要求：Rust stable、Node.js、pnpm。

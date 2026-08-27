@@ -577,6 +577,24 @@
                         "标题栏/悬停面板共用的静态品牌标志薄组件"
                       ]
                     },
+                    "ClearConfigDialog.tsx": {
+                      "kind": "file",
+                      "desc": "清空配置二级确认弹窗"
+                    },
+                    "clearConfigView.test.ts": {
+                      "kind": "file",
+                      "desc": "倒计时契约测试",
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "clearConfigView.ts": {
+                      "kind": "file",
+                      "desc": "清空确认倒计时纯逻辑",
+                      "tags": [
+                        "pure"
+                      ]
+                    },
                     "configTransferView.test.ts": {
                       "kind": "file",
                       "desc": "迁移视图测试",
@@ -733,6 +751,10 @@
                         "左右双栏 minmax(0,1fr)+min-height:0 各自独立滚动",
                         "（滚动条走全局主题变量）"
                       ]
+                    },
+                    "PortableInitGate.tsx": {
+                      "kind": "file",
+                      "desc": "便携首启安全确认页"
                     },
                     "presetTemplates.test.ts": {
                       "kind": "file",
@@ -1722,6 +1744,16 @@
                     }
                   }
                 },
+                "runtime.rs": {
+                  "kind": "file",
+                  "desc": "运行模式纯函数（安装/便携）",
+                  "detail": [
+                    "RuntimeMode 将数据根与密钥后端绑定；resolve_mode 按预研 §4.2 优先级解析（--data-dir 安装态沙箱 > --portable 显式 > exe 旁 portable.marker > 默认安装态），不读进程环境"
+                  ],
+                  "tags": [
+                    "pure"
+                  ]
+                },
                 "script": {
                   "kind": "dir",
                   "desc": "脚本查询（M4）",
@@ -1991,6 +2023,10 @@
         "MIT 许可证全文（参考项目 cc-switch 同为 MIT）"
       ]
     },
+    "package.cmd": {
+      "kind": "file",
+      "desc": "一键打包入口（包装脚本）"
+    },
     "README.en.md": {
       "kind": "file",
       "desc": "英文自述，互链中文",
@@ -2033,6 +2069,20 @@
           "rel": [
             "scripts/clean.ps1"
           ],
+          "tags": [
+            "test"
+          ]
+        },
+        "package.ps1": {
+          "kind": "file",
+          "desc": "发布资产打包（setup+便携zip+PE断言）",
+          "detail": [
+            "一键产出 NSIS 安装包与便携 zip：版本从 workspace Cargo.toml 单源解析；便携 staging 含 QuotaTray.exe/quota.exe/portable.marker/便携版说明.txt（固定安全提示原文）；逐 exe 断言 PE Machine 与资产名架构一致"
+          ]
+        },
+        "package.tests.ps1": {
+          "kind": "file",
+          "desc": "打包脚本契约测试",
           "tags": [
             "test"
           ]

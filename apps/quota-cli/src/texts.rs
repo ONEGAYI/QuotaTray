@@ -350,6 +350,7 @@ pub enum T {
     HelpPricingModelRemoveId,
     HelpDevSmoke,
     HelpDevSmokeKeyFile,
+    HelpDevSmokeProxy,
 }
 
 /// 取文案。`System` 未消解时按中文兜底（调用约定：先 `resolve` 再取文案）。
@@ -649,6 +650,7 @@ fn zh(key: T) -> &'static str {
         T::HelpPricingModelRemoveId => "模型 id",
         T::HelpDevSmoke => "真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）",
         T::HelpDevSmokeKeyFile => "key 文件路径（默认当前目录 .DevApiKey.json）",
+        T::HelpDevSmokeProxy => "对 dev-smoke 条目开启查询代理（走 settings.json 的网络代理端口）",
     }
 }
 
@@ -998,6 +1000,7 @@ fn en(key: T) -> &'static str {
         T::HelpDevSmokeKeyFile => {
             "Key file path (default: .DevApiKey.json in the current directory)"
         }
+        T::HelpDevSmokeProxy => "route dev-smoke entries through the proxy port from settings.json",
     }
 }
 
@@ -1462,11 +1465,12 @@ pub fn update_proxy_note(lang: Lang, port: u16) -> String {
 ///
 /// derive 的 doc comment 是编译期中文默认；本函数对两个语言都做覆盖，
 /// 使文案表成为唯一事实源（doc comment 仅保留源码可读性）。
-/// `dev-smoke` 子命令仅在 debug 构建存在，release 下 `mut_subcommand`
-/// 对不存在的名字是 no-op。
+/// `dev-smoke` 子命令仅在 debug 构建注册：clap 4.6 对未注册名字的
+/// `mut_subcommand` 会 panic（并非 no-op），故该段按构建形态条件追加。
 pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
     let tr = |k: T| t(lang, k);
-    cmd.about(tr(T::HelpAbout))
+    let cmd = cmd
+        .about(tr(T::HelpAbout))
         .mut_arg("config", |a| a.help(tr(T::HelpConfig)))
         .mut_arg("lang", |a| a.help(tr(T::HelpLang)))
         .mut_arg("portable", |a| a.help(tr(T::HelpPortable)))
@@ -1585,11 +1589,16 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
                 .mut_arg("check", |a| a.help(tr(T::HelpUpdateCheck)))
                 .mut_arg("yes", |a| a.help(tr(T::HelpUpdateYes)))
                 .mut_arg("output", |a| a.help(tr(T::HelpUpdateOutput)))
-        })
-        .mut_subcommand("dev-smoke", |c| {
-            c.about(tr(T::HelpDevSmoke))
-                .mut_arg("key_file", |a| a.help(tr(T::HelpDevSmokeKeyFile)))
-        })
+        });
+    // dev-smoke 仅 debug 构建注册（release 下 mut_subcommand 对未注册
+    // 名字 panic——本条修复曾让所有 release CLI 一运行即崩的预存缺陷）
+    #[cfg(debug_assertions)]
+    let cmd = cmd.mut_subcommand("dev-smoke", |c| {
+        c.about(tr(T::HelpDevSmoke))
+            .mut_arg("key_file", |a| a.help(tr(T::HelpDevSmokeKeyFile)))
+            .mut_arg("proxy", |a| a.help(tr(T::HelpDevSmokeProxy)))
+    });
+    cmd
 }
 
 #[cfg(test)]
