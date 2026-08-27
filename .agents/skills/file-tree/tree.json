@@ -100,6 +100,30 @@
         "file-tree 技能数据与产物固定 LF，跨机器渲染字节一致"
       ]
     },
+    ".githooks": {
+      "kind": "dir",
+      "desc": "",
+      "children": {
+        "pre-commit": {
+          "kind": "file",
+          "desc": "提交级轻量门禁（fmt+前端lint）",
+          "detail": [
+            "git pre-commit 钩子（POSIX sh）：按暂存文件按需触发秒级检查——含 .rs 时跑 cargo fmt --all --check，含 apps/quota-desktop 前端文件时跑 pnpm lint。",
+            "与 pre-push 按代价分层：重检查（clippy/tsc）不在此处。",
+            "启用前提：本机 core.hooksPath 指向 .githooks（setup-hooks.cmd，配置时机由人类决定）。"
+          ]
+        },
+        "pre-push": {
+          "kind": "file",
+          "desc": "推送级重门禁（clippy+tsc）",
+          "detail": [
+            "git pre-push 钩子（POSIX sh）：从 stdin 解析推送区间收集变更文件，按需触发分钟级检查——含 .rs 时跑 cargo clippy --workspace --all-targets -- -D warnings，含前端文件时跑 pnpm exec tsc --noEmit。",
+            "新分支回退与 origin/main 的 merge-base 比较，找不到基点回退全量检查；对应 PR 前最后一道本地防线。",
+            "启用前提：本机 core.hooksPath 指向 .githooks（setup-hooks.cmd，配置时机由人类决定）。"
+          ]
+        }
+      }
+    },
     ".github": {
       "kind": "dir",
       "desc": "GitHub 配置",
@@ -1960,6 +1984,15 @@
           ]
         }
       }
+    },
+    "setup-hooks.cmd": {
+      "kind": "file",
+      "desc": "git hooks 配置入口（幂等）",
+      "detail": [
+        "仓库根执行的配置接口：git config core.hooksPath .githooks，幂等可重复执行，附带当前两层门禁的说明输出。",
+        "Unix/macOS 等价命令直接手敲 git config core.hooksPath .githooks。",
+        "执行时机由人类决定（Agent 仅在人类明确要求时运行，见 AGENTS.md 工程规范）。"
+      ]
     }
   }
 }

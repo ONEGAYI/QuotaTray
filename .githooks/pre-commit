@@ -1,0 +1,30 @@
+#!/bin/sh
+# QuotaTray pre-commit：提交级轻量门禁（秒级，不拖慢提交节奏）
+# 职责分层：格式检查与前端 lint 在此拦截；clippy / tsc 重检查在 pre-push。
+# 绕过口：git commit --no-verify（Agent 会话禁止使用，见 AGENTS.md 工程规范）。
+# 启用条件：git config core.hooksPath .githooks（仓库根 setup-hooks.cmd，由人类决定时机）。
+
+echo "QuotaTray pre-commit: 检查暂存区（fmt + 前端 lint）..."
+
+# 仅统计新增/复制/修改/重命名的暂存文件，删除的文件无需检查
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+fail() {
+    echo ""
+    echo "pre-commit 未通过：$1"
+    echo "修复后重新暂存并提交；紧急情况可 --no-verify（Agent 禁用）。"
+    exit 1
+}
+
+# printf 保证 staged 为空时 grep 也不会误匹配
+if printf '%s\n' "$staged" | grep -qE '\.rs$'; then
+    echo "-> cargo fmt --all --check"
+    cargo fmt --all --check || fail "存在未格式化的 Rust 代码，请先 cargo fmt --all"
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^apps/quota-desktop/.*\.(ts|tsx|js|jsx|mjs|cjs|css|html)$'; then
+    echo "-> pnpm lint（apps/quota-desktop）"
+    (cd apps/quota-desktop && pnpm lint) || fail "前端 lint 未通过，请先 pnpm lint --fix"
+fi
+
+echo "pre-commit 通过。"
