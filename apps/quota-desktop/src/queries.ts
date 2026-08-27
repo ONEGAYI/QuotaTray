@@ -6,6 +6,8 @@ import { api } from "./api";
 import type { UpdateStateDto } from "./types";
 
 export const PROVIDERS_CHANGED_EVENT = "providers-changed";
+/** 条目重排事件：各条目数据未变，只失效列表缓存（与后端常量成对）。 */
+export const PROVIDERS_REORDERED_EVENT = "providers-reordered";
 
 type QueryInvalidator = {
   invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
@@ -40,12 +42,16 @@ export function useProviders() {
     const unlistenProviders = listen<string>(PROVIDERS_CHANGED_EVENT, (event) => {
       invalidateProviderCaches(qc, event.payload);
     });
+    // 重排只动顺序不动数据：仅列表失效，派生缓存继续沿用各自轮询周期
+    const unlistenReordered = listen(PROVIDERS_REORDERED_EVENT, () => {
+      void qc.invalidateQueries({ queryKey: ["providers"] });
+    });
     const unlistenImport = listen<number>("configuration-imported", () => {
       invalidateProviderCaches(qc);
       void qc.invalidateQueries({ queryKey: ["native-metas"] });
     });
     return () => {
-      void Promise.all([unlistenProviders, unlistenImport]).then((unlisten) => {
+      void Promise.all([unlistenProviders, unlistenReordered, unlistenImport]).then((unlisten) => {
         unlisten.forEach((fn) => fn());
       });
     };

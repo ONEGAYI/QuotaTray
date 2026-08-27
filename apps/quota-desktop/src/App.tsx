@@ -1,8 +1,9 @@
 // 主窗口：供应商列表 + 添加/设置入口。
 // 关闭窗口 = 隐藏收托盘（Rust 侧处理），React 不参与退出逻辑。
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Plus, Settings as SettingsIcon } from "lucide-react";
-import { useReducer, useState } from "react";
+import { useCallback, useMemo, useReducer, useRef, useState } from "react";
+import { api } from "./api";
 import { EditDialog } from "./components/EditDialog";
 import { MainPanelTabs } from "./components/MainPanelTabs";
 import { ProviderCard } from "./components/ProviderCard";
@@ -15,12 +16,14 @@ import { useNativeMetas, useProviders, useRefreshNow, useSettings, useSnapshots 
 import type { ProviderEntry } from "./types";
 import { Button } from "./components/ui";
 import { initialMainPanelState, reduceMainPanelTransition } from "./mainPanelView";
+import { useCardDragSort } from "./useCardDragSort";
 
 const queryClient = new QueryClient();
 
 function AppInner() {
   useRefreshNow();
   const { t } = useLang();
+  const qc = useQueryClient();
   const providers = useProviders();
   const settings = useSettings();
   const snapshots = useSnapshots();
@@ -39,6 +42,35 @@ function AppInner() {
 
   const intervalMinutes = settings.data?.refresh_interval_minutes ?? 5;
   const threshold = settings.data?.low_balance_threshold_percent ?? 80;
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const providerIds = useMemo(
+    () => (providers.data ?? []).map((entry) => entry.id),
+    [providers.data],
+  );
+  const commitDragOrder = useCallback(
+    (orderedIds: string[]) => {
+      const current = providers.data;
+      // 与当前列表对不上（拖拽中并发增删）：放弃乐观更新，直接落库校验兜底
+      if (!current || current.length !== orderedIds.length) return;
+      const byId = new Map(current.map((entry) => [entry.id, entry]));
+      const reordered = orderedIds
+        .map((id) => byId.get(id))
+        .filter((entry): entry is ProviderEntry => entry != null);
+      if (reordered.length !== orderedIds.length) return;
+      qc.setQueryData(["providers"], reordered);
+      void api.reorderProviders(orderedIds).catch(() => {
+        // 后端集合失配（如 CLI 同时删卡）：拉取真实状态恢复
+        void qc.invalidateQueries({ queryKey: ["providers"] });
+      });
+    },
+    [providers.data, qc],
+  );
+  const dragSort = useCardDragSort({
+    containerRef: listRef,
+    ids: providerIds,
+    onCommit: commitDragOrder,
+  });
 
   return (
     <div className="qt-app-shell">
@@ -110,7 +142,10 @@ function AppInner() {
                 <span>{t("app.emptyHint")}</span>
               </div>
             )}
-            <div className="qt-provider-list">
+            <div
+              ref={listRef}
+              className={`qt-provider-list${dragSort.active ? " is-drag-active" : ""}`}
+            >
               {(providers.data ?? []).map((entry) => {
                 const nativeProviderId =
                   entry.kind.type === "native" ? entry.kind.provider : undefined;
@@ -132,6 +167,13 @@ function AppInner() {
                       setDialogSeq((sequence) => sequence + 1);
                       setEditOpen(true);
                     }}
+                    dragHandleProps={dragSort.handleProps(entry.id)}
+                    dragShift={
+                      dragSort.active && entry.id !== dragSort.dragId
+                        ? dragSort.shifts[entry.id] ?? 0
+                        : undefined
+                    }
+                    isDragSource={entry.id === dragSort.dragId}
                   />
                 );
               })}

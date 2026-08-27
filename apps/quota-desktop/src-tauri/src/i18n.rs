@@ -186,6 +186,13 @@ impl Lang {
         }
     }
 
+    pub fn err_reorder_mismatch(&self) -> String {
+        match self {
+            Self::Zh => "排序列表与现有条目不一致，请刷新后重试".into(),
+            Self::En => "Order list does not match existing entries; refresh and retry".into(),
+        }
+    }
+
     pub fn err_encrypt_failed(&self, e: &dyn std::fmt::Display) -> String {
         match self {
             Self::Zh => format!("凭据加密失败：{e}"),

@@ -46,6 +46,16 @@ interface Props {
   snapshot?: SnapshotEntry;
   nativeMeta?: NativeMeta;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
+  /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
+  dragHandleProps?: {
+    onPointerDown: (event: React.PointerEvent) => void;
+    onKeyDown: (event: React.KeyboardEvent) => void;
+    disabled: boolean;
+  };
+  /** 让位偏移（px）：拖拽会话期间由父级下发，undefined = 常态无位移。 */
+  dragShift?: number;
+  /** 本卡片是拖拽源（跟手/落位中）：视觉浮起强化。 */
+  isDragSource?: boolean;
 }
 
 /** 主数值区取值：百分比优先，否则剩余额度。多窗口时 label 带窗口短标签。 */
@@ -92,6 +102,9 @@ export function ProviderCard({
   snapshot,
   nativeMeta,
   onEdit,
+  dragHandleProps,
+  dragShift,
+  isDragSource,
 }: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
@@ -256,12 +269,25 @@ export function ProviderCard({
 
   return (
     <article
+      data-card-id={entry.id}
       className={`qt-provider-card ${expanded ? "is-expanded" : ""} ${
         !entry.enabled ? "is-disabled" : ""
       } ${view.kind === "stale" || view.kind === "transient" ? "is-warning" : ""} ${
         anyOverThreshold ? "has-balance-alert" : ""
-      }`}
+      } ${isDragSource ? "is-drag-source" : ""}`}
+      style={dragShift !== undefined ? { transform: `translateY(${dragShift}px)` } : undefined}
     >
+      {dragHandleProps && (
+        <button
+          type="button"
+          className="qt-drag-handle"
+          aria-label={t("card.dragHandle")}
+          title={t("card.dragHandleHint")}
+          disabled={dragHandleProps.disabled}
+          onPointerDown={dragHandleProps.onPointerDown}
+          onKeyDown={dragHandleProps.onKeyDown}
+        />
+      )}
       <div className="qt-provider-primary">
         <div className="qt-provider-identity">
           <span className={`qt-provider-avatar${platformLightLogo ? " is-light-logo" : ""}`}>

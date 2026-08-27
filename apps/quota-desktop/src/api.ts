@@ -29,6 +29,8 @@ export const api = {
       newApiKey2: newApiKey2 ?? undefined,
     }),
   removeProvider: (id: string): Promise<void> => invoke("remove_provider", { id }),
+  /** 按完整 id 顺序重排条目（卡片拖拽排序落库；集合不一致时后端拒绝）。 */
+  reorderProviders: (ids: string[]): Promise<void> => invoke("reorder_providers", { ids }),
   listNativeMetas: (): Promise<NativeMeta[]> => invoke("list_native_metas"),
   validateTemplate: (configJson: string): Promise<void> =>
     invoke("validate_template", { configJson }),

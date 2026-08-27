@@ -161,6 +161,8 @@ QuotaTray/
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
+│       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
+│       │   │   ├── dragSortView.ts              # 拖拽排序几何纯逻辑
 │       │   │   ├── EditDialog.tsx               # 添加/编辑弹窗
 │       │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
 │       │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
@@ -208,6 +210,7 @@ QuotaTray/
 │       │   ├── themeTransition.test.ts # 扩散动效测试
 │       │   ├── themeTransition.ts      # 主题扩散动效
 │       │   ├── types.ts                # core serde 的 TS 镜像
+│       │   ├── useCardDragSort.ts      # 卡片拖拽排序状态机
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
 │       │   ├── build.rs                # Tauri 构建脚本

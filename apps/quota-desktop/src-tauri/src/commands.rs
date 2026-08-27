@@ -22,6 +22,9 @@ use crate::tray;
 const TEMPLATE_TEST_ID: &str = "template-test";
 /// Provider 列表跨 WebView 失效事件（与前端 queries.ts 同名常量成对）。
 const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
+/// 条目重排事件（与前端 queries.ts 同名常量成对）：只失效列表缓存——
+/// 各条目数据未变，派生缓存（查询/状态/历史/快照）不陪查。
+const PROVIDERS_REORDERED_EVENT: &str = "providers-reordered";
 
 /// 校验错误的定位信息（前端按字段高亮展示）。
 #[derive(Debug, Clone, Serialize)]
@@ -371,6 +374,45 @@ pub fn remove_provider(
     state.results.write().unwrap().remove(&id);
     after_state_change(&app, &state);
     emit_providers_changed(&app, &id);
+    Ok(())
+}
+
+/// 重排校验（纯函数可测）：ids 必须与现有条目集合完全一致且无重复——
+/// 拖拽期间的并发增删会让集合失配，此时拒绝落盘，由前端 refetch 恢复。
+fn validate_reorder_ids(existing_ids: &[&str], ids: &[String]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    ids.iter().all(|id| seen.insert(id.as_str()))
+        && seen.len() == existing_ids.len()
+        && existing_ids.iter().all(|id| seen.contains(id))
+}
+
+/// 按传入 id 顺序原地重排（纯函数可测；调用方已通过校验）。
+/// sort_by_key 稳定排序，等价于把每个条目挪到其 id 在 ids 中的位次。
+fn reorder_providers_in_place(providers: &mut [ProviderEntry], ids: &[String]) {
+    providers.sort_by_key(|p| ids.iter().position(|id| *id == p.id));
+}
+
+/// 按前端给定的完整 id 顺序重排条目（卡片拖拽排序落库）。
+/// 顺序影响托盘图标回退（未指定图标时取第一个启用条目）与图标子菜单序，
+/// 必须走 after_state_change 重建托盘；各条目数据未变，不动 results/历史。
+#[tauri::command]
+pub fn reorder_providers(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    let lang = lang_of(&state);
+    let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
+    let existing: Vec<&str> = cfg.providers.iter().map(|p| p.id.as_str()).collect();
+    if !validate_reorder_ids(&existing, &ids) {
+        return Err(lang.err_reorder_mismatch());
+    }
+    reorder_providers_in_place(&mut cfg.providers, &ids);
+    cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+    after_state_change(&app, &state);
+    if let Err(e) = app.emit(PROVIDERS_REORDERED_EVENT, ()) {
+        eprintln!("Provider 重排事件发送失败：{e}");
+    }
     Ok(())
 }
 
@@ -1049,6 +1091,53 @@ mod tests {
         assert!(!is_system_dir(std::path::Path::new(
             "D:\\Apps\\System32Tools"
         )));
+    }
+
+    /// 重排校验契约：ids 与现有条目集合一致且无重复才放行——并发增删、
+    /// 缺项/多项/重复/空表一律拒绝，由前端 refetch 恢复真实状态。
+    #[test]
+    fn validate_reorder_ids_accepts_exact_match_only() {
+        let existing = ["a", "b", "c"];
+        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(validate_reorder_ids(&existing, &ids(&["c", "a", "b"])));
+        assert!(validate_reorder_ids(&existing, &ids(&["a", "b", "c"])));
+        assert!(!validate_reorder_ids(&existing, &ids(&["a", "b"])));
+        assert!(!validate_reorder_ids(
+            &existing,
+            &ids(&["a", "b", "c", "d"])
+        ));
+        assert!(!validate_reorder_ids(&existing, &ids(&["a", "b", "d"])));
+        assert!(!validate_reorder_ids(&existing, &ids(&["a", "a", "b"])));
+        assert!(!validate_reorder_ids(&[], &ids(&["a"])));
+        assert!(validate_reorder_ids(&[], &ids(&[])));
+    }
+
+    /// 重排契约：每个条目挪到其 id 在 ids 中的位次（稳定、全量、可逆）。
+    #[test]
+    fn reorder_providers_in_place_moves_entries_to_given_order() {
+        let mut providers = vec![entry("a"), entry("b"), entry("c")];
+        let ids = vec!["c".to_string(), "a".to_string(), "b".to_string()];
+        reorder_providers_in_place(&mut providers, &ids);
+        let order: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(order, ["c", "a", "b"]);
+
+        // 逆操作恢复原序（对合性：重排是纯置换）
+        reorder_providers_in_place(&mut providers, &ids);
+        let order: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(order, ["c", "a", "b"]);
+        let back = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        reorder_providers_in_place(&mut providers, &back);
+        let order: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(order, ["a", "b", "c"]);
+    }
+
+    /// 单条目重排为恒等操作（卡片数为 1 时前端不会发起，防御性契约）。
+    #[test]
+    fn reorder_providers_in_place_single_entry_is_noop() {
+        let mut providers = vec![entry("only")];
+        reorder_providers_in_place(&mut providers, &["only".to_string()]);
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "only");
     }
 
     #[test]
