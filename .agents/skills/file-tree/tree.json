@@ -599,6 +599,35 @@
                         "pure"
                       ]
                     },
+                    "dragSortView.test.ts": {
+                      "kind": "file",
+                      "desc": "拖拽排序逻辑测试",
+                      "detail": [
+                        "dragSortView 纯函数的 vitest 契约测试：目标 index 夹取、让位/落位偏移、reorderIds 越界抛错、settleDuration 惯性区间。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/dragSortView.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "dragSortView.ts": {
+                      "kind": "file",
+                      "desc": "拖拽排序几何纯逻辑",
+                      "detail": [
+                        "卡片拖拽排序的几何纯函数：目标槽位判定（拖拽中心与其他卡片中心的跨越语义）、",
+                        "让位偏移与新数组槽位查表（高度参差也精确）、落位偏移、数组重排与惯性感知的落位时长。",
+                        "无 DOM 依赖，配套 dragSortView.test.ts 契约测试。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/dragSortView.test.ts",
+                        "apps/quota-desktop/src/useCardDragSort.ts"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
                     "EditDialog.tsx": {
                       "kind": "file",
                       "desc": "添加/编辑弹窗",
@@ -1105,6 +1134,21 @@
                   "desc": "core serde 的 TS 镜像",
                   "detail": [
                     "core serde 形状的 TS 镜像：UsageData/HistoryPoint、Provider/定价/设置/更新与 KEEP_LAST_GOOD_MS"
+                  ]
+                },
+                "useCardDragSort.ts": {
+                  "kind": "file",
+                  "desc": "卡片拖拽排序状态机",
+                  "detail": [
+                    "拖拽排序 hook：指针 armed→dragging→settle/cancel 状态机、rAF 跟手直写 transform（绕过 React 每帧渲染）、",
+                    "边缘自动滚动、ESC/pointercancel 回弹、键盘 ↑↓/Home/End 调序与焦点找回、prefers-reduced-motion 退化。",
+                    "commit 用 flushSync 同步重排后清直写残留，保证动画终点与新 DOM 位置零跳变。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/components/dragSortView.ts"
+                  ],
+                  "tags": [
+                    "pure"
                   ]
                 },
                 "vite-env.d.ts": {

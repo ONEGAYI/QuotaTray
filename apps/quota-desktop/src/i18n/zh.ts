@@ -107,6 +107,8 @@ export const zh = {
   "card.modelChanging": "正在切换模型…",
   "card.modelChanged": "已切换为 {model}",
   "card.modelChangeError": "模型切换失败：{msg}",
+  "card.dragHandle": "拖动调整顺序",
+  "card.dragHandleHint": "也可用 ↑↓ 键调整顺序",
 
   // ---- 托盘悬停面板 ----
   "hover.account": "账户",

@@ -1,8 +1,9 @@
 // 主窗口：供应商列表 + 添加/设置入口。
 // 关闭窗口 = 隐藏收托盘（Rust 侧处理），React 不参与退出逻辑。
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Plus, Settings as SettingsIcon } from "lucide-react";
-import { useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { api } from "./api";
 import { EditDialog } from "./components/EditDialog";
 import { MainPanelTabs } from "./components/MainPanelTabs";
 import { ProviderCard } from "./components/ProviderCard";
@@ -15,12 +16,14 @@ import { useNativeMetas, useProviders, useRefreshNow, useSettings, useSnapshots 
 import type { ProviderEntry } from "./types";
 import { Button } from "./components/ui";
 import { initialMainPanelState, reduceMainPanelTransition } from "./mainPanelView";
+import { useCardDragSort } from "./useCardDragSort";
 
 const queryClient = new QueryClient();
 
 function AppInner() {
   useRefreshNow();
   const { t } = useLang();
+  const qc = useQueryClient();
   const providers = useProviders();
   const settings = useSettings();
   const snapshots = useSnapshots();
@@ -39,6 +42,60 @@ function AppInner() {
 
   const intervalMinutes = settings.data?.refresh_interval_minutes ?? 5;
   const threshold = settings.data?.low_balance_threshold_percent ?? 80;
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const providerIds = useMemo(
+    () => (providers.data ?? []).map((entry) => entry.id),
+    [providers.data],
+  );
+  // 落库尾随合并：乐观更新即时生效，后端写盘按 300ms 合并——键盘长按
+  // 调序（系统按键重复 ~30 次/秒）不再每次 keydown 都触发全量 config
+  // 保存 + 托盘重建；快速连续拖拽同理。最后一次的顺序即最终落库序。
+  const persistReorderRef = useRef(0);
+  useEffect(() => () => window.clearTimeout(persistReorderRef.current), []);
+  const commitDragOrder = useCallback(
+    (orderedIds: string[]) => {
+      const current = providers.data;
+      // 与当前列表对不上（拖拽中并发增删）：放弃乐观更新并跳过落库，
+      // 等待变更来源自身的刷新给出正确状态（后端集合校验保留作纵深防御）
+      if (!current || current.length !== orderedIds.length) return;
+      const byId = new Map(current.map((entry) => [entry.id, entry]));
+      const reordered = orderedIds
+        .map((id) => byId.get(id))
+        .filter((entry): entry is ProviderEntry => entry != null);
+      if (reordered.length !== orderedIds.length) return;
+      qc.setQueryData(["providers"], reordered);
+      window.clearTimeout(persistReorderRef.current);
+      persistReorderRef.current = window.setTimeout(() => {
+        // 落库前核对乐观序仍是当前序：debounce 窗口内列表若被外部替换
+        // （GUI/CLI 导入配置等），闭包里的旧序会覆盖新状态——后端集合
+        // 校验拦不住「集合相同、顺序不同」（典型：重导本机备份包），
+        // 只有此处按序比对才能挡住静默回滚
+        const current = qc.getQueryData<ProviderEntry[]>(["providers"]);
+        const stillCurrent =
+          current != null &&
+          current.length === orderedIds.length &&
+          current.every((entry, index) => entry.id === orderedIds[index]);
+        if (!stillCurrent) return;
+        void api.reorderProviders(orderedIds).catch(() => {
+          // 后端集合失配（如 CLI 同时删卡）：拉取真实状态恢复
+          void qc.invalidateQueries({ queryKey: ["providers"] });
+        });
+      }, 300);
+    },
+    [providers.data, qc],
+  );
+  const dragSort = useCardDragSort({
+    containerRef: listRef,
+    ids: providerIds,
+    onCommit: commitDragOrder,
+  });
+  const handleEdit = useCallback((provider: ProviderEntry, usageCurrency?: string) => {
+    setEditing(provider);
+    setEditingCurrency(usageCurrency);
+    setDialogSeq((sequence) => sequence + 1);
+    setEditOpen(true);
+  }, []);
 
   return (
     <div className="qt-app-shell">
@@ -110,7 +167,10 @@ function AppInner() {
                 <span>{t("app.emptyHint")}</span>
               </div>
             )}
-            <div className="qt-provider-list">
+            <div
+              ref={listRef}
+              className={`qt-provider-list${dragSort.active ? " is-drag-active" : ""}`}
+            >
               {(providers.data ?? []).map((entry) => {
                 const nativeProviderId =
                   entry.kind.type === "native" ? entry.kind.provider : undefined;
@@ -126,12 +186,14 @@ function AppInner() {
                         ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
                         : undefined
                     }
-                    onEdit={(provider, usageCurrency) => {
-                      setEditing(provider);
-                      setEditingCurrency(usageCurrency);
-                      setDialogSeq((sequence) => sequence + 1);
-                      setEditOpen(true);
-                    }}
+                    onEdit={handleEdit}
+                    dragHandleProps={dragSort.handleProps(entry.id)}
+                    dragShift={
+                      dragSort.active && entry.id !== dragSort.dragId
+                        ? dragSort.shifts[entry.id] ?? 0
+                        : undefined
+                    }
+                    isDragSource={entry.id === dragSort.dragId}
                   />
                 );
               })}

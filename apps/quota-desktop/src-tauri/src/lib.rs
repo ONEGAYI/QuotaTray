@@ -68,6 +68,7 @@ pub fn run() {
             commands::import_configuration,
             commands::upsert_provider,
             commands::remove_provider,
+            commands::reorder_providers,
             commands::list_native_metas,
             commands::validate_template,
             commands::test_template,

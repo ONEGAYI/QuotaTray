@@ -104,6 +104,8 @@ export const en: Record<TextKey, string> = {
   "card.modelChanging": "Switching model…",
   "card.modelChanged": "Switched to {model}",
   "card.modelChangeError": "Model switch failed: {msg}",
+  "card.dragHandle": "Drag to reorder",
+  "card.dragHandleHint": "Arrow keys also reorder",
 
   // ---- Tray hover panel ----
   "hover.account": "Account",
