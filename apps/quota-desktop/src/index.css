@@ -825,7 +825,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-portable-gate-notice p { margin: 0; color: var(--qt-danger); }
 .qt-portable-gate-notice p + p { margin-top: 6px; }
 .qt-portable-gate-notice strong { font-weight: 650; }
-.qt-gate-info-btn { position: absolute; top: 9px; right: 9px; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--qt-danger); opacity: 0.65; cursor: help; }
+.qt-gate-info-btn { position: absolute; top: 9px; right: 9px; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--qt-danger); opacity: 0.65; cursor: pointer; }
 .qt-gate-info-btn:hover, .qt-gate-info-btn[aria-expanded="true"] { opacity: 1; background: color-mix(in srgb, var(--qt-danger) 12%, transparent); }
 .qt-gate-info-panel { margin-top: 11px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--qt-danger) 20%, var(--qt-border)); border-radius: 9px; background: var(--qt-surface); color: var(--qt-text); font-size: 12.5px; line-height: 1.8; }
 .qt-gate-info-panel strong { font-weight: 650; }

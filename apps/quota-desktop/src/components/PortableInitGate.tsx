@@ -13,8 +13,9 @@ import {
 } from "./clearConfigView";
 import { Button, InlineMd } from "./ui";
 
-/** 便携门控正文块：右上角问号，hover 展开 / 点击钉住 / Esc 收起完整说明；
- * 面板在正文之后占布局展开（不做浮动气泡，避免被卡片滚动区裁剪）。 */
+/** 便携门控正文块：右上角问号，点击展开/收起完整说明，Esc 也可收起。
+ * 只用点击不用 hover 展开：面板占布局使卡片变高、居中布局令卡片上移，
+ * hover 展开会把图标移出鼠标热区而反复收起展开（闪烁）。 */
 function InfoDisclosure({
   label,
   content,
@@ -24,9 +25,7 @@ function InfoDisclosure({
   content: ReactNode;
   children: ReactNode;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const open = hovered || pinned;
+  const [open, setOpen] = useState(false);
   return (
     <div className="qt-portable-gate-notice">
       <button
@@ -34,13 +33,10 @@ function InfoDisclosure({
         className="qt-gate-info-btn"
         aria-label={label}
         aria-expanded={open}
-        onClick={() => setPinned((v) => !v)}
+        onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => {
-          if (e.key === "Escape") setPinned(false);
+          if (e.key === "Escape") setOpen(false);
         }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onBlur={() => setHovered(false)}
       >
         <CircleHelp size={16} aria-hidden="true" />
       </button>
