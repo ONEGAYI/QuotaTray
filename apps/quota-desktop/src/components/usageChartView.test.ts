@@ -7,6 +7,8 @@ import {
   niceAbsoluteScale,
   shouldZoomUsageChart,
   splitUsageSeries,
+  USAGE_TOOLTIP_GAP,
+  usageTooltipPlacement,
   type UsageSample,
 } from "./usageChartView";
 
@@ -68,6 +70,20 @@ describe("使用统计图表纯逻辑", () => {
     expect(shouldZoomUsageChart({ ctrlKey: false }, true)).toBe(false);
     expect(shouldZoomUsageChart({ ctrlKey: true }, false)).toBe(false);
     expect(shouldZoomUsageChart({ ctrlKey: true }, true)).toBe(true);
+  });
+
+  it("点位提示卡片锚定数据点：上半区翻到点下方，下半区翻到点上方，水平钳制在安全区", () => {
+    const upper = usageTooltipPlacement({ x: 420, y: 82 }, 840, 410);
+    expect(upper.below).toBe(true);
+    expect(upper.topPct).toBeCloseTo(((82 + USAGE_TOOLTIP_GAP) / 410) * 100);
+    expect(upper.leftPct).toBeCloseTo(50);
+
+    const lower = usageTooltipPlacement({ x: 420, y: 306 }, 840, 410);
+    expect(lower.below).toBe(false);
+    expect(lower.topPct).toBeCloseTo(((306 - USAGE_TOOLTIP_GAP) / 410) * 100);
+
+    expect(usageTooltipPlacement({ x: 40, y: 205 }, 840, 410).leftPct).toBe(10);
+    expect(usageTooltipPlacement({ x: 900, y: 205 }, 840, 410).leftPct).toBe(82);
   });
 
   it("时间窗前进时跟随实时边缘，同时保留用户正在查看的历史区间", () => {

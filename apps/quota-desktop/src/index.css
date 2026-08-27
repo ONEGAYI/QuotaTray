@@ -279,6 +279,8 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-tooltip strong { color: var(--qt-text); font-size: 18px; font-variant-numeric: tabular-nums; }
 .qt-usage-tooltip > span:last-of-type { color: var(--qt-text-soft); font-size: 10px; }
 .qt-usage-tooltip em { margin-top: 3px; color: var(--qt-warning); font-size: 10px; font-style: normal; line-height: 1.4; }
+.qt-usage-tooltip.is-below { transform: translate(-50%, 0); }
+.qt-usage-tooltip.is-above { transform: translate(-50%, -100%); }
 .qt-usage-tooltip.is-gap { border-color: var(--qt-border-strong); }
 .qt-usage-tooltip.is-gap strong { font-size: 13px; }
 .qt-usage-tooltip.is-gap em { color: var(--qt-text-faint); }
