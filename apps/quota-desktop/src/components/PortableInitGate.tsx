@@ -11,35 +11,39 @@ import {
   resolveConfirmButton,
   stepCountdown,
 } from "./clearConfigView";
-import { Button, InlineMd } from "./ui";
+import { Button, InlineMd, Tooltip } from "./ui";
 
 /** 便携门控正文块：右上角问号，点击展开/收起完整说明，Esc 也可收起。
  * 只用点击不用 hover 展开：面板占布局使卡片变高、居中布局令卡片上移，
  * hover 展开会把图标移出鼠标热区而反复收起展开（闪烁）。 */
 function InfoDisclosure({
   label,
+  tooltip,
   content,
   children,
 }: {
   label: string;
+  tooltip: string;
   content: ReactNode;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="qt-portable-gate-notice">
-      <button
-        type="button"
-        className="qt-gate-info-btn"
-        aria-label={label}
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
-        }}
-      >
-        <CircleHelp size={16} aria-hidden="true" />
-      </button>
+      <Tooltip text={tooltip}>
+        <button
+          type="button"
+          className="qt-gate-info-btn"
+          aria-label={label}
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setOpen(false);
+          }}
+        >
+          <CircleHelp size={16} aria-hidden="true" />
+        </button>
+      </Tooltip>
       {children}
       {open && (
         <div className="qt-gate-info-panel" role="note">
@@ -100,6 +104,7 @@ export function PortableInitGate({ onDone }: { onDone: () => void }) {
         </header>
         <InfoDisclosure
           label={t("portable.infoLabel")}
+          tooltip={t("portable.infoTooltip")}
           content={<InlineMd text={t("portable.noticeFull")} />}
         >
           <p>

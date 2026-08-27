@@ -1004,8 +1004,15 @@ pub fn get_boot_state(app: AppHandle) -> BootStateDto {
 
 /// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
 /// 提示）→ 补齐 AppState/托盘/悬停窗/调度器。幂等：已就绪直接 Ok。
+///
+/// 必须 async：Windows 上 WebView2 IPC 回调在主线程触发，同步命令
+/// 即在主线程 IPC 调用栈内执行，且 run_on_main_thread 对主线程调用方
+/// 是**同步直执**而非异步入队（tauri-runtime-wry send_user_message 的
+/// 主线程分支）——栈内同步建 WebView2 会等一个需要主线程泵消息才能
+/// 完成的初始化，自等待死锁（P0：确认后按钮灰死）。async 命令跑在
+/// 线程池，run_on_main_thread 变为真正异步入队，主线程退栈后执行。
 #[tauri::command]
-pub fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
+pub async fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
     if app.try_state::<crate::state::AppState>().is_some() {
         return Ok(());
     }
@@ -1037,7 +1044,24 @@ pub fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
     )))
     .map_err(|e| format!("便携主密钥创建失败：{e}"))?;
     let state = crate::state::AppState::init(mode.clone())?;
-    crate::finish_setup(&app, state).map_err(|e| e.to_string())?;
+    app.manage(state);
+    // 窗口/托盘创建经主线程任务队列异步执行（setup_surfaces 的线程
+    // 亲和性注释）：命令立即返回，前端 refetch 即见 ready 进入主界面；
+    // 装配失败无法经 invoke 传回，走弹窗 + 退出（与启动失败同呈现）
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = crate::setup_surfaces(&handle) {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+            handle
+                .dialog()
+                .message(format!("QuotaTray 初始化失败：\n{e}"))
+                .kind(MessageDialogKind::Error)
+                .title("QuotaTray")
+                .blocking_show();
+            handle.exit(1);
+        }
+    })
+    .map_err(|e| format!("主线程调度失败：{e}"))?;
     *gate.pending.lock().unwrap() = None;
     Ok(())
 }

@@ -48,14 +48,15 @@ fn resolve_runtime_mode() -> Result<RuntimeMode, String> {
     ))
 }
 
-/// setup 完成段：正常启动与便携确认后共用（AppState 托管、悬停窗、
-/// 托盘、更新调度一次补齐）。
-fn finish_setup(
-    app: &tauri::AppHandle,
-    state: state::AppState,
-) -> Result<(), Box<dyn std::error::Error>> {
-    app.manage(state);
-    app.manage(hover_panel::HoverPanelState::default());
+/// 界面装配段：悬停窗、托盘与更新调度。**必须在主线程、且不在 WebView2
+/// IPC 调用栈内执行**——Windows 上同步命令跑在主线程 IPC 栈里，
+/// `run_on_main_thread` 对主线程调用方又是同步直执（非异步入队），
+/// 栈内同步 build WebView2 等待一个需要主线程泵消息的初始化即死锁
+/// （实测 P0：便携确认后 invoke 永不返回、确认页按钮灰死）。
+/// 两个入口均满足该约束：setup 回调（事件循环启动前的干净主线程上下
+/// 文）；confirm_portable_init 为 async 命令，从线程池经
+/// run_on_main_thread 异步入队，主线程退栈回泵后才执行本函数。
+fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
     hover_panel::create(app).map_err(|e| format!("悬停面板初始化失败：{e}"))?;
     // 托盘首屏即渲染快照（消除重启空窗）
     let state = app.state::<state::AppState>();
@@ -63,6 +64,16 @@ fn finish_setup(
     // 更新检测调度：启动后一分钟的首次 wake 即覆盖「启动时检测」
     update_ctl::spawn_scheduler(app.clone());
     Ok(())
+}
+
+/// setup 完成段：正常启动路径（setup 回调内、已在主线程）同步装配。
+fn finish_setup(
+    app: &tauri::AppHandle,
+    state: state::AppState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    app.manage(state);
+    app.manage(hover_panel::HoverPanelState::default());
+    setup_surfaces(app).map_err(Into::into)
 }
 
 pub fn run() {

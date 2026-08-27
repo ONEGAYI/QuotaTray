@@ -290,6 +290,7 @@ export const en: Record<TextKey, string> = {
   "portable.noticeRule": "Do not upload it to cloud drives, commit it to version control, or share it with others; if it leaks, **rotate every API key it contained immediately**.",
   "portable.noticeFull": "⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.",
   "portable.infoLabel": "View the full security notice",
+  "portable.infoTooltip": "Click to expand the details",
   "portable.confirmHint": "Confirming creates the portable master key in Data/portable.key and initializes the data directory; cancelling writes no sensitive file and exits.",
   "portable.confirm": "I understand the risk, create the portable key",
   "portable.confirmCountdown": "I understand the risk, create the portable key ({seconds}s)",
