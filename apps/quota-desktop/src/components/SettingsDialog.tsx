@@ -59,9 +59,15 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
 
+  const portableRun = updateState.data?.portable ?? false;
   useEffect(() => {
-    if (open && settings.data) setDraft({ ...settings.data });
-  }, [open, settings.data]);
+    if (open && settings.data) {
+      // 便携形态钳制自启动为关：后端硬门禁拒绝开启，draft 与 UI/持久值
+      // 保持一致（settings.json 手改为 true 的存量也在此归位）
+      const next = { ...settings.data, autostart: portableRun ? false : settings.data.autostart };
+      setDraft(next);
+    }
+  }, [open, settings.data, portableRun]);
 
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
@@ -207,6 +213,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     downloading: download.isPending,
     canDownload,
     hasDownloaded: downloadedPath != null,
+    portable: portableRun,
   });
   const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
@@ -294,10 +301,14 @@ export function SettingsDialog({ open, onClose }: Props) {
                   <span>%</span>
                 </div>
               </SettingRow>
-              <SettingRow title={t("settings.autostart")} description={t("settings.autostartHint")}>
+              <SettingRow
+                title={t("settings.autostart")}
+                description={portableRun ? t("settings.autostartPortableHint") : t("settings.autostartHint")}
+              >
                 <Switch
                   label={t("settings.autostart")}
-                  checked={draft.autostart}
+                  checked={portableRun ? false : draft.autostart}
+                  disabled={portableRun}
                   onChange={(autostart) => setDraft({ ...draft, autostart })}
                 />
               </SettingRow>
@@ -354,6 +365,14 @@ export function SettingsDialog({ open, onClose }: Props) {
                   variant={updateAction === "install" || updateAction === "download" ? "primary" : undefined}
                   disabled={checkNow.isPending || download.isPending || install.isPending}
                   onClick={() => {
+                    if (updateAction === "open-dir") {
+                      // 便携 v1 手动更新引导：打开下载目录，由用户退出
+                      // 应用后解压覆盖（zip 不是安装包，不自动运行）
+                      void api.openUpdateDir().catch((e) =>
+                        console.error("打开下载目录失败", e),
+                      );
+                      return;
+                    }
                     if (updateAction === "install") {
                       download.reset();
                       checkNow.reset();
@@ -384,9 +403,13 @@ export function SettingsDialog({ open, onClose }: Props) {
                     ? t("settings.downloading")
                     : updateAction === "install"
                       ? t("settings.install")
-                      : updateAction === "download"
-                        ? t("settings.download")
-                        : t("settings.checkNow")}
+                      : updateAction === "open-dir"
+                        ? t("settings.openDownloadDir")
+                        : updateAction === "download"
+                          ? portableRun
+                            ? t("settings.downloadPackage")
+                            : t("settings.download")
+                          : t("settings.checkNow")}
                 </Button>
               </div>
               {download.isPending && downloadProgress && (
@@ -451,7 +474,13 @@ export function SettingsDialog({ open, onClose }: Props) {
                   {t("settings.manualUrl", { url: available.html_url })}
                 </a>
               )}
-              {downloadedPath && <p className="qt-settings-success">{t("settings.downloaded", { path: downloadedPath })}</p>}
+              {downloadedPath && (
+                <p className="qt-settings-success">
+                  {portableRun
+                    ? t("settings.downloadedPortable", { path: downloadedPath })
+                    : t("settings.downloaded", { path: downloadedPath })}
+                </p>
+              )}
               {operationError && (
                 <p className="qt-inline-error">
                   {operationError}

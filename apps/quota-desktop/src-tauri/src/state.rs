@@ -51,18 +51,6 @@ impl DataPaths {
     pub fn history(&self) -> PathBuf {
         self.root.join("history.db")
     }
-
-    /// 便携主密钥位置（Portable 方案 A：`Data/portable.key`）。
-    pub fn portable_key(&self) -> PathBuf {
-        self.root.join("portable.key")
-    }
-
-    /// 便携形态判定：数据根下存在 `portable.key` 即视为便携运行
-    /// （安装版数据目录不携带该文件）。仅作展示探测；便携版的
-    /// 启动门控/密钥初始化另行实现，不依赖此只读检查。
-    pub fn is_portable(&self) -> bool {
-        self.portable_key().exists()
-    }
 }
 
 /// 错误信息（IPC 传输形状，kind 对齐 CLI `--json` 约定的小写字符串）。
@@ -122,6 +110,9 @@ pub struct AppState {
     pub engine: std::sync::RwLock<QueryEngine>,
     pub vault: Vault,
     pub paths: DataPaths,
+    /// 运行形态（安装/便携）：更新资产选择与自启动门控的依据，
+    /// 与 paths/vault 的构造来源在 init 时一次性绑定。
+    pub mode: quota_core::RuntimeMode,
     pub settings: RwLock<Settings>,
     pub results: RwLock<HashMap<String, EntryState>>,
     /// 解析后的实际主题（true = dark）。前端 theme context 解析三态后推送
@@ -140,6 +131,18 @@ pub struct AppState {
     /// 查询历史库（M5）。非关键数据：打开失败降级内存库（eprintln 告警），
     /// 查询主链路照常，仅历史不落盘。
     pub history: Mutex<HistoryStore>,
+}
+
+/// 启动门控：便携形态首次运行（`portable.key` 缺失）时，setup 阶段
+/// 不初始化 AppState/托盘/调度器，前端先渲染首启安全确认页；用户确认
+/// 后由 `confirm_portable_init` 命令建钥并补齐全部启动步骤。
+///
+/// `mode` 快照避免 confirm 时二次解析 argv/exe（幂等性由解析纯函数
+/// 保证，此处直接复用结果）；完成后 `pending` 置 None，`get_boot_state`
+/// 据此返回 ready。
+#[derive(Default)]
+pub struct BootGate {
+    pub pending: std::sync::Mutex<Option<quota_core::RuntimeMode>>,
 }
 
 /// 当前 epoch 毫秒。
@@ -223,11 +226,33 @@ fn build_engine(proxy_port: Option<u16>) -> Result<QueryEngine, quota_core::http
 }
 
 impl AppState {
-    /// 初始化：打开保险库（系统凭据库）、构造引擎、恢复设置与快照。
-    pub fn init(data_dir: Option<PathBuf>) -> Result<Self, String> {
-        let paths = DataPaths::new(data_dir)?;
-        let store = quota_core::KeyringStore::new();
-        let vault = Vault::open(&store).map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
+    /// 初始化：按运行形态打开保险库（安装态 keyring / 便携态
+    /// `Data/portable.key`）、构造引擎、恢复设置与快照。
+    ///
+    /// 便携形态的防御：密钥文件必须已存在（首启建钥的确认门控在
+    /// 调用方完成，见 lib.rs BootGate）——此处缺失即报错，杜绝任何
+    /// 未经「固定安全提示 + 显式确认」的静默建钥路径。
+    pub fn init(mode: quota_core::RuntimeMode) -> Result<Self, String> {
+        let paths = DataPaths::new(match &mode {
+            quota_core::RuntimeMode::Installed { data_dir } => data_dir.clone(),
+            quota_core::RuntimeMode::Portable { root } => Some(root.clone()),
+        })?;
+        let vault = match &mode {
+            quota_core::RuntimeMode::Installed { .. } => {
+                Vault::open(&quota_core::KeyringStore::new())
+            }
+            quota_core::RuntimeMode::Portable { root } => {
+                let key_path = quota_core::portable_key_path(root);
+                if !key_path.is_file() {
+                    return Err(format!(
+                        "便携主密钥不存在（{}）：请先完成首次运行的安全确认",
+                        key_path.display()
+                    ));
+                }
+                Vault::open(&quota_core::FileStore::new(key_path))
+            }
+        }
+        .map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
         // 查询通道代理：复用设置中的网络代理端口（chatgpt.com 等被墙
         // 站点的订阅查询必需），proxy_url_of 与更新通道同口径
@@ -260,6 +285,7 @@ impl AppState {
             settings: RwLock::new(settings),
             results: RwLock::new(results),
             paths,
+            mode,
             resolved_theme: RwLock::new(false),
             // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
             update_ctl: RwLock::new(UpdateCtlState {
@@ -286,6 +312,41 @@ mod tests {
         assert_eq!(d.message, "y");
     }
 
+    /// 契约：便携形态的 init 防御——密钥文件必须已存在（首启建钥的
+    /// 确认门控在调用方），缺失即确定性错误，绝不静默建钥；key 就位后
+    /// init 成功且 paths/mode 均绑定便携数据根（FileStore 后端互通）。
+    #[test]
+    fn app_state_init_portable_requires_existing_key() {
+        let root = std::env::temp_dir().join(format!("qt-init-port-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mode = quota_core::RuntimeMode::Portable { root: root.clone() };
+
+        let err = match AppState::init(mode.clone()) {
+            Err(e) => e,
+            Ok(_) => panic!("密钥缺失时 init 不应成功"),
+        };
+        assert!(
+            err.contains("便携主密钥不存在") && err.contains("portable.key"),
+            "缺失密钥应确定性报错并带路径：{err}"
+        );
+        assert!(
+            !quota_core::portable_key_path(&root).exists(),
+            "防御分支不得创建密钥"
+        );
+
+        // 就位后成功：mode/paths 绑定便携根，密钥经 FileStore 互通
+        quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+            &root,
+        )))
+        .unwrap();
+        let state = AppState::init(mode).unwrap();
+        assert!(state.mode.is_portable());
+        assert_eq!(state.paths.config(), root.join("config.json"));
+        assert_eq!(state.paths.settings(), root.join("settings.json"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// 契约：--data-dir 覆盖生效；缺省落到 ~/.quotatray。
     #[test]
     fn data_paths_respect_override() {
@@ -299,23 +360,6 @@ mod tests {
         );
     }
 
-    /// 契约：portable.key 标志文件存在与否决定便携形态判定。
-    #[test]
-    fn is_portable_follows_portable_key_marker() {
-        let dir = std::env::temp_dir().join(format!("qt-portable-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let paths = DataPaths::new(Some(dir.clone())).unwrap();
-        assert!(!paths.is_portable(), "无标志文件 = 安装形态");
-        assert_eq!(
-            paths.portable_key(),
-            dir.join("portable.key"),
-            "标志文件位于数据根下"
-        );
-        std::fs::write(paths.portable_key(), b"k").unwrap();
-        assert!(paths.is_portable(), "标志文件存在 = 便携形态");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
     /// 手工组装最小 AppState（AppState 依赖 keyring，测试绕开生产构造；
     /// 与 update_ctl 测试的 sandbox_state 同款）。
     fn sandbox_state(dir: &std::path::Path) -> AppState {
@@ -323,6 +367,9 @@ mod tests {
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
+            mode: quota_core::RuntimeMode::Installed {
+                data_dir: Some(dir.to_path_buf()),
+            },
             engine: std::sync::RwLock::new(engine),
             vault,
             paths,

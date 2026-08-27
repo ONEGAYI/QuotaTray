@@ -242,6 +242,30 @@ impl Lang {
         }
     }
 
+    /// 便携形态拒绝开启自启动（后端硬门禁文案）。
+    pub fn err_autostart_portable(&self) -> String {
+        match self {
+            Self::Zh => "便携版不支持开机自启：启动项会指向可移除介质，拔盘后残留无效注册表项"
+                .to_string(),
+            Self::En => {
+                "Portable builds do not support autostart: the launch entry would point to removable media and leave a dead registry entry after unplug"
+                    .to_string()
+            }
+        }
+    }
+
+    /// 便携形态拒绝运行安装包（更新走手动覆盖引导）。
+    pub fn err_update_install_portable(&self) -> String {
+        match self {
+            Self::Zh => "便携版更新请使用「下载更新包」：下载完成后退出应用，将 zip 内容解压覆盖到便携目录"
+                .to_string(),
+            Self::En => {
+                "Portable builds update via the downloaded zip: quit the app, then extract the zip over the portable directory"
+                    .to_string()
+            }
+        }
+    }
+
     pub fn err_autostart_toggle(&self, enable: bool, e: &dyn std::fmt::Display) -> String {
         match (self, enable) {
             (Self::Zh, true) => format!("开启开机自启失败：{e}"),

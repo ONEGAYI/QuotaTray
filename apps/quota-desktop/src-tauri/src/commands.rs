@@ -885,6 +885,11 @@ fn persist_settings(
     }
 
     if old_autostart != settings.autostart {
+        // 便携形态禁止自启动：注册表项指向 U 盘路径会在介质移除后
+        // 残留为无效启动项；前端体验层禁用之外的后端硬门禁
+        if settings.autostart && state.mode.is_portable() {
+            return Err(lang.err_autostart_portable());
+        }
         if let Err(e) = apply_autostart(app, settings.autostart, lang) {
             // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
             settings.autostart = old_autostart;
@@ -973,6 +978,100 @@ pub fn get_snapshots(
     Ok(snapshots_from_results(&state.results.read().unwrap()).entries)
 }
 
+// ---- 便携启动门控（BootGate） ----------------------------------------------
+
+/// 启动状态：前端首屏查询——ready=false 时渲染便携首启安全确认页。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootStateDto {
+    pub ready: bool,
+    /// 便携首启待确认（ready=false 时的唯一成因）。
+    pub pending_portable_init: bool,
+}
+
+#[tauri::command]
+pub fn get_boot_state(app: AppHandle) -> BootStateDto {
+    // AppState 已托管 = 启动完成；BootGate.pending 有值 = 待确认
+    let ready = app.try_state::<crate::state::AppState>().is_some();
+    let pending = app
+        .try_state::<crate::state::BootGate>()
+        .is_some_and(|g| g.pending.lock().unwrap().is_some());
+    BootStateDto {
+        ready,
+        pending_portable_init: pending,
+    }
+}
+
+/// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
+/// 提示）→ 补齐 AppState/托盘/悬停窗/调度器。幂等：已就绪直接 Ok。
+#[tauri::command]
+pub fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
+    if app.try_state::<crate::state::AppState>().is_some() {
+        return Ok(());
+    }
+    let gate = app
+        .try_state::<crate::state::BootGate>()
+        .ok_or("启动门控不存在：非便携首启场景")?;
+    let mode = gate
+        .pending
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("门控已消费：确认流程状态异常，请重启应用")?;
+    let quota_core::RuntimeMode::Portable { root } = &mode else {
+        return Err("门控内形态非便携：状态异常".into());
+    };
+    // 确认后落 marker（包内未带或显式 --portable 首次进入）：
+    // 形态选择持久化，后续无参数启动不再询问
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .ok_or("无法定位可执行文件所在目录")?;
+    if !quota_core::has_portable_marker(&exe_dir) {
+        std::fs::write(exe_dir.join(quota_core::PORTABLE_MARKER), "")
+            .map_err(|e| format!("便携标记写入失败：{e}"))?;
+    }
+    // 建钥（此时才产生敏感文件）：Vault::open 生成并原子落盘
+    quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+        root,
+    )))
+    .map_err(|e| format!("便携主密钥创建失败：{e}"))?;
+    let state = crate::state::AppState::init(mode.clone())?;
+    crate::finish_setup(&app, state).map_err(|e| e.to_string())?;
+    *gate.pending.lock().unwrap() = None;
+    Ok(())
+}
+
+/// 便携首启取消：只清理本会话产生的 WebView2 缓存并退出。**不删整个
+/// Data**——门控再现时 Data 内可能仍有既有 config.json/history.db
+/// （如用户按密钥损坏指引删 key 重来、跨机拷贝漏拷 key），整删会连带
+/// 销毁密文配置与历史，超出「取消则不写入任何敏感文件」的授权。
+#[tauri::command]
+pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
+    if let Some(gate) = app.try_state::<crate::state::BootGate>() {
+        if let Some(quota_core::RuntimeMode::Portable { root }) =
+            gate.pending.lock().unwrap().clone()
+        {
+            // WebView2 进程存活期间句柄锁定，删除尽力而为
+            let _ = std::fs::remove_dir_all(root.join("WebView2"));
+        }
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// 打开更新下载目录（便携形态 v1 手动更新引导：下载 zip 后由用户
+/// 退出应用解压覆盖，不提供自动安装）。走 opener 插件而非裸进程名，
+/// 避免 CreateProcess 搜索序歧义。
+#[tauri::command]
+pub fn open_update_dir(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::update_ctl::installer_dir();
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("打开下载目录失败：{e}"))
+}
+
 // ---- 更新检测（core::update 的薄封装） -------------------------------------
 
 /// 当前更新状态（版本 / 上次检测 / 新版本信息 / 最近错误）。
@@ -982,7 +1081,7 @@ pub fn get_update_state(
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
     Ok(crate::update_ctl::dto_of(
         &state.update_ctl.read().unwrap(),
-        state.paths.is_portable(),
+        state.mode.is_portable(),
     ))
 }
 
@@ -1002,7 +1101,7 @@ pub async fn check_update_now(
     .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
-    Ok(crate::update_ctl::dto_of(&inner, state.paths.is_portable()))
+    Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
 
 /// 下载安装包到 %TEMP%/QuotaTray/Downloads 并记录进状态表，返回完整路径。
@@ -1014,9 +1113,13 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Resu
 
 /// 运行已下载的安装包（NSIS 向导由用户交互完成）。启动成功后应用自动
 /// 退出——覆盖安装需先解锁自身文件；留 400ms 让 IPC 响应送达前端。
+/// 便携形态拒绝：zip 不是安装包，更新走 open_update_dir 手动覆盖引导。
 #[tauri::command]
 pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let lang = lang_of(&state);
+    if state.mode.is_portable() {
+        return Err(lang.err_update_install_portable());
+    }
     crate::update_ctl::run_installer(&state, lang)?;
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(400));

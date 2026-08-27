@@ -147,47 +147,53 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
 pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
     let now = now_ms();
     let prev_downloaded = state.update_ctl.read().unwrap().downloaded.clone();
-    let mut inner =
-        match update::check_update(http, VERSION, update::AssetSelector::installed()).await {
-            Ok(UpdateStatus::Available {
+    // 资产选择按运行形态分流：便携选 portable zip、安装选 setup.exe，
+    // 绝不跨形态回退（命名契约见 core::update）
+    let selector = if state.mode.is_portable() {
+        update::AssetSelector::portable()
+    } else {
+        update::AssetSelector::installed()
+    };
+    let mut inner = match update::check_update(http, VERSION, selector).await {
+        Ok(UpdateStatus::Available {
+            version,
+            html_url,
+            notes,
+            asset,
+        }) => UpdateCtlState {
+            last_check: Some(now),
+            info: Some(AvailableInfo {
                 version,
                 html_url,
                 notes,
-                asset,
-            }) => UpdateCtlState {
-                last_check: Some(now),
-                info: Some(AvailableInfo {
-                    version,
-                    html_url,
-                    notes,
-                    asset_name: asset.as_ref().map(|a| a.name.clone()),
-                    asset_size: asset.as_ref().map(|a| a.size),
-                    downloadable: asset.is_some(),
-                    asset_url: asset.map(|a| a.browser_download_url),
-                }),
-                last_error: None,
-                last_error_detail: None,
-                downloaded: None,
-            },
-            // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
-            Ok(_) => UpdateCtlState {
-                last_check: Some(now),
-                info: None,
-                last_error: None,
-                last_error_detail: None,
-                downloaded: None,
-            },
-            // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
-            // 统一按资产名重判）。主文案用 Display（简短），限流等原因
-            // detail 单独携带——前端主文字不变，悬停展示完整信息。
-            Err(e) => UpdateCtlState {
-                last_check: Some(now),
-                info: None,
-                last_error: Some(e.to_string()),
-                last_error_detail: error_detail(&e),
-                downloaded: prev_downloaded.clone(),
-            },
-        };
+                asset_name: asset.as_ref().map(|a| a.name.clone()),
+                asset_size: asset.as_ref().map(|a| a.size),
+                downloadable: asset.is_some(),
+                asset_url: asset.map(|a| a.browser_download_url),
+            }),
+            last_error: None,
+            last_error_detail: None,
+            downloaded: None,
+        },
+        // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
+        Ok(_) => UpdateCtlState {
+            last_check: Some(now),
+            info: None,
+            last_error: None,
+            last_error_detail: None,
+            downloaded: None,
+        },
+        // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
+        // 统一按资产名重判）。主文案用 Display（简短），限流等原因
+        // detail 单独携带——前端主文字不变，悬停展示完整信息。
+        Err(e) => UpdateCtlState {
+            last_check: Some(now),
+            info: None,
+            last_error: Some(e.to_string()),
+            last_error_detail: error_detail(&e),
+            downloaded: prev_downloaded.clone(),
+        },
+    };
     if inner.last_error.is_none() {
         inner.downloaded = carry_downloaded(prev_downloaded, inner.info.as_ref());
     }
@@ -235,12 +241,14 @@ pub async fn download_installer(
 }
 
 /// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
-/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe` 结尾——防恶意
-/// 资产名使落盘位置逃出下载目录（运行侧另有 validate_installer_path）。
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip` 结尾
+/// （zip = 便携形态更新资产）——防恶意资产名使落盘位置逃出下载目录
+/// （运行安装侧另有 exe-only 的 validate_installer_path）。
 fn validate_asset_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
     !name.is_empty()
         && !name.contains(['/', '\\', ':'])
-        && name.to_ascii_lowercase().ends_with(".exe")
+        && (lower.ends_with(".exe") || lower.ends_with(".zip"))
 }
 
 /// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
@@ -321,10 +329,8 @@ pub fn spawn_scheduler(app: AppHandle) {
                         proxy_url(&state).as_deref(),
                     ) {
                         let inner = run_check(&state, &http).await;
-                        let _ = app.emit(
-                            UPDATE_STATE_EVENT,
-                            dto_of(&inner, state.paths.is_portable()),
-                        );
+                        let _ =
+                            app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
                         tray::rebuild(&app, &state);
                     }
                 }
@@ -355,6 +361,9 @@ mod tests {
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
+            mode: quota_core::RuntimeMode::Installed {
+                data_dir: Some(dir.to_path_buf()),
+            },
             engine: std::sync::RwLock::new(engine),
             vault,
             paths,
@@ -441,6 +450,41 @@ mod tests {
         // NoRelease/UpToDate → 无 info
         assert!(mk(UpdateStatus::NoRelease).info.is_none());
         assert!(mk(UpdateStatus::UpToDate).info.is_none());
+    }
+
+    /// 契约：便携形态的检测只命中 portable zip——同一 release 同时含
+    /// setup.exe 也不回退（形态分流，命名契约见 core::update）。
+    #[tokio::test]
+    async fn run_check_portable_mode_selects_portable_zip() {
+        let dir = std::env::temp_dir().join(format!("qt-updctl-port-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = sandbox_state(&dir);
+        let data_root = dir.join("Data");
+        std::fs::create_dir_all(&data_root).unwrap();
+        state.mode = quota_core::RuntimeMode::Portable {
+            root: data_root.clone(),
+        };
+
+        let zip =
+            update::expected_asset_name("9.9.9", update::arch_label(), update::Flavor::PortableZip);
+        let setup =
+            update::expected_asset_name("9.9.9", update::arch_label(), update::Flavor::SetupExe);
+        let body = format!(
+            r#"{{"tag_name":"v9.9.9","html_url":"u","assets":[
+                {{"name":"{setup}","browser_download_url":"https://x/setup","size":1}},
+                {{"name":"{zip}","browser_download_url":"https://x/zip","size":2}}
+            ]}}"#
+        );
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 200, body)],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(
+            inner.info.as_ref().and_then(|i| i.asset_name.as_deref()),
+            Some(zip.as_str()),
+            "便携形态命中 portable zip 而非 setup.exe"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 契约：run_check 端到端更新状态表 + settings 节流时间戳落盘；
@@ -612,18 +656,23 @@ mod tests {
         );
     }
 
-    /// 契约：资产名仅放行纯文件名 .exe——路径分隔符/盘符冒号/
-    /// ADS 形态/非 exe 一律拒绝（写入侧防御，运行侧见路径校验）。
+    /// 契约：资产名仅放行纯文件名 .exe/.zip（zip = 便携更新资产）——
+    /// 路径分隔符/盘符冒号/ADS 形态/其他扩展名一律拒绝（写入侧防御，
+    /// 运行安装侧见 exe-only 路径校验）。
     #[test]
     fn validate_asset_name_contract() {
         assert!(validate_asset_name("QuotaTray_0.4.1_x64-setup.exe"));
         assert!(validate_asset_name("setup.EXE"), "扩展名大小写不敏感");
+        assert!(
+            validate_asset_name("QuotaTray_0.7.0_x64-portable.zip"),
+            "zip = 便携更新资产放行"
+        );
         assert!(!validate_asset_name(""));
         assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
         assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");
         assert!(!validate_asset_name("C:x.exe"), "盘符冒号");
         assert!(!validate_asset_name("setup.exe:ads"), "NTFS ADS 冒号");
-        assert!(!validate_asset_name("setup.zip"), "非 exe");
+        assert!(!validate_asset_name("setup.rar"), "非 exe/zip 拒绝");
         assert!(!validate_asset_name(".."), "目录上跳");
     }
 
@@ -633,7 +682,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("qt-savebad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let state = sandbox_state(&dir);
-        for bad in ["..\\..\\evil.exe", "a/b.exe", "setup.zip"] {
+        for bad in ["..\\..\\evil.exe", "a/b.exe", "evil.rar"] {
             assert!(
                 save_installer(&state, bad, b"x", Lang::Zh).is_err(),
                 "{bad} 应被拒绝"

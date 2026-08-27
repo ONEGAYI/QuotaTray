@@ -76,8 +76,10 @@ export function resolveUpdateStatus({
   return "current";
 }
 
-/** 设置页更新主按钮的动作分派（决定文案与点击行为）。 */
-export type UpdateAction = "downloading" | "install" | "download" | "check";
+/** 设置页更新主按钮的动作分派（决定文案与点击行为）。
+ * 便携形态下载的是 zip：已下载动作是「打开下载目录」引导手动覆盖，
+ * 不提供运行安装包入口。 */
+export type UpdateAction = "downloading" | "install" | "open-dir" | "download" | "check";
 
 /** 更新页版本行的运行形态标签：架构 +（便携形态时）便携标记。
  * 后端未返回 platform（异常/旧后端）时返回空串，调用方拼接时跳过该段。 */
@@ -94,13 +96,19 @@ export function resolveUpdateAction({
   downloading,
   canDownload,
   hasDownloaded,
+  portable = false,
 }: {
   downloading: boolean;
   canDownload: boolean;
   hasDownloaded: boolean;
+  /** 便携形态（更新资产为 zip，走手动覆盖引导）。 */
+  portable?: boolean;
 }): UpdateAction {
   if (downloading) return "downloading";
   // 安装态要求仍有可下载的新版本：换版本/检测失败时后端已清记录
-  if (canDownload) return hasDownloaded ? "install" : "download";
+  if (canDownload) {
+    if (hasDownloaded) return portable ? "open-dir" : "install";
+    return "download";
+  }
   return "check";
 }

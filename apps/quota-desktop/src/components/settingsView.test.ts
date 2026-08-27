@@ -105,6 +105,19 @@ describe("更新设置视图", () => {
       .toBe("check");
   });
 
+  it("便携形态：已下载动作是打开下载目录，不提供运行安装包", () => {
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true, portable: true }),
+    ).toBe("open-dir");
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: false, portable: true }),
+    ).toBe("download");
+    // 安装态默认不受 portable 缺省影响
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true }),
+    ).toBe("install");
+  });
+
   it("格式化已知总量的下载进度与速率", () => {
     const progress = {
       downloaded_bytes: 5 * 1024 * 1024,

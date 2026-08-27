@@ -218,6 +218,13 @@ export interface UpdateAvailable {
   asset_url: string | null;
 }
 
+/** get_boot_state 的 IPC 返回形状（前端首屏分支：便携首启确认页）。 */
+export interface BootStateDto {
+  ready: boolean;
+  /** 便携首启待确认（ready=false 时的唯一成因）。 */
+  pendingPortableInit: boolean;
+}
+
 /** get_update_state 的 IPC 返回形状。 */
 export interface UpdateStateDto {
   current_version: string;
