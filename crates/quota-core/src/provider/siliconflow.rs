@@ -3,6 +3,9 @@
 //! `GET {base}/v1/user/info`（Bearer api key）
 //! 响应：`{"code": 20000, "data": {"totalBalance": "42.50", ...}}`
 //! 文档：docs.siliconflow.cn / docs.siliconflow.com（双站账户独立）。
+//!
+//! 国内站该接口已被官方停止服务（2026-08-14 起 HTTP 410，替代 API 未发布，
+//! 见 AGENTS.md「外部接口停用追踪」），410 转译为止血提示。
 
 use async_trait::async_trait;
 
@@ -19,6 +22,8 @@ pub struct SiliconFlow {
     name: &'static str,
     base_url: &'static str,
     unit: &'static str,
+    /// 410 止血文案；仅国内站设置，国际站 None 维持通用 HTTP 错误路径。
+    deprecated_410_notice: Option<&'static str>,
 }
 
 /// 国内站（api.siliconflow.cn，人民币）。
@@ -27,6 +32,9 @@ pub const SILICONFLOW_CN: SiliconFlow = SiliconFlow {
     name: "SiliconFlow",
     base_url: "https://api.siliconflow.cn",
     unit: "CNY",
+    deprecated_410_notice: Some(
+        "SiliconFlow 国内站余额接口已由官方停止服务，暂无替代 API；这不表示 API Key 无效。",
+    ),
 };
 
 /// 国际站（api.siliconflow.com，美元——官方文档未标注余额单位，
@@ -36,6 +44,7 @@ pub const SILICONFLOW_GLOBAL: SiliconFlow = SiliconFlow {
     name: "SiliconFlow（国际站）",
     base_url: "https://api.siliconflow.com",
     unit: "USD",
+    deprecated_410_notice: None,
 };
 
 #[async_trait]
@@ -57,7 +66,25 @@ impl NativeProvider for SiliconFlow {
             .bearer(&creds.api_key)
             .header("Accept", "application/json");
         let snapshot = req.clone();
-        let body = fetch_json(http, req).await?;
+        let body = match fetch_json(http, req).await {
+            Ok(v) => v,
+            Err(e) => {
+                // 止血特判（仅国内站）：410 是官方废弃的终态，转译为明确
+                // 提示以免误判 Key 无效；原始 410 detail 保留供排查。
+                // 前缀匹配耦合 status_error_with_body 的 "HTTP {status}" 格式
+                //（状态码至多三位数，"410" 后只会是结尾或冒号）。
+                if let Some(notice) = self.deprecated_410_notice {
+                    if e.message().starts_with("HTTP 410") {
+                        let mut hint = QueryError::deterministic(notice.to_string());
+                        if let Some(d) = e.detail() {
+                            hint = hint.with_detail(d);
+                        }
+                        return Err(hint);
+                    }
+                }
+                return Err(e);
+            }
+        };
 
         // code != 20000 为平台业务错误（含 message），重试无意义；
         // 兼容数字与字符串两种 code 形态（历史版本 API 曾返回字符串）
@@ -197,5 +224,58 @@ mod tests {
         let body = r#"{"data":{"totalBalance":"1.25"}}"#;
         let data = query_with(MockHttp::ok(body)).await.unwrap();
         assert_eq!(data[0].remaining, Some(1.25));
+    }
+
+    /// 410 响应体（issue #50 实录形态：code 20092，无 error 字段）。
+    fn gone_body() -> &'static str {
+        r#"{"code":20092,"message":"This endpoint is deprecated and is no longer available.","data":null}"#
+    }
+
+    /// 止血契约（issue #50）：国内站 /v1/user/info 官方废弃后 410，
+    /// 错误转译为明确提示——说明接口停止服务且不代表 API Key 无效，
+    /// 原始 410 细节保留在 detail 供排查。
+    #[tokio::test]
+    async fn cn_410_translated_to_deprecation_notice() {
+        let err = query_with(MockHttp::status_body(410, gone_body()))
+            .await
+            .unwrap_err();
+        assert!(!err.is_transient(), "接口废弃是终态，不应可重试");
+        let msg = err.message();
+        assert!(msg.contains("已由官方停止服务"), "实际：{msg}");
+        assert!(msg.contains("这不表示 API Key 无效"), "实际：{msg}");
+        assert!(!msg.contains("HTTP 410"), "主文案应替换而非追加：{msg}");
+        let detail = err.detail().unwrap_or_default();
+        assert!(
+            detail.contains("20092"),
+            "原始响应体应保留在 detail：{detail}"
+        );
+    }
+
+    /// 止血契约：特判仅限国内站——国际站 410 仍走通用 HTTP 错误路径。
+    #[tokio::test]
+    async fn global_410_keeps_plain_http_error() {
+        let err = SILICONFLOW_GLOBAL
+            .query(
+                &creds(),
+                &MockHttp::status_body(410, gone_body()),
+                PlanVariant::Auto,
+            )
+            .await
+            .unwrap_err();
+        let msg = err.message();
+        assert!(msg.contains("HTTP 410"), "实际：{msg}");
+        assert!(
+            !msg.contains("停止服务"),
+            "国际站不应出现国内站止血文案：{msg}"
+        );
+    }
+
+    /// 止血契约：只特判 410——国内站其他 4xx（如 401）不触发止血文案。
+    #[tokio::test]
+    async fn cn_other_status_not_translated() {
+        let err = query_with(MockHttp::status(401)).await.unwrap_err();
+        let msg = err.message();
+        assert!(msg.contains("HTTP 401"), "实际：{msg}");
+        assert!(!msg.contains("停止服务"), "非 410 不应误伤：{msg}");
     }
 }
