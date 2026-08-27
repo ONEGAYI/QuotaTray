@@ -46,6 +46,9 @@ interface DragSession {
   rects: DragItemRect[];
   targetIndex: number;
   card: HTMLElement;
+  /** 会话开始时的 id 顺序快照：commit 前核对未变，防并发增删/键盘重排
+   *  导致的索引语义错位与越界（对不上即放弃提交，由变更来源恢复秩序）。 */
+  idsSnapshot: string[];
   samples: { t: number; y: number }[];
   latestY: number;
   reducedMotion: boolean;
@@ -83,11 +86,14 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
   const [phase, setPhase] = useState<DragPhase>("idle");
   const [shifts, setShifts] = useState<Record<string, number>>({});
 
-  // ids/onCommit 在事件回调里取最新值，避免闭包悬挂旧列表
+  // ids/onCommit 在事件回调里取最新值，避免闭包悬挂旧列表；phase 镜像
+  // 供原生事件回调读取当前会话阶段（settle/cancel 期间须拒绝新会话）
   const idsRef = useRef(ids);
   idsRef.current = ids;
   const onCommitRef = useRef(options.onCommit);
   onCommitRef.current = options.onCommit;
+  const phaseRef = useRef<DragPhase>("idle");
+  phaseRef.current = phase;
 
   const armRef = useRef<ArmedState | null>(null);
   const sessionRef = useRef<DragSession | null>(null);
@@ -144,7 +150,12 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
   /** 动画终点收尾：同步重排数据、清除直写残留、回到 idle。 */
   const finalize = useCallback(
     (session: DragSession, commit: boolean) => {
-      if (commit && session.targetIndex !== session.dragIndex) {
+      // 会话期间列表被并发修改：放弃提交（索引语义已错位），由变更来源
+      // 自身的渲染/事件恢复真实顺序；清直写与全局复位照常执行
+      const idsUnchanged =
+        session.idsSnapshot.length === idsRef.current.length &&
+        session.idsSnapshot.every((id, index) => id === idsRef.current[index]);
+      if (commit && idsUnchanged && session.targetIndex !== session.dragIndex) {
         flushSync(() => {
           onCommitRef.current(reorderIds(idsRef.current, session.dragIndex, session.targetIndex));
         });
@@ -200,6 +211,15 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
     (arm: ArmedState, clientY: number) => {
       const container = containerRef.current;
       if (!container) return;
+      const byId = new Map(
+        Array.from(container.querySelectorAll<HTMLElement>("[data-card-id]"), (el) => [el.dataset.cardId ?? "", el]),
+      );
+      const card = byId.get(arm.dragId);
+      const dragIndex = idsRef.current.indexOf(arm.dragId);
+      // 渲染与数据未对齐（罕见的中间态）：放弃本次拖拽，等下一帧再来。
+      // 全部校验必须先于直写 is-drag-active，否则失败路径不触发任何
+      // setState，React 不会重写 className，直写 class 将永久残留。
+      if (!card || dragIndex < 0 || !idsRef.current.every((id) => byId.has(id))) return;
       // 测量前直写 is-drag-active：hover 的次级区展开/卡片上浮必须在本帧
       // 同步失效（次级区在拖拽态下无过渡瞬收），否则被拖卡片的展开高度
       // （数百 px）会污染 rects，让位偏移把其他卡片推出卡片区。
@@ -208,34 +228,23 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
       container.classList.add("is-drag-active");
       const scroller = container.closest<HTMLElement>(".qt-main-content");
       scrollerRef.current = scroller;
-      const byId = new Map(
-        Array.from(container.querySelectorAll<HTMLElement>("[data-card-id]"), (el) => [el.dataset.cardId ?? "", el]),
-      );
-      // 渲染与数据未对齐（罕见的中间态）：放弃本次拖拽，等下一帧再来。
-      // 校验必须先于直写 is-drag-active，否则失败路径残留直写 class。
-      if (!idsRef.current.every((id) => byId.has(id))) return;
-      container.classList.add("is-drag-active");
       const containerTop = container.getBoundingClientRect().top;
-      const rects: DragItemRect[] = [];
-      let card: HTMLElement | null = null;
-      for (const id of idsRef.current) {
-        const el = byId.get(id);
-        if (!el) return;
-        if (id === arm.dragId) card = el;
-        const rect = el.getBoundingClientRect();
-        rects.push({ top: rect.top - containerTop, height: rect.height });
-      }
-      if (!card) return;
-      const dragIndex = idsRef.current.indexOf(arm.dragId);
+      const rects: DragItemRect[] = idsRef.current.map((id) => {
+        const rect = byId.get(id)!.getBoundingClientRect();
+        return { top: rect.top - containerTop, height: rect.height };
+      });
       const session: DragSession = {
         pointerId: arm.pointerId,
         dragId: arm.dragId,
         dragIndex,
-        startY: arm.startY,
+        // startY 与 startScrollTop 同取激活时刻（armed 期间列表可能滚动，
+        // 混用 pointerdown 纪元会让激活瞬间跳变该滚动量）
+        startY: clientY,
         startScrollTop: scroller?.scrollTop ?? 0,
         rects,
         targetIndex: dragIndex,
         card,
+        idsSnapshot: [...idsRef.current],
         samples: [{ t: performance.now(), y: clientY }],
         latestY: clientY,
         reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -247,6 +256,7 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
       setDragId(arm.dragId);
       setShifts(Object.fromEntries(idsRef.current.map((id) => [id, 0])));
       setPhase("drag");
+      cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(tick);
     },
     [containerRef, tick],
@@ -282,7 +292,10 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
       if (sessionRef.current?.pointerId === event.pointerId) {
         endDrag(false);
       }
-      armRef.current = null;
+      // 只清本指针的 armed：多指场景下另一指针的 pointercancel 不应误杀
+      if (armRef.current?.pointerId === event.pointerId) {
+        armRef.current = null;
+      }
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && sessionRef.current) {
@@ -314,10 +327,16 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
     (id: string): DragHandleProps => ({
       onPointerDown: (event) => {
         if (event.button !== 0) return;
+        // 会话互斥：既有会话（含 settle/cancel 动画期）或另一指针 armed
+        // 期间拒绝开启新会话——旧会话 finalize 会复位全局拖拽状态并可能
+        // flushSync 重排 DOM，摧毁进行中新会话的几何与直写
+        if (sessionRef.current || armRef.current || phaseRef.current !== "idle") return;
         armRef.current = { pointerId: event.pointerId, startY: event.clientY, dragId: id };
         event.currentTarget.setPointerCapture(event.pointerId);
       },
       onKeyDown: (event) => {
+        // 拖拽会话进行中忽略键盘调序：idsRef 已非本会话快照，索引错位
+        if (sessionRef.current || phaseRef.current !== "idle") return;
         const index = idsRef.current.indexOf(id);
         if (index < 0) return;
         let to: number | null = null;

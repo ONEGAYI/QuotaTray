@@ -51,7 +51,8 @@ function AppInner() {
   const commitDragOrder = useCallback(
     (orderedIds: string[]) => {
       const current = providers.data;
-      // 与当前列表对不上（拖拽中并发增删）：放弃乐观更新，直接落库校验兜底
+      // 与当前列表对不上（拖拽中并发增删）：放弃乐观更新并跳过落库，
+      // 等待变更来源自身的刷新给出正确状态（后端集合校验保留作纵深防御）
       if (!current || current.length !== orderedIds.length) return;
       const byId = new Map(current.map((entry) => [entry.id, entry]));
       const reordered = orderedIds

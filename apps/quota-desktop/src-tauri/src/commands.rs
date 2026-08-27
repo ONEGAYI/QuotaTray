@@ -395,6 +395,10 @@ fn reorder_providers_in_place(providers: &mut [ProviderEntry], ids: &[String]) {
 /// 按前端给定的完整 id 顺序重排条目（卡片拖拽排序落库）。
 /// 顺序影响托盘图标回退（未指定图标时取第一个启用条目）与图标子菜单序，
 /// 必须走 after_state_change 重建托盘；各条目数据未变，不动 results/历史。
+///
+/// 并发前提：本命令与 upsert/remove 同为同步 fn，Tauri 主线程串行执行，
+/// load→save 之间不会被另一配置写命令插入；若未来任一写命令改为 async
+/// 挪入线程池，需先引入跨命令的配置写锁，否则出现丢失更新竞态。
 #[tauri::command]
 pub fn reorder_providers(
     app: AppHandle,
