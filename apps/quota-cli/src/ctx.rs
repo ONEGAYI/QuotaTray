@@ -20,6 +20,8 @@ pub struct Ctx {
     pub config_path: PathBuf,
     /// 展示语言（已 resolve，非 System）。
     pub lang: Lang,
+    /// 便携形态标记（决定 vault status 文案与更新资产选择器）。
+    portable: bool,
     store: Arc<dyn SecretStore>,
 }
 
@@ -30,7 +32,21 @@ impl Ctx {
         Self {
             config_path,
             lang,
+            portable: false,
             store: Arc::new(KeyringStore::new()),
+        }
+    }
+
+    /// 便携生产上下文：主密钥后端为 `root/portable.key`（FileStore），
+    /// 配置固定为 `root/config.json`。首启建钥的门控（固定安全提示 +
+    /// 显式确认）由调用方完成后才可进入本构造（AGENTS.md 红线 §5）。
+    pub fn portable(root: PathBuf, lang: Lang) -> Self {
+        let key = quota_core::portable_key_path(&root);
+        Self {
+            config_path: root.join("config.json"),
+            lang,
+            portable: true,
+            store: Arc::new(quota_core::FileStore::new(key)),
         }
     }
 
@@ -40,6 +56,7 @@ impl Ctx {
         Self {
             config_path,
             lang: Lang::Zh,
+            portable: false,
             store,
         }
     }
@@ -49,6 +66,21 @@ impl Ctx {
     pub fn with_lang(mut self, lang: Lang) -> Self {
         self.lang = lang;
         self
+    }
+
+    /// 运行形态：便携（FileStore）还是安装（keyring）。
+    pub fn is_portable(&self) -> bool {
+        self.portable
+    }
+
+    /// 更新资产选择器：按运行形态分流（便携选 portable zip、安装选
+    /// setup.exe），绝不跨形态回退（资产契约见 core::update）。
+    pub fn update_selector(&self) -> quota_core::AssetSelector {
+        if self.portable {
+            quota_core::AssetSelector::portable()
+        } else {
+            quota_core::AssetSelector::installed()
+        }
     }
 
     /// 主密钥后端（vault status 健康检查用；测试注入内存后端即可测）。
@@ -118,6 +150,31 @@ mod tests {
         let v2 = ctx.open_vault().unwrap();
         let ct = v1.encrypt("secret", "p").unwrap();
         assert_eq!(v2.decrypt(&ct, "p").unwrap(), "secret");
+    }
+
+    /// 契约：便携上下文的路径派生与形态分流——config/history 同落便携
+    /// 数据根，密钥后端为 FileStore，更新选择器指向 portable zip。
+    #[test]
+    fn portable_ctx_derives_paths_and_selector() {
+        let root = std::env::temp_dir().join(format!("quota-cli-ctx-port-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = Ctx::portable(root.clone(), Lang::Zh);
+        assert!(ctx.is_portable());
+        assert_eq!(ctx.config_path, root.join("config.json"));
+        assert_eq!(ctx.history_path(), root.join("history.db"));
+        // FileStore 后端：store 为空（None）且路径即 root/portable.key
+        assert_eq!(ctx.store().get().unwrap(), None);
+        let selector = ctx.update_selector();
+        assert_eq!(selector.flavor, quota_core::Flavor::PortableZip);
+        assert_eq!(selector.arch, quota_core::arch_label());
+        // 安装上下文反向对照
+        let installed = Ctx::production(PathBuf::from("c.json"), Lang::Zh);
+        assert!(!installed.is_portable());
+        assert_eq!(
+            installed.update_selector().flavor,
+            quota_core::Flavor::SetupExe
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// 契约：ctx 错误文案双语（语言字段直接驱动）——注入恒失败 store
