@@ -200,17 +200,26 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
     (arm: ArmedState, clientY: number) => {
       const container = containerRef.current;
       if (!container) return;
+      // 测量前直写 is-drag-active：hover 的次级区展开/卡片上浮必须在本帧
+      // 同步失效（次级区在拖拽态下无过渡瞬收），否则被拖卡片的展开高度
+      // （数百 px）会污染 rects，让位偏移把其他卡片推出卡片区。
+      // 后续 React 渲染同值 class 幂等；会话结束时 React 全量替换 className
+      // 一并清掉此直写。
+      container.classList.add("is-drag-active");
       const scroller = container.closest<HTMLElement>(".qt-main-content");
       scrollerRef.current = scroller;
       const byId = new Map(
         Array.from(container.querySelectorAll<HTMLElement>("[data-card-id]"), (el) => [el.dataset.cardId ?? "", el]),
       );
+      // 渲染与数据未对齐（罕见的中间态）：放弃本次拖拽，等下一帧再来。
+      // 校验必须先于直写 is-drag-active，否则失败路径残留直写 class。
+      if (!idsRef.current.every((id) => byId.has(id))) return;
+      container.classList.add("is-drag-active");
       const containerTop = container.getBoundingClientRect().top;
       const rects: DragItemRect[] = [];
       let card: HTMLElement | null = null;
       for (const id of idsRef.current) {
         const el = byId.get(id);
-        // 渲染与数据未对齐（罕见的中间态）：放弃本次拖拽，等下一帧再来
         if (!el) return;
         if (id === arm.dragId) card = el;
         const rect = el.getBoundingClientRect();

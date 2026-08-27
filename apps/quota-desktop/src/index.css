@@ -205,33 +205,38 @@ button:disabled { cursor: not-allowed; }
 }
 .qt-provider-list { display: grid; gap: 11px; }
 /* ---- 卡片拖拽排序（左侧把手 + transform 让位动效） ---- */
-/* 把手：卡片左缘竖条，常显半透明、hover/聚焦高亮；纹路由 ::before 三段短横构成 */
+/* 把手：卡片左缘竖条药丸，内部五点间歇点列；常显半透明、hover/聚焦高亮 */
 .qt-drag-handle {
   position: absolute;
-  left: 3px;
-  top: calc(50% - 16px);
-  width: 10px;
-  height: 32px;
+  left: 2px;
+  top: calc(50% - 17px);
+  width: 14px;
+  height: 34px;
   padding: 0;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--qt-text-faint);
   cursor: grab;
-  opacity: .38;
-  transition: opacity .15s ease, color .15s ease;
+  opacity: .55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity .15s ease, color .15s ease, background-color .15s ease;
   touch-action: none;
   user-select: none;
 }
+/* 点状间歇填充：中心点 + 上下各两个投影点，5px 点径 3px、节距 6px */
 .qt-drag-handle::before {
   content: "";
-  display: block;
-  width: 2px;
-  height: 12px;
-  margin: 0 auto;
-  border-radius: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor;
+  box-shadow: 0 -6px 0 currentColor, 0 6px 0 currentColor, 0 -12px 0 currentColor, 0 12px 0 currentColor;
+}
+.qt-drag-handle:not(:disabled):hover {
+  background: color-mix(in srgb, var(--qt-accent) 15%, transparent);
 }
 .qt-provider-card:hover .qt-drag-handle,
 .qt-drag-handle:focus-visible { opacity: 1; color: var(--qt-accent); }
@@ -243,10 +248,13 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-list.is-drag-active .qt-provider-card {
   transition: transform .24s cubic-bezier(.2, .9, .3, 1.06), border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
 }
-/* 拖拽中冻结 hover 上浮与次级区展开（高度变化会破坏槽位几何测量） */
+/* 拖拽中冻结 hover 上浮与次级区展开（高度变化会破坏槽位几何测量）。
+   次级区同时去掉过渡：收起必须瞬时效（激活时同步失效，测量才能拿到
+   收起态几何——否则被拖卡片的 hover 展开高度会污染让位偏移计算） */
 .qt-provider-list.is-drag-active .qt-provider-card:hover,
 .qt-provider-list.is-drag-active .qt-provider-card:focus-within,
 .qt-provider-list.is-drag-active .qt-provider-card.is-expanded { transform: none; }
+.qt-provider-list.is-drag-active .qt-provider-secondary { transition: none; }
 .qt-provider-list.is-drag-active .qt-provider-card:hover .qt-provider-secondary,
 .qt-provider-list.is-drag-active .qt-provider-card:focus-within .qt-provider-secondary,
 .qt-provider-list.is-drag-active .qt-provider-card.is-expanded .qt-provider-secondary {
@@ -362,7 +370,7 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-card.is-warning { border-color: color-mix(in srgb, var(--qt-warning) 52%, var(--qt-border)); }
 .qt-provider-card.has-balance-alert { border-color: color-mix(in srgb, var(--qt-danger) 58%, var(--qt-border)); }
 .qt-provider-card.is-disabled { opacity: .62; }
-.qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1fr) max-content max-content; min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px 16px 25px; }
+.qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1fr) max-content max-content; min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px 16px 27px; }
 .qt-provider-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
 .qt-provider-avatar { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, #8c8c86 22%, transparent); border-radius: 12px; background: #f5f5f2; color: #242422; font-size: 13px; font-weight: 650; box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 28%, transparent); }
 .qt-provider-avatar img { display: block; width: 30px; height: 30px; object-fit: contain; }
