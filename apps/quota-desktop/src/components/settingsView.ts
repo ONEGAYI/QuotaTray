@@ -79,6 +79,17 @@ export function resolveUpdateStatus({
 /** 设置页更新主按钮的动作分派（决定文案与点击行为）。 */
 export type UpdateAction = "downloading" | "install" | "download" | "check";
 
+/** 更新页版本行的运行形态标签：架构 +（便携形态时）便携标记。
+ * 后端未返回 platform（异常/旧后端）时返回空串，调用方拼接时跳过该段。 */
+export function runtimeLabel(
+  platform: string | null | undefined,
+  portable: boolean | null | undefined,
+  portableText: string,
+): string {
+  const arch = platform?.trim() || "";
+  return portable ? (arch ? `${arch} · ${portableText}` : portableText) : arch;
+}
+
 export function resolveUpdateAction({
   downloading,
   canDownload,

@@ -8,13 +8,14 @@ import {
 import {
   AlertCircle,
   AlertTriangle,
-  ArchiveRestore,
   Check,
+  Database,
   ExternalLink,
   FileDown,
   FileUp,
   PackageCheck,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -29,12 +30,14 @@ import {
   resolveUpdateError,
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
+  runtimeLabel,
 } from "./settingsView";
 import {
   defaultTransferFileName,
   ensureTransferExtension,
   transferErrorMessage,
 } from "./configTransferView";
+import { ClearConfigDialog } from "./ClearConfigDialog";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -42,7 +45,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "general" | "update" | "transfer";
+type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
 export function SettingsDialog({ open, onClose }: Props) {
@@ -54,6 +57,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
 
   useEffect(() => {
     if (open && settings.data) setDraft({ ...settings.data });
@@ -213,8 +217,9 @@ export function SettingsDialog({ open, onClose }: Props) {
       onClose={onClose}
       closeLabel={t("titlebar.close")}
       size="md"
+      className="qt-dialog-settings"
       footer={
-        tab === "transfer" ? (
+        tab === "data" ? (
           <Button onClick={onClose}>{t("titlebar.close")}</Button>
         ) : (
           <>
@@ -246,11 +251,11 @@ export function SettingsDialog({ open, onClose }: Props) {
           </button>
           <button
             type="button"
-            aria-selected={tab === "transfer"}
-            onClick={() => setTab("transfer")}
+            aria-selected={tab === "data"}
+            onClick={() => setTab("data")}
           >
-            <ArchiveRestore size={16} aria-hidden="true" />
-            {t("settings.tabTransfer")}
+            <Database size={16} aria-hidden="true" />
+            {t("settings.tabData")}
           </button>
         </nav>
 
@@ -334,9 +339,15 @@ export function SettingsDialog({ open, onClose }: Props) {
                           : t("settings.upToDate")}
                   </h3>
                   <p>
-                    QuotaTray {update?.current_version ?? "…"} · {update?.last_check
-                      ? relativeTime(update.last_check, lang)
-                      : t("settings.neverChecked")}
+                    {[
+                      `QuotaTray ${update?.current_version ?? "…"}`,
+                      runtimeLabel(update?.platform, update?.portable, t("settings.portableTag")),
+                      update?.last_check
+                        ? relativeTime(update.last_check, lang)
+                        : t("settings.neverChecked"),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <Button
@@ -506,11 +517,31 @@ export function SettingsDialog({ open, onClose }: Props) {
                   {transferFeedback.text}
                 </p>
               )}
+              <SettingRow
+                title={t("settings.clearTitle")}
+                description={t("settings.clearHint")}
+              >
+                <Button
+                  variant="danger"
+                  icon={Trash2}
+                  onClick={() => setClearOpen(true)}
+                >
+                  {t("settings.clearButton")}
+                </Button>
+              </SettingRow>
             </>
           )}
           {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}
         </div>
       </div>
+      <ClearConfigDialog
+        open={clearOpen}
+        onClose={() => setClearOpen(false)}
+        onConfirm={() => {
+          // 空壳阶段：确认后仅关闭弹窗，实际清空待接线 core 清空命令
+          setClearOpen(false);
+        }}
+      />
     </DialogShell>
   );
 }

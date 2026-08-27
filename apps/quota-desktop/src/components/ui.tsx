@@ -181,6 +181,7 @@ export function DialogShell({
   footer,
   size = "md",
   closeLabel = "Close",
+  className = "",
 }: {
   title: string;
   description?: string;
@@ -189,6 +190,7 @@ export function DialogShell({
   footer: ReactNode;
   size?: "sm" | "md" | "lg";
   closeLabel?: string;
+  className?: string;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
@@ -236,9 +238,11 @@ export function DialogShell({
         first.focus();
       }
     };
-    document.addEventListener("keydown", onKeyDown);
+    // 监听挂在弹窗根元素而非 document：焦点已被圈在弹窗内，事件必然
+    // 冒泡经过此处；嵌套二级弹窗持有焦点时，下层弹窗不会收到 Esc/Tab
+    dialog.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      dialog.removeEventListener("keydown", onKeyDown);
       previouslyFocused?.focus();
     };
   }, []);
@@ -247,7 +251,7 @@ export function DialogShell({
     <div className="qt-dialog-backdrop">
       <section
         ref={dialogRef}
-        className={`qt-dialog qt-dialog-${size}`}
+        className={`qt-dialog qt-dialog-${size} ${className}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

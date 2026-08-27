@@ -980,7 +980,10 @@ pub fn get_snapshots(
 pub fn get_update_state(
     state: State<'_, AppState>,
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
-    Ok(crate::update_ctl::dto_of(&state.update_ctl.read().unwrap()))
+    Ok(crate::update_ctl::dto_of(
+        &state.update_ctl.read().unwrap(),
+        state.paths.is_portable(),
+    ))
 }
 
 /// 手动检测（设置页「立即检查」）：不受节流限制，检测后重建托盘菜单
@@ -999,7 +1002,7 @@ pub async fn check_update_now(
     .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
-    Ok(crate::update_ctl::dto_of(&inner))
+    Ok(crate::update_ctl::dto_of(&inner, state.paths.is_portable()))
 }
 
 /// 下载安装包到 %TEMP%/QuotaTray/Downloads 并记录进状态表，返回完整路径。

@@ -24,11 +24,21 @@ use lang::Lang;
 use std::path::PathBuf;
 use texts::{T, t};
 
+/// `--version` 输出：版本 + 目标架构（与 GUI 更新页共用 core 的 arch_label，
+/// 两端展示一致；便携形态不在此探测——version 保持零 IO 快速返回）。
+fn version_text() -> String {
+    format!(
+        "{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        quota_core::update::arch_label()
+    )
+}
+
 /// quota —— 多平台 AI 账户余额监视器的命令行前端
 #[derive(Parser, Debug)]
 #[command(
     name = "quota",
-    version,
+    version = version_text(),
     about = "多平台 AI 账户余额监视器的命令行前端"
 )]
 struct Cli {
@@ -576,9 +586,14 @@ mod tests {
         ] {
             Cli::try_parse_from(args).unwrap_or_else(|e| panic!("应可解析：{e}"));
         }
-        // --version 是特殊错误类别（携带版本信息退出），不算用法错误
+        // --version 是特殊错误类别（携带版本信息退出），不算用法错误；
+        // 输出携带平台标签（与 GUI 更新页共用 core arch_label）
         let e = Cli::try_parse_from(["quota", "--version"]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::DisplayVersion);
+        assert!(
+            e.to_string().contains(quota_core::update::arch_label()),
+            "--version 输出应包含平台标签"
+        );
     }
 
     /// 契约：互斥与非法参数被拒。

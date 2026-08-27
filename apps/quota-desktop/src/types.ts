@@ -221,6 +221,10 @@ export interface UpdateAvailable {
 /** get_update_state 的 IPC 返回形状。 */
 export interface UpdateStateDto {
   current_version: string;
+  /** 运行架构标签（x64 / ARM64，编译期确定，与 CLI --version 一致）。 */
+  platform: string;
+  /** 便携形态（数据根存在 portable.key；安装版恒 false）。 */
+  portable: boolean;
   last_check: number | null;
   available: UpdateAvailable | null;
   last_error: string | null;

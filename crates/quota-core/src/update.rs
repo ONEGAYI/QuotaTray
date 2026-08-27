@@ -26,6 +26,18 @@ use crate::http::{HttpClient, HttpError, HttpRequest};
 /// 当前程序版本（workspace 单源继承，与 CLI `--version` / GUI app 版本一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// 当前构建的目标架构标签，对齐发布资产命名（x64 / ARM64）。
+/// GUI 更新页与 CLI `--version` 共用，保证两端展示一致。
+pub fn arch_label() -> &'static str {
+    if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "ARM64"
+    } else {
+        "unknown"
+    }
+}
+
 /// release 所在仓库（owner/repo）。
 pub const GITHUB_REPO: &str = "ONEGAYI/QuotaTray";
 
@@ -526,6 +538,13 @@ mod tests {
     }
 
     // ---- 版本比较 ----
+
+    /// 契约：架构标签落在已发布资产命名集合内；未支持目标显式
+    /// unknown 而非 panic（跨平台库约束下不应编译失败）。
+    #[test]
+    fn arch_label_in_known_set() {
+        assert!(["x64", "ARM64", "unknown"].contains(&arch_label()));
+    }
 
     #[test]
     fn parse_version_accepts_common_forms() {

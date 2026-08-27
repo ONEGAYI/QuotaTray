@@ -58,10 +58,14 @@ pub struct UpdateCtlState {
     pub downloaded: Option<DownloadedInstaller>,
 }
 
-/// `get_update_state` 的 IPC 返回形状（含当前版本）。
+/// `get_update_state` 的 IPC 返回形状（含当前版本与运行形态）。
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateStateDto {
     pub current_version: &'static str,
+    /// 运行架构标签（x64 / ARM64，编译期确定，与 CLI --version 共用）。
+    pub platform: &'static str,
+    /// 便携形态（数据根存在 portable.key；安装版恒 false）。
+    pub portable: bool,
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
@@ -72,9 +76,11 @@ pub struct UpdateStateDto {
     pub downloaded_path: Option<String>,
 }
 
-pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
+pub fn dto_of(inner: &UpdateCtlState, portable: bool) -> UpdateStateDto {
     UpdateStateDto {
         current_version: VERSION,
+        platform: update::arch_label(),
+        portable,
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
@@ -314,7 +320,10 @@ pub fn spawn_scheduler(app: AppHandle) {
                         proxy_url(&state).as_deref(),
                     ) {
                         let inner = run_check(&state, &http).await;
-                        let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner));
+                        let _ = app.emit(
+                            UPDATE_STATE_EVENT,
+                            dto_of(&inner, state.paths.is_portable()),
+                        );
                         tray::rebuild(&app, &state);
                     }
                 }
@@ -519,7 +528,7 @@ mod tests {
             inner.last_error_detail.as_deref(),
             Some("API rate limit exceeded for 1.2.3.4.")
         );
-        let dto = dto_of(&inner);
+        let dto = dto_of(&inner, false);
         assert_eq!(dto.last_error_detail, inner.last_error_detail, "DTO 透传");
 
         // 成功检测（404 无 release）后错误与详情一并清空
@@ -663,12 +672,23 @@ mod tests {
     #[test]
     fn dto_of_exposes_downloaded_path() {
         let mut inner = UpdateCtlState::default();
-        assert!(dto_of(&inner).downloaded_path.is_none());
+        assert!(dto_of(&inner, false).downloaded_path.is_none());
         inner.downloaded = Some(DownloadedInstaller {
             path: "p".into(),
             asset_name: "setup.exe".into(),
         });
-        assert_eq!(dto_of(&inner).downloaded_path.as_deref(), Some("p"));
+        assert_eq!(dto_of(&inner, false).downloaded_path.as_deref(), Some("p"));
+    }
+
+    /// 契约：DTO 携带编译期架构标签（与 core arch_label 一致）并透传便携形态。
+    #[test]
+    fn dto_of_carries_platform_and_portable() {
+        let inner = UpdateCtlState::default();
+        let dto = dto_of(&inner, false);
+        assert_eq!(dto.platform, update::arch_label());
+        assert_eq!(dto.current_version, VERSION);
+        assert!(!dto.portable, "安装形态透传 false");
+        assert!(dto_of(&inner, true).portable, "便携形态透传 true");
     }
 
     /// 契约：安装包文件丢失或路径越界时，run_installer 清记录并报错

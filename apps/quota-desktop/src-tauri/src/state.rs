@@ -51,6 +51,18 @@ impl DataPaths {
     pub fn history(&self) -> PathBuf {
         self.root.join("history.db")
     }
+
+    /// 便携主密钥位置（Portable 方案 A：`Data/portable.key`）。
+    pub fn portable_key(&self) -> PathBuf {
+        self.root.join("portable.key")
+    }
+
+    /// 便携形态判定：数据根下存在 `portable.key` 即视为便携运行
+    /// （安装版数据目录不携带该文件）。仅作展示探测；便携版的
+    /// 启动门控/密钥初始化另行实现，不依赖此只读检查。
+    pub fn is_portable(&self) -> bool {
+        self.portable_key().exists()
+    }
 }
 
 /// 错误信息（IPC 传输形状，kind 对齐 CLI `--json` 约定的小写字符串）。
@@ -285,6 +297,23 @@ mod tests {
             default.config().ends_with(".quotatray\\config.json")
                 || default.config().ends_with(".quotatray/config.json")
         );
+    }
+
+    /// 契约：portable.key 标志文件存在与否决定便携形态判定。
+    #[test]
+    fn is_portable_follows_portable_key_marker() {
+        let dir = std::env::temp_dir().join(format!("qt-portable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths = DataPaths::new(Some(dir.clone())).unwrap();
+        assert!(!paths.is_portable(), "无标志文件 = 安装形态");
+        assert_eq!(
+            paths.portable_key(),
+            dir.join("portable.key"),
+            "标志文件位于数据根下"
+        );
+        std::fs::write(paths.portable_key(), b"k").unwrap();
+        assert!(paths.is_portable(), "标志文件存在 = 便携形态");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// 手工组装最小 AppState（AppState 依赖 keyring，测试绕开生产构造；
