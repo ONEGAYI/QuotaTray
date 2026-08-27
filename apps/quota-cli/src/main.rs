@@ -509,7 +509,7 @@ async fn auto_update_hint(ctx: &Ctx) {
     };
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        update::check_update(&http, VERSION),
+        update::check_update(&http, VERSION, update::AssetSelector::installed()),
     )
     .await;
     let _ = settings_io::write_last_check(&ctx.config_path, now);

@@ -8,6 +8,7 @@
 //! - `pricing`：峰谷定价（时段判定、预置平台定价、自定义合并）
 //! - `script`：QuickJS 沙箱脚本查询（M4，`{request, extractor}` 协议）
 //! - `history`：查询结果的历史存储（M5，SQLite + 版本化迁移）
+//! - `runtime`：安装态/便携态运行模式解析（Portable 方案 A，纯函数）
 
 pub mod config;
 pub mod history;
@@ -16,6 +17,7 @@ pub mod model;
 pub mod pricing;
 pub mod provider;
 pub mod query;
+pub mod runtime;
 pub mod script;
 pub mod template;
 pub mod update;
@@ -38,10 +40,14 @@ pub use pricing::{
     validate_custom_model,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
+pub use runtime::{
+    PORTABLE_DATA_DIR, PORTABLE_KEY, PORTABLE_MARKER, RuntimeMode, has_portable_marker,
+    portable_data_root, portable_key_path, resolve_mode,
+};
 pub use script::{ScriptConfig, ScriptError};
 pub use template::{TemplateConfig, TemplateError};
 pub use update::{
-    AssetDownloader, DownloadProgress, DownloadProgressReporter, ReqwestAssetDownloader,
-    UpdateError, UpdateStatus, VERSION,
+    AssetDownloader, AssetSelector, DownloadProgress, DownloadProgressReporter, Flavor,
+    ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION, arch_label, expected_asset_name,
 };
-pub use vault::{InMemoryStore, KeyringStore, SecretStore, Vault};
+pub use vault::{FileStore, InMemoryStore, KeyringStore, SecretStore, Vault};

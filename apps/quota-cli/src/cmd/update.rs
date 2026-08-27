@@ -133,7 +133,8 @@ pub async fn run_with(
     args: UpdateArgs,
 ) -> i32 {
     let lang = ctx.lang;
-    let status = match update::check_update(http, VERSION).await {
+    let status = match update::check_update(http, VERSION, update::AssetSelector::installed()).await
+    {
         Ok(s) => s,
         Err(e) => {
             // 手动检测也算一次检测：写回节流时间戳（失败也写，语义与启动钩子一致）
@@ -287,17 +288,33 @@ mod tests {
         .with_lang(lang)
     }
 
-    const RELEASE_JSON: &str = r#"{
+    /// mock 资产名按本机架构动态拼装（与 `AssetSelector::installed()`
+    /// 的期望名一致）：精确匹配语义下硬编码 x64 名会让测试退化为
+    /// x64-only（WoA ARM CI 必炸），动态生成保证任意架构可跑。
+    fn local_setup_asset() -> String {
+        quota_core::update::expected_asset_name(
+            "9.9.9",
+            quota_core::update::arch_label(),
+            quota_core::update::Flavor::SetupExe,
+        )
+    }
+
+    fn release_json() -> String {
+        format!(
+            r#"{{
         "tag_name": "v9.9.9",
         "html_url": "https://github.com/ONEGAYI/QuotaTray/releases/v9.9.9",
         "body": "changelog",
-        "assets": [{"name": "QuotaTray_9.9.9_x64-setup.exe",
-                    "browser_download_url": "https://x/setup.exe", "size": 4}]
-    }"#;
+        "assets": [{{"name": "{}",
+                    "browser_download_url": "https://x/setup.exe", "size": 4}}]
+    }}"#,
+            local_setup_asset()
+        )
+    }
 
     fn release_http() -> RouteHttp {
         RouteHttp {
-            routes: vec![("releases/latest", 200, RELEASE_JSON.into())],
+            routes: vec![("releases/latest", 200, release_json())],
         }
     }
 
@@ -366,7 +383,7 @@ mod tests {
         )
         .await;
         assert_eq!(code, 0);
-        let saved = dir.join("QuotaTray_9.9.9_x64-setup.exe");
+        let saved = dir.join(local_setup_asset());
         assert_eq!(
             std::fs::read(&saved).unwrap(),
             vec![0x4d, 0x5a, 0x00],

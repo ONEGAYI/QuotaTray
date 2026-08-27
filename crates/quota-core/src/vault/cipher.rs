@@ -11,7 +11,8 @@ use base64::{Engine, engine::general_purpose::STANDARD as B64};
 
 /// 密文版本前缀，随算法升级递增（v2 = 换算法/参数时新增分支）。
 const VERSION: &str = "v1";
-const KEY_LEN: usize = 32;
+/// 主密钥长度（AES-256）。vault 后端（keyring/File）做同值校验用。
+pub const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
 
 #[derive(Debug, thiserror::Error)]

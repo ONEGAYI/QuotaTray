@@ -147,46 +147,47 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
 pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
     let now = now_ms();
     let prev_downloaded = state.update_ctl.read().unwrap().downloaded.clone();
-    let mut inner = match update::check_update(http, VERSION).await {
-        Ok(UpdateStatus::Available {
-            version,
-            html_url,
-            notes,
-            asset,
-        }) => UpdateCtlState {
-            last_check: Some(now),
-            info: Some(AvailableInfo {
+    let mut inner =
+        match update::check_update(http, VERSION, update::AssetSelector::installed()).await {
+            Ok(UpdateStatus::Available {
                 version,
                 html_url,
                 notes,
-                asset_name: asset.as_ref().map(|a| a.name.clone()),
-                asset_size: asset.as_ref().map(|a| a.size),
-                downloadable: asset.is_some(),
-                asset_url: asset.map(|a| a.browser_download_url),
-            }),
-            last_error: None,
-            last_error_detail: None,
-            downloaded: None,
-        },
-        // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
-        Ok(_) => UpdateCtlState {
-            last_check: Some(now),
-            info: None,
-            last_error: None,
-            last_error_detail: None,
-            downloaded: None,
-        },
-        // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
-        // 统一按资产名重判）。主文案用 Display（简短），限流等原因
-        // detail 单独携带——前端主文字不变，悬停展示完整信息。
-        Err(e) => UpdateCtlState {
-            last_check: Some(now),
-            info: None,
-            last_error: Some(e.to_string()),
-            last_error_detail: error_detail(&e),
-            downloaded: prev_downloaded.clone(),
-        },
-    };
+                asset,
+            }) => UpdateCtlState {
+                last_check: Some(now),
+                info: Some(AvailableInfo {
+                    version,
+                    html_url,
+                    notes,
+                    asset_name: asset.as_ref().map(|a| a.name.clone()),
+                    asset_size: asset.as_ref().map(|a| a.size),
+                    downloadable: asset.is_some(),
+                    asset_url: asset.map(|a| a.browser_download_url),
+                }),
+                last_error: None,
+                last_error_detail: None,
+                downloaded: None,
+            },
+            // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
+            Ok(_) => UpdateCtlState {
+                last_check: Some(now),
+                info: None,
+                last_error: None,
+                last_error_detail: None,
+                downloaded: None,
+            },
+            // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
+            // 统一按资产名重判）。主文案用 Display（简短），限流等原因
+            // detail 单独携带——前端主文字不变，悬停展示完整信息。
+            Err(e) => UpdateCtlState {
+                last_check: Some(now),
+                info: None,
+                last_error: Some(e.to_string()),
+                last_error_detail: error_detail(&e),
+                downloaded: prev_downloaded.clone(),
+            },
+        };
     if inner.last_error.is_none() {
         inner.downloaded = carry_downloaded(prev_downloaded, inner.info.as_ref());
     }
