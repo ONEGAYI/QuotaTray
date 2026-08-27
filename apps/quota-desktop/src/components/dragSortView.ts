@@ -77,3 +77,30 @@ export function settleDuration(velocityPxPerMs: number): number {
   const boost = Math.min(Math.abs(velocityPxPerMs) * 90, SETTLE_DURATION_MAX_MS - SETTLE_DURATION_MIN_MS);
   return Math.round(SETTLE_DURATION_MIN_MS + boost);
 }
+
+/** 键盘调序目标槽位：ArrowUp/Down 逐步、Home/End 跳首尾。
+ *  无法移动（首卡 ↑、尾卡 ↓、已到位的 Home/End、其他键）返回 null。 */
+export function nextKeyboardTarget(length: number, index: number, key: string): number | null {
+  switch (key) {
+    case "ArrowUp":
+      return index > 0 ? index - 1 : null;
+    case "ArrowDown":
+      return index < length - 1 ? index + 1 : null;
+    case "Home":
+      return index > 0 ? 0 : null;
+    case "End":
+      return index < length - 1 ? length - 1 : null;
+    default:
+      return null;
+  }
+}
+
+/** 样本窗口平均速度（px/ms）：拖拽指针轨迹 {t, y} 序列的首尾斜率，
+ *  样本不足或时间跨度为零返回 0（无法估计即视为静止松手）。 */
+export function velocityFromSamples(samples: readonly { t: number; y: number }[]): number {
+  if (samples.length < 2) return 0;
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  const dt = last.t - first.t;
+  return dt > 0 ? (last.y - first.y) / dt : 0;
+}

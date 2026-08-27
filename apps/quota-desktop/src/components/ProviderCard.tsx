@@ -28,6 +28,7 @@ import {
 } from "../display";
 import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
+import type { DragHandleProps } from "../useCardDragSort";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
 import { isLightLogo, providerIconUrl, templateProviderIconUrl } from "./providerIcon";
@@ -47,11 +48,7 @@ interface Props {
   nativeMeta?: NativeMeta;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
   /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
-  dragHandleProps?: {
-    onPointerDown: (event: React.PointerEvent) => void;
-    onKeyDown: (event: React.KeyboardEvent) => void;
-    disabled: boolean;
-  };
+  dragHandleProps?: DragHandleProps;
   /** 让位偏移（px）：拖拽会话期间由父级下发，undefined = 常态无位移。 */
   dragShift?: number;
   /** 本卡片是拖拽源（跟手/落位中）：视觉浮起强化。 */

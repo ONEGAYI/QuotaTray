@@ -33,6 +33,12 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 1. **供应商列表**：每条显示 名称 / 类型徽标（native id 或 template）/ 余额或已用百分比 /
    相对时间（"3 分钟前"）/ 手动刷新按钮。查询失败的条目显示错误徽标
    （瞬时=灰、确定性=红），多窗口条目分行。
+   卡片左缘拖拽条可调整次序：按下移动超阈值激活，被拖卡片跟手
+   （rAF 直写 transform）、其余卡片按目标槽位让位（带过冲曲线），
+   松手惯性滑入落位后落库（乐观更新即时生效、后端写盘 300ms 合并）；
+   ESC / 失焦 / 指针中断整体回弹不落库；键盘 ↑↓/Home/End 亦可调序；
+   `prefers-reduced-motion` 下全部动效退化为直跳。排序影响托盘图标
+   回退（未指定图标时取第一个启用条目）与图标子菜单序。
 2. **添加/编辑表单**（对话框或侧栏，三种形态）：
    - native：平台下拉（`natives` 列表）+ key 输入（password 型，空=保持不变）
    - template：二级子页（三选一下方的分段选单）——「运营商与模型」（名称 +
@@ -88,6 +94,7 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | `list_providers` | → `ProviderEntry[]`（含密文字段，供编辑回显结构） | `AppConfig::load` |
 | `upsert_provider` | `ProviderEntry + newApiKey + newApiKey2` → ()（含 `pricing` 字段校验；两槽 key 均走空=保持策略） | `AppConfig::save` + `pricing::validate` |
 | `remove_provider` | `id` → () | 同上 |
+| `reorder_providers` | `ids` → ()（完整 id 序集合失配即拒绝，前端 refetch 恢复） | `AppConfig::save` + 托盘重建 |
 | `list_native_metas` | → `NativeMeta[]`（含峰谷预置 pricing 字段） | `provider::metas` + `pricing::preset` |
 | `validate_template` | `TemplateConfig` → `Ok / 字段定位错误` | `template::validate` |
 | `test_template` | `TemplateConfig + key输入 + apiKey2输入 + baseUrl` → `UsageData[] / QueryError` | `template::execute`（经引擎） |

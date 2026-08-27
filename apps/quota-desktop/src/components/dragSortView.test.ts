@@ -3,10 +3,12 @@ import {
   computeSettleOffset,
   computeShifts,
   computeTargetIndex,
+  nextKeyboardTarget,
   reorderIds,
   SETTLE_DURATION_MAX_MS,
   SETTLE_DURATION_MIN_MS,
   settleDuration,
+  velocityFromSamples,
 } from "./dragSortView";
 
 /** 均匀高度卡片列（h=100、gap=10）：tops = 0 / 110 / 220 / 330，中心 = top+50。 */
@@ -122,5 +124,39 @@ describe("settleDuration", () => {
 
   it("速度取绝对值：向上甩与向下甩同等待遇", () => {
     expect(settleDuration(-3)).toBe(settleDuration(3));
+  });
+});
+
+describe("nextKeyboardTarget", () => {
+  it("ArrowUp/Down 逐步移动，Home/End 跳首尾", () => {
+    expect(nextKeyboardTarget(4, 2, "ArrowUp")).toBe(1);
+    expect(nextKeyboardTarget(4, 2, "ArrowDown")).toBe(3);
+    expect(nextKeyboardTarget(4, 2, "Home")).toBe(0);
+    expect(nextKeyboardTarget(4, 1, "End")).toBe(3);
+  });
+
+  it("边界已到头或原地跳转返回 null（调用方据此不提交）", () => {
+    expect(nextKeyboardTarget(4, 0, "ArrowUp")).toBeNull();
+    expect(nextKeyboardTarget(4, 3, "ArrowDown")).toBeNull();
+    expect(nextKeyboardTarget(4, 0, "Home")).toBeNull();
+    expect(nextKeyboardTarget(4, 3, "End")).toBeNull();
+  });
+
+  it("非方向键返回 null", () => {
+    expect(nextKeyboardTarget(4, 1, "Enter")).toBeNull();
+    expect(nextKeyboardTarget(4, 1, "ArrowLeft")).toBeNull();
+  });
+});
+
+describe("velocityFromSamples", () => {
+  it("取样本窗口首尾斜率（px/ms）", () => {
+    expect(velocityFromSamples([{ t: 0, y: 100 }, { t: 50, y: 90 }, { t: 100, y: 80 }])).toBeCloseTo(-0.2);
+    expect(velocityFromSamples([{ t: 0, y: 0 }, { t: 100, y: 250 }])).toBeCloseTo(2.5);
+  });
+
+  it("样本不足或零时间跨度返回 0", () => {
+    expect(velocityFromSamples([])).toBe(0);
+    expect(velocityFromSamples([{ t: 0, y: 100 }])).toBe(0);
+    expect(velocityFromSamples([{ t: 100, y: 100 }, { t: 100, y: 130 }])).toBe(0);
   });
 });

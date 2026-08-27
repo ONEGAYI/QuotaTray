@@ -1125,7 +1125,7 @@ mod tests {
         let order: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(order, ["c", "a", "b"]);
 
-        // 逆操作恢复原序（对合性：重排是纯置换）
+        // 同序重排幂等（no-op）；随后的显式逆置换才恢复原序
         reorder_providers_in_place(&mut providers, &ids);
         let order: Vec<&str> = providers.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(order, ["c", "a", "b"]);

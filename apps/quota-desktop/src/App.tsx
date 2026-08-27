@@ -67,6 +67,16 @@ function AppInner() {
       qc.setQueryData(["providers"], reordered);
       window.clearTimeout(persistReorderRef.current);
       persistReorderRef.current = window.setTimeout(() => {
+        // 落库前核对乐观序仍是当前序：debounce 窗口内列表若被外部替换
+        // （GUI/CLI 导入配置等），闭包里的旧序会覆盖新状态——后端集合
+        // 校验拦不住「集合相同、顺序不同」（典型：重导本机备份包），
+        // 只有此处按序比对才能挡住静默回滚
+        const current = qc.getQueryData<ProviderEntry[]>(["providers"]);
+        const stillCurrent =
+          current != null &&
+          current.length === orderedIds.length &&
+          current.every((entry, index) => entry.id === orderedIds[index]);
+        if (!stillCurrent) return;
         void api.reorderProviders(orderedIds).catch(() => {
           // 后端集合失配（如 CLI 同时删卡）：拉取真实状态恢复
           void qc.invalidateQueries({ queryKey: ["providers"] });

@@ -625,8 +625,7 @@
                         "apps/quota-desktop/src/useCardDragSort.ts"
                       ],
                       "tags": [
-                        "pure",
-                        "test"
+                        "pure"
                       ]
                     },
                     "EditDialog.tsx": {

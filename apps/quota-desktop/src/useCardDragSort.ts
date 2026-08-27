@@ -12,8 +12,10 @@ import {
   computeSettleOffset,
   computeShifts,
   computeTargetIndex,
+  nextKeyboardTarget,
   reorderIds,
   settleDuration,
+  velocityFromSamples,
   type DragItemRect,
 } from "./components/dragSortView";
 
@@ -100,8 +102,7 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
   const rafRef = useRef(0);
   const scrollerRef = useRef<HTMLElement | null>(null);
 
-  /** 拖拽会话期间常驻 rAF 循环：边缘滚动 + 跟手 transform + 目标槽位。 */
-  const tick = useCallback(() => {
+  /** 拖拽会话期间常驻 rAF 循环：边缘滚动 + 跟手 transform + 目标槽位。 */  const tick = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
     // 边缘自动滚动：越深入边缘速度越快，scrollTop 变化经 dy 补偿进坐标
@@ -131,15 +132,8 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  /** 最近样本窗口内的平均速度（px/ms）。 */
-  const velocity = useCallback(() => {
-    const session = sessionRef.current;
-    if (!session || session.samples.length < 2) return 0;
-    const first = session.samples[0];
-    const last = session.samples[session.samples.length - 1];
-    const dt = last.t - first.t;
-    return dt > 0 ? (last.y - first.y) / dt : 0;
-  }, []);
+  /** 最近样本窗口内的平均速度（px/ms），纯计算见 dragSortView。 */
+  const velocity = useCallback(() => velocityFromSamples(sessionRef.current?.samples ?? []), []);
 
   const clearCardInline = useCallback((card: HTMLElement) => {
     card.style.transform = "";
@@ -303,15 +297,25 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
         endDrag(false);
       }
     };
+    // 拖拽中失焦（Alt+Tab/最小化/关闭隐藏）：pointerup 大概率已丢失或将
+    // 在其他窗口释放，会话不中止会卡死（is-drag-active 常驻冻结 hover、
+    // 复焦后单击会以陈旧位移静默提交）——按取消中止，回弹动画的收尾
+    // 由 settle 的超时兜底保证（隐藏窗口 timer 节流至 ~1s 仍会触发）
+    const onBlur = () => {
+      if (sessionRef.current) endDrag(false);
+      armRef.current = null;
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("blur", onBlur);
       // 卸载兜底：正在拖拽时中止会话并清直写残留（不 commit）
       cancelAnimationFrame(rafRef.current);
       const session = sessionRef.current;
@@ -352,20 +356,17 @@ export function useCardDragSort(options: CardDragSortOptions): CardDragSort {
             if (sessionRef.current || phaseRef.current !== "idle") return;
             const index = idsRef.current.indexOf(id);
             if (index < 0) return;
-            let to: number | null = null;
-            if (event.key === "ArrowUp") to = Math.max(0, index - 1);
-            else if (event.key === "ArrowDown") to = Math.min(idsRef.current.length - 1, index + 1);
-            else if (event.key === "Home") to = 0;
-            else if (event.key === "End") to = idsRef.current.length - 1;
-            if (to == null || to === index) return;
+            const to = nextKeyboardTarget(idsRef.current.length, index, event.key);
+            if (to == null) return;
             event.preventDefault();
             // 键盘调序无直写残留，走普通提交即可
             onCommitRef.current(reorderIds(idsRef.current, index, to));
             // commit 后卡片 DOM 换位，把手元素重建——下一帧找回焦点保持键盘操作连续
             requestAnimationFrame(() => {
-              // id 由 newEntryId 生成的 base32 字母数字构成，可安全拼进选择器
+              // CSS.escape 防御导入配置可携带的任意字符 id（本机生成的
+              // id 为 base32，但导入包不走该约束）
               containerRef.current
-                ?.querySelector<HTMLElement>(`[data-card-id="${id}"] .qt-drag-handle`)
+                ?.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(id)}"] .qt-drag-handle`)
                 ?.focus();
             });
           },
