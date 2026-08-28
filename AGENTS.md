@@ -123,6 +123,19 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
   （docs.siliconflow.cn/cn/release-notes/overview），替代 API 发布后移除特判、
   接入新接口。
 
+## 待办备忘（TODO）
+
+- **dev 端口动态避让**（2026-08-28 记）：`pnpm tauri dev` 的 vite 端口固定
+  1420（`strictPort: true`），Windows 上可能落入 WinNAT/Hyper-V（WSL2/Docker）
+  动态圈占的排除端口段——绑定报 `EACCES`（本机当日 1420 落在 1410-1509 段，
+  netstat 查无占用者，与 `EADDRINUSE` 现象不同）。计划支持**约定范围内
+  动态选端口自动避让**：vite 侧放开 strictPort 试绑递增即可；难点在
+  `tauri.conf.json` 的 `devUrl` 是静态值，需与 vite 实际端口同步（可由
+  端口探测脚本生成临时 conf 覆盖，脚本接入方式参考 build-hook.mjs）。
+  短期人工规避：管理员 `net stop winnat` →
+  `netsh int ipv6 add excludedportrange protocol=tcp startport=1420 numberofports=1`
+  （ipv4 同）预留 → `net start winnat`。
+
 ## 术语表
 
 | 术语 | 含义 |
