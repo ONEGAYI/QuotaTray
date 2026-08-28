@@ -1,0 +1,4 @@
+interface:
+  display_name: "前端样式规范"
+  short_description: "桌面端前端样式规范唯一事实源：动手前查询 spec.md 条目，约定变更同 PR 回写"
+  default_prompt: "使用 $frontend-style-spec 查询或维护前端样式规范。"

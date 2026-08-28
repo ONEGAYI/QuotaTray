@@ -446,8 +446,8 @@ export function SettingsDialog({ open, onClose }: Props) {
                   {operationError}
                   {operationErrorDetail && (
                     <span
-                      className="qt-error-detail-icon"
-                      title={operationErrorDetail}
+                      className="qt-error-detail-icon is-multiline"
+                      data-tooltip={operationErrorDetail}
                       aria-label={operationErrorDetail}
                     >
                       <AlertCircle size={13} aria-hidden="true" />
