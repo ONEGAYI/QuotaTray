@@ -469,7 +469,7 @@ QuotaTray/
 ├── package.cmd             # 一键打包入口包装器
 ├── README.en.md            # 英文自述，互链中文
 ├── README.md               # 中文项目自述
-├── rust-toolchain.toml     # 锁定 stable 工具链
+├── rust-toolchain.toml     # 锁定开发与CI工具链
 ├── scripts/                # 维护脚本
 │   ├── clean.ps1         # 分级清理器
 │   ├── clean.tests.ps1   # 清理器契约测试

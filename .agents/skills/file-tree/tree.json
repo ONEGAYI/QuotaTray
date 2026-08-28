@@ -297,7 +297,7 @@
               "kind": "file",
               "desc": "桌面与Android CI",
               "detail": [
-                "Windows/Ubuntu Rust、前端与移动契约门禁、WoA 交叉检查及 Android ARM64 Preview APK 构建上传。"
+                "Windows/Ubuntu Rust、前端与移动契约门禁、WoA 交叉检查及 Android ARM64 Preview APK 构建上传；校验 CI 与仓库锁定的 Rust 版本一致。"
               ]
             }
           }
@@ -2495,9 +2495,9 @@
     },
     "rust-toolchain.toml": {
       "kind": "file",
-      "desc": "锁定 stable 工具链",
+      "desc": "锁定开发与CI工具链",
       "detail": [
-        "锁定 stable 工具链"
+        "固定开发机与 CI 共用的 Rust 精确版本，避免 stable 浮动导致本地与流水线规则漂移。"
       ]
     },
     "scripts": {
