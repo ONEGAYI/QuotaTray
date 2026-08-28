@@ -155,6 +155,14 @@ impl AppConfig {
         })?;
         Ok(())
     }
+
+    /// 清空全部用户数据（供应商条目含凭据密文、峰谷定价、自定义模型库），
+    /// 用于「清空配置」功能——条目级定价随 providers 一并消失。
+    /// 不涉及 settings.json（应用偏好）与历史库（由调用方另行清理）。
+    pub fn clear_user_data(&mut self) {
+        self.providers.clear();
+        self.custom_models.clear();
+    }
 }
 
 #[cfg(test)]
@@ -176,6 +184,48 @@ mod tests {
         cfg.save(&path).unwrap();
         let back = AppConfig::load(&path).unwrap();
         assert_eq!(cfg, back);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 契约：clear_user_data 清空条目（含凭据密文字段）与自定义模型库，
+    /// 结果与出厂空配置相等；序列化后不含残留用户数据；幂等。
+    #[test]
+    fn clear_user_data_wipes_to_factory_state() {
+        use crate::pricing::{CustomModelDef, PriceTier};
+        let path = temp_path("clear-user-data");
+        let mut cfg = AppConfig {
+            providers: vec![ProviderEntry {
+                id: "e1".into(),
+                name: "DeepSeek".into(),
+                kind: ProviderKind::Native {
+                    provider: "deepseek".into(),
+                },
+                enabled: true,
+                api_key_enc: Some("v1:密文占位".into()),
+                api_key2_enc: None,
+                base_url: None,
+                pricing: None,
+                plan_variant: Default::default(),
+                use_proxy: false,
+            }],
+            custom_models: std::collections::BTreeMap::from([(
+                "deepseek".to_string(),
+                vec![CustomModelDef {
+                    id: "flash".into(),
+                    display: "V4 Flash（自算）".into(),
+                    peak: Some(PriceTier::full(0.11, 3.1, 9.1)),
+                    ..Default::default()
+                }],
+            )]),
+        };
+        cfg.clear_user_data();
+        assert_eq!(cfg, AppConfig::default(), "清空后应与出厂空配置相等");
+        cfg.clear_user_data();
+        assert_eq!(cfg, AppConfig::default(), "清空幂等");
+        cfg.save(&path).unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("密文占位"), "凭据字段不得残留");
+        assert!(!raw.contains("custom_models"), "空库不落盘字段");
         let _ = std::fs::remove_file(&path);
     }
 

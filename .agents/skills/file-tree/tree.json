@@ -204,6 +204,16 @@
                         "assist 家族：schema（内嵌模板/脚本完整示例与 assistTest 声明）/validate/simulate 无凭据调试；test 子命令借诊断包 entryId 复用本机条目两槽密文真实端测一次，退出码走三分约定"
                       ]
                     },
+                    "clear.rs": {
+                      "kind": "file",
+                      "desc": "清空全部用户数据命令",
+                      "detail": [
+                        "条目/凭据密文/定价/模型库/历史/快照缓存全清，应用偏好与主密钥保留；非 tty 无 --yes 确定性拒绝（门控纯函数可测）"
+                      ],
+                      "tags": [
+                        "security"
+                      ]
+                    },
                     "config.rs": {
                       "kind": "file",
                       "desc": "配置导入导出",

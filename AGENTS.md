@@ -174,6 +174,7 @@ QuotaTray/
 │   │       ├── cmd/           # 子命令实现（每命令一模块）
 │   │       │   ├── add.rs            # 交互添加向导
 │   │       │   ├── assist.rs         # Agent 无凭据调试
+│   │       │   ├── clear.rs          # 清空全部用户数据命令
 │   │       │   ├── config.rs         # 配置导入导出
 │   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
 │   │       │   ├── edit.rs           # 编辑向导与启停

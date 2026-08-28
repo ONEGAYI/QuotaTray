@@ -256,6 +256,7 @@ export const zh = {
   "settings.clearConfirmHeading": "确认清空配置？",
   "settings.clearConfirmDescription": "此操作不可撤销",
   "settings.clearConfirmWarning": "将永久删除全部供应商条目、加密凭据、定价配置与查询历史。",
+  "settings.clearBusy": "清空中…",
   "settings.clearConfirmButton": "确认清空",
   "settings.clearConfirmCountdown": "确认清空（{seconds}s）",
   "settings.portableTag": "便携版",

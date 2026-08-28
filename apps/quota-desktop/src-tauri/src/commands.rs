@@ -377,6 +377,42 @@ pub fn remove_provider(
     Ok(())
 }
 
+/// 清空全部用户数据：供应商条目（含凭据密文）、峰谷定价、自定义模型
+/// 库与查询历史。GUI 已在二级确认弹窗（5 秒倒数）取得显式确认；
+/// settings 应用偏好与主密钥保留（重新添加条目可继续使用）。
+/// 与 upsert/remove 同为同步写命令，主线程串行执行，load→save 之间
+/// 无并发写命令插入（并发前提见 reorder_providers 注释）。
+#[tauri::command]
+pub fn clear_all_data(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
+    cfg.clear_user_data();
+    cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+    // 历史是用户显式要求删除的一部分。直接对磁盘库执行而非托管的
+    // 降级实例——启动打开失败时 AppState 持内存库，clear 在其上必然
+    // 成功但磁盘 history.db 原样保留，旧历史会在下次成功打开后复活；
+    // 磁盘路径打开失败（文件锁等）则如实报错。失败不早退：收尾
+    // （results/托盘/快照/事件）照常执行后把错误带出，避免主窗与
+    // 托盘停留在半清理态；重试本命令幂等可补清
+    let history_err = quota_core::HistoryStore::open(&state.paths.history())
+        .and_then(|store| store.clear(None))
+        .err()
+        .map(|e| format!("查询历史清空失败：{e}"));
+    state.results.write().unwrap().clear();
+    state.last_peak.write().unwrap().clear();
+    // 快照过滤后为空、托盘以无数据状态重建
+    after_state_change(&app, &state);
+    // 广播配置级变更（与导入同语义）：主窗与悬停面板（独立 WebView，
+    // snapshots 缓存 staleTime Infinity）各自全量失效——仅靠调用方
+    // invalidateQueries 管不到悬停面板
+    if let Err(e) = app.emit("configuration-imported", 0) {
+        eprintln!("清空事件发送失败：{e}");
+    }
+    match history_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
 /// 重排校验（纯函数可测）：ids 必须与现有条目集合完全一致且无重复——
 /// 拖拽期间的并发增删会让集合失配，此时拒绝落盘，由前端 refetch 恢复。
 fn validate_reorder_ids(existing_ids: &[&str], ids: &[String]) -> bool {
@@ -685,6 +721,18 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
 
     let engine = state.engine.read().unwrap().clone();
     let result = engine.query(&state.vault, &entry).await;
+    // 在途查询迟到复核：查询期间条目可能已被删除/清空（clear/remove 是
+    // 同步写命令，本函数是 async 池线程，load→save 窗口外仍有网络在途
+    // 窗口）——迟到结果不得写回，否则孤儿结果残留 results 且向已清空
+    // 的历史库写入新行（擦除承诺被打破）。复核含 enabled：禁用条目的
+    // 结果同样不该写回。config 读失败（IO 抖动）时宁可放行写入——
+    // 条目大概率仍在，丢正常数据比残留风险更重
+    let still_live = AppConfig::load(&state.paths.config())
+        .map(|cfg| cfg.providers.iter().any(|p| p.id == id && p.enabled))
+        .unwrap_or(true);
+    if !still_live {
+        return Err(format!("条目已删除或已禁用，查询结果丢弃：{id}"));
+    }
     let outcome = {
         let mut results = state.results.write().unwrap();
         match result {

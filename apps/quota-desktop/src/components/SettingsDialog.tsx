@@ -566,9 +566,10 @@ export function SettingsDialog({ open, onClose }: Props) {
       <ClearConfigDialog
         open={clearOpen}
         onClose={() => setClearOpen(false)}
-        onConfirm={() => {
-          // 空壳阶段：确认后仅关闭弹窗，实际清空待接线 core 清空命令
-          setClearOpen(false);
+        onConfirm={async () => {
+          await api.clearAllData();
+          // 清空影响全部数据面：全量失效（条目/快照/历史/悬停面板缓存）
+          await qc.invalidateQueries();
         }}
       />
     </DialogShell>

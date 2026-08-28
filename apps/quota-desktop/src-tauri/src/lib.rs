@@ -190,6 +190,7 @@ pub fn run() {
             commands::upsert_provider,
             commands::remove_provider,
             commands::reorder_providers,
+            commands::clear_all_data,
             commands::list_native_metas,
             commands::validate_template,
             commands::test_template,

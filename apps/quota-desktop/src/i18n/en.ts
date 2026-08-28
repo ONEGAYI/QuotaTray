@@ -274,6 +274,7 @@ export const en: Record<TextKey, string> = {
   "settings.clearConfirmHeading": "Clear all configuration?",
   "settings.clearConfirmDescription": "This action cannot be undone",
   "settings.clearConfirmWarning": "This permanently removes all providers, encrypted credentials, pricing, and query history.",
+  "settings.clearBusy": "Clearing…",
   "settings.clearConfirmButton": "Clear now",
   "settings.clearConfirmCountdown": "Clear now ({seconds}s)",
   "settings.portableTag": "Portable",

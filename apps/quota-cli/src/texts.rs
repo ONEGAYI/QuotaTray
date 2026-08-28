@@ -214,6 +214,18 @@ pub enum T {
     /// --portable 的 help 双语文案。
     HelpPortable,
 
+    // ---- clear（清空全部用户数据）----
+    /// 清空确认提示（与 GUI 二级确认弹窗同口径 + 问句）。
+    ClearConfirm,
+    /// 非交互会话未显式 --yes 的拒绝提示。
+    ClearNonTty,
+    /// 清空完成提示（注明保留项）。
+    ClearDone,
+    /// clear 子命令 help。
+    HelpClear,
+    /// clear --yes help（与 remove 共语义，独立键保持各命令文案自洽）。
+    HelpClearYes,
+
     // ---- devsmoke（仅 debug）----
     SmokeKeyFileFormat,
     SmokeSkipBody,
@@ -536,6 +548,14 @@ fn zh(key: T) -> &'static str {
             "便携模式：数据与主密钥使用 exe 旁 Data/（与 --config 互斥；缺省时检测 exe 旁 portable.marker 自动进入）"
         }
 
+        T::ClearConfirm => {
+            "将永久删除全部供应商条目、加密凭据、定价配置与查询历史（不可恢复）。确认清空？"
+        }
+        T::ClearNonTty => "非交互会话必须显式 --yes 才能执行清空。",
+        T::ClearDone => "已清空全部用户数据（应用偏好与主密钥保留，重新添加条目可继续使用）。",
+        T::HelpClear => "清空全部用户数据（条目/凭据/定价/历史）",
+        T::HelpClearYes => "跳过确认提示（非交互会话必须）",
+
         T::SmokeKeyFileFormat => "key 文件应为 {\"平台id\": \"key\"} 的 JSON 对象：",
         T::SmokeSkipBody => "跳过（key 为空）",
         T::SmokeUnknownWarn => "告警：未知平台 id（计为失败，检查拼写或升级版本）",
@@ -853,6 +873,16 @@ fn en(key: T) -> &'static str {
         T::HelpPortable => {
             "portable mode: data and master key live in Data/ next to the exe (conflicts with --config; auto-detected via portable.marker when omitted)"
         }
+
+        T::ClearConfirm => {
+            "This permanently deletes all provider entries, encrypted credentials, pricing and query history (irreversible). Proceed?"
+        }
+        T::ClearNonTty => "non-interactive session requires an explicit --yes to clear.",
+        T::ClearDone => {
+            "all user data cleared (app preferences and the master key are kept; re-adding entries keeps working)"
+        }
+        T::HelpClear => "clear all user data (entries/credentials/pricing/history)",
+        T::HelpClearYes => "skip the confirmation prompt (required in non-interactive sessions)",
 
         T::SmokeKeyFileFormat => "key file must be a JSON object of {\"platform-id\": \"key\"}: ",
         T::SmokeSkipBody => "skipped (empty key)",
@@ -1499,6 +1529,10 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
             c.about(tr(T::HelpRemove))
                 .mut_arg("id", |a| a.help(tr(T::HelpRemoveId)))
                 .mut_arg("yes", |a| a.help(tr(T::HelpRemoveYes)))
+        })
+        .mut_subcommand("clear", |c| {
+            c.about(tr(T::HelpClear))
+                .mut_arg("yes", |a| a.help(tr(T::HelpClearYes)))
         })
         .mut_subcommand("set-key", |c| {
             c.about(tr(T::HelpSetKey))

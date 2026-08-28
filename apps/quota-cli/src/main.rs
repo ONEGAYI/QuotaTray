@@ -107,6 +107,12 @@ enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// 清空全部用户数据（条目/凭据/定价/历史；应用偏好与主密钥保留）
+    Clear {
+        /// 跳过确认提示（非交互会话必须）
+        #[arg(long)]
+        yes: bool,
+    },
     /// 写入/更新 API key（星号掩码输入，不进 shell history）
     SetKey {
         /// 条目 id
@@ -544,6 +550,7 @@ async fn run(cli: Cli) -> i32 {
             disable,
         } => cmd::edit::run(&ctx, id, enable, disable),
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
+        Command::Clear { yes } => cmd::clear::run(&ctx, yes),
         Command::SetKey { id, slot } => cmd::setkey::run(&ctx, id, slot),
         Command::Natives => cmd::natives::run(ctx.lang),
         Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
