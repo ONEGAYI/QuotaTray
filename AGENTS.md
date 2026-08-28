@@ -78,7 +78,12 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   - 全量构建检查：`cargo build --workspace`（仅编译校验）
   - 测试：`cargo test --workspace`
   - 前端：`pnpm lint` / `pnpm build`（于 `apps/quota-desktop`，build 含 tsc 检查）
-  - 桌面端开发：`pnpm tauri dev`（于 `apps/quota-desktop`）
+  - 桌面端开发：`pnpm desktop:dev`（于 `apps/quota-desktop`；`scripts/dev.mjs` 自
+    1420 起对 v4/v6 双栈试绑，顺延避让 WinNAT/Hyper-V 排除段与已占端口——两者分别
+    报 EACCES/EADDRINUSE，默认顺延上限 500，可用 `QUOTA_DEV_PORT_BASE/SPAN` 调节；
+    选定端口经 `--config` 内联 JSON 覆盖 tauri `devUrl` 并以 `QUOTA_DEV_PORT`
+    同步 vite。裸 `pnpm tauri dev` 仍可用但无避让。生产实例在跑时 dev 实例会被
+    single-instance 弹退，先退出常驻 QuotaTray 再起 dev）
   - 桌面端产物：`pnpm tauri build --no-bundle`（出裸 exe；完整打包 M4）
   - ⚠️ 裸 `cargo build`（含 --release）的桌面端产物指向 devUrl（1420），
     无 vite dev server 时窗口空白——运行/分发一律走 tauri CLI
@@ -154,19 +159,6 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   错误；国际站保持通用 HTTP 错误路径。后续关注官方更新公告
   （docs.siliconflow.cn/cn/release-notes/overview），替代 API 发布后移除特判、
   接入新接口。
-
-## 待办备忘（TODO）
-
-- **dev 端口动态避让**（2026-08-28 记）：`pnpm tauri dev` 的 vite 端口固定
-  1420（`strictPort: true`），Windows 上可能落入 WinNAT/Hyper-V（WSL2/Docker）
-  动态圈占的排除端口段——绑定报 `EACCES`（本机当日 1420 落在 1410-1509 段，
-  netstat 查无占用者，与 `EADDRINUSE` 现象不同）。计划支持**约定范围内
-  动态选端口自动避让**：vite 侧放开 strictPort 试绑递增即可；难点在
-  `tauri.conf.json` 的 `devUrl` 是静态值，需与 vite 实际端口同步（可由
-  端口探测脚本生成临时 conf 覆盖，脚本接入方式参考 build-hook.mjs）。
-  短期人工规避：管理员 `net stop winnat` →
-  `netsh int ipv6 add excludedportrange protocol=tcp startport=1420 numberofports=1`
-  （ipv4 同）预留 → `net start winnat`。
 
 ## 术语表
 
@@ -279,6 +271,8 @@ QuotaTray/
 │       │   ├── android-tauri.mjs              # Android构建环境入口
 │       │   ├── build-hook.contract.mjs        # 构建钩子契约测试
 │       │   ├── build-hook.mjs                 # 跨目标Tauri构建钩子
+│       │   ├── dev.contract.mjs               # dev端口探测避让契约测试
+│       │   ├── dev.mjs                        # dev端口探测避让入口
 │       │   └── mobile-style.contract.mjs      # 移动样式契约测试
 │       ├── src/                # React 前端源码
 │       │   ├── api.ts                  # invoke 封装
