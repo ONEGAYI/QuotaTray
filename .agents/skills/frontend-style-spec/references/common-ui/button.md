@@ -41,7 +41,9 @@ Android 仍沿用视觉图标尺寸，但触摸命中区须通过容器或平台
 - `qt-console-btn`（余额卡片「访问控制台」）：迷你档 26px/xs 圆角，尺寸入档；
   hover/focus 转 accent 10% 底 + accent 字（默认弱化色 `--qt-text-faint`），
   偏离「hover 一律 surface-soft 底 + text 字」规则——2026-08-28 所有者定案，
-  依据 docs/specs/console-link-spec.md §2（2026-08-29 登记）。
+  依据 docs/specs/console-link-spec.md §2（2026-08-29 登记）。Android 端以
+  `body.qt-mobile-runtime` 覆盖扩为 44×44px 触摸热区（T-010：透明无边框、图标
+  仍 16px，视觉不变；mobile-style 契约测试锁定，2026-08-29 启用）。
 
 **文字链接式按钮**（行内下划线动作）：`accent-strong` 字 + hover 下划线；
 删除类动作 hover 转 `danger` 字。不得引入 Tailwind 色板（见 T-008）。

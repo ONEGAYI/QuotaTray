@@ -975,6 +975,9 @@ body.qt-mobile-runtime .qt-provider-primary { padding-left: 35px; }
 body.qt-mobile-runtime .qt-provider-actions .qt-btn,
 body.qt-mobile-runtime .qt-provider-actions .qt-icon-btn,
 body.qt-mobile-runtime .qt-menu-item { min-height: 44px; }
+/* 控制台直达钮（桌面 26px 迷你档）扩为 44px 触摸热区（T-010）：钮透明
+   无边框、图标仍 16px，视觉不变；热区落在名称行内将行撑高至 44px 属预期 */
+body.qt-mobile-runtime .qt-icon-btn.qt-console-btn { width: 44px; height: 44px; }
 body.qt-mobile-runtime .qt-btn:not(:disabled):active,
 body.qt-mobile-runtime .qt-icon-btn:not(:disabled):active { opacity: .72; }
 

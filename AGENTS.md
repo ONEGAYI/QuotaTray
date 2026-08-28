@@ -62,9 +62,10 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **控制台直达（同步自桌面 #59）**：桌面已在余额卡片加「访问控制台」图标（core
   注册表 20 项预置 URL + 条目级 `console_url` 覆盖 + Rust 侧 http/https 白名单的
   `open_console_url` command，规格见 docs/specs/console-link-spec.md）。Android 端
-  数据层与编辑表单字段已跨端就绪，但卡片入口经 `runtimeView.consoleLink=false`
-  隐藏——opener 拉起系统浏览器、触摸热区（≥44px）与返回栈交互未真机验证，
-  开启前不得宣称移动支持。
+  2026-08-29 启用：`consoleLink` 翻位 + 44px 触摸热区（mobile-style 契约锁定）；
+  模拟器（API 36 x86_64，ARM 转译）已验证图标渲染、opener 拉起 Chrome 加载
+  `platform.deepseek.com`、BACK 返回应用。真机验收（厂商浏览器差异、返回栈实机
+  行为、长徽章时按钮沿名称行换行的观感）未完前不得宣称移动支持。
 - **真实设备验收**：目前仅完成 API 36 模拟器冒烟；safe-area 实效、宽视口、选择器
   外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、通知、下载、
   跨版本升级、不同厂商系统及实体 ARM64 设备仍待完整验收。

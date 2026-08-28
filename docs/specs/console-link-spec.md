@@ -1,6 +1,8 @@
 # 控制台直达（Console Link）规格 · #59
 
-状态：已定案（样式经临时预览页确认，2026-08-28）。桌面端先行实现，Android 标记能力缺口。
+状态：已定案（样式经临时预览页确认，2026-08-28）。桌面端 2026-08-28 实现；Android
+端 2026-08-29 启用（`consoleLink` 翻位 + 44px 触摸热区同 PR 落地）。剩余验证事项以
+AGENTS.md「移动端能力缺口追踪」为活追踪。
 
 ## 1. 背景与目标
 
@@ -10,8 +12,7 @@
 不做的事：
 
 - 不在应用内嵌网页；
-- 未解析到 URL 的条目不渲染图标（不出无效链接）；
-- Android 端本期不启用按钮（数据层与表单字段跨端就绪，渲染与打开动作待真机验证）。
+- 未解析到 URL 的条目不渲染图标（不出无效链接）。
 
 ## 2. 样式定案（2026-08-28 所有者确认）
 
@@ -26,6 +27,10 @@
 
 图标 SVG（Apache-2.0，Google Material Symbols）以 `viewBox="0 -960 960 960"` path
 内联于组件，与 TitleBar 的 GithubMark 内联先例同模式。
+
+**移动端补充（2026-08-29 启用）**：Android 下按钮命中区扩为 44×44px（透明无边框，
+视觉仍为 16px 图标，T-010）；伪元素 tooltip 气泡不渲染（T-001/T-010 分流），
+`aria-label` 保留同文案；按压反馈走全局 `:active` 规则，hover 定案不适用于触摸端。
 
 ## 3. 数据模型（core）
 
@@ -115,26 +120,27 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String>
 ## 6. 前端（跨端组件 + 能力位）
 
 1. **types.ts**：`NativeMeta` / `ProviderEntry` 镜像加 `console_url?: string`。
-2. **runtimeView**：`RuntimeUiPolicy` 加 `consoleLink: boolean`——desktop `true`、
-   android `false`（本期标记；真机验证后开启）。
+2. **runtimeView**：`RuntimeUiPolicy` 加 `consoleLink: boolean`——desktop `true`；
+   android 初版 `false`（待验证标记），2026-08-29 翻位为两端 `true`。
 3. **providerCardView.ts** 纯逻辑加 `resolveConsoleUrl(entry, nativeMeta)`：
    `entry.console_url ?? nativeMeta?.console_url`；补单测。
 4. **ProviderCard**：名称行内 statusBadge 之后渲染图标按钮。渲染条件：
    `runtimeUiPolicy.consoleLink && resolveConsoleUrl(...) != null`。按钮复用
    `IconButton`（label = i18n `card.console`，自动 data-tooltip），内联 Material
-   `open_in_new` SVG；点击 `api.openConsoleUrl(url)`，失败静默（同 GitHub 链接
-   `.catch(() => {})` 先例）。
+   `open_in_new` SVG；点击 `api.openConsoleUrl(url)`，失败走卡片 feedback 通道显示
+   `card.consoleOpenFailed`（初版静默吞错，2026-08-29 审查轮改为可见反馈）。
 5. **EditDialog**：跨端共享编辑页加可选字段「控制台地址」（校验：空或 http/https
-   前缀；空 = 清除覆盖回退默认）。表单字段两端都渲染（纯数据编辑无平台行为），
-   Android 卡片按钮仍由能力位隐藏。
+   前缀；空 = 清除覆盖回退默认）。表单字段两端都渲染（纯数据编辑无平台行为）。
 6. **i18n**：`card.console` zh「访问控制台」/ en "Open console"；EditDialog 字段
    标签与占位文案双语。
 
-## 7. Android 能力缺口（AGENTS.md 追踪新增条目）
+## 7. Android 启用与验证状态
 
-图标按钮渲染与浏览器拉起在本期通过 `runtimeView.consoleLink=false` 整体禁用；
-待真机验证 Tauri opener 在 Android 拉起系统浏览器的行为、触摸热区（≥44px）与
-返回栈交互后开启。数据层（字段/解析/表单）已跨端就绪，届时仅翻能力位。
+2026-08-29 翻 `runtimeView.consoleLink` 为两端启用，同 PR 落地 44px 触摸热区
+（`body.qt-mobile-runtime .qt-icon-btn.qt-console-btn`，由 mobile-style 契约测试
+锁定）。opener 拉起系统浏览器与返回栈交互的验证进度、厂商浏览器差异与真机验收
+状态，以 AGENTS.md「移动端能力缺口追踪」对应条目为活追踪；验收完成前不宣称
+移动稳定支持。
 
 ## 8. 测试计划（TDD）
 
@@ -143,7 +149,8 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String>
 | core `provider` | 注册表 20 项 console_url 全非空且为 https；`resolve_console_url`：自定义覆盖 native 默认、native 回退默认、模板条目仅自定义、均无 → None |
 | core `config` | 旧 config.json（无 console_url 字段）反序列化兼容；字段 round-trip 与 skip 序列化 |
 | src-tauri commands | `open_console_url` scheme 校验：https 通过（opener mock/不实际打开的断言方式实现时定）、`file:`/`javascript:`/无 scheme 拒绝；`NativeMetaDto` 带 console_url |
-| 前端 runtimeView | `consoleLink` 位：desktop true / android false |
+| 前端 runtimeView | `consoleLink` 位：desktop true / android true（2026-08-29 翻位） |
+| 前端移动样式 | mobile-style 契约：Android 下 `qt-console-btn` 命中区 44×44px 存在 |
 | 前端 providerCardView | `resolveConsoleUrl` 三态 |
 | 前端 providerCardView（供 EditDialog 消费） | URL 校验纯函数：空/合法/缺 scheme/非法 scheme/scheme 大小写 |
 

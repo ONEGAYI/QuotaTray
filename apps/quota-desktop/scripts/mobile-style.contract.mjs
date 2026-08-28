@@ -25,3 +25,10 @@ test("Android 通用文字按钮与图标按钮具有按压反馈", () => {
     /body\.qt-mobile-runtime \.qt-btn:not\(:disabled\):active,[\s\S]*body\.qt-mobile-runtime \.qt-icon-btn:not\(:disabled\):active\s*\{[^}]*opacity:/,
   );
 });
+
+test("Android 控制台直达图标钮满足 44px 触摸热区（T-010）", () => {
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-icon-btn\.qt-console-btn\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s,
+  );
+});

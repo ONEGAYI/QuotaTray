@@ -46,8 +46,8 @@ interface Props {
   thresholdPercent: number;
   snapshot?: SnapshotEntry;
   nativeMeta?: NativeMeta;
-  /** 是否渲染「访问控制台」直达入口（App 按 runtime 策略下发：
-   *  桌面 true；Android 的 opener 行为未真机验证，默认隐藏）。 */
+  /** 是否渲染「访问控制台」直达入口（App 按 runtime 策略下发，两端
+   *  启用；验证状态与平台差异见 AGENTS「移动端能力缺口追踪」）。 */
   consoleLink?: boolean;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
   /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
