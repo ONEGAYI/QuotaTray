@@ -3,7 +3,7 @@
 > 适用范围：Android 壳层及 `body.qt-mobile-runtime` 下的共享组件。索引见
 > [SKILL.md](../../SKILL.md)。
 
-## T-009 触摸交互与 disclosure
+## T-010 触摸交互与 disclosure
 
 **平台判定**（2026-08-28 所有者确认）：由后端 `BootStateDto.platform` 声明 Android，
 不得以窗口宽度或粗指针单独判定运行平台。窄桌面窗口仍保留桌面语义；Android 横屏仍是

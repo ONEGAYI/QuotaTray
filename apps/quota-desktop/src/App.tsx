@@ -164,7 +164,20 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       {instanceToast && (
         <div className="qt-toast" role="status">{t("app.instanceRunning")}</div>
       )}
-      <TitleBar messages={messages} messageSeen={messageSeen} onMessagesSeen={onMessagesSeen} />
+      {runtime.titleBar ? (
+        <TitleBar
+          messages={messages}
+          messageSeen={messageSeen}
+          onMessagesSeen={onMessagesSeen}
+        />
+      ) : (
+        <MobileTopBar
+          addLabel={t("app.addAccount")}
+          settingsLabel={t("app.settings")}
+          onAdd={openAdd}
+          onSettings={() => setSettingsOpen(true)}
+        />
+      )}
 
       <main className="qt-main-content">
         <header className="qt-page-heading">

@@ -1046,6 +1046,16 @@
                         "pure"
                       ]
                     },
+                    "MobileChrome.tsx": {
+                      "kind": "file",
+                      "desc": "移动端应用壳组件",
+                      "detail": [
+                        "Android 顶部应用栏与账户/统计底部双导航组件；消息中心入口尚待移动适配。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/runtimeView.ts"
+                      ]
+                    },
                     "nativeProviderGroups.test.ts": {
                       "kind": "file",
                       "desc": "平台分组测试",

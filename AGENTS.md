@@ -37,14 +37,17 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 
 - **更新与下载**：当前移动端隐藏更新页，core 的资产选择仍只覆盖 Windows
   `.exe` / `.zip`。需新增 Android APK 资产命名与精确选择、前台更新检测、系统文档
-  选择器下载及进度反馈；不得把 WoA ARM64 zip 误判为 Android 资产。
+  选择器下载及进度反馈；不得把 WoA ARM64 zip 误判为 Android 资产。桌面端 #60 的
+  NSIS 静默安装与自动下载不符合 Android 分发惯例，不移植到移动端。
 - **签名与发布链**：CI 仅产出临时签名的 Debug APK，尚无长期固定签名的 Release APK、
   GitHub Release 上传、签名/包名/versionCode/ABI 校验，也未验证同一签名下的跨版本覆盖安装。
 - **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
   版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
   或把商店外 APK 安装逻辑带入 Play 构建。
-- **消息与通知**：桌面消息中心、更新就绪提示及系统通知尚未适配移动顶部应用栏和
-  Android 通知权限/生命周期；实现时需采用触摸可达的常显入口，不依赖托盘或悬停。
+- **消息中心与通知（同步自桌面 #60）**：桌面已新增铃铛、未读红点、消息卡片和系统
+  通知，但入口挂在 Android 不渲染的 `TitleBar`，消息模型目前也只有桌面更新就绪。
+  移动端需在顶部应用栏提供触摸可达的常显入口，重新定义适用消息类型，并接入 Android
+  通知权限与前后台生命周期；不得依赖托盘、悬停或桌面静默更新事件。
 - **后台刷新**：当前只承诺应用前台轮询。后台周期任务、网络/省电约束和恢复后的补查
   尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
@@ -307,6 +310,7 @@ QuotaTray/
 │       │   │   ├── MessageCenter.tsx            # 标题栏铃铛消息中心
 │       │   │   ├── messageCenterView.test.ts    # 消息中心逻辑测试
 │       │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
+│       │   │   ├── MobileChrome.tsx             # 移动端应用壳组件
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
 │       │   │   ├── NativeProviderPicker.tsx     # 跨端平台聚合选择器

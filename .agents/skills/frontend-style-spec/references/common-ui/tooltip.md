@@ -44,7 +44,7 @@
 
 **Android 分流**：`body.qt-mobile-runtime` 下统一禁用伪元素气泡；纯操作图标保留
 `aria-label`，必要解释改为常显或点击 disclosure。不得把 `:hover` 触发原样带到触摸端，
-完整状态机见 T-009。
+完整状态机见 T-010。
 
 **例外与豁免**：
 

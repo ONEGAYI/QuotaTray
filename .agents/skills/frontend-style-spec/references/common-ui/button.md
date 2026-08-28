@@ -30,7 +30,7 @@
 （danger 变体例外：danger-soft 底 + danger 字）。
 
 Android 仍沿用视觉图标尺寸，但触摸命中区须通过容器或平台覆盖扩到至少 44×44px；
-移动端激活反馈使用 `:active` / `aria-pressed`，不得只定义 hover（见 T-009）。
+移动端激活反馈使用 `:active` / `aria-pressed`，不得只定义 hover（见 T-010）。
 
 **特例登记**：
 
