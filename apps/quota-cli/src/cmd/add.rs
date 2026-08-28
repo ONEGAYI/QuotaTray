@@ -250,6 +250,7 @@ pub fn assemble_entry(
         pricing: None,
         plan_variant,
         use_proxy,
+        console_url: None,
     };
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
@@ -490,6 +491,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         });
 
         for lang in [Lang::Zh, Lang::En] {
@@ -520,6 +522,7 @@ mod tests {
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
                 use_proxy: false,
+                console_url: None,
             };
             assert_eq!(
                 check_entry(&e2, &cfg, lang).unwrap_err(),

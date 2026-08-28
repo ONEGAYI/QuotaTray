@@ -20,6 +20,8 @@ pub struct ZhipuMetered {
     name: &'static str,
     base_url: &'static str,
     currency: &'static str,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 pub const ZHIPU_API: ZhipuMetered = ZhipuMetered {
@@ -27,6 +29,7 @@ pub const ZHIPU_API: ZhipuMetered = ZhipuMetered {
     name: "智谱开放平台（按量计费）",
     base_url: "https://open.bigmodel.cn",
     currency: "CNY",
+    console_url: Some("https://open.bigmodel.cn/finance/overview"),
 };
 
 pub const ZAI_API: ZhipuMetered = ZhipuMetered {
@@ -34,6 +37,7 @@ pub const ZAI_API: ZhipuMetered = ZhipuMetered {
     name: "Z.ai 开放平台（按量计费）",
     base_url: "https://api.z.ai",
     currency: "USD",
+    console_url: Some("https://z.ai/manage-apikey/billing"),
 };
 
 fn candidate_objects(body: &Value) -> Vec<&Value> {
@@ -154,6 +158,7 @@ impl NativeProvider for ZhipuMetered {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

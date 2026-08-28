@@ -261,6 +261,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
                         ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
                         : undefined
                     }
+                    consoleLink={runtime.consoleLink}
                     onEdit={handleEdit}
                     dragHandleProps={dragSort.handleProps(entry.id)}
                     dragShift={

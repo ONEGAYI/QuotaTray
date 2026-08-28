@@ -18,6 +18,7 @@ impl NativeProvider for DeepSeek {
         NativeMeta {
             id: "deepseek",
             name: "DeepSeek",
+            console_url: Some("https://platform.deepseek.com/"),
         }
     }
 

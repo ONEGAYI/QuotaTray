@@ -37,6 +37,7 @@ const meta: NativeMeta = {
   pricing_by_currency: {},
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    console_url: null,
   custom_models: [],
 };
 
@@ -99,6 +100,7 @@ describe("Provider 卡片定价视图", () => {
       pricing_by_currency: {},
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    console_url: null,
       custom_models: [],
     };
     const coding = { ...entry, pricing: { model: "coding-plan" } };
@@ -169,6 +171,7 @@ describe("Provider 卡片定价视图", () => {
       pricing_by_currency: {},
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    console_url: null,
       custom_models: [
         {
           id: "glm-5.2",

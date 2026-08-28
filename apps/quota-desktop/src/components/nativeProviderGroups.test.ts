@@ -11,6 +11,7 @@ function meta(id: string, name = id): NativeMeta {
     custom_models: [],
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    console_url: null,
   };
 }
 

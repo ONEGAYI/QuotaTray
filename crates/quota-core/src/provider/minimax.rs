@@ -23,6 +23,8 @@ pub struct MiniMax {
     id: &'static str,
     name: &'static str,
     base_url: &'static str,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 /// 国内站（api.minimaxi.com）。
@@ -30,6 +32,7 @@ pub const MINIMAX_CN: MiniMax = MiniMax {
     id: "minimax",
     name: "MiniMax Coding Plan",
     base_url: "https://api.minimaxi.com",
+    console_url: Some("https://platform.minimaxi.com/user-center/payment/balance"),
 };
 
 /// 国际站（api.minimax.io）。
@@ -37,6 +40,7 @@ pub const MINIMAX_GLOBAL: MiniMax = MiniMax {
     id: "minimax_global",
     name: "MiniMax Coding Plan（国际站）",
     base_url: "https://api.minimax.io",
+    console_url: Some("https://platform.minimax.io/user-center/payment/balance"),
 };
 
 /// 单窗口行：响应给的是剩余百分比，归一为已用百分比
@@ -91,6 +95,7 @@ impl NativeProvider for MiniMax {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

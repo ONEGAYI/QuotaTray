@@ -741,6 +741,7 @@ mod tests {
             pricing,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         }
     }
 
@@ -1159,6 +1160,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         let cfg = AppConfig {
             custom_models: Default::default(),
@@ -1211,6 +1213,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         let cfg = AppConfig {
             custom_models: Default::default(),

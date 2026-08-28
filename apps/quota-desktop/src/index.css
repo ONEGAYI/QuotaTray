@@ -505,6 +505,18 @@ button:focus-visible {
 .qt-icon-btn:hover { background: var(--qt-surface-soft); color: var(--qt-text); }
 .qt-icon-btn-danger:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
 
+/* 控制台直达（卡片名称行内）：迷你档 26px/xs 圆角，默认弱化不抢状态
+   徽章焦点，悬停/聚焦提升到 accent——hover 例外经所有者定案并登记于
+   button.md T-004 特例（docs/specs/console-link-spec.md §2）。 */
+.qt-icon-btn.qt-console-btn {
+  width: 26px; height: 26px; border-radius: var(--qt-radius-xs); color: var(--qt-text-faint);
+}
+.qt-icon-btn.qt-console-btn:hover,
+.qt-icon-btn.qt-console-btn:focus-visible {
+  background: color-mix(in srgb, var(--qt-accent) 10%, transparent);
+  color: var(--qt-accent);
+}
+
 [data-tooltip]::after {
   content: attr(data-tooltip); position: absolute; z-index: 80; bottom: calc(100% + 7px); left: 50%;
   max-width: 360px; padding: 5px 8px; border-radius: var(--qt-radius-xs); background: var(--qt-text); color: var(--qt-surface);
@@ -658,6 +670,9 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-dialog-settings .qt-dialog-body { display: flex; padding: 0; overflow: hidden; }
 .qt-dialog-settings .qt-settings-layout { flex: 1; min-height: 0; margin: 0; grid-template-rows: minmax(0, 1fr); }
 .qt-dialog-settings .qt-settings-content { overflow-y: auto; }
+/* 编辑弹窗同模式固定高度：表单字段增减/形态切换不撑高弹窗（控制台地址
+   字段曾把弹窗顶出窗口上缘），长表单在 body 内滚动。 */
+.qt-dialog-edit { height: min(78vh, 720px); }
 .qt-settings-content { min-width: 0; padding: 10px 18px; }
 .qt-transfer-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 7px 0 9px; padding: 13px; border-radius: var(--qt-radius-md); background: var(--qt-warning-soft); color: var(--qt-text); }
 .qt-transfer-intro-icon { color: var(--qt-warning); }
@@ -978,6 +993,7 @@ body.qt-mobile-runtime .qt-dialog-body { padding: 16px 14px; }
 body.qt-mobile-runtime .qt-dialog-footer { min-height: calc(60px + env(safe-area-inset-bottom)); align-items: center; padding-bottom: env(safe-area-inset-bottom); }
 body.qt-mobile-runtime .qt-dialog-footer .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-dialog-settings { height: 100dvh; }
+body.qt-mobile-runtime .qt-dialog-edit { height: 100dvh; }
 body.qt-mobile-runtime .qt-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
 body.qt-mobile-runtime .qt-settings-nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--qt-border); padding: 8px; }
 body.qt-mobile-runtime .qt-settings-nav button { min-height: 44px; flex: 1; justify-content: center; }

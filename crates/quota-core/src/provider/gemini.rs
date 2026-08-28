@@ -48,6 +48,7 @@ impl NativeProvider for Gemini {
         NativeMeta {
             id: "gemini",
             name: "Gemini Code Assist",
+            console_url: Some("https://gemini.google.com"),
         }
     }
 

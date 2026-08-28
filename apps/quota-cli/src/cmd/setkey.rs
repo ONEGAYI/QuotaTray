@@ -124,6 +124,7 @@ mod tests {
                 pricing: None,
                 plan_variant: quota_core::config::PlanVariant::Auto,
                 use_proxy: false,
+                console_url: None,
             }],
             ..Default::default()
         }

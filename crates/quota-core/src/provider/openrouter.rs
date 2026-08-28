@@ -19,6 +19,7 @@ impl NativeProvider for OpenRouter {
         NativeMeta {
             id: "openrouter",
             name: "OpenRouter",
+            console_url: Some("https://openrouter.ai/settings/credits"),
         }
     }
 

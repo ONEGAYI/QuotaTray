@@ -23,6 +23,7 @@ import { AiAssistPanel } from "./AiAssistPanel";
 import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } from "./presetTemplates";
 import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
+import { isValidConsoleUrlInput } from "./providerCardView";
 import { Button, DialogShell, SegmentedControl } from "./ui";
 
 interface Props {
@@ -92,6 +93,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     initial?.kind.type === "script" ? (initial.kind.allowInsecure ?? false) : false,
   );
   const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? "");
+  const [consoleUrl, setConsoleUrl] = useState(initial?.console_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [apiKey2, setApiKey2] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +137,12 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
       const trimmedName = name.trim();
       if (!trimmedName) throw new Error(t("edit.nameRequired"));
       if (mobileCliUnsupported) throw new Error(t("edit.mobileCliUnsupported"));
+      // 控制台直达覆盖：scheme 校验与后端 open_console_url 白名单同口径；
+      // 字段渲染在「运营商与模型」子页，停留「设置模板」时校验失败带回现场
+      if (!isValidConsoleUrlInput(consoleUrl)) {
+        if (tab === "template") setTemplateSub("provider");
+        throw new Error(t("edit.consoleUrlInvalid"));
+      }
       let kind: ProviderKind;
       if (tab === "native") {
         if (!nativeProvider) throw new Error(t("edit.nativeRequired"));
@@ -194,6 +202,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
           tab === "template" || tab === "script"
             ? (baseUrl.trim() || undefined)
             : initial?.base_url,
+        // 控制台直达覆盖（全形态同字段）：空 = 清除覆盖回退预置
+        console_url: consoleUrl.trim() || undefined,
         pricing: pricingRef.current,
         // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
         plan_variant: planVariant,
@@ -242,6 +252,21 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         value={baseUrl}
         onChange={(event) => setBaseUrl(event.target.value)}
         placeholder="https://api.example.com"
+        className={inputCls}
+      />
+    </label>
+  );
+  // 控制台直达覆盖（native 显示预置值作 placeholder；模板/脚本无预置）
+  const consoleUrlField = (
+    <label className="qt-field">
+      <span className={labelCls}>{t("edit.consoleUrl")}</span>
+      <small>{t("edit.consoleUrlHint")}</small>
+      <input
+        value={consoleUrl}
+        onChange={(event) => setConsoleUrl(event.target.value)}
+        placeholder={
+          tab === "native" ? (selectedNativeMeta?.console_url ?? "https://") : "https://"
+        }
         className={inputCls}
       />
     </label>
@@ -306,6 +331,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
       onClose={onClose}
       closeLabel={t("titlebar.close")}
       size="lg"
+      className="qt-dialog-edit"
       footer={
         <>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
@@ -370,6 +396,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             >
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
+              {consoleUrlField}
               {pricingSection}
               {credentialField}
               {credential2Field}
@@ -457,6 +484,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               />
             )}
 
+            {consoleUrlField}
             {pricingSection}
             {tab === "native" && selectedNativeMeta?.uses_cli_credentials
               ? cliCredentialField

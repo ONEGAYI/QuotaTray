@@ -13,6 +13,7 @@ describe("runtimeUiPolicy", () => {
       cliAssist: false,
       fullScreenDialogs: true,
       bottomNavigation: true,
+      consoleLink: false,
     });
   });
 
@@ -27,6 +28,7 @@ describe("runtimeUiPolicy", () => {
       cliAssist: true,
       fullScreenDialogs: false,
       bottomNavigation: false,
+      consoleLink: true,
     });
   });
 });

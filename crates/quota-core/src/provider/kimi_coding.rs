@@ -16,18 +16,22 @@ pub struct KimiCode {
     id: &'static str,
     name: &'static str,
     endpoint: &'static str,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 pub const KIMI_CODE_CN: KimiCode = KimiCode {
     id: "kimi_code_cn",
     name: "Kimi Code（kimi.com/code）",
     endpoint: "https://api.kimi.com/coding/v1/usages",
+    console_url: Some("https://www.kimi.com/code/console"),
 };
 
 pub const KIMI_CODE_GLOBAL: KimiCode = KimiCode {
     id: "kimi_code_global",
     name: "Kimi Code（kimi.ai/code）",
     endpoint: "https://api.kimi.ai/coding/v1/usages",
+    console_url: Some("https://kimi.ai/code/console"),
 };
 
 fn reset_at(value: Option<&Value>) -> Option<i64> {
@@ -83,6 +87,7 @@ impl NativeProvider for KimiCode {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

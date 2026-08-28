@@ -90,6 +90,8 @@ export interface ProviderEntry {
   plan_variant?: PlanVariant;
   /** 查询走代理（条目级开关，缺省 false；端口取设置的网络代理端口） */
   use_proxy?: boolean;
+  /** 控制台直达 URL 覆盖（明文，非敏感；缺省 = native 条目回退预置默认） */
+  console_url?: string;
 }
 
 /** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */
@@ -279,6 +281,8 @@ export interface NativeMeta {
   /** CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
    *  编辑表单隐藏 key 输入框并展示提示卡。 */
   uses_cli_credentials: boolean;
+  /** 控制台直达预置 URL（条目自定义覆盖优先；null = 该平台无预置） */
+  console_url: string | null;
 }
 
 export interface TemplateErrorDto {

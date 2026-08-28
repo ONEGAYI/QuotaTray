@@ -299,6 +299,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         }
     }
 
@@ -391,6 +392,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         apply_edit(
             &mut e,
@@ -493,6 +495,7 @@ mod run_tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         }
     }
 

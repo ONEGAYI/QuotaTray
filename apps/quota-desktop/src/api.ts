@@ -21,6 +21,8 @@ export const api = {
   cancelPortableInit: (): Promise<void> => invoke("cancel_portable_init"),
   /** 打开更新下载目录（便携形态手动覆盖引导）。 */
   openUpdateDir: (): Promise<void> => invoke("open_update_dir"),
+  /** 打开控制台直达 URL（scheme 白名单在 Rust 侧收口，仅 http/https）。 */
+  openConsoleUrl: (url: string): Promise<void> => invoke("open_console_url", { url }),
   listProviders: (): Promise<ProviderEntry[]> => invoke("list_providers"),
   /** 将用户预览过的无凭据 AI 诊断包写入指定路径。 */
   writeAssistPackage: (path: string, contents: string): Promise<void> =>

@@ -1,9 +1,33 @@
 import {
   KEEP_LAST_GOOD_MS,
+  type NativeMeta,
+  type ProviderEntry,
   type QueryOutcome,
   type SnapshotEntry,
   type UsageData,
 } from "../types";
+
+/** 控制台直达 URL：条目自定义覆盖优先，回退 native 预置默认
+ *  （core `provider::resolve_console_url` 的前端镜像——渲染入口共用
+ *  同一语义，None/undefined 时不渲染按钮）。 */
+export function resolveConsoleUrl(
+  entry: Pick<ProviderEntry, "console_url">,
+  nativeMeta?: NativeMeta,
+): string | null {
+  return entry.console_url ?? nativeMeta?.console_url ?? null;
+}
+
+/** 编辑表单「控制台地址」输入校验：空（=回退/清除覆盖）或 `http(s)://`
+ *  形态（scheme 大小写不敏感，RFC 3986；裸 scheme/单斜杠畸形拒绝）；
+ *  与后端 open_console_url 的 Rust 侧白名单同一口径（两侧均先 trim）。 */
+export function isValidConsoleUrlInput(url: string): boolean {
+  const trimmed = url.trim();
+  if (trimmed === "") return true;
+  const sep = trimmed.indexOf("://");
+  if (sep === -1) return false;
+  const scheme = trimmed.slice(0, sep).toLowerCase();
+  return scheme === "http" || scheme === "https";
+}
 
 export type ProviderCardKind =
   | "normal"

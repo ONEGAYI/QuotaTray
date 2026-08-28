@@ -20,6 +20,8 @@ pub struct Kimi {
     name: &'static str,
     base_url: &'static str,
     unit: &'static str,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 /// 国内站（api.moonshot.cn，人民币账户）。
@@ -28,6 +30,7 @@ pub const KIMI_CN: Kimi = Kimi {
     name: "Kimi（国内站）",
     base_url: "https://api.moonshot.cn",
     unit: "CNY",
+    console_url: Some("https://platform.kimi.com/"),
 };
 
 /// 国际站（api.moonshot.ai，美元账户）。
@@ -36,6 +39,7 @@ pub const KIMI_GLOBAL: Kimi = Kimi {
     name: "Kimi（国际站）",
     base_url: "https://api.moonshot.ai",
     unit: "USD",
+    console_url: Some("https://platform.kimi.ai/"),
 };
 
 #[async_trait]
@@ -44,6 +48,7 @@ impl NativeProvider for Kimi {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

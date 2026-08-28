@@ -51,6 +51,11 @@ pub struct ProviderEntry {
     /// 确定性引导错误。旧配置无此字段天然兼容。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub use_proxy: bool,
+    /// 控制台直达 URL 覆盖（明文导航信息，非凭据，不进 vault）。
+    /// None = native 条目回退注册表预置默认（`provider::resolve_console_url`）；
+    /// 模板/脚本条目仅此字段生效。旧配置无此字段天然兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console_url: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -176,6 +181,30 @@ mod tests {
         p
     }
 
+    /// 契约：console_url 为可选明文字段——旧配置（无该字段）可解析，
+    /// None 序列化时省略，有值时 roundtrip 保真。
+    #[test]
+    fn console_url_field_compat() {
+        let json = r#"{"id":"e1","name":"n","kind":{"type":"native","provider":"deepseek"}}"#;
+        let e: ProviderEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(e.console_url, None);
+        assert!(
+            !serde_json::to_string(&e).unwrap().contains("console_url"),
+            "None 应省略字段"
+        );
+        let with_url = ProviderEntry {
+            console_url: Some("https://console.example.com/".into()),
+            ..e.clone()
+        };
+        let s = serde_json::to_string(&with_url).unwrap();
+        assert!(s.contains("https://console.example.com/"));
+        let back: ProviderEntry = serde_json::from_str(&s).unwrap();
+        assert_eq!(
+            back.console_url.as_deref(),
+            Some("https://console.example.com/")
+        );
+    }
+
     /// 契约：保存后加载 roundtrip 无损。
     #[test]
     fn save_load_roundtrip() {
@@ -207,6 +236,7 @@ mod tests {
                 pricing: None,
                 plan_variant: Default::default(),
                 use_proxy: false,
+                console_url: None,
             }],
             custom_models: std::collections::BTreeMap::from([(
                 "deepseek".to_string(),
@@ -298,6 +328,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
@@ -332,6 +363,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
         assert_eq!(
@@ -358,6 +390,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         entry.set_api_key(&vault, "sys-access-token").unwrap();
         assert!(entry.credentials(&vault).unwrap().api_key2.is_none());
@@ -401,6 +434,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         let err = entry.credentials(&vault).unwrap_err();
         assert!(!err.is_transient());
@@ -423,6 +457,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         a.set_api_key(&vault, "sk-abc").unwrap();
         let mut b = a.clone();

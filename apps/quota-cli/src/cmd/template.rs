@@ -108,6 +108,7 @@ pub async fn run(
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
                 use_proxy: false,
+                console_url: None,
             };
             if let Err(err) = e.set_api_key(&vault, api_key.trim()) {
                 eprintln!(

@@ -22,6 +22,7 @@ impl NativeProvider for Novita {
         NativeMeta {
             id: "novita",
             name: "Novita AI",
+            console_url: Some("https://novita.ai/billing"),
         }
     }
 

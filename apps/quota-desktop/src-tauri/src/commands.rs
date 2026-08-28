@@ -48,6 +48,8 @@ pub struct NativeMetaDto {
     /// CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的
     /// 登录文件只读获取——编辑表单隐藏 key 输入框并展示提示卡。
     pub uses_cli_credentials: bool,
+    /// 控制台直达预置 URL（条目自定义覆盖优先；None = 该平台无预置）。
+    pub console_url: Option<String>,
     /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
     pub custom_models: Vec<quota_core::CustomModelDef>,
 }
@@ -581,6 +583,7 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
                 name: m.name.into(),
                 supports_plan_variant: quota_core::provider::supports_plan_variant(m.id),
                 uses_cli_credentials: quota_core::provider::uses_cli_credentials(m.id),
+                console_url: m.console_url.map(str::to_string),
                 pricing,
                 pricing_by_currency,
                 custom_models: cfg.custom_models.get(m.id).cloned().unwrap_or_default(),
@@ -667,6 +670,7 @@ pub async fn test_template(
         pricing: None,
         plan_variant: PlanVariant::Auto,
         use_proxy: false,
+        console_url: None,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -771,6 +775,7 @@ pub async fn test_script(
         pricing: None,
         plan_variant: PlanVariant::Auto,
         use_proxy: false,
+        console_url: None,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -1362,6 +1367,34 @@ pub fn open_update_dir(app: AppHandle, state: State<'_, AppState>) -> Result<(),
         .map_err(|e| format!("打开下载目录失败：{e}"))
 }
 
+/// 打开控制台直达 URL（余额卡片「访问控制台」）。scheme 校验在 Rust 侧
+/// 收口（仅 http/https）；走 Rust 侧 opener 而非前端插件直调——capability
+/// 的 opener scope 锁定 GitHub 仓库单 URL，且模板条目的自定义 URL 是
+/// 任意域名无法枚举白名单，自定义 command 不受前端 capability 约束。
+#[tauri::command]
+pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String> {
+    if let Some(reason) = console_url_rejected_reason(&url) {
+        return Err(reason.into());
+    }
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("打开控制台失败：{e}"))
+}
+
+/// 控制台 URL 安全校验：仅放行 `http(s)://` 形态（scheme 大小写不敏感，
+/// RFC 3986；拒绝 file:/javascript:/裸 scheme/单斜杠畸形等），先 trim——
+/// 与前端 isValidConsoleUrlInput 同口径。
+fn console_url_rejected_reason(url: &str) -> Option<&'static str> {
+    if let Some((scheme, _)) = url.trim().split_once("://")
+        && matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https")
+    {
+        None
+    } else {
+        Some("控制台地址仅支持 http/https 链接")
+    }
+}
+
 // ---- 更新检测（core::update 的薄封装） -------------------------------------
 
 /// 当前更新状态（版本 / 上次检测 / 新版本信息 / 最近错误）。
@@ -1482,6 +1515,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         }
     }
 
@@ -1820,6 +1854,41 @@ mod tests {
             w[0].end = "12:00".into();
         }
         assert!(validate_entry(&ok_pricing, Lang::Zh).is_ok());
+    }
+
+    /// 契约：native 元信息 DTO 携带控制台直达 URL（双站域名分立），
+    /// 前端据此渲染「访问控制台」入口。
+    #[test]
+    fn native_metas_carry_console_url() {
+        let metas = native_meta_dtos(&AppConfig::default());
+        let find = |id: &str| metas.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(
+            find("siliconflow").console_url.as_deref(),
+            Some("https://cloud.siliconflow.cn/")
+        );
+        assert_eq!(
+            find("siliconflow_global").console_url.as_deref(),
+            Some("https://cloud.siliconflow.com/")
+        );
+        assert!(metas.iter().all(|m| m.console_url.is_some()));
+    }
+
+    /// 契约：open_console_url 的 scheme 白名单——仅 http/https 放行
+    /// （大小写不敏感、容忍首尾空白，与前端校验同口径），
+    /// file:/javascript:/无 scheme 一律拒绝（防借应用拉起本地程序）。
+    #[test]
+    fn console_url_scheme_whitelist() {
+        assert!(console_url_rejected_reason("https://cloud.siliconflow.cn/").is_none());
+        assert!(console_url_rejected_reason("http://example.com/console").is_none());
+        assert!(console_url_rejected_reason("HTTPS://EXAMPLE.COM").is_none());
+        assert!(console_url_rejected_reason("  https://example.com  ").is_none());
+        assert!(console_url_rejected_reason("file:///C:/Windows/system.ini").is_some());
+        assert!(console_url_rejected_reason("javascript:alert(1)").is_some());
+        assert!(console_url_rejected_reason("cloud.siliconflow.cn").is_some());
+        assert!(console_url_rejected_reason("").is_some());
+        // 裸 scheme（无 ://）与单斜杠畸形形态拒绝
+        assert!(console_url_rejected_reason("https").is_some());
+        assert!(console_url_rejected_reason("https:/example.com").is_some());
     }
 
     /// 契约：list_native_metas 携带峰谷预置——deepseek 有（三模型/默认 flash/

@@ -1,13 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { KEEP_LAST_GOOD_MS, type QueryOutcome, type SnapshotEntry } from "../types";
+import {
+  KEEP_LAST_GOOD_MS,
+  type NativeMeta,
+  type QueryOutcome,
+  type SnapshotEntry,
+} from "../types";
 import {
   canCopyError,
   deriveProviderCardState,
   errorCopyText,
+  isValidConsoleUrlInput,
+  resolveConsoleUrl,
 } from "./providerCardView";
 
 const NOW = 1_780_000_000_000;
 const balance = [{ remaining: 18.7, unit: "CNY" }];
+
+function nativeMeta(patch: Partial<NativeMeta> = {}): NativeMeta {
+  return {
+    id: "deepseek",
+    name: "DeepSeek",
+    pricing: null,
+    pricing_by_currency: {},
+    custom_models: [],
+    supports_plan_variant: false,
+    uses_cli_credentials: false,
+    console_url: null,
+    ...patch,
+  };
+}
+
+describe("控制台直达解析", () => {
+  it("条目自定义覆盖优先于 native 预置；均无则 null（不渲染按钮）", () => {
+    const meta = nativeMeta({ console_url: "https://platform.deepseek.com/" });
+    expect(resolveConsoleUrl({ console_url: undefined }, meta)).toBe(
+      "https://platform.deepseek.com/",
+    );
+    expect(
+      resolveConsoleUrl({ console_url: "https://relay.example.com/" }, meta),
+    ).toBe("https://relay.example.com/");
+    expect(resolveConsoleUrl({ console_url: undefined }, undefined)).toBeNull();
+    expect(resolveConsoleUrl({ console_url: undefined }, nativeMeta())).toBeNull();
+  });
+
+  it("编辑表单输入校验：空或 http/https 前缀放行（大小写不敏感），其余 scheme 拒绝", () => {
+    expect(isValidConsoleUrlInput("")).toBe(true);
+    expect(isValidConsoleUrlInput("  ")).toBe(true);
+    expect(isValidConsoleUrlInput("https://relay.example.com/")).toBe(true);
+    expect(isValidConsoleUrlInput("http://intranet.local:8080/console")).toBe(true);
+    expect(isValidConsoleUrlInput("HTTPS://EXAMPLE.COM")).toBe(true);
+    expect(isValidConsoleUrlInput("  https://example.com  ")).toBe(true);
+    expect(isValidConsoleUrlInput("file:///C:/x")).toBe(false);
+    expect(isValidConsoleUrlInput("relay.example.com")).toBe(false);
+    expect(isValidConsoleUrlInput("javascript:alert(1)")).toBe(false);
+    // 裸 scheme（无 ://）与单斜杠畸形拒绝
+    expect(isValidConsoleUrlInput("https")).toBe(false);
+    expect(isValidConsoleUrlInput("https:/example.com")).toBe(false);
+  });
+});
 
 function outcome(patch: Partial<QueryOutcome>): QueryOutcome {
   return { ok: true, data: balance, error: null, at: NOW - 60_000, ...patch };

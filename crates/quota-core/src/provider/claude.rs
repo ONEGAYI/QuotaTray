@@ -43,6 +43,7 @@ impl NativeProvider for Claude {
         NativeMeta {
             id: "claude",
             name: "Claude 订阅",
+            console_url: Some("https://claude.ai/settings/billing"),
         }
     }
 

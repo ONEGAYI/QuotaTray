@@ -38,6 +38,10 @@ Android 仍沿用视觉图标尺寸，但触摸命中区须通过容器或平台
   `border-radius: 50%` 圆形——圆形与药丸 `999px` 同为不入档位形态；
   danger 变体（danger 字，hover danger-soft 底，展开态同 hover）。
   同时是 disclosure 按钮（aria-expanded），非纯图标钮（2026-08-28 登记）。
+- `qt-console-btn`（余额卡片「访问控制台」）：迷你档 26px/xs 圆角，尺寸入档；
+  hover/focus 转 accent 10% 底 + accent 字（默认弱化色 `--qt-text-faint`），
+  偏离「hover 一律 surface-soft 底 + text 字」规则——2026-08-28 所有者定案，
+  依据 docs/specs/console-link-spec.md §2（2026-08-29 登记）。
 
 **文字链接式按钮**（行内下划线动作）：`accent-strong` 字 + hover 下划线；
 删除类动作 hover 转 `danger` 字。不得引入 Tailwind 色板（见 T-008）。

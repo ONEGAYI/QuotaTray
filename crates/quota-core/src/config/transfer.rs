@@ -306,6 +306,7 @@ mod tests {
             }),
             plan_variant: PlanVariant::Weekly,
             use_proxy: false,
+            console_url: None,
         };
         native.set_api_key(vault, SECRET_A).unwrap();
 
@@ -331,6 +332,7 @@ mod tests {
             pricing: None,
             plan_variant: PlanVariant::Auto,
             use_proxy: false,
+            console_url: None,
         };
         custom.set_api_key(vault, SECRET_B).unwrap();
 

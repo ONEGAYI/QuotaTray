@@ -22,6 +22,7 @@ impl NativeProvider for StepFun {
         NativeMeta {
             id: "stepfun",
             name: "StepFun",
+            console_url: Some("https://platform.stepfun.com/"),
         }
     }
 

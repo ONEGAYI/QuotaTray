@@ -24,6 +24,8 @@ pub struct SiliconFlow {
     unit: &'static str,
     /// 410 止血文案；仅国内站设置，国际站 None 维持通用 HTTP 错误路径。
     deprecated_410_notice: Option<&'static str>,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 /// 国内站（api.siliconflow.cn，人民币）。
@@ -35,6 +37,7 @@ pub const SILICONFLOW_CN: SiliconFlow = SiliconFlow {
     deprecated_410_notice: Some(
         "SiliconFlow 国内站余额接口已由官方停止服务，暂无替代 API；这不表示 API Key 无效。",
     ),
+    console_url: Some("https://cloud.siliconflow.cn/"),
 };
 
 /// 国际站（api.siliconflow.com，美元——官方文档未标注余额单位，
@@ -45,6 +48,7 @@ pub const SILICONFLOW_GLOBAL: SiliconFlow = SiliconFlow {
     base_url: "https://api.siliconflow.com",
     unit: "USD",
     deprecated_410_notice: None,
+    console_url: Some("https://cloud.siliconflow.com/"),
 };
 
 #[async_trait]
@@ -53,6 +57,7 @@ impl NativeProvider for SiliconFlow {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

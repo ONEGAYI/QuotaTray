@@ -2334,6 +2334,13 @@
                 "quota-cli 规格：子命令/退出码/dev-smoke/外部 Agent 无凭据 assist 调试契约"
               ]
             },
+            "console-link-spec.md": {
+              "kind": "file",
+              "desc": "控制台直达规格（#59）",
+              "detail": [
+                "余额卡片「访问控制台」直达功能规格：样式定案（Material open_in_new 位置 A）、core 注册表 20 项预置 URL 表（联网核验）、console_url 覆盖语义、open_console_url command 与 scheme 白名单、Android 能力缺口标记"
+              ]
+            },
             "GUI-spec.md": {
               "kind": "file",
               "desc": "GUI 规格（M3）",

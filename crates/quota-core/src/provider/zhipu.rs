@@ -28,6 +28,8 @@ pub struct ZhipuApi {
     id: &'static str,
     name: &'static str,
     base_url: &'static str,
+    /// 控制台直达预置 URL（双站域名分立）。
+    console_url: Option<&'static str>,
 }
 
 /// 智谱国内站（open.bigmodel.cn）。
@@ -35,6 +37,7 @@ pub const ZHIPU: ZhipuApi = ZhipuApi {
     id: "zhipu",
     name: "智谱 GLM Coding Plan",
     base_url: "https://open.bigmodel.cn",
+    console_url: Some("https://www.bigmodel.cn/coding-plan/personal/usage"),
 };
 
 /// Z.ai 国际站。
@@ -42,6 +45,7 @@ pub const ZAI: ZhipuApi = ZhipuApi {
     id: "zai",
     name: "Z.ai GLM Coding Plan",
     base_url: "https://api.z.ai",
+    console_url: Some("https://z.ai/manage-apikey/billing"),
 };
 
 /// TOKENS_LIMIT 条目的窗口归类。
@@ -171,6 +175,7 @@ impl NativeProvider for ZhipuApi {
         NativeMeta {
             id: self.id,
             name: self.name,
+            console_url: self.console_url,
         }
     }
 

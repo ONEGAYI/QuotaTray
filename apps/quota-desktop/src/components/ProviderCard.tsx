@@ -30,7 +30,7 @@ import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { DragHandleProps } from "../useCardDragSort";
 import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
-import { canCopyError, deriveProviderCardState, errorCopyText } from "./providerCardView";
+import { canCopyError, deriveProviderCardState, errorCopyText, resolveConsoleUrl } from "./providerCardView";
 import { isLightLogo, providerIconUrl, templateProviderIconUrl } from "./providerIcon";
 import {
   pricingModelChoices,
@@ -46,6 +46,9 @@ interface Props {
   thresholdPercent: number;
   snapshot?: SnapshotEntry;
   nativeMeta?: NativeMeta;
+  /** 是否渲染「访问控制台」直达入口（App 按 runtime 策略下发：
+   *  桌面 true；Android 的 opener 行为未真机验证，默认隐藏）。 */
+  consoleLink?: boolean;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
   /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
   dragHandleProps?: DragHandleProps;
@@ -88,8 +91,24 @@ function providerInitials(name: string) {
   if (capitals && capitals.length >= 2) return capitals.slice(0, 2).join("");
 
   const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+  if (words.length >= 2) return words.slice(0, 2).map((word) => word[0] ?? "").join("").toUpperCase();
   return name.slice(0, 2).toUpperCase();
+}
+
+/** Material Symbols `open_in_new`（Apache-2.0，fill 变体）：控制台直达
+ *  图标，样式定案见 docs/specs/console-link-spec.md §2。 */
+function ConsoleOpenIcon() {
+  return (
+    <svg
+      viewBox="0 -960 960 960"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z" />
+    </svg>
+  );
 }
 
 /** memo：拖拽让位重渲染只触达位移变化的卡片——依赖调用方保持
@@ -100,6 +119,7 @@ export const ProviderCard = memo(function ProviderCard({
   thresholdPercent,
   snapshot,
   nativeMeta,
+  consoleLink,
   onEdit,
   dragHandleProps,
   dragShift,
@@ -107,6 +127,9 @@ export const ProviderCard = memo(function ProviderCard({
 }: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
+  // 控制台直达 URL（自定义覆盖优先回退 native 预置）；策略关闭或无
+  // URL 时为 null——卡片不渲染按钮（issue #59：不出无效链接）。
+  const consoleUrl = consoleLink ? resolveConsoleUrl(entry, nativeMeta) : null;
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
   // 峰谷标签锚点：主窗开着跨过翻转点时以翻转事件驱动重算（#15）
   const peakTick = usePeakFlipTick();
@@ -300,6 +323,19 @@ export const ProviderCard = memo(function ProviderCard({
             <div className="qt-provider-name-row">
               <h2>{entry.name}</h2>
               {statusBadge}
+              {consoleUrl && (
+                <IconButton
+                  className="qt-console-btn"
+                  label={t("card.console")}
+                  onClick={() => {
+                    // 打开失败可达（config.json 手工写入非法 URL 等）——
+                    // 走卡片 feedback 通道而非静默吞错
+                    api.openConsoleUrl(consoleUrl).catch(() => setFeedback(t("card.consoleOpenFailed")));
+                  }}
+                >
+                  <ConsoleOpenIcon />
+                </IconButton>
+              )}
             </div>
             <div className="qt-provider-route">
               <span

@@ -37,7 +37,7 @@ use std::sync::{Arc, LazyLock};
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::config::{Credentials, PlanVariant};
+use crate::config::{Credentials, PlanVariant, ProviderEntry, ProviderKind};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
@@ -46,6 +46,9 @@ use crate::model::{QueryError, UsageData};
 pub struct NativeMeta {
     pub id: &'static str,
     pub name: &'static str,
+    /// 控制台直达预置 URL（平台固有属性，随版本分发；双站为独立
+    /// 注册项、各自域名）。条目级 `console_url` 覆盖优先于该默认值。
+    pub console_url: Option<&'static str>,
 }
 
 /// 预置平台的原生查询实现。
@@ -117,6 +120,24 @@ pub fn uses_cli_credentials(id: &str) -> bool {
 /// 全部平台元信息。
 pub fn metas() -> Vec<NativeMeta> {
     all().into_iter().map(|p| p.meta()).collect()
+}
+
+/// 条目的控制台直达 URL：自定义覆盖（`ProviderEntry::console_url`）优先；
+/// native 条目回退注册表预置值；模板/脚本条目仅取自定义值；均无则 None
+/// （UI 据此不渲染直达入口）。
+///
+/// 前端 `providerCardView.ts` 的 `resolveConsoleUrl` 是本函数的镜像实现
+/// （当前 GUI 生产路径走前端镜像，本函数为 CLI 预留）；语义变更需两端同步。
+pub fn resolve_console_url(entry: &ProviderEntry) -> Option<String> {
+    if let Some(url) = entry.console_url.as_ref() {
+        return Some(url.clone());
+    }
+    match &entry.kind {
+        ProviderKind::Native { provider } => find(provider)
+            .and_then(|p| p.meta().console_url)
+            .map(str::to_string),
+        ProviderKind::Template(_) | ProviderKind::Script(_) => None,
+    }
 }
 
 // ---- 共用工具 -----------------------------------------------------------
@@ -446,6 +467,119 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn native_entry(provider: &str) -> ProviderEntry {
+        ProviderEntry {
+            id: "e1".into(),
+            name: "测试".into(),
+            kind: ProviderKind::Native {
+                provider: provider.into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            use_proxy: false,
+            console_url: None,
+        }
+    }
+
+    fn template_entry() -> ProviderEntry {
+        let template: crate::TemplateConfig = serde_json::from_value(serde_json::json!({
+            "request": { "url": "https://api.demo.com/balance" },
+            "extract": { "remaining": "$.balance" }
+        }))
+        .unwrap();
+        ProviderEntry {
+            id: "tpl".into(),
+            name: "模板".into(),
+            kind: ProviderKind::Template(Box::new(template)),
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            use_proxy: false,
+            console_url: None,
+        }
+    }
+
+    /// 契约：注册表全部预置平台均带 https 控制台直达 URL（含双站分立域名），
+    /// UI 才能保证 native 条目默认都有直达入口。
+    #[test]
+    fn registry_console_urls_present_and_https() {
+        let metas = metas();
+        assert_eq!(metas.len(), 20, "注册表应为 20 项");
+        for m in metas {
+            let url = m
+                .console_url
+                .unwrap_or_else(|| panic!("{} 缺 console_url", m.id));
+            assert!(url.starts_with("https://"), "{} 非 https：{url}", m.id);
+        }
+    }
+
+    /// 契约：resolve_console_url——条目自定义覆盖优先；native 回退注册表
+    /// 预置（双站域名分立）；模板/脚本仅取自定义值；均无则 None。
+    #[test]
+    fn resolve_console_url_precedence() {
+        // native 无自定义 → 注册表预置（deepseek 固定域，防回归锚点）
+        assert_eq!(
+            resolve_console_url(&native_entry("deepseek")).as_deref(),
+            Some("https://platform.deepseek.com/")
+        );
+        // 双站域名分立
+        assert_eq!(
+            resolve_console_url(&native_entry("siliconflow")).as_deref(),
+            Some("https://cloud.siliconflow.cn/")
+        );
+        assert_eq!(
+            resolve_console_url(&native_entry("siliconflow_global")).as_deref(),
+            Some("https://cloud.siliconflow.com/")
+        );
+        // 自定义覆盖优先
+        let mut e = native_entry("deepseek");
+        e.console_url = Some("https://custom.example.com/".into());
+        assert_eq!(
+            resolve_console_url(&e).as_deref(),
+            Some("https://custom.example.com/")
+        );
+        // 模板条目：仅自定义生效，无则 None
+        let mut tpl = template_entry();
+        assert_eq!(resolve_console_url(&tpl), None);
+        tpl.console_url = Some("https://relay.example.com/".into());
+        assert_eq!(
+            resolve_console_url(&tpl).as_deref(),
+            Some("https://relay.example.com/")
+        );
+        // 脚本条目与模板同语义（仅自定义，无则 None）
+        let mut script = ProviderEntry {
+            id: "s1".into(),
+            name: "脚本".into(),
+            kind: ProviderKind::Script(Box::new(crate::ScriptConfig {
+                code: "function request(){}".into(),
+                allow_insecure: false,
+            })),
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            use_proxy: false,
+            console_url: None,
+        };
+        assert_eq!(resolve_console_url(&script), None);
+        script.console_url = Some("https://script.example.com/".into());
+        assert_eq!(
+            resolve_console_url(&script).as_deref(),
+            Some("https://script.example.com/")
+        );
+        // 未知 native id（注册表无此项）→ None
+        assert_eq!(resolve_console_url(&native_entry("no-such-id")), None);
+    }
 
     /// 状态码分类契约：401/402/404 确定性（认证/欠费/端点错误），
     /// 408/429/5xx 瞬时（请求超时/限流/服务端故障，可重试）。

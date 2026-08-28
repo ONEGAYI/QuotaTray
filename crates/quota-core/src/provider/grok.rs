@@ -43,6 +43,7 @@ impl NativeProvider for Grok {
         NativeMeta {
             id: "grok",
             name: "Grok 订阅",
+            console_url: Some("https://grok.com/"),
         }
     }
 

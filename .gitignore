@@ -33,3 +33,6 @@ __pycache__/
 # 便携版本地烟测残留（发布 zip 内的这两个文件不进仓库）
 portable.key
 portable.marker
+
+# Mimosa 扫描器本地状态（会话基线/报告，不入库）
+.mimosa/

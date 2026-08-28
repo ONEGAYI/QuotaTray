@@ -10,6 +10,9 @@ export interface RuntimeUiPolicy {
   cliAssist: boolean;
   fullScreenDialogs: boolean;
   bottomNavigation: boolean;
+  /** 控制台直达入口（余额卡片图标按钮）：Android 的 opener 拉起系统
+   *  浏览器行为未真机验证，桌面先行、移动默认隐藏（数据层跨端就绪）。 */
+  consoleLink: boolean;
 }
 
 export function runtimeUiPolicy(platform: RuntimePlatform): RuntimeUiPolicy {
@@ -24,6 +27,7 @@ export function runtimeUiPolicy(platform: RuntimePlatform): RuntimeUiPolicy {
     cliAssist: !mobile,
     fullScreenDialogs: mobile,
     bottomNavigation: mobile,
+    consoleLink: !mobile,
   };
 }
 

@@ -50,6 +50,7 @@ impl NativeProvider for Codex {
         NativeMeta {
             id: "codex",
             name: "Codex（ChatGPT 订阅）",
+            console_url: Some("https://chatgpt.com/#settings/Subscription"),
         }
     }
 
