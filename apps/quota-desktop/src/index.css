@@ -508,6 +508,7 @@ button:focus-visible {
 [data-tooltip]::after {
   content: attr(data-tooltip); position: absolute; z-index: 80; bottom: calc(100% + 7px); left: 50%;
   max-width: 360px; padding: 5px 8px; border-radius: var(--qt-radius-xs); background: var(--qt-text); color: var(--qt-surface);
+  font-size: 12px;
   opacity: 0; transform: translate(-50%, 3px); pointer-events: none; white-space: nowrap;
   transition: opacity var(--qt-dur-2) ease, transform var(--qt-dur-2) ease;
 }
@@ -516,9 +517,6 @@ button:focus-visible {
 [data-tooltip=""]::after { content: none; }
 /* 长文本变体（错误详情等）：允许换行，见前端样式规范 T-001 */
 [data-tooltip].is-multiline::after { white-space: normal; }
-/* 模型窗口选择器气泡：对齐卡片更新时间字号（qt-provider-meta 12px），
-   不继承根字号 16px，见 T-001 */
-.qt-provider-route [data-tooltip]::after { font-size: 12px; }
 .qt-tooltip-anchor { position: relative; display: inline-flex; }
 
 .qt-badge { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 8px; font-size: 12px; }
