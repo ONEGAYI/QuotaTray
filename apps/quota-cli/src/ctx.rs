@@ -73,8 +73,7 @@ impl Ctx {
         self.portable
     }
 
-    /// 更新资产选择器：按运行形态分流（便携选 portable zip、安装选
-    /// setup.exe），绝不跨形态回退（资产契约见 core::update）。
+    /// 更新资产选择器：按架构 × 运行形态精确分流，绝不回退。
     pub fn update_selector(&self) -> quota_core::AssetSelector {
         if self.portable {
             quota_core::AssetSelector::portable()
@@ -172,7 +171,7 @@ mod tests {
         assert!(!installed.is_portable());
         assert_eq!(
             installed.update_selector().flavor,
-            quota_core::Flavor::SetupExe
+            quota_core::AssetSelector::for_runtime(quota_core::arch_label(), false).flavor
         );
         let _ = std::fs::remove_dir_all(&root);
     }

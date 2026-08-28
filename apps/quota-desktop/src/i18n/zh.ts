@@ -263,6 +263,7 @@ export const zh = {
   "settings.autostartPortableHint": "便携版不支持开机自启：启动项会指向可移除介质，拔盘后残留无效注册表项",
   "settings.downloadPackage": "下载更新包",
   "settings.downloadedPortable": "更新包已下载到：{path}。请退出 QuotaTray 后，将 zip 内容解压覆盖到便携目录（Data/ 数据不受影响）。",
+  "settings.downloadedArchive": "更新包已下载到：{path}。请退出 QuotaTray 后，将 zip 内容解压覆盖到程序目录（用户数据不受影响）。",
   "settings.openDownloadDir": "打开下载目录",
 
   // ---- 便携首启确认（正文只放「为什么 + 不要做什么」，完整固定

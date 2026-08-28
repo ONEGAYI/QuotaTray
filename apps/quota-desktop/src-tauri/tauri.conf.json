@@ -5,7 +5,7 @@
   "build": {
     "beforeDevCommand": "cargo build -p quota-cli && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cargo build -p quota-cli --release && pnpm build",
+    "beforeBuildCommand": "node scripts/build-hook.mjs",
     "frontendDist": "../dist"
   },
   "app": {

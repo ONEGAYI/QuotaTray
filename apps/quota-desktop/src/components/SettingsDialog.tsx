@@ -60,6 +60,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [clearOpen, setClearOpen] = useState(false);
 
   const portableRun = updateState.data?.portable ?? false;
+  const manualUpdateRun = updateState.data?.manual_update ?? portableRun;
   useEffect(() => {
     if (open && settings.data) {
       // 便携形态钳制自启动为关：后端硬门禁拒绝开启，draft 与 UI/持久值
@@ -213,7 +214,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     downloading: download.isPending,
     canDownload,
     hasDownloaded: downloadedPath != null,
-    portable: portableRun,
+    manualUpdate: manualUpdateRun,
   });
   const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
@@ -406,7 +407,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                       : updateAction === "open-dir"
                         ? t("settings.openDownloadDir")
                         : updateAction === "download"
-                          ? portableRun
+                          ? manualUpdateRun
                             ? t("settings.downloadPackage")
                             : t("settings.download")
                           : t("settings.checkNow")}
@@ -478,7 +479,9 @@ export function SettingsDialog({ open, onClose }: Props) {
                 <p className="qt-settings-success">
                   {portableRun
                     ? t("settings.downloadedPortable", { path: downloadedPath })
-                    : t("settings.downloaded", { path: downloadedPath })}
+                    : manualUpdateRun
+                      ? t("settings.downloadedArchive", { path: downloadedPath })
+                      : t("settings.downloaded", { path: downloadedPath })}
                 </p>
               )}
               {operationError && (

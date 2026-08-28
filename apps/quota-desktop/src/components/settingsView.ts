@@ -77,7 +77,7 @@ export function resolveUpdateStatus({
 }
 
 /** 设置页更新主按钮的动作分派（决定文案与点击行为）。
- * 便携形态下载的是 zip：已下载动作是「打开下载目录」引导手动覆盖，
+ * zip 更新形态：已下载动作是「打开下载目录」引导手动覆盖，
  * 不提供运行安装包入口。 */
 export type UpdateAction = "downloading" | "install" | "open-dir" | "download" | "check";
 
@@ -96,18 +96,18 @@ export function resolveUpdateAction({
   downloading,
   canDownload,
   hasDownloaded,
-  portable = false,
+  manualUpdate = false,
 }: {
   downloading: boolean;
   canDownload: boolean;
   hasDownloaded: boolean;
-  /** 便携形态（更新资产为 zip，走手动覆盖引导）。 */
-  portable?: boolean;
+  /** zip 更新形态（ARM64 Preview / Portable），走手动覆盖引导。 */
+  manualUpdate?: boolean;
 }): UpdateAction {
   if (downloading) return "downloading";
   // 安装态要求仍有可下载的新版本：换版本/检测失败时后端已清记录
   if (canDownload) {
-    if (hasDownloaded) return portable ? "open-dir" : "install";
+    if (hasDownloaded) return manualUpdate ? "open-dir" : "install";
     return "download";
   }
   return "check";

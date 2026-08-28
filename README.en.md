@@ -29,7 +29,8 @@ The key difference from other balance tools is **credential security**:
 - Settings → Data management: cross-machine configuration export/import (with sensitive-file confirmation) and one-click clear of all user data (5-second countdown double confirmation)
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window
-- Portable build (Windows x64): all data travels in the `Data/` folder, first-run security confirmation, delete the folder to uninstall
+- Windows ARM64 (Preview): standalone and portable zips with native ARM64 GUI and CLI binaries
+- Portable build (Windows x64 / ARM64 Preview): all data travels in the `Data/` folder, first-run security confirmation, delete the folder to uninstall
 
 **Command line (quota-cli, sharing the same core as the GUI)**
 
@@ -131,13 +132,21 @@ Sandbox limits: 16 MiB memory, a 5-second CPU cap per execution, no network/file
 
 ## Install
 
-### Windows
+### Windows x64
 
 Download the NSIS installer (`*-setup.exe`) from [Releases](https://github.com/ONEGAYI/QuotaTray/releases).
 
-### Portable (Windows x64)
+### Windows on ARM
 
-Download `*-portable.zip`, extract to any writable folder and run — all data stays
+- **ARM64 (Preview)**: download `*-arm64-preview.zip`, extract it, and run `QuotaTray.exe`. This archive has no installer and continues to use the installed-mode data directory and system credential store.
+- **ARM64 (Preview), portable**: download `*-arm64-preview-portable.zip`; its data and portable master key live in the adjacent `Data/` folder.
+
+> 🧪 **ARM64 Preview**: The ARM64 build has passed cross-compilation and artifact architecture checks, but has not completed full runtime validation on a physical Windows on ARM device. It is provided for preview and feedback only and must not be treated as stable support.
+
+### Portable (Windows x64 / ARM64 Preview)
+
+For Windows x64, download `*-x64-portable.zip`; for ARM64 Preview, download
+`*-arm64-preview-portable.zip`. Extract to any writable folder and run — all data stays
 in the adjacent `Data/` folder; deleting the folder uninstalls. First run shows a
 security confirmation. The zip contains the GUI (`QuotaTray.exe`) and the CLI
 (`quota.exe`), sharing the same `Data/` folder.
@@ -153,6 +162,13 @@ Requires: Rust stable, Node.js, pnpm.
 cd apps/quota-desktop
 pnpm install
 pnpm tauri build
+
+# From the repository root: x64 setup + portable
+cd ../..
+.\package
+
+# WoA standalone + portable Preview zips (requires ARM64 MSVC + clang)
+.\package -Arch arm64
 
 # CLI only
 cargo build -p quota-cli --release
