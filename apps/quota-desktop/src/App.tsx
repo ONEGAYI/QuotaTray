@@ -262,6 +262,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
                         : undefined
                     }
                     consoleLink={runtime.consoleLink}
+                    mobile={runtime.mobile}
                     onEdit={handleEdit}
                     dragHandleProps={dragSort.handleProps(entry.id)}
                     dragShift={

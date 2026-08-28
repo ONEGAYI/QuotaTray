@@ -26,9 +26,23 @@ test("Android 通用文字按钮与图标按钮具有按压反馈", () => {
   );
 });
 
-test("Android 控制台直达图标钮满足 44px 触摸热区（T-010）", () => {
+test("Android 控制台直达为 trailing 文字按钮且满足 44px 命中区（T-010）", () => {
+  // 文字按钮：视觉小（13px 字 + 16px 图标）、命中区 ≥44px、默认无实心底
   assert.match(
     css,
-    /body\.qt-mobile-runtime \.qt-icon-btn\.qt-console-btn\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s,
+    /\.qt-console-text-btn\s*\{[^}]*min-height:\s*44px;[^}]*margin-left:\s*auto;/s,
+  );
+  assert.match(
+    css,
+    /\.qt-console-text-btn:active\s*\{[^}]*background:/s,
+  );
+  // 所在的 route 行转 flex 使按钮 trailing 靠右，label 保持省略号
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-provider-route\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-provider-route-label[^{]*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s,
   );
 });

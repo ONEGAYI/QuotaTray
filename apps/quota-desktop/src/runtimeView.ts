@@ -10,9 +10,9 @@ export interface RuntimeUiPolicy {
   cliAssist: boolean;
   fullScreenDialogs: boolean;
   bottomNavigation: boolean;
-  /** 控制台直达入口（余额卡片图标按钮）：两端渲染（Android 触摸热区
-   *  44px，见 index.css 移动段与 console-link-spec §7）；验证状态与
-   *  平台差异以 AGENTS「移动端能力缺口追踪」为活追踪。 */
+  /** 控制台直达入口（余额卡片；桌面图标钮 / Android trailing 文字按钮）：
+   *  两端渲染（Android 命中区 44px，见 index.css 移动段与 console-link-spec
+   *  §7）；验证状态与平台差异以 AGENTS「移动端能力缺口追踪」为活追踪。 */
   consoleLink: boolean;
 }
 
