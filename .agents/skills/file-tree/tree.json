@@ -729,7 +729,7 @@
                   "kind": "file",
                   "desc": "dev端口探测避让契约测试",
                   "detail": [
-                    "node --test 契约测试（pnpm test:dev，CI frontend job 接入）：覆盖 parsePortConfig 默认/env覆盖/非法值快速失败/65535 越界、tauriDevConfig 结构、resolveDevPort mock 与真实探测、isPortFree 双栈单栈占用判定。"
+                    "node --test 契约测试（pnpm test:dev，CI frontend job 接入）：覆盖 parsePortConfig 默认/env覆盖/非法值快速失败/65535 越界、tauriDevConfig 结构、resolveDevPort mock 与真实探测（候选窗口含端点 base+span 双向锁定）、isPortFree 双栈单栈占用判定、isStackUnavailable 回环栈缺失豁免。"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/dev.mjs"

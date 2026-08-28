@@ -56,6 +56,7 @@ function listenOnce(host, port) {
 
 // vite 绑 localhost 时走 IPv4 还是 IPv6 取决于 Node 解析顺序，且两栈排除段独立漂移，
 // 因此双栈都可绑定才判可用——宁可无谓顺延，不选单栈可绑的端口。
+// 回环栈不存在的环境（isStackUnavailable）豁免对应栈，仅按存在的栈判定。
 export async function isPortFree(port) {
   if (!(await listenOnce("127.0.0.1", port))) return false;
   return listenOnce("::1", port);
