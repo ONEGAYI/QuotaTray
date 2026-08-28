@@ -283,8 +283,8 @@ export const en: Record<TextKey, string> = {
   "settings.openDownloadDir": "Open download folder",
 
   // ---- Portable first-run confirmation: body keeps only "why + do-not";
-  // the full fixed notice folds into the question-mark hover disclosure
-  // (noticeFull matches README.en.md verbatim). ----
+  // the full fixed notice folds into the question-mark click-to-expand
+  // disclosure (noticeFull matches README.en.md verbatim). ----
   "portable.initTitle": "First run of the portable build",
   "portable.noticeWhy": "The master key lives next to your encrypted credentials in `Data/`, so **the whole folder equals plaintext credentials** — a leak exposes every API key inside.",
   "portable.noticeRule": "Do not upload it to cloud drives, commit it to version control, or share it with others; if it leaks, **rotate every API key it contained immediately**.",

@@ -1,7 +1,7 @@
 // 便携首启门控：portable.key 缺失时接管整个窗口，取得显式确认后才由
 // 后端建钥（AGENTS.md 红线 §5）。正文只放「为什么 + 不要做什么」两行，
-// 完整固定安全提示收进问号悬停展开（InlineMd 渲染，字典值保持文档原文）；
-// 倒计时锁定与清空配置确认共用同一交互语言（clearConfigView 纯函数）。
+// 完整固定安全提示收进问号图标点击展开（InlineMd 渲染，字典值保持
+// 文档原文）；倒计时锁定与清空配置确认共用同一交互语言（clearConfigView）。
 import { CircleHelp, KeyRound, ShieldAlert } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
@@ -11,11 +11,14 @@ import {
   resolveConfirmButton,
   stepCountdown,
 } from "./clearConfigView";
-import { Button, InlineMd, Tooltip } from "./ui";
+import { Button, InlineMd } from "./ui";
 
-/** 便携门控正文块：右上角问号，点击展开/收起完整说明，Esc 也可收起。
- * 只用点击不用 hover 展开：面板占布局使卡片变高、居中布局令卡片上移，
- * hover 展开会把图标移出鼠标热区而反复收起展开（闪烁）。 */
+/** 便携门控正文块：右上角问号，点击展开/收起完整说明，Esc 也可收起
+ * （keydown 挂容器，焦点在面板内同样生效）。只用点击不用 hover 展开：
+ * 面板占布局使卡片变高、居中布局令卡片上移，hover 展开会把图标移出
+ * 鼠标热区而反复收起展开（闪烁）。问号自身的操作提示用纯文本
+ * data-tooltip（不占布局无反馈回路），但按钮是 absolute 定位——气泡
+ * 不能再包定位锚 span，直挂按钮并以按钮为锚。 */
 function InfoDisclosure({
   label,
   tooltip,
@@ -29,21 +32,22 @@ function InfoDisclosure({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="qt-portable-gate-notice">
-      <Tooltip text={tooltip}>
-        <button
-          type="button"
-          className="qt-gate-info-btn"
-          aria-label={label}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
-          }}
-        >
-          <CircleHelp size={16} aria-hidden="true" />
-        </button>
-      </Tooltip>
+    <div
+      className="qt-portable-gate-notice"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="qt-gate-info-btn"
+        aria-label={label}
+        aria-expanded={open}
+        data-tooltip={tooltip}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <CircleHelp size={16} aria-hidden="true" />
+      </button>
       {children}
       {open && (
         <div className="qt-gate-info-panel" role="note">

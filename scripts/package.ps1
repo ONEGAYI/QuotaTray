@@ -181,25 +181,23 @@ if (-not $SkipBuild) {
 
 $artifacts = @()
 
+# 产物根目录（setup 与 portable 两分支共用；须在分支外定义——
+# -Flavor portable 单跑时 setup 分支不执行，分支内定义会让 StrictMode
+# 在下方引用处直接报未定义变量）
+# --target 交叉时 tauri 产物整体落在 target/<triple>/release/ 下
+# （NSIS bundle 与裸 exe 同根）。arm64 为 WoA P1 预留：还需先显式
+# 构建 ARM64 CLI 并完成 build.rs 目标感知暂存（预研 §3.2），该分支
+# 路径未实跑验证，Assert-PEArch 会拦下架构错配产物
+$archTargetDir = if ($Arch -eq "arm64") {
+    Join-Path (Join-Path $root "target") "aarch64-pc-windows-msvc/release"
+}
+else {
+    $targetDir
+}
+
 if ($Flavor -in @("setup", "all")) {
     $setupName = Get-ExpectedAssetName -Version $version -Arch $Arch -FlavorKind "SetupExe"
-    # NSIS 产物固定在 bundle/nsis 下；--target 交叉时在其 triple 子目录
-    # --target 交叉时 tauri 产物整体落在 target/<triple>/release/ 下
-    # （NSIS bundle 与裸 exe 同根）。arm64 为 WoA P1 预留：还需先显式
-    # 构建 ARM64 CLI 并完成 build.rs 目标感知暂存（预研 §3.2），本
-    # 分支路径未实跑验证，Assert-PEArch 会拦下架构错配产物
-    $archTargetDir = if ($Arch -eq "arm64") {
-        Join-Path (Join-Path $root "target") "aarch64-pc-windows-msvc/release"
-    }
-    else {
-        $targetDir
-    }
-    $nsisDir = if ($Arch -eq "arm64") {
-        Join-Path $archTargetDir "bundle/nsis"
-    }
-    else {
-        Join-Path $targetDir "bundle/nsis"
-    }
+    $nsisDir = Join-Path $archTargetDir "bundle/nsis"
     $setupPath = Join-Path $nsisDir $setupName
     if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
         throw "安装包产物缺失：$setupPath（先完整执行一次不带 -SkipBuild 的打包）"

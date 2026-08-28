@@ -1003,7 +1003,13 @@ pub fn get_boot_state(app: AppHandle) -> BootStateDto {
 }
 
 /// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
-/// 提示）→ 补齐 AppState/托盘/悬停窗/调度器。幂等：已就绪直接 Ok。
+/// 提示）→ 补齐 AppState/托盘/悬停窗/调度器。
+///
+/// 并发契约：`BootGate.pending` 以锁内 take 作一次性认领——并发的
+/// 第二个调用拿不到 mode 且 AppState 未就绪时静默 Ok（跟随第一个
+/// 调用的结果，杜绝双装配：setup_surfaces 二次执行会因固定窗口
+/// label 冲突弹「初始化失败」误伤成功初始化）；认领后中途失败则
+/// 回填 pending 允许重试。
 ///
 /// 必须 async：Windows 上 WebView2 IPC 回调在主线程触发，同步命令
 /// 即在主线程 IPC 调用栈内执行，且 run_on_main_thread 对主线程调用方
@@ -1019,13 +1025,32 @@ pub async fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
     let gate = app
         .try_state::<crate::state::BootGate>()
         .ok_or("启动门控不存在：非便携首启场景")?;
-    let mode = gate
-        .pending
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or("门控已消费：确认流程状态异常，请重启应用")?;
-    let quota_core::RuntimeMode::Portable { root } = &mode else {
+    let mode = match gate.pending.lock().unwrap().take() {
+        Some(mode) => mode,
+        None => {
+            // 认领失败：pending=None 且 AppState 未就绪（开头幂等分支
+            // 未命中）只可能是另一并发确认 in-flight——静默跟随其结果。
+            // 成功则 AppState 随后可见；失败则 pending 已回填可重试
+            return Ok(());
+        }
+    };
+    let result = confirm_portable_init_claimed(&app, &mode);
+    if result.is_err() {
+        // 回填门控：失败可重试（重试走完整流程，幂等分支此时不命中）
+        *gate.pending.lock().unwrap() = Some(mode);
+    }
+    result
+}
+
+/// 认领后的确认主体（同步；被 async 命令在线程池调用）。失败路径
+/// 回滚本次新建的 key 与 marker——门控期 key 必然不存在，删除安全；
+/// marker 仅回滚本次新建的（便携 zip 自带的 marker 不动）——维持
+/// 「确认失败不残留敏感/形态文件」，用户重试或取消都回到干净态。
+fn confirm_portable_init_claimed(
+    app: &AppHandle,
+    mode: &quota_core::RuntimeMode,
+) -> Result<(), String> {
+    let quota_core::RuntimeMode::Portable { root } = mode else {
         return Err("门控内形态非便携：状态异常".into());
     };
     // 确认后落 marker（包内未带或显式 --portable 首次进入）：
@@ -1034,35 +1059,60 @@ pub async fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .ok_or("无法定位可执行文件所在目录")?;
-    if !quota_core::has_portable_marker(&exe_dir) {
+    let marker_created = if !quota_core::has_portable_marker(&exe_dir) {
         std::fs::write(exe_dir.join(quota_core::PORTABLE_MARKER), "")
             .map_err(|e| format!("便携标记写入失败：{e}"))?;
+        true
+    } else {
+        false
+    };
+    let key_path = quota_core::portable_key_path(root);
+    let init = || -> Result<(), String> {
+        // 建钥（此时才产生敏感文件）：Vault::open 生成并落盘
+        // （create_new 防覆盖；非 rename 原子，存在短暂的 0 字节窗口）
+        quota_core::Vault::open(&quota_core::FileStore::new(key_path.clone()))
+            .map_err(|e| format!("便携主密钥创建失败：{e}"))?;
+        let state = crate::state::AppState::init(mode.clone())?;
+        app.manage(state);
+        Ok(())
+    }();
+    if init.is_err() {
+        let _ = std::fs::remove_file(&key_path);
+        if marker_created {
+            let _ = std::fs::remove_file(exe_dir.join(quota_core::PORTABLE_MARKER));
+        }
+        return init;
     }
-    // 建钥（此时才产生敏感文件）：Vault::open 生成并原子落盘
-    quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
-        root,
-    )))
-    .map_err(|e| format!("便携主密钥创建失败：{e}"))?;
-    let state = crate::state::AppState::init(mode.clone())?;
-    app.manage(state);
     // 窗口/托盘创建经主线程任务队列异步执行（setup_surfaces 的线程
-    // 亲和性注释）：命令立即返回，前端 refetch 即见 ready 进入主界面；
-    // 装配失败无法经 invoke 传回，走弹窗 + 退出（与启动失败同呈现）
+    // 亲和性注释）：命令立即返回，前端 refetch 即见 ready 进入主界面
     let handle = app.clone();
-    app.run_on_main_thread(move || {
+    let scheduled = app.run_on_main_thread(move || {
         if let Err(e) = crate::setup_surfaces(&handle) {
             use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+            // 非阻塞 show + 回调退出：blocking_show 禁止在主线程调用
+            // （插件文档：会冻结事件循环直至对话框关闭）
+            let for_exit = handle.clone();
             handle
                 .dialog()
                 .message(format!("QuotaTray 初始化失败：\n{e}"))
                 .kind(MessageDialogKind::Error)
                 .title("QuotaTray")
-                .blocking_show();
-            handle.exit(1);
+                .show(move |_| {
+                    for_exit.exit(1);
+                });
         }
-    })
-    .map_err(|e| format!("主线程调度失败：{e}"))?;
-    *gate.pending.lock().unwrap() = None;
+    });
+    if let Err(e) = scheduled {
+        // 调度失败 ≈ 事件循环已死（进程正在退出），本会话无托盘/调度器
+        // 的半态无可救药：弹窗后终止（key 已建，重启即正常启动）
+        use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+        app.dialog()
+            .message(format!("QuotaTray 初始化失败：\n主线程调度失败：{e}"))
+            .kind(MessageDialogKind::Error)
+            .title("QuotaTray")
+            .blocking_show();
+        app.exit(1);
+    }
     Ok(())
 }
 
@@ -1070,6 +1120,11 @@ pub async fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
 /// Data**——门控再现时 Data 内可能仍有既有 config.json/history.db
 /// （如用户按密钥损坏指引删 key 重来、跨机拷贝漏拷 key），整删会连带
 /// 销毁密文配置与历史，超出「取消则不写入任何敏感文件」的授权。
+///
+/// 并发取舍：与 confirm（池线程）并发的窄窗口内，confirm 可能已写入
+/// key/marker 后本命令才执行——此时仅清 WebView2 退出，key 保留
+/// （用户确已点击过确认，下次启动直接进入已初始化态属合理结果）；
+/// 正常 UI 两按钮共用 busy 互斥，该窗口仅 devtools 注入可达。
 #[tauri::command]
 pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
     if let Some(gate) = app.try_state::<crate::state::BootGate>() {

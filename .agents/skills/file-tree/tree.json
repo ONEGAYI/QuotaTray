@@ -788,7 +788,7 @@
                       "kind": "file",
                       "desc": "便携首启确认页",
                       "detail": [
-                        "正文精简为两行暗红警示，完整固定提示经 InlineMd 渲染收进问号悬停展开；5 秒倒数确认建钥、取消退出零敏感落盘"
+                        "正文精简为两行暗红警示，完整固定提示经 InlineMd 渲染收进问号图标点击展开；5 秒倒数确认建钥、取消退出零敏感落盘"
                       ]
                     },
                     "presetTemplates.test.ts": {
@@ -2115,7 +2115,7 @@
           "kind": "file",
           "desc": "一键发布资产打包脚本",
           "detail": [
-            "一键产出 NSIS 安装包与便携 zip：版本从 workspace Cargo.toml 单源解析；便携 staging 含 QuotaTray.exe/quota.exe/portable.marker/便携版说明.txt（固定安全提示原文）；逐 exe 断言 PE Machine 与资产名架构一致"
+            "产出 NSIS setup 与便携 zip；版本单源解析、PE 架构断言、staging 五文件（GUI/CLI/marker/中英双说明）"
           ]
         },
         "package.tests.ps1": {

@@ -265,7 +265,7 @@ export const zh = {
   "settings.openDownloadDir": "打开下载目录",
 
   // ---- 便携首启确认（正文只放「为什么 + 不要做什么」，完整固定
-  // 提示收进问号悬停展开；noticeFull 与 AGENTS.md 固定提示逐字一致） ----
+  // 提示收进问号图标点击展开；noticeFull 与 AGENTS.md 固定提示逐字一致） ----
   "portable.initTitle": "首次运行便携版",
   "portable.noticeWhy": "主密钥与加密凭据同存于 `Data/` 目录，**整个目录等同明文凭据**，泄露即暴露其中全部 API Key。",
   "portable.noticeRule": "请勿将便携目录上传网盘、提交版本库或交给他人；若目录泄露，请**立即轮换**其中全部 API Key。",

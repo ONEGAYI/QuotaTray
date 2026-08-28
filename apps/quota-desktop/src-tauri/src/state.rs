@@ -138,8 +138,8 @@ pub struct AppState {
 /// 后由 `confirm_portable_init` 命令建钥并补齐全部启动步骤。
 ///
 /// `mode` 快照避免 confirm 时二次解析 argv/exe（幂等性由解析纯函数
-/// 保证，此处直接复用结果）；完成后 `pending` 置 None，`get_boot_state`
-/// 据此返回 ready。
+/// 保证，此处直接复用结果）；confirm 认领时将 `pending` take 置 None
+/// （一次性认领，失败回填允许重试），`get_boot_state` 据此返回 ready。
 #[derive(Default)]
 pub struct BootGate {
     pub pending: std::sync::Mutex<Option<quota_core::RuntimeMode>>,

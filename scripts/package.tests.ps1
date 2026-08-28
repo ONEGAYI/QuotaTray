@@ -51,10 +51,15 @@ Assert-That ((Get-ExpectedAssetName -Version "0.7.0" -Arch "arm64" -FlavorKind "
 
 Write-Host "== Get-PortableReadme =="
 # 契约：固定安全提示为 AGENTS.md 原文——含字面 ** 与反引号（曾因
-# PowerShell 双引号 here-string 转义吞掉反引号而失守）
+# PowerShell 双引号 here-string 转义吞掉反引号而失守）；整行锚定与
+# README.md 逐字一致（读文件必须显式 UTF8：README 无 BOM，PS5.1 在
+# 非 UTF-8 ACP 机器上会按本地码页解码导致断言崩溃）
 $readme = Get-PortableReadme
 Assert-That ($readme.Contains("**便携版安全提示**")) "说明含粗体标记原文"
 Assert-That ($readme.Contains('`Data/portable.key`')) "说明含反引号路径原文"
+$zhExpected = [regex]::Match((Get-Content -LiteralPath (Join-Path $repoRoot "README.md") -Raw -Encoding UTF8), '> ⚠️ \*\*便携版安全提示\*\*：[^\r\n]*')
+$zhActual = [regex]::Match($readme, '⚠️ \*\*便携版安全提示\*\*：[^\r\n]*')
+Assert-That ($zhExpected.Success -and $zhActual.Success -and ($zhActual.Value -eq $zhExpected.Value.Substring(2))) "中文固定提示与 README.md 逐字一致"
 
 Write-Host "== Get-PortableReadmeEn =="
 # 契约：英文说明的固定安全提示与 README.en.md 逐字一致（同样含字面
@@ -62,9 +67,9 @@ Write-Host "== Get-PortableReadmeEn =="
 $readmeEn = Get-PortableReadmeEn
 Assert-That ($readmeEn.Contains("**Portable security notice**")) "英文说明含粗体标记原文"
 Assert-That ($readmeEn.Contains('`Data/portable.key`')) "英文说明含反引号路径原文"
-$readmeEnNotice = [regex]::Match($readmeEn, "⚠️ .*?immediately\.").Value
-$readmeEnRef = [regex]::Match((Get-Content -LiteralPath (Join-Path $repoRoot "README.en.md") -Raw), "> ⚠️ \*\*Portable security notice\*\*: .*?immediately\.").Value.Substring(2)
-Assert-That ($readmeEnNotice -eq $readmeEnRef) "英文固定提示与 README.en.md 逐字一致"
+$enExpected = [regex]::Match((Get-Content -LiteralPath (Join-Path $repoRoot "README.en.md") -Raw -Encoding UTF8), '> ⚠️ \*\*Portable security notice\*\*:[^\r\n]*')
+$enActual = [regex]::Match($readmeEn, '⚠️ \*\*Portable security notice\*\*:[^\r\n]*')
+Assert-That ($enExpected.Success -and $enActual.Success -and ($enActual.Value -eq $enExpected.Value.Substring(2))) "英文固定提示与 README.en.md 逐字一致"
 
 Write-Host "== Get-PEMachine =="
 # 契约：最小 PE 字节流读出 Machine 字段（0x8664=x64 / 0xAA64=ARM64）

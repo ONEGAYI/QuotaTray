@@ -1,6 +1,8 @@
 // 极简行内 Markdown 解析：只认 **粗体** 与 `代码` 两种标记，供把与
 // AGENTS.md/README 逐字一致的固定安全提示原文渲染成 UI 富文本——
-// 字典值保持文档原文不变，语法转换收敛在本模块。其余语法不处理。
+// 字典值保持文档原文不变，语法转换收敛在本模块。输入域为固定字典
+// 文案（不含空标记 **** / ``，也不追求 CommonMark 完整语义：未闭合
+// 反引号会抑制其后粗体等边缘按普通文本回退，无损不丢字）。
 export type InlineMdToken =
   | { kind: "text"; text: string }
   | { kind: "strong"; text: string }
