@@ -297,7 +297,7 @@
               "kind": "file",
               "desc": "桌面与Android CI",
               "detail": [
-                "Windows/Ubuntu Rust、前端门禁、WoA 交叉检查与 Android ARM64 Preview APK 构建上传"
+                "Windows/Ubuntu Rust、前端与移动契约门禁、WoA 交叉检查及 Android ARM64 Preview APK 构建上传。"
               ]
             }
           }
@@ -622,14 +622,14 @@
               "kind": "file",
               "desc": "Vite HTML 入口",
               "detail": [
-                "Vite HTML 入口（挂载 #root）"
+                "Vite HTML 入口与 Android edge-to-edge 安全区 viewport 声明。"
               ]
             },
             "package.json": {
               "kind": "file",
               "desc": "pnpm前端清单",
               "detail": [
-                "前端依赖、质量脚本、Tauri 命令与 Android 初始化/加固入口"
+                "前端依赖、质量与移动样式契约脚本、Tauri 命令及 Android 初始化/加固入口。"
               ]
             },
             "pnpm-lock.yaml": {
@@ -670,7 +670,7 @@
                   "kind": "file",
                   "desc": "Android工程安全初始化",
                   "detail": [
-                    "Android init 后关闭系统自动备份，并在 Tauri 生命周期前注入 Android Keyring JNI Context 初始化桥"
+                    "Android init 后关闭系统自动备份，在 Tauri 生命周期前注入 Keyring JNI Context，并对生成模板锚点漂移执行 fail-fast 校验。"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/android-post-init.contract.mjs"
@@ -723,6 +723,19 @@
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/build-hook.contract.mjs"
+                  ]
+                },
+                "mobile-style.contract.mjs": {
+                  "kind": "file",
+                  "desc": "移动样式契约测试",
+                  "detail": [
+                    "静态锁定 Android 宽视口点击展开与通用按钮按压反馈，防止移动语义退回媒体查询或悬停。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/index.css"
+                  ],
+                  "tags": [
+                    "test"
                   ]
                 }
               }
@@ -1372,7 +1385,7 @@
                   "kind": "file",
                   "desc": "跨端令牌与全局样式",
                   "detail": [
-                    "明暗令牌、桌面主窗/托盘面板及 Android 安全区、触摸目标、全屏页样式"
+                    "明暗令牌、桌面主窗/托盘面板及 Android 安全区、宽视口点击展开、触摸目标与按压反馈样式。"
                   ]
                 },
                 "main.tsx": {
@@ -1616,7 +1629,7 @@
                       "kind": "file",
                       "desc": "跨端IPC命令集",
                       "detail": [
-                        "GUI IPC 命令、副作用装配、Android 文档 URI 迁移与移动 CLI 凭据平台门禁"
+                        "GUI IPC 命令、副作用装配、Android 文档 URI 迁移、移动 CLI 凭据门禁及桌面更新命令移动端后端守卫。"
                       ]
                     },
                     "hover_panel.rs": {

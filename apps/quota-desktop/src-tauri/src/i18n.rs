@@ -275,6 +275,25 @@ impl Lang {
         }
     }
 
+    /// Android/iOS 尚未接入平台原生更新资产与安装流程，后端硬门禁。
+    pub fn err_mobile_update_unsupported(&self) -> String {
+        match self {
+            Self::Zh => "移动端尚未接入平台专属更新与下载流程".to_string(),
+            Self::En => {
+                "Platform-specific update and download flows are not available on mobile yet"
+                    .to_string()
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    pub fn err_mobile_autostart_unsupported(&self) -> String {
+        match self {
+            Self::Zh => "移动端不支持开机自启动".to_string(),
+            Self::En => "Mobile platforms do not support autostart".to_string(),
+        }
+    }
+
     pub fn err_autostart_toggle(&self, enable: bool, e: &dyn std::fmt::Display) -> String {
         match (self, enable) {
             (Self::Zh, true) => format!("开启开机自启失败：{e}"),

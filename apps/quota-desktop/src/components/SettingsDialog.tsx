@@ -150,6 +150,8 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
       cancelLabel: t("common.cancel"),
     });
     if (!confirmed) return;
+    // Android 的系统文档选择器按 MIME 类型过滤；tauri-plugin-dialog 仍复用
+    // extensions 字段传递该值。桌面端继续使用真实扩展名。
     const path = await saveDialog({
       title: t("settings.exportDialogTitle"),
       defaultPath: defaultTransferFileName(new Date()),
@@ -163,6 +165,7 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
 
   const beginImport = async () => {
     setTransferFeedback(null);
+    // 与导出同口径：Android SAF 需要 MIME，桌面文件选择器需要扩展名。
     const path = await openDialog({
       title: t("settings.importDialogTitle"),
       multiple: false,

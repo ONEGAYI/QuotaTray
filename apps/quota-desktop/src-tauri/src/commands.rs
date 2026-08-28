@@ -1182,6 +1182,18 @@ fn mobile_cli_provider_blocked(target_os: &str, provider_id: &str) -> bool {
     target_os == "android" && quota_core::provider::uses_cli_credentials(provider_id)
 }
 
+fn desktop_update_commands_supported(target_os: &str) -> bool {
+    !matches!(target_os, "android" | "ios")
+}
+
+fn ensure_desktop_update_commands(lang: Lang) -> Result<(), String> {
+    if desktop_update_commands_supported(std::env::consts::OS) {
+        Ok(())
+    } else {
+        Err(lang.err_mobile_update_unsupported())
+    }
+}
+
 #[tauri::command]
 pub fn get_boot_state(app: AppHandle) -> BootStateDto {
     // AppState 已托管 = 启动完成；BootGate.pending 有值 = 待确认
@@ -1197,8 +1209,8 @@ pub fn get_boot_state(app: AppHandle) -> BootStateDto {
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-fn apply_autostart(_app: &AppHandle, _enable: bool, _lang: Lang) -> Result<(), String> {
-    Err("移动端不支持开机自启动".into())
+fn apply_autostart(_app: &AppHandle, _enable: bool, lang: Lang) -> Result<(), String> {
+    Err(lang.err_mobile_autostart_unsupported())
 }
 
 /// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
@@ -1341,7 +1353,8 @@ pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
 /// 退出应用解压覆盖，不提供自动安装）。走 opener 插件而非裸进程名，
 /// 避免 CreateProcess 搜索序歧义。
 #[tauri::command]
-pub fn open_update_dir(app: AppHandle) -> Result<(), String> {
+pub fn open_update_dir(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    ensure_desktop_update_commands(lang_of(&state))?;
     use tauri_plugin_opener::OpenerExt;
     let dir = crate::update_ctl::installer_dir();
     app.opener()
@@ -1370,6 +1383,7 @@ pub async fn check_update_now(
     state: State<'_, AppState>,
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
     let lang = lang_of(&state);
+    ensure_desktop_update_commands(lang)?;
     let proxy = crate::update_ctl::proxy_url(&state);
     let http = quota_core::http::ReqwestHttpClient::new_with_proxy(
         std::time::Duration::from_secs(10),
@@ -1387,6 +1401,7 @@ pub async fn check_update_now(
 #[tauri::command]
 pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let lang = lang_of(&state);
+    ensure_desktop_update_commands(lang)?;
     crate::update_ctl::download_installer(&app, &state, lang).await
 }
 
@@ -1396,6 +1411,7 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Resu
 #[tauri::command]
 pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let lang = lang_of(&state);
+    ensure_desktop_update_commands(lang)?;
     let selector = quota_core::AssetSelector::for_runtime(
         quota_core::update::arch_label(),
         state.mode.is_portable(),
@@ -1441,6 +1457,14 @@ mod tests {
         assert!(mobile_cli_provider_blocked("android", "codex"));
         assert!(!mobile_cli_provider_blocked("android", "deepseek"));
         assert!(!mobile_cli_provider_blocked("windows", "claude"));
+    }
+
+    #[test]
+    fn desktop_update_commands_are_blocked_on_mobile_targets() {
+        assert!(!desktop_update_commands_supported("android"));
+        assert!(!desktop_update_commands_supported("ios"));
+        assert!(desktop_update_commands_supported("windows"));
+        assert!(desktop_update_commands_supported("linux"));
     }
     use quota_core::{InMemoryStore, UsageData};
 

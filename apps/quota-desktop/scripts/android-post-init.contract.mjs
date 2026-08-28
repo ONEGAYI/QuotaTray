@@ -45,3 +45,20 @@ class MainActivity : TauriActivity() {
   );
   assert.equal(initializeAndroidKeyringInMainActivity(initialized), initialized);
 });
+
+test("MainActivity 模板锚点漂移时拒绝生成缺少 import 的工程", () => {
+  const source = `package com.quotatray.android
+
+import android.os.Bundle
+
+class MainActivity : TauriActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+  }
+}
+`;
+  assert.throws(
+    () => initializeAndroidKeyringInMainActivity(source),
+    /缺少 enableEdgeToEdge import 锚点/,
+  );
+});

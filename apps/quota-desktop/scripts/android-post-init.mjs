@@ -53,9 +53,13 @@ export function initializeAndroidKeyringInMainActivity(source) {
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   let initialized = source;
   if (!initialized.includes("import io.crates.keyring.Keyring")) {
+    const importAnchor = "import androidx.activity.enableEdgeToEdge";
+    if (!initialized.includes(importAnchor)) {
+      throw new Error("MainActivity.kt 缺少 enableEdgeToEdge import 锚点");
+    }
     initialized = initialized.replace(
-      "import androidx.activity.enableEdgeToEdge",
-      `import androidx.activity.enableEdgeToEdge${newline}import io.crates.keyring.Keyring`,
+      importAnchor,
+      `${importAnchor}${newline}import io.crates.keyring.Keyring`,
     );
   }
   if (!initialized.includes("Keyring.initializeNdkContext(applicationContext)")) {
@@ -63,6 +67,9 @@ export function initializeAndroidKeyringInMainActivity(source) {
       /(override fun onCreate\(savedInstanceState: Bundle\?\) \{\r?\n)/,
       `$1    Keyring.initializeNdkContext(applicationContext)${newline}`,
     );
+  }
+  if (!initialized.includes("import io.crates.keyring.Keyring")) {
+    throw new Error("MainActivity.kt 未能注入 Android Keyring import");
   }
   return initialized;
 }

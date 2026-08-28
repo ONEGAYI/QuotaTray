@@ -59,6 +59,12 @@ jobs:
           cache-dependency-path: apps/quota-desktop/pnpm-lock.yaml
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
+      - name: 构建与移动端契约测试
+        run: |
+          pnpm test:build-hook
+          pnpm test:android-init
+          pnpm test:android-tauri
+          pnpm test:mobile-style
       - name: Lint
         run: pnpm lint
       - name: 构建（tsc + vite）
@@ -66,6 +72,7 @@ jobs:
 
   android-preview:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: apps/quota-desktop

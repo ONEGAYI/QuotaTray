@@ -19,7 +19,7 @@
 | 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
 | 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
-| Android Preview（2026-08-28） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一 Keyring 4 原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
+| Android Preview（2026-08-28，所有者确认） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一使用 keyring-core 1 与四个平台原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -50,13 +50,16 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
   登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
   接入移动端等价授权，必须单独评估凭据来源与安全边界。
-- **真实设备验收**：目前仅完成 API 36 模拟器冒烟；前后台切换、系统回收、文档 URI
-  迁移、通知、下载、跨版本升级、不同厂商系统及实体 ARM64 设备仍待完整验收。
+- **真实设备验收**：目前仅完成 API 36 模拟器冒烟；safe-area 实效、宽视口、选择器
+  外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、通知、下载、
+  跨版本升级、不同厂商系统及实体 ARM64 设备仍待完整验收。
 
 ## 工程规范
 
 - 通用行为准则、提交规范（中文、`类型: 简述` + 正文）、发布规范遵循用户全局 AGENTS.md，此处不重复。
 - **TDD**：实现功能、修复 BUG 前先添加契约测试；网络相关测试一律 mock（不依赖真实平台 API）。
+- **最低 Rust 版本**：workspace MSRV 为 1.88；CLI、桌面、WoA 与 Android 工作树需同步
+  使用满足该版本的 stable 工具链，依赖升级不得使实际要求高于 workspace 声明。
 - **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
 - **Git hooks 本地门禁（两层）**：仓库内 `.githooks/` 提供按检查代价分层的钩子——
   `pre-commit`（秒级：`cargo fmt --all --check` + 前端 `pnpm lint`，按暂存文件按需触发）与
@@ -126,8 +129,9 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 本项目以"凭据不落明文"为差异化设计，以下为硬性红线，违反即 bug：
 
 1. **主密钥与凭据的允许位置**：安装版主密钥只存系统凭据库与内存；已确认的
-   Portable 例外允许便携主密钥常驻 `Data/portable.key`；Android 系统凭据库具体为
-   Keystore 加密的应用私有 SharedPreferences，且关闭系统自动备份；凭据明文只允许短暂存在于
+   Portable 例外允许便携主密钥常驻 `Data/portable.key`；经项目所有者 2026-08-28
+   确认，Android 系统凭据库具体为 Keystore 加密的应用私有 SharedPreferences，且关闭
+   系统自动备份；凭据明文只允许短暂存在于
    内存，持久化配置中必须是 AES-GCM 密文。任何日志、错误信息、调试输出不得包含
    凭据明文或密钥材料。
 2. **源码零密钥**：不得硬编码任何密钥、盐、派生参数；配置文件中凭据字段必须是密文（`v1:<base64>` 格式，含版本号以便未来算法升级）。
@@ -271,7 +275,8 @@ QuotaTray/
 │       │   ├── android-tauri.contract.mjs     # Android构建入口测试
 │       │   ├── android-tauri.mjs              # Android构建环境入口
 │       │   ├── build-hook.contract.mjs        # 构建钩子契约测试
-│       │   └── build-hook.mjs                 # 跨目标Tauri构建钩子
+│       │   ├── build-hook.mjs                 # 跨目标Tauri构建钩子
+│       │   └── mobile-style.contract.mjs      # 移动样式契约测试
 │       ├── src/                # React 前端源码
 │       │   ├── api.ts                  # invoke 封装
 │       │   ├── App.tsx                 # 跨端主界面壳层

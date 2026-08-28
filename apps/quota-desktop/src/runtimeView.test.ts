@@ -17,7 +17,7 @@ describe("runtimeUiPolicy", () => {
   });
 
   it("桌面保留既有壳层和悬停能力", () => {
-    expect(runtimeUiPolicy("desktop")).toMatchObject({
+    expect(runtimeUiPolicy("desktop")).toEqual({
       mobile: false,
       hover: true,
       titleBar: true,
@@ -25,6 +25,8 @@ describe("runtimeUiPolicy", () => {
       autostart: true,
       selfUpdate: true,
       cliAssist: true,
+      fullScreenDialogs: false,
+      bottomNavigation: false,
     });
   });
 });
