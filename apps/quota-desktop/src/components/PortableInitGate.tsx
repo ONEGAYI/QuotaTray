@@ -98,7 +98,9 @@ export function PortableInitGate({ onDone }: { onDone: () => void }) {
   const button = resolveConfirmButton(remaining);
 
   return (
-    <div className="qt-portable-gate">
+    // 根容器即拖拽区：确认页无标题栏，点击卡片外空白可拖动窗口；
+    // Tauri 仅在事件目标本身带属性时拖拽，卡片内交互不受影响
+    <div className="qt-portable-gate" data-tauri-drag-region>
       <section className="qt-portable-gate-card" role="alertdialog" aria-modal="true">
         <header>
           <span className="qt-portable-gate-icon">
