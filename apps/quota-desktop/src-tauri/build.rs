@@ -1,3 +1,4 @@
+#[cfg(windows)]
 mod build_support;
 
 fn main() {
