@@ -79,7 +79,8 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   - 测试：`cargo test --workspace`
   - 前端：`pnpm lint` / `pnpm build`（于 `apps/quota-desktop`，build 含 tsc 检查）
   - 桌面端开发：`pnpm desktop:dev`（于 `apps/quota-desktop`；`scripts/dev.mjs` 自
-    1420 起对 v4/v6 双栈试绑，顺延避让 WinNAT/Hyper-V 排除段与已占端口——两者分别
+    1420 起对 v4/v6 双栈试绑，顺延避让 WinNAT/Hyper-V（WSL2/Docker 触发）动态圈占的
+    排除端口段与已占端口——两者分别
     报 EACCES/EADDRINUSE，默认顺延上限 500，可用 `QUOTA_DEV_PORT_BASE/SPAN` 调节；
     选定端口经 `--config` 内联 JSON 覆盖 tauri `devUrl` 并以 `QUOTA_DEV_PORT`
     同步 vite。裸 `pnpm tauri dev` 仍可用但无避让。生产实例在跑时 dev 实例会被

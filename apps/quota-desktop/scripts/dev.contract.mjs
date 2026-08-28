@@ -6,14 +6,16 @@ import {
   DEFAULT_PORT_BASE,
   DEFAULT_PORT_SPAN,
   isPortFree,
+  isStackUnavailable,
   parsePortConfig,
   resolveDevPort,
   tauriDevConfig,
 } from "./dev.mjs";
 
 function listenOn(host) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = net.createServer();
+    server.once("error", reject);
     server.listen(0, host, () => resolve(server));
   });
 }
@@ -25,6 +27,7 @@ function closeServer(server) {
 test("端口配置缺省时为 1420 起顺延 500 个端口", () => {
   assert.deepEqual(parsePortConfig({}), { base: DEFAULT_PORT_BASE, span: DEFAULT_PORT_SPAN });
   assert.equal(DEFAULT_PORT_BASE, 1420);
+  assert.equal(DEFAULT_PORT_SPAN, 500);
 });
 
 test("端口配置读取 QUOTA_DEV_PORT_BASE / QUOTA_DEV_PORT_SPAN 覆盖", () => {
@@ -66,6 +69,20 @@ test("resolveDevPort 在整个顺延窗口耗尽时抛错并给出排查指引",
   await assert.rejects(() => resolveDevPort(1420, 3, probe), /顺延|1420/);
 });
 
+test("resolveDevPort 候选窗口含端点 base+span（共 span+1 个候选）", async () => {
+  const baseBusy = async (port) => port !== 1420;
+  assert.equal(await resolveDevPort(1420, 1, baseBusy), 1421);
+  const onlyEndpointFree = async (port) => port === 1422;
+  assert.equal(await resolveDevPort(1421, 1, onlyEndpointFree), 1422);
+});
+
+test("isStackUnavailable 仅对回环栈缺失类错误返回 true", () => {
+  assert.equal(isStackUnavailable("EADDRNOTAVAIL"), true);
+  assert.equal(isStackUnavailable("EAFNOSUPPORT"), true);
+  assert.equal(isStackUnavailable("EACCES"), false);
+  assert.equal(isStackUnavailable("EADDRINUSE"), false);
+});
+
 test("isPortFree 在 IPv4 被占时即判不可用，释放后恢复 true", async () => {
   const server = await listenOn("127.0.0.1");
   const port = server.address().port;
@@ -91,8 +108,8 @@ test("resolveDevPort 真实探测时跳过被占端口并落在双栈可绑端�
   const server = await listenOn("127.0.0.1");
   const port = server.address().port;
   try {
-    const picked = await resolveDevPort(port, 500);
-    assert.ok(picked > port && picked <= port + 500, `picked=${picked} base=${port}`);
+    const picked = await resolveDevPort(port, Math.min(500, 65535 - port));
+    assert.ok(picked > port && picked <= 65535, `picked=${picked} base=${port}`);
     assert.equal(await isPortFree(picked), true);
   } finally {
     await closeServer(server);

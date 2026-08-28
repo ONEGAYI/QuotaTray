@@ -36,12 +36,21 @@ export function tauriDevConfig(port) {
   return { build: { devUrl: `http://localhost:${port}` } };
 }
 
+// 回环栈不存在（如无 IPv6 的容器环境）不阻塞端口判定；端口被排除/占用才判不可用。
+export function isStackUnavailable(errorCode) {
+  return errorCode === "EADDRNOTAVAIL" || errorCode === "EAFNOSUPPORT";
+}
+
 function listenOnce(host, port) {
   return new Promise((resolve) => {
     const server = net.createServer();
-    server.once("error", () => resolve(false));
+    server.once("error", (error) => resolve(isStackUnavailable(error.code)));
     server.once("listening", () => server.close(() => resolve(true)));
-    server.listen(port, host);
+    try {
+      server.listen(port, host);
+    } catch {
+      resolve(false);
+    }
   });
 }
 
@@ -58,8 +67,9 @@ export async function resolveDevPort(base, span, probe = isPortFree) {
     if (await probe(candidate)) return candidate;
   }
   throw new Error(
-    `${base} 起顺延 ${span} 个端口内无可绑定端口（被占用或落入 WinNAT 排除段）。` +
-      `可用 netsh interface ipv4 show excludedportrange protocol=tcp 排查，` +
+    `${base} 起顺延 ${span} 个端口内无可绑定端口（被占用或落入 WinNAT/Hyper-V 动态排除段）。` +
+      `可用 netsh interface ipv4 show excludedportrange protocol=tcp 与` +
+      ` netsh interface ipv6 show excludedportrange protocol=tcp 排查（两栈排除段独立），` +
       `或调大 QUOTA_DEV_PORT_SPAN / 更换 QUOTA_DEV_PORT_BASE 后重试。`,
   );
 }
