@@ -103,19 +103,28 @@
                     }
                   }
                 },
+                "references": {
+                  "kind": "dir",
+                  "desc": "规范正文目录",
+                  "detail": [
+                    "按组件归属分类的样式规范正文，条目见各文件"
+                  ],
+                  "children": {
+                    "common-ui.md": {
+                      "kind": "file",
+                      "desc": "通用 UI 样式规范",
+                      "detail": [
+                        "归属 ui.tsx 共享组件与 index.css 全局机制",
+                        "含 T-001 悬停气泡：data-tooltip 机制、禁原生 title、option 例外"
+                      ]
+                    }
+                  }
+                },
                 "SKILL.md": {
                   "kind": "file",
                   "desc": "技能主入口",
                   "detail": [
-                    "核心约定与维护流程；规范数据不在此文件"
-                  ]
-                },
-                "spec.md": {
-                  "kind": "file",
-                  "desc": "样式规范唯一事实源",
-                  "detail": [
-                    "每条规范一个条目，含 ID、状态与最后确认日期",
-                    "首条 T-001 悬停气泡：data-tooltip 机制、禁原生 title、option 例外"
+                    "条目索引与维护流程；规范正文按组件归属在 references/ 分文件"
                   ]
                 }
               }

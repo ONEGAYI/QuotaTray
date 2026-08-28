@@ -150,10 +150,11 @@ QuotaTray-gui-tooltip/
 │       │   ├── SKILL.md  # 技能主入口
 │       │   └── tree.json # 文件树唯一数据源
 │       └── frontend-style-spec/ # 前端样式规范技能
-│           ├── agents/  # Codex 元数据目录
+│           ├── agents/     # Codex 元数据目录
 │           │   └── openai.yaml # Codex 技能元数据
-│           ├── SKILL.md # 技能主入口
-│           └── spec.md  # 样式规范唯一事实源
+│           ├── references/ # 规范正文目录
+│           │   └── common-ui.md # 通用 UI 样式规范
+│           └── SKILL.md    # 技能主入口
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
 ├── .githooks/              # Git hooks 本地门禁
