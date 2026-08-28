@@ -59,17 +59,17 @@ impl NativeProvider for Kimi {
         let body = fetch_json(http, req).await?;
 
         // code != 0 为业务错误（401 等已由 HTTP 状态码分类处理）
-        if let Some(code) = body.get("code").and_then(parse_int) {
-            if code != 0 {
-                let message = body
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("未知业务错误");
-                return Err(redact_error_message(
-                    QueryError::deterministic(format!("Kimi {code}：{message}")),
-                    &snapshot,
-                ));
-            }
+        if let Some(code) = body.get("code").and_then(parse_int)
+            && code != 0
+        {
+            let message = body
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("未知业务错误");
+            return Err(redact_error_message(
+                QueryError::deterministic(format!("Kimi {code}：{message}")),
+                &snapshot,
+            ));
         }
 
         let data = body

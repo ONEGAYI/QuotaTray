@@ -95,33 +95,32 @@ pub fn entry_lines(
     };
 
     // 确定性失败立即透出（覆盖旧值展示）
-    if let Some(err) = &state.error {
-        if err.kind == "deterministic" {
-            let msg: String = err.message.chars().take(MESSAGE_LIMIT).collect();
-            return vec![format!("{name} · ⚠ {msg}")];
-        }
+    if let Some(err) = &state.error
+        && err.kind == "deterministic"
+    {
+        let msg: String = err.message.chars().take(MESSAGE_LIMIT).collect();
+        return vec![format!("{name} · ⚠ {msg}")];
     }
     // 凭据/套餐失效（数据取回但 is_valid=false）
-    if let Some(data) = &state.data {
-        if let Some(d) = data.iter().find(|d| d.is_valid == Some(false)) {
-            let reason = d
-                .invalid_message
-                .clone()
-                .unwrap_or_else(|| t.no_invalid_reason.into());
-            let msg: String = reason.chars().take(MESSAGE_LIMIT).collect();
-            return vec![format!("{name} · ⚠ {}{msg}", t.invalid_prefix)];
-        }
+    if let Some(data) = &state.data
+        && let Some(d) = data.iter().find(|d| d.is_valid == Some(false))
+    {
+        let reason = d
+            .invalid_message
+            .clone()
+            .unwrap_or_else(|| t.no_invalid_reason.into());
+        let msg: String = reason.chars().take(MESSAGE_LIMIT).collect();
+        return vec![format!("{name} · ⚠ {}{msg}", t.invalid_prefix)];
     }
 
     // 瞬时失败超窗：旧值过旧不再作为展示依据，按网络波动态展示
-    if let Some(err) = &state.error {
-        if err.kind == "transient"
-            && state
-                .at
-                .is_none_or(|at| now_ms.saturating_sub(at) > KEEP_LAST_GOOD_MS)
-        {
-            return vec![format!("{name} · ⟳ {}", t.network_fluctuation)];
-        }
+    if let Some(err) = &state.error
+        && err.kind == "transient"
+        && state
+            .at
+            .is_none_or(|at| now_ms.saturating_sub(at) > KEEP_LAST_GOOD_MS)
+    {
+        return vec![format!("{name} · ⟳ {}", t.network_fluctuation)];
     }
 
     let Some(data) = &state.data else {
@@ -619,10 +618,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         _ => {
             if id == ICON_SRC_AUTO_ID {
                 set_icon_entry(app, None);
-            } else if let Some(entry) = id.strip_prefix(ICON_SRC_ENTRY_PREFIX) {
-                if !entry.is_empty() {
-                    set_icon_entry(app, Some(entry.to_string()));
-                }
+            } else if let Some(entry) = id.strip_prefix(ICON_SRC_ENTRY_PREFIX)
+                && !entry.is_empty()
+            {
+                set_icon_entry(app, Some(entry.to_string()));
             }
         }
     }

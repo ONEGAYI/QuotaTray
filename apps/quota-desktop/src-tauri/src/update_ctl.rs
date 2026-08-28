@@ -522,8 +522,8 @@ pub fn spawn_scheduler(app: AppHandle) {
                         s.update_check_time.clone(),
                     )
                 };
-                if quota_core::update::due_check(enabled, last, &time, now_ms()) {
-                    if let Ok(http) = ReqwestHttpClient::new_with_proxy(
+                if quota_core::update::due_check(enabled, last, &time, now_ms())
+                    && let Ok(http) = ReqwestHttpClient::new_with_proxy(
                         Duration::from_secs(10),
                         proxy_url(&state).as_deref(),
                     ) {

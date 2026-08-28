@@ -3,7 +3,7 @@
 //! 密钥层级（见 `docs/项目方案预研.md` §4.1）：
 //!
 //! ```text
-//! 系统凭据库（SecretStore，经 keyring crate）
+//! 系统凭据库（SecretStore，经 keyring-core + 平台原生 Store）
 //!   └─ 主密钥：32 字节随机，首次运行生成，永不落盘明文
 //!         │ AES-256-GCM（AAD = 所属条目 id）
 //!         ▼

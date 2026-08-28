@@ -6,12 +6,21 @@
 //! - 窗口关闭 = 隐藏收托盘，退出只走托盘菜单（退出时清理托盘图标）。
 
 mod commands;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod hover_panel;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[path = "hover_panel_mobile.rs"]
 mod hover_panel;
 mod i18n;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod ring;
 mod settings;
 mod snapshot;
 mod state;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod tray;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+#[path = "tray_mobile.rs"]
 mod tray;
 mod update_ctl;
 
@@ -36,6 +45,7 @@ fn parse_portable_flag() -> bool {
 }
 
 /// 解析运行形态：exe 旁 `portable.marker` 自动检测（无显式参数时）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn resolve_runtime_mode() -> Result<RuntimeMode, String> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -48,6 +58,27 @@ fn resolve_runtime_mode() -> Result<RuntimeMode, String> {
     ))
 }
 
+fn runtime_mode_for_app(
+    app: &tauri::AppHandle,
+    startup_mode: &RuntimeMode,
+) -> Result<RuntimeMode, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let root = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("无法定位应用私有数据目录：{e}"))?;
+        Ok(RuntimeMode::Installed {
+            data_dir: Some(root),
+        })
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = app;
+        Ok(startup_mode.clone())
+    }
+}
+
 /// 界面装配段：悬停窗、托盘与更新调度。**必须在主线程、且不在 WebView2
 /// IPC 调用栈内执行**——Windows 上同步命令跑在主线程 IPC 栈里，
 /// `run_on_main_thread` 对主线程调用方又是同步直执（非异步入队），
@@ -57,12 +88,17 @@ fn resolve_runtime_mode() -> Result<RuntimeMode, String> {
 /// 文）；confirm_portable_init 为 async 命令，从线程池经
 /// run_on_main_thread 异步入队，主线程退栈回泵后才执行本函数。
 fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
-    hover_panel::create(app).map_err(|e| format!("悬停面板初始化失败：{e}"))?;
-    // 托盘首屏即渲染快照（消除重启空窗）
-    let state = app.state::<state::AppState>();
-    tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
-    // 更新检测调度：启动后一分钟的首次 wake 即覆盖「启动时检测」
-    update_ctl::spawn_scheduler(app.clone());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        hover_panel::create(app).map_err(|e| format!("悬停面板初始化失败：{e}"))?;
+        // 托盘首屏即渲染快照（消除重启空窗）
+        let state = app.state::<state::AppState>();
+        tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
+        // 更新检测调度：启动后一分钟的首次 wake 即覆盖「启动时检测」
+        update_ctl::spawn_scheduler(app.clone());
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let _ = app;
     Ok(())
 }
 
@@ -76,7 +112,9 @@ fn finish_setup(
     setup_surfaces(app).map_err(Into::into)
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let mode = match resolve_runtime_mode() {
         Ok(m) => m,
         Err(e) => {
@@ -84,12 +122,15 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let mode = RuntimeMode::Installed { data_dir: None };
     // 便携形态：WebView2 用户数据（缓存/DOM Storage）定向到 Data/WebView2，
     // 主窗与悬停窗共用——进程级环境变量必须在任何 WebView 创建前设置，
     // 否则数据落到 %LOCALAPPDATA%（便携数据外溢）。目录创建失败仍设置
     // 变量（WebView2 可能自建成功）；若 WebView2 环境最终无法在该目录
     // 创建（如只读介质），窗口创建失败、启动失败——fail-fast 优于把
     // 便携数据静默外溢到系统目录
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if let RuntimeMode::Portable { root } = &mode {
         let webview_dir = root.join("WebView2");
         if let Err(e) = std::fs::create_dir_all(&webview_dir) {
@@ -119,7 +160,9 @@ pub fn run() {
     } else {
         None
     };
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
         // 单实例必须首位注册：第二实例启动即回调后退出。
         // 取舍：插件 Windows 实现是会话命名空间 mutex（{identifier}-sim），
         // 非 spec 提及的 Global\ 跨会话形态——同机同用户单 GUI 的目标场景下
@@ -129,11 +172,15 @@ pub fn run() {
             tray::show_main(app);
             let _ = tauri::Emitter::emit(app, "instance-already-running", ());
         }))
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().build());
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = builder.plugin(tauri_plugin_fs::init());
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
+            let mode = runtime_mode_for_app(app.handle(), &mode)?;
             if let Some(mode) = gate_mode {
                 // 便携首启：仅托管门控，AppState/托盘/调度器待确认后补齐。
                 // HoverPanelState 必须此刻托管：single-instance 回调（确认页
@@ -166,6 +213,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 便携首启门控期间无托盘：放行关闭 = 真退出
                 // （否则隐藏后成无图标僵尸进程，只能再启动一次唤回）
@@ -181,6 +229,8 @@ pub fn run() {
                 let _ = window.hide();
                 api.prevent_close();
             }
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            let _ = (window, event);
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_providers,

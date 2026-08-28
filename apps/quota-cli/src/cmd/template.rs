@@ -117,15 +117,15 @@ pub async fn run(
                 );
                 return 1;
             }
-            if let Some(key2) = api_key2.as_deref() {
-                if let Err(err) = e.set_api_key2(&vault, key2.trim()) {
-                    eprintln!(
-                        "{}{}{err}",
-                        t(lang, T::Err),
-                        t(lang, T::TryQueryEncryptFail)
-                    );
-                    return 1;
-                }
+            if let Some(key2) = api_key2.as_deref()
+                && let Err(err) = e.set_api_key2(&vault, key2.trim())
+            {
+                eprintln!(
+                    "{}{}{err}",
+                    t(lang, T::Err),
+                    t(lang, T::TryQueryEncryptFail)
+                );
+                return 1;
             }
             e
         }

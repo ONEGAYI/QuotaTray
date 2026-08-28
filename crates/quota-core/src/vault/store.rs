@@ -1,13 +1,14 @@
 //! 主密钥的存储后端抽象。
 //!
 //! 生产环境用 [`KeyringStore`]（Windows Credential Manager /
-//! macOS Keychain / Linux Secret Service，经 keyring crate）；
+//! macOS Keychain / Linux Secret Service / Android Keystore，经 keyring-core
+//! 与平台原生 Store）；
 //! 便携版用 [`FileStore`]（方案 A：`Data/portable.key` 包内密钥）；
 //! 单元测试与无凭据库环境用 [`InMemoryStore`]。
 
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 
@@ -31,7 +32,88 @@ pub trait SecretStore: Send + Sync {
     fn set(&self, key: &[u8]) -> Result<(), VaultError>;
 }
 
-/// 系统凭据库后端（keyring crate）。
+/// 原生凭据库类型。用于把目标平台与具体 Store 的选择固定为可测试契约。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeStoreKind {
+    Windows,
+    SecretService,
+    AppleKeychain,
+    AppleProtected,
+    AndroidKeystore,
+    Unsupported,
+}
+
+pub fn native_store_kind(target_os: &str) -> NativeStoreKind {
+    match target_os {
+        "windows" => NativeStoreKind::Windows,
+        "linux" => NativeStoreKind::SecretService,
+        "macos" => NativeStoreKind::AppleKeychain,
+        "ios" => NativeStoreKind::AppleProtected,
+        "android" => NativeStoreKind::AndroidKeystore,
+        _ => NativeStoreKind::Unsupported,
+    }
+}
+
+static NATIVE_STORE_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+
+fn ensure_native_store() -> Result<(), VaultError> {
+    let kind = native_store_kind(std::env::consts::OS);
+    NATIVE_STORE_INIT
+        .get_or_init(install_native_store)
+        .clone()
+        .map_err(|error| VaultError::Store(format!("{kind:?}：{error}")))
+}
+
+#[cfg(target_os = "windows")]
+fn install_native_store() -> Result<(), String> {
+    let store = windows_native_keyring_store::Store::new().map_err(|e| e.to_string())?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn install_native_store() -> Result<(), String> {
+    let store = zbus_secret_service_keyring_store::Store::new().map_err(|e| e.to_string())?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn install_native_store() -> Result<(), String> {
+    let store = apple_native_keyring_store::keychain::Store::new().map_err(|e| e.to_string())?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+#[cfg(target_os = "ios")]
+fn install_native_store() -> Result<(), String> {
+    let store = apple_native_keyring_store::protected::Store::new().map_err(|e| e.to_string())?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+#[cfg(target_os = "android")]
+fn install_native_store() -> Result<(), String> {
+    let store = android_native_keyring_store::Store::new().map_err(|e| e.to_string())?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android"
+)))]
+fn install_native_store() -> Result<(), String> {
+    Err(format!(
+        "当前平台没有原生凭据库后端：{:?}",
+        native_store_kind(std::env::consts::OS)
+    ))
+}
+
+/// 系统凭据库后端（keyring-core + 平台原生 Store）。
 ///
 /// 条目：service `QuotaTray` / user `master-key`，内容为 base64 的主密钥。
 ///
@@ -59,7 +141,8 @@ impl Default for KeyringStore {
 
 impl SecretStore for KeyringStore {
     fn get(&self) -> Result<Option<Vec<u8>>, VaultError> {
-        let entry = keyring::Entry::new(self.service, self.user)
+        ensure_native_store()?;
+        let entry = keyring_core::Entry::new(self.service, self.user)
             .map_err(|e| VaultError::Store(e.to_string()))?;
         match entry.get_password() {
             Ok(encoded) => {
@@ -68,17 +151,36 @@ impl SecretStore for KeyringStore {
                     .map_err(|e| VaultError::CorruptedMasterKey(e.to_string()))?;
                 Ok(Some(raw))
             }
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(e) => Err(VaultError::Store(e.to_string())),
         }
     }
 
     fn set(&self, key: &[u8]) -> Result<(), VaultError> {
-        let entry = keyring::Entry::new(self.service, self.user)
+        ensure_native_store()?;
+        let entry = keyring_core::Entry::new(self.service, self.user)
             .map_err(|e| VaultError::Store(e.to_string()))?;
         entry
             .set_password(&B64.encode(key))
             .map_err(|e| VaultError::Store(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod native_store_contract_tests {
+    use super::*;
+
+    #[test]
+    fn native_store_kind_covers_desktop_and_android_targets() {
+        assert_eq!(native_store_kind("windows"), NativeStoreKind::Windows);
+        assert_eq!(native_store_kind("linux"), NativeStoreKind::SecretService);
+        assert_eq!(native_store_kind("macos"), NativeStoreKind::AppleKeychain);
+        assert_eq!(native_store_kind("ios"), NativeStoreKind::AppleProtected);
+        assert_eq!(
+            native_store_kind("android"),
+            NativeStoreKind::AndroidKeystore
+        );
+        assert_eq!(native_store_kind("freebsd"), NativeStoreKind::Unsupported);
     }
 }
 

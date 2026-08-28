@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "主窗口基础权限：事件监听（托盘「立即刷新」与悬停刷新链路）+ 主题设置（三态主题联动）+ 无装饰窗口的自定义标题栏控制（拖动/最小化/最大化还原/关闭）+ 标题栏 GitHub 链接（scope 锁定仓库主页）",
   "windows": ["main"],
+  "platforms": ["windows", "linux", "macOS"],
   "permissions": [
     "core:event:default",
     "core:window:allow-set-theme",

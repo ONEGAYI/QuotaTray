@@ -167,15 +167,13 @@ fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     fn parts<Tz: chrono::TimeZone>(dt: chrono::DateTime<Tz>) -> (chrono::Weekday, u32) {
         (dt.weekday(), dt.hour() * 60 + dt.minute())
     }
-    if let Some(minutes) = tz {
-        if let Some(offset) = minutes
+    if let Some(minutes) = tz
+        && let Some(offset) = minutes
             .checked_mul(60)
             .and_then(chrono::FixedOffset::east_opt)
-        {
-            if let Some(dt) = offset.timestamp_millis_opt(now_ms as i64).single() {
-                return parts(dt);
-            }
-        }
+        && let Some(dt) = offset.timestamp_millis_opt(now_ms as i64).single()
+    {
+        return parts(dt);
     } else if let Some(dt) = chrono::Local.timestamp_millis_opt(now_ms as i64).single() {
         return parts(dt);
     }
@@ -243,13 +241,13 @@ pub fn validate(cfg: &PricingConfig) -> Result<(), PricingError> {
             reason,
         })
     };
-    if let Some(minutes) = cfg.timezone_offset_minutes {
-        if minutes.unsigned_abs() > 14 * 60 {
-            return fail(
-                "timezone_offset_minutes",
-                format!("UTC 偏移须在 ±{0} 分钟内，当前 {1}", 14 * 60, minutes),
-            );
-        }
+    if let Some(minutes) = cfg.timezone_offset_minutes
+        && minutes.unsigned_abs() > 14 * 60
+    {
+        return fail(
+            "timezone_offset_minutes",
+            format!("UTC 偏移须在 ±{0} 分钟内，当前 {1}", 14 * 60, minutes),
+        );
     }
     if let Some(windows) = cfg.windows.as_ref() {
         for (i, w) in windows.iter().enumerate() {

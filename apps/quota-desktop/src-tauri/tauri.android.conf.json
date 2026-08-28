@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.quotatray.android",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "node scripts/build-hook.mjs"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "QuotaTray"
+      }
+    ]
+  },
+  "bundle": {
+    "targets": "all",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png"],
+    "android": {
+      "minSdkVersion": 24
+    }
+  }
+}

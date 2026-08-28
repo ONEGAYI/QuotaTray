@@ -1,6 +1,6 @@
 ---
 name: frontend-style-spec
-description: 桌面端前端样式规范的唯一事实源与查询/维护入口。凡涉及 apps/quota-desktop 前端样式工作——新增或修改组件样式、引入新 UI 模式（悬停提示、按钮、弹窗、动效等）、使用 title 属性、调整设计令牌、样式相关 code review——动手前必须先读本技能索引定位条目；样式约定发生任何变更时，必须在同一 PR 内回写对应 references 文件，改代码不改规范视为任务未完成。散落在代码注释或对话中的样式约定一律以本技能为准确。
+description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实源与查询维护入口。凡涉及 apps/quota-desktop 的组件样式、悬停或触摸交互、移动端布局、按钮、弹窗、动效、title 属性、设计令牌及样式 review，动手前必须按索引读取对应 references；约定变更必须与代码同 PR 回写，散落说明一律不作为规范。
 ---
 
 # 前端样式规范（Spec）

@@ -13,12 +13,13 @@
 | 决策项 | 结论 | 备选（未采纳） |
 |---|---|---|
 | 技术栈 | Rust workspace 三端共享：`crates/core` + `apps/cli`（clap）+ `apps/desktop`（Tauri 2 + 托盘） | 异构 GUI sidecar；Go/Node 栈 |
-| 凭据加密 | 随机 32 字节主密钥存系统凭据库（keyring crate），凭据字段 AES-GCM 加密后存配置文件 | AES-SIV 确定性加密；凭据直存系统库；DPAPI 整体加密 |
+| 凭据加密 | 随机 32 字节主密钥存系统凭据库（keyring-core + 平台原生 Store），凭据字段 AES-GCM 加密后存配置文件 | AES-SIV 确定性加密；凭据直存系统库；DPAPI 整体加密 |
 | 自定义查询 | 声明式模板优先（零代码），QuickJS 沙箱脚本兜底复杂场景 | 全 JS 脚本；纯声明式 |
 | 目标平台 | Windows 优先，全程使用跨平台库，不为未支持平台花工作量 | 仅 Windows（锁死）；三平台同步支持 |
 | 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
 | 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
+| Android Preview（2026-08-28） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一 Keyring 4 原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -102,7 +103,8 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 本项目以"凭据不落明文"为差异化设计，以下为硬性红线，违反即 bug：
 
 1. **主密钥与凭据的允许位置**：安装版主密钥只存系统凭据库与内存；已确认的
-   Portable 例外允许便携主密钥常驻 `Data/portable.key`；凭据明文只允许短暂存在于
+   Portable 例外允许便携主密钥常驻 `Data/portable.key`；Android 系统凭据库具体为
+   Keystore 加密的应用私有 SharedPreferences，且关闭系统自动备份；凭据明文只允许短暂存在于
    内存，持久化配置中必须是 AES-GCM 密文。任何日志、错误信息、调试输出不得包含
    凭据明文或密钥材料。
 2. **源码零密钥**：不得硬编码任何密钥、盐、派生参数；配置文件中凭据字段必须是密文（`v1:<base64>` 格式，含版本号以便未来算法升级）。
@@ -185,9 +187,12 @@ QuotaTray/
 │           │   │   └── tooltip.md         # 悬停气泡组件规范
 │           │   ├── design-tokens/ # 设计令牌域目录
 │           │   │   └── tokens.md # 设计令牌规范
-│           │   └── edit-dialog/   # 编辑弹窗域目录
-│           │       └── pricing-section.md # 定价编辑区规范
-│           └── SKILL.md    # 技能主入口
+│           │   ├── edit-dialog/   # 编辑弹窗域目录
+│           │   │   └── pricing-section.md # 定价编辑区规范
+│           │   └── mobile/        # 移动端规范域
+│           │       ├── interaction.md # 移动触摸交互规范
+│           │       └── layout.md      # 移动壳层布局规范
+│           └── SKILL.md    # 跨端前端规范索引
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
 ├── .githooks/              # Git hooks 本地门禁
@@ -195,7 +200,7 @@ QuotaTray/
 │   └── pre-push   # 推送级重门禁（clippy+tsc）
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
-│       └── ci.yml # CI双矩阵流水线
+│       └── ci.yml # 桌面与Android CI
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
 ├── apps/                   # 应用层（CLI 与桌面端）
@@ -234,15 +239,17 @@ QuotaTray/
 │   └── quota-desktop/ # 桌面端（M3 完成）
 │       ├── eslint.config.js    # ESLint 扁平配置
 │       ├── index.html          # Vite HTML 入口
-│       ├── package.json        # pnpm 前端清单
+│       ├── package.json        # pnpm前端清单
 │       ├── pnpm-lock.yaml      # 前端依赖锁文件
 │       ├── pnpm-workspace.yaml # pnpm 构建许可
 │       ├── scripts/            # 构建辅助脚本目录
-│       │   ├── build-hook.contract.mjs # 构建钩子契约测试
-│       │   └── build-hook.mjs          # 目标感知构建钩子
+│       │   ├── android-post-init.contract.mjs # Android加固契约测试
+│       │   ├── android-post-init.mjs          # Android工程加固脚本
+│       │   ├── build-hook.contract.mjs        # 构建钩子契约测试
+│       │   └── build-hook.mjs                 # 跨目标Tauri构建钩子
 │       ├── src/                # React 前端源码
 │       │   ├── api.ts                  # invoke 封装
-│       │   ├── App.tsx                 # 主窗布局与页签
+│       │   ├── App.tsx                 # 跨端主界面壳层
 │       │   ├── assets/                 # 静态资源
 │       │   │   ├── brand-mark.png # 透明品牌主图
 │       │   │   └── providers/     # Provider SVG 图标集
@@ -258,7 +265,7 @@ QuotaTray/
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
 │       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
 │       │   │   ├── dragSortView.ts              # 拖拽排序几何纯逻辑
-│       │   │   ├── EditDialog.tsx               # 添加/编辑弹窗
+│       │   │   ├── EditDialog.tsx               # 跨端添加编辑页
 │       │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
 │       │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
 │       │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
@@ -272,7 +279,7 @@ QuotaTray/
 │       │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
-│       │   │   ├── NativeProviderPicker.tsx     # 平台聚合选择器
+│       │   │   ├── NativeProviderPicker.tsx     # 跨端平台聚合选择器
 │       │   │   ├── PortableInitGate.tsx         # 便携首启确认页
 │       │   │   ├── presetTemplates.test.ts      # 预设库测试
 │       │   │   ├── presetTemplates.ts           # 模板预设库
@@ -286,31 +293,33 @@ QuotaTray/
 │       │   │   ├── providerIcon.ts              # Provider 图标映射
 │       │   │   ├── providerPricing.test.ts      # 定价镜像测试
 │       │   │   ├── providerPricing.ts           # 前端定价解析镜像
-│       │   │   ├── SettingsDialog.tsx           # 设置弹窗
+│       │   │   ├── SettingsDialog.tsx           # 跨端设置页
 │       │   │   ├── settingsView.test.ts         # 设置视图测试
 │       │   │   ├── settingsView.ts              # 设置视图纯逻辑
 │       │   │   ├── TemplateHelpCard.tsx         # 模板说明折叠卡
 │       │   │   ├── TitleBar.tsx                 # 自定义标题栏
-│       │   │   ├── ui.tsx                       # 共享基础组件
+│       │   │   ├── ui.tsx                       # 跨端共享基础组件
 │       │   │   ├── usageChartView.test.ts       # 统计图表逻辑测试
 │       │   │   ├── usageChartView.ts            # 统计图表纯逻辑
-│       │   │   └── UsageStatsPage.tsx           # 使用统计趋势页
+│       │   │   └── UsageStatsPage.tsx           # 跨端使用统计页
 │       │   ├── display.test.ts         # display 文案测试
 │       │   ├── display.ts              # 时间与百分比文案
 │       │   ├── i18n/                   # 轻量自写 i18n
 │       │   │   ├── en.ts     # 英文字典（编译锁键）
 │       │   │   ├── index.tsx # LangProvider 与 t()
 │       │   │   └── zh.ts     # 中文字典（类型基准）
-│       │   ├── index.css               # 设计令牌与全局样式
+│       │   ├── index.css               # 跨端令牌与全局样式
 │       │   ├── main.tsx                # React 入口
 │       │   ├── mainPanelView.test.ts   # 面板切换测试
 │       │   ├── mainPanelView.ts        # 面板切换状态机
 │       │   ├── queries.test.ts         # queries hooks 测试
 │       │   ├── queries.ts              # React Query hooks
+│       │   ├── runtimeView.test.ts     # 跨端界面策略测试
+│       │   ├── runtimeView.ts          # 跨端界面能力策略
 │       │   ├── theme.tsx               # ThemeProvider 三态
 │       │   ├── themeTransition.test.ts # 扩散动效测试
 │       │   ├── themeTransition.ts      # 主题扩散动效
-│       │   ├── types.ts                # core serde 的 TS 镜像
+│       │   ├── types.ts                # 跨端IPC类型镜像
 │       │   ├── useCardDragSort.ts      # 卡片拖拽排序状态机
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
@@ -318,23 +327,27 @@ QuotaTray/
 │       │   ├── build_support.rs        # CLI产物路径纯函数
 │       │   ├── capabilities/           # 权限 ACL
 │       │   │   ├── default.json     # 主窗 ACL
-│       │   │   └── hover-panel.json # 悬停窗 ACL
+│       │   │   ├── hover-panel.json # 悬停窗 ACL
+│       │   │   └── mobile.json      # Android主窗ACL
 │       │   ├── Cargo.toml              # 桌面端 crate 清单
 │       │   ├── examples/               # 示例注入器
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
 │       │   ├── icons/                  # 应用图标集
 │       │   ├── src/                    # 后端源码
-│       │   │   ├── commands.rs    # IPC 命令集
-│       │   │   ├── hover_panel.rs # 悬停窗口状态机
-│       │   │   ├── i18n.rs        # 托盘/命令双语文案
-│       │   │   ├── lib.rs         # Tauri Builder 装配
-│       │   │   ├── main.rs        # 薄壳入口
-│       │   │   ├── ring.rs        # 托盘圆环渲染
-│       │   │   ├── settings.rs    # settings.json 读写
-│       │   │   ├── snapshot.rs    # cache.json 快照
-│       │   │   ├── state.rs       # AppState
-│       │   │   ├── tray.rs        # 托盘菜单与图标
-│       │   │   └── update_ctl.rs  # 更新检测控制
+│       │   │   ├── commands.rs           # 跨端IPC命令集
+│       │   │   ├── hover_panel.rs        # 悬停窗口状态机
+│       │   │   ├── hover_panel_mobile.rs # 移动悬停面板空实现
+│       │   │   ├── i18n.rs               # 托盘/命令双语文案
+│       │   │   ├── lib.rs                # 跨端Tauri装配
+│       │   │   ├── main.rs               # 薄壳入口
+│       │   │   ├── ring.rs               # 托盘圆环渲染
+│       │   │   ├── settings.rs           # settings.json 读写
+│       │   │   ├── snapshot.rs           # cache.json 快照
+│       │   │   ├── state.rs              # AppState
+│       │   │   ├── tray.rs               # 托盘菜单与图标
+│       │   │   ├── tray_mobile.rs        # 移动托盘空实现
+│       │   │   └── update_ctl.rs         # 更新检测控制
+│       │   ├── tauri.android.conf.json # Android Tauri配置
 │       │   ├── tauri.conf.json         # Tauri配置
 │       │   ├── tauri.windows.conf.json # Windows Tauri 覆盖配置
 │       │   └── tests/                  # 构建逻辑测试目录
@@ -391,7 +404,7 @@ QuotaTray/
 │           └── vault/     # 凭据保险库
 │               ├── cipher.rs # AES-256-GCM 密文格式
 │               ├── mod.rs    # Vault 门面
-│               └── store.rs  # 密钥存储抽象
+│               └── store.rs  # 跨平台主密钥存储
 ├── docs/                   # 文档
 │   ├── design/ # 设计文档
 │   │   └── tray-ring-demo.html # 圆环视觉规格

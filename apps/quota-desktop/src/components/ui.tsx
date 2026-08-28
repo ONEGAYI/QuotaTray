@@ -2,6 +2,7 @@ import { Check, X, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { parseInlineMd } from "./inlineMd";
+import { shouldCloseDialogOnPop } from "../runtimeView";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -225,9 +226,29 @@ export function DialogShell({
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
+  const historyIdRef = useRef(`qt-dialog-${crypto.randomUUID()}`);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+  useEffect(() => {
+    if (!document.body.classList.contains("qt-mobile-runtime")) return;
+    const dialogId = historyIdRef.current;
+    const previous =
+      typeof window.history.state === "object" && window.history.state != null
+        ? window.history.state
+        : {};
+    window.history.pushState({ ...previous, qtDialogId: dialogId }, "");
+    const onPopState = (event: PopStateEvent) => {
+      const nextDialogId =
+        typeof event.state?.qtDialogId === "string" ? event.state.qtDialogId : null;
+      if (shouldCloseDialogOnPop(dialogId, nextDialogId)) onCloseRef.current();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      if (window.history.state?.qtDialogId === dialogId) window.history.back();
+    };
+  }, []);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;

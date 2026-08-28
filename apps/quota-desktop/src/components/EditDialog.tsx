@@ -29,6 +29,7 @@ interface Props {
   open: boolean;
   initial: ProviderEntry | null; // null = 新增
   usageCurrency?: string;
+  mobile?: boolean;
   onClose: () => void;
 }
 
@@ -59,7 +60,7 @@ function toTemplateError(e: unknown): TemplateErrorDto | null {
 const inputCls = "qt-input";
 const labelCls = "qt-field-label";
 
-export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
+export function EditDialog({ open, initial, usageCurrency, mobile = false, onClose }: Props) {
   const qc = useQueryClient();
   const { t } = useLang();
   const natives = useNativeMetas();
@@ -107,10 +108,21 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
       : initial?.kind.type === "script"
         ? "script"
         : "native";
+  const availableNativeMetas = useMemo(
+    () =>
+      (natives.data ?? []).filter(
+        (meta) =>
+          !mobile ||
+          !meta.uses_cli_credentials ||
+          (initial?.kind.type === "native" && initial.kind.provider === meta.id),
+      ),
+    [initial, mobile, natives.data],
+  );
   const selectedNativeMeta = useMemo(() => {
     if (tab !== "native") return null;
-    return natives.data?.find((m) => m.id === nativeProvider) ?? null;
-  }, [tab, nativeProvider, natives.data]);
+    return availableNativeMetas.find((m) => m.id === nativeProvider) ?? null;
+  }, [availableNativeMetas, tab, nativeProvider]);
+  const mobileCliUnsupported = mobile && Boolean(selectedNativeMeta?.uses_cli_credentials);
   const selectedPreset = (
     usageCurrency
       ? selectedNativeMeta?.pricing_by_currency?.[usageCurrency.trim().toUpperCase()]
@@ -122,6 +134,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
       setError(null);
       const trimmedName = name.trim();
       if (!trimmedName) throw new Error(t("edit.nameRequired"));
+      if (mobileCliUnsupported) throw new Error(t("edit.mobileCliUnsupported"));
       let kind: ProviderKind;
       if (tab === "native") {
         if (!nativeProvider) throw new Error(t("edit.nativeRequired"));
@@ -300,7 +313,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
             variant="primary"
             type="submit"
             form="provider-edit-form"
-            disabled={save.isPending}
+            disabled={save.isPending || mobileCliUnsupported}
           >
             {save.isPending ? t("common.saving") : t("common.save")}
           </Button>
@@ -372,6 +385,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                 apiKey={apiKey}
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
+                mobile={mobile}
               />
             )}
           </>
@@ -384,7 +398,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                 <div className="qt-field">
                   <span>{t("edit.platform")}</span>
                   <NativeProviderPicker
-                    metas={natives.data ?? []}
+                    metas={availableNativeMetas}
                     value={nativeProvider}
                     ariaLabel={t("edit.platform")}
                     placeholder={t("edit.platformPlaceholder")}
@@ -405,6 +419,9 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                     }}
                     onChange={setNativeProvider}
                   />
+                  {mobileCliUnsupported && (
+                    <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
+                  )}
                 </div>
               )}
 
@@ -436,6 +453,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
                 apiKey={apiKey}
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
+                mobile={mobile}
               />
             )}
 
@@ -464,6 +482,7 @@ function TemplateForm(props: {
   apiKey2: string;
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
+  mobile: boolean;
 }) {
   const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
@@ -575,10 +594,10 @@ function TemplateForm(props: {
         <Button type="button" onClick={() => void test()} disabled={testing}>
           {testing ? t("edit.testing") : t("edit.test")}
         </Button>
-        <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
+        {!props.mobile && <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
           <span className="qt-ai-placeholder-icon" aria-hidden="true">AI</span>
           {t("edit.ai.open")}
-        </Button>
+        </Button>}
         {validateOk && !validateMsg && (
           <span className="qt-text-success">{t("edit.validated")}</span>
         )}
@@ -606,7 +625,7 @@ function TemplateForm(props: {
         </div>
       )}
 
-      {assistOpen && (
+      {!props.mobile && assistOpen && (
         <AiAssistPanel
           mode="template"
           providerName={props.providerName}
@@ -637,6 +656,7 @@ function ScriptForm(props: {
   apiKey2: string;
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
+  mobile: boolean;
 }) {
   const { t, lang } = useLang();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
@@ -742,10 +762,10 @@ function ScriptForm(props: {
         <Button type="button" onClick={() => void test()} disabled={testing}>
           {testing ? t("edit.testing") : t("edit.test")}
         </Button>
-        <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
+        {!props.mobile && <Button type="button" onClick={() => setAssistOpen((open) => !open)}>
           <span className="qt-ai-placeholder-icon" aria-hidden="true">AI</span>
           {t("edit.ai.open")}
-        </Button>
+        </Button>}
         {validateOk && !validateMsg && (
           <span className="qt-text-success">{t("edit.validated")}</span>
         )}
@@ -772,7 +792,7 @@ function ScriptForm(props: {
           )}
         </div>
       )}
-      {assistOpen && (
+      {!props.mobile && assistOpen && (
         <AiAssistPanel
           mode="script"
           providerName={props.providerName}

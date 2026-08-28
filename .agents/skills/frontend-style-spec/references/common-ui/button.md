@@ -29,6 +29,9 @@
 新图标钮按场景选档，不另设尺寸；hover 一律 `surface-soft` 底 + `text` 字
 （danger 变体例外：danger-soft 底 + danger 字）。
 
+Android 仍沿用视觉图标尺寸，但触摸命中区须通过容器或平台覆盖扩到至少 44×44px；
+移动端激活反馈使用 `:active` / `aria-pressed`，不得只定义 hover（见 T-009）。
+
 **特例登记**：
 
 - `qt-gate-info-btn`（便携首启确认页问号钮）：26px（同迷你档尺寸）但

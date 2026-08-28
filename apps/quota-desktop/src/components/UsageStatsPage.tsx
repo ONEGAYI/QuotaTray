@@ -41,6 +41,7 @@ interface Props {
   providers: ProviderEntry[];
   providersLoading: boolean;
   providersError?: unknown;
+  mobile?: boolean;
 }
 
 const HOUR = 60 * 60 * 1_000;
@@ -86,7 +87,7 @@ function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string 
   return windowKey;
 }
 
-export function UsageStatsPage({ providers, providersLoading, providersError }: Props) {
+export function UsageStatsPage({ providers, providersLoading, providersError, mobile = false }: Props) {
   const { lang, t } = useLang();
   const [rangeNow, setRangeNow] = useState(() => Date.now());
   const totalDomain = useMemo<[number, number]>(
@@ -424,7 +425,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError }: 
               onPointerEnter={() => setChartHovered(true)}
               onPointerLeave={() => {
                 setChartHovered(false);
-                if (!isDragging) setHover(null);
+                if (!mobile && !isDragging) setHover(null);
               }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}

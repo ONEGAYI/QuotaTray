@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:build-hook": "node --test scripts/build-hook.contract.mjs",
+    "test:android-init": "node --test scripts/android-post-init.contract.mjs",
+    "android:init": "tauri android init --ci --skip-targets-install && node scripts/android-post-init.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

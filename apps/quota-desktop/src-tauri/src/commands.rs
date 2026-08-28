@@ -251,9 +251,95 @@ fn import_configuration_at(
     quota_core::import_config_to_path(export_path, vault, config_path).map_err(|e| e.to_string())
 }
 
+#[cfg(any(target_os = "android", test))]
+fn is_android_document_uri(path: &str) -> bool {
+    path.starts_with("content://")
+}
+
+#[cfg(target_os = "android")]
+fn android_transfer_temp(app: &AppHandle, operation: &str) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位迁移缓存目录：{e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建迁移缓存目录失败：{e}"))?;
+    Ok(dir.join(format!(
+        "transfer-{operation}-{}-{}.qtray-export",
+        std::process::id(),
+        now_ms()
+    )))
+}
+
+#[cfg(target_os = "android")]
+fn export_configuration_to_uri(
+    app: &AppHandle,
+    state: &AppState,
+    uri: &str,
+    history: Option<&[quota_core::HistoryExportRow]>,
+) -> Result<(), String> {
+    use std::io::Write;
+    use tauri_plugin_fs::FsExt;
+
+    let temp = android_transfer_temp(app, "export")?;
+    let result = (|| {
+        export_configuration_at(&state.paths.config(), &temp, &state.vault, history)?;
+        let bytes = std::fs::read(&temp).map_err(|e| format!("读取迁移缓存失败：{e}"))?;
+        let path = uri
+            .parse::<tauri_plugin_fs::FilePath>()
+            .map_err(|never| match never {})?;
+        let mut options = tauri_plugin_fs::OpenOptions::new();
+        options.write(true).truncate(true).create(true);
+        let mut target = app
+            .fs()
+            .open(path, options)
+            .map_err(|e| format!("打开 Android 导出文档失败：{e}"))?;
+        target
+            .write_all(&bytes)
+            .and_then(|_| target.sync_all())
+            .map_err(|e| format!("写入 Android 导出文档失败：{e}"))
+    })();
+    let _ = std::fs::remove_file(temp);
+    result
+}
+
+#[cfg(target_os = "android")]
+fn import_configuration_from_uri(
+    app: &AppHandle,
+    state: &AppState,
+    uri: &str,
+) -> Result<quota_core::TransferBundle, String> {
+    use std::io::Read;
+    use tauri_plugin_fs::FsExt;
+
+    let temp = android_transfer_temp(app, "import")?;
+    let result = (|| {
+        let path = uri
+            .parse::<tauri_plugin_fs::FilePath>()
+            .map_err(|never| match never {})?;
+        let mut options = tauri_plugin_fs::OpenOptions::new();
+        options.read(true);
+        let mut source = app
+            .fs()
+            .open(path, options)
+            .map_err(|e| format!("打开 Android 导入文档失败：{e}"))?;
+        let mut bytes = Vec::new();
+        source
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("读取 Android 导入文档失败：{e}"))?;
+        std::fs::write(&temp, bytes).map_err(|e| format!("写入迁移缓存失败：{e}"))?;
+        import_configuration_at(&temp, &state.paths.config(), &state.vault)
+    })();
+    let _ = std::fs::remove_file(temp);
+    result
+}
+
 /// 导出完整配置（含查询历史）到用户通过系统对话框选定的路径。
 #[tauri::command]
-pub fn export_configuration(state: State<'_, AppState>, path: String) -> Result<(), String> {
+pub fn export_configuration(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
     // 历史读取失败降级为不带历史，导出主任务继续
     let history = match state.history.lock().unwrap().export_rows() {
         Ok(rows) => Some(rows),
@@ -262,6 +348,11 @@ pub fn export_configuration(state: State<'_, AppState>, path: String) -> Result<
             None
         }
     };
+    #[cfg(target_os = "android")]
+    if is_android_document_uri(&path) {
+        return export_configuration_to_uri(&app, &state, &path, history.as_deref());
+    }
+    let _ = app;
     export_configuration_at(
         &state.paths.config(),
         std::path::Path::new(&path),
@@ -277,18 +368,28 @@ pub fn import_configuration(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<usize, String> {
+    #[cfg(target_os = "android")]
+    let bundle = if is_android_document_uri(&path) {
+        import_configuration_from_uri(&app, &state, &path)?
+    } else {
+        import_configuration_at(
+            std::path::Path::new(&path),
+            &state.paths.config(),
+            &state.vault,
+        )?
+    };
+    #[cfg(not(target_os = "android"))]
     let bundle = import_configuration_at(
         std::path::Path::new(&path),
         &state.paths.config(),
         &state.vault,
     )?;
     // 迁移包携带的历史行合并进本机历史库（配置已导入成功，失败仅告警）
-    if let Some(rows) = &bundle.history {
-        if !rows.is_empty() {
-            if let Err(e) = state.history.lock().unwrap().merge_rows(rows) {
-                eprintln!("导入历史合并失败：{e}");
-            }
-        }
+    if let Some(rows) = &bundle.history
+        && !rows.is_empty()
+        && let Err(e) = state.history.lock().unwrap().merge_rows(rows)
+    {
+        eprintln!("导入历史合并失败：{e}");
     }
     state.results.write().unwrap().clear();
     after_state_change(&app, &state);
@@ -712,6 +813,30 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         .ok_or_else(|| lang.err_entry_not_enabled(&id))?
         .clone();
 
+    if let ProviderKind::Native { provider } = &entry.kind
+        && mobile_cli_provider_blocked(std::env::consts::OS, provider)
+    {
+        let info = ErrorInfo {
+            kind: "deterministic".into(),
+            message: lang.err_mobile_cli_credentials(),
+            detail: None,
+        };
+        let outcome = {
+            let mut results = state.results.write().unwrap();
+            let stored = results.entry(id.clone()).or_default();
+            stored.error = Some(info.clone());
+            QueryOutcome {
+                ok: false,
+                data: stored.data.clone(),
+                error: Some(info),
+                at: stored.at,
+            }
+        };
+        after_state_change(app, &state);
+        let _ = app.emit("provider-state-changed", &id);
+        return Ok(outcome);
+    }
+
     // 代理端口对账自愈：条目开代理而运行态端口丢失（启动加载抖动回退
     // 默认值等）时从磁盘恢复，避免"未配置代理端口"引导错误假阳性。
     // 正常态（内存有端口）仅一次读锁即返回，无磁盘开销。
@@ -768,12 +893,11 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
     };
     // M5：成功查询写入历史库（非关键数据，失败仅告警不阻断主链路；
     // 在结果表写锁外执行，避免锁内做磁盘 IO）
-    if outcome.ok {
-        if let (Some(data), Some(at)) = (outcome.data.as_ref(), outcome.at) {
-            if let Err(e) = state.history.lock().unwrap().record(&id, data, at) {
-                eprintln!("历史记录写入失败：{e}");
-            }
-        }
+    if outcome.ok
+        && let (Some(data), Some(at)) = (outcome.data.as_ref(), outcome.at)
+        && let Err(e) = state.history.lock().unwrap().record(&id, data, at)
+    {
+        eprintln!("历史记录写入失败：{e}");
     }
     after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
@@ -930,10 +1054,10 @@ fn persist_settings(
     tray::rebuild(app, state); // 阈值/语言/主题/每圈单位变化即时反映
     // 网络代理端口变更即时生效：热重建查询引擎（读锁内查询继续用旧
     // 客户端跑完，写锁仅在换新实例的瞬间持有）
-    if old_proxy_port != settings.update_proxy_port {
-        if let Err(e) = crate::state::rebuild_engine(state) {
-            eprintln!("代理变更后重建查询引擎失败：{e}");
-        }
+    if old_proxy_port != settings.update_proxy_port
+        && let Err(e) = crate::state::rebuild_engine(state)
+    {
+        eprintln!("代理变更后重建查询引擎失败：{e}");
     }
 
     if old_autostart != settings.autostart {
@@ -1008,6 +1132,7 @@ pub fn set_resolved_theme(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn apply_autostart(app: &AppHandle, enable: bool, lang: Lang) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let autolaunch = app.autolaunch();
@@ -1039,6 +1164,20 @@ pub struct BootStateDto {
     pub ready: bool,
     /// 便携首启待确认（ready=false 时的唯一成因）。
     pub pending_portable_init: bool,
+    /// 前端壳层平台；Android 必须使用触摸优先交互，不能依赖 hover。
+    pub platform: &'static str,
+}
+
+fn runtime_platform_for(target_os: &str) -> &'static str {
+    if target_os == "android" {
+        "android"
+    } else {
+        "desktop"
+    }
+}
+
+fn mobile_cli_provider_blocked(target_os: &str, provider_id: &str) -> bool {
+    target_os == "android" && quota_core::provider::uses_cli_credentials(provider_id)
 }
 
 #[tauri::command]
@@ -1051,7 +1190,13 @@ pub fn get_boot_state(app: AppHandle) -> BootStateDto {
     BootStateDto {
         ready,
         pending_portable_init: pending,
+        platform: runtime_platform_for(std::env::consts::OS),
     }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn apply_autostart(_app: &AppHandle, _enable: bool, _lang: Lang) -> Result<(), String> {
+    Err("移动端不支持开机自启动".into())
 }
 
 /// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
@@ -1179,13 +1324,12 @@ fn confirm_portable_init_claimed(
 /// 正常 UI 两按钮共用 busy 互斥，该窗口仅 devtools 注入可达。
 #[tauri::command]
 pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
-    if let Some(gate) = app.try_state::<crate::state::BootGate>() {
-        if let Some(quota_core::RuntimeMode::Portable { root }) =
+    if let Some(gate) = app.try_state::<crate::state::BootGate>()
+        && let Some(quota_core::RuntimeMode::Portable { root }) =
             gate.pending.lock().unwrap().clone()
-        {
-            // WebView2 进程存活期间句柄锁定，删除尽力而为
-            let _ = std::fs::remove_dir_all(root.join("WebView2"));
-        }
+    {
+        // WebView2 进程存活期间句柄锁定，删除尽力而为
+        let _ = std::fs::remove_dir_all(root.join("WebView2"));
     }
     app.exit(0);
     Ok(())
@@ -1270,6 +1414,32 @@ pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn android_document_uri_is_distinguished_from_desktop_path() {
+        assert!(is_android_document_uri(
+            "content://com.android.providers.documents/document/1"
+        ));
+        assert!(!is_android_document_uri(
+            "C:\\Users\\demo\\backup.qtray-export"
+        ));
+        assert!(!is_android_document_uri("/tmp/backup.qtray-export"));
+    }
+
+    #[test]
+    fn boot_platform_only_marks_android_as_mobile_shell() {
+        assert_eq!(runtime_platform_for("android"), "android");
+        assert_eq!(runtime_platform_for("windows"), "desktop");
+        assert_eq!(runtime_platform_for("linux"), "desktop");
+    }
+
+    #[test]
+    fn android_blocks_native_providers_that_require_desktop_cli_files() {
+        assert!(mobile_cli_provider_blocked("android", "claude"));
+        assert!(mobile_cli_provider_blocked("android", "codex"));
+        assert!(!mobile_cli_provider_blocked("android", "deepseek"));
+        assert!(!mobile_cli_provider_blocked("windows", "claude"));
+    }
     use quota_core::{InMemoryStore, UsageData};
 
     fn entry(id: &str) -> ProviderEntry {

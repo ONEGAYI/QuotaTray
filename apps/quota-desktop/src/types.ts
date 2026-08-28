@@ -159,7 +159,7 @@ export interface CustomModelDef {
   currency?: string;
 }
 
-/** 桌面端设置（settings.json，字段与 Rust 侧 Settings 一一对应）。 */
+/** GUI 设置（settings.json，桌面/Android 共用字段，与 Rust Settings 一一对应）。 */
 export interface Settings {
   refresh_interval_minutes: number;
   low_balance_threshold_percent: number;
@@ -226,6 +226,8 @@ export interface BootStateDto {
   ready: boolean;
   /** 便携首启待确认（ready=false 时的唯一成因）。 */
   pendingPortableInit: boolean;
+  /** UI 壳层平台：Android 使用触摸优先布局，其余目标沿用桌面布局。 */
+  platform: "desktop" | "android";
 }
 
 /** get_update_state 的 IPC 返回形状。 */

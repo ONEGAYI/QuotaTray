@@ -186,6 +186,15 @@ impl Lang {
         }
     }
 
+    pub fn err_mobile_cli_credentials(&self) -> String {
+        match self {
+            Self::Zh => "该平台依赖桌面官方 CLI 的本机登录文件，Android 端无法读取".into(),
+            Self::En => {
+                "This provider depends on a desktop CLI login file that Android cannot read".into()
+            }
+        }
+    }
+
     pub fn err_reorder_mismatch(&self) -> String {
         match self {
             Self::Zh => "排序列表与现有条目不一致，请刷新后重试".into(),
