@@ -1,4 +1,5 @@
 {
+  "root": "QuotaTray",
   "tags": {
     "deprecated": "已废弃，计划移除",
     "generated": "构建生成物，不手工编辑",

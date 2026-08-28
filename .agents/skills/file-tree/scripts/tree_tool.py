@@ -156,6 +156,11 @@ def normalize_data(data: dict) -> dict:
     if not isinstance(data, dict):
         raise ToolError("数据顶层不是对象")
     out: dict = {}
+    if "root" in data:  # 用成员判定而非 get：显式 root:null 也是病态，必须报错
+        root = data["root"]
+        if not isinstance(root, str) or not root:
+            raise ToolError("root 必须是非空字符串（固定渲染根名；清除请用 root --clear）")
+        out["root"] = root  # 置于最前：根名是简版树的第一行
     tags = data.get("tags", {})
     if not isinstance(tags, dict):
         raise ToolError("tags 必须是对象")
@@ -169,7 +174,7 @@ def normalize_data(data: dict) -> dict:
         name: _normalize_node(child)
         for name, child in sorted(tree.items(), key=lambda kv: sort_key(kv[0]))
     }
-    for key in sorted((k for k in data if k not in ("tags", "tree")), key=sort_key):
+    for key in sorted((k for k in data if k not in ("tags", "tree", "root")), key=sort_key):
         out[key] = data[key]
     return out
 
@@ -584,6 +589,29 @@ class TreeTool:
         self._record_undo(f"tag-rm {name}")
         self.write_data(data)
 
+    # ---------- 根名（固定渲染首行，防 worktree 检出目录名漂移） ----------
+
+    def current_root_name(self) -> tuple[str, str | None]:
+        """返回 (生效根名, 自定义根名或 None)。未设置时自动取仓库根目录名。"""
+        custom = self.load().get("root")
+        return (custom or self.root_name), custom
+
+    def set_root(self, name) -> None:
+        if not isinstance(name, str) or not name:
+            raise ToolError("root 名字必须是非空字符串")
+        data = self.load()
+        self._record_undo(f"root {name}")
+        data["root"] = name
+        self.write_data(data)
+
+    def clear_root(self) -> None:
+        data = self.load()
+        if "root" not in data:
+            raise ToolError("未设置自定义根名（当前已是自动模式）")
+        self._record_undo("root --clear")
+        del data["root"]
+        self.write_data(data)
+
     # ---------- 查询 ----------
 
     def query(self, kw=None, tag=None, rel_of=None) -> list[tuple[str, dict]]:
@@ -606,7 +634,8 @@ class TreeTool:
     # ---------- 渲染 ----------
 
     def render_brief_tree(self) -> str:
-        return render_tree(self.root_name, self.load()["tree"])
+        name, _custom = self.current_root_name()
+        return render_tree(name, self.load()["tree"])
 
     def render_tags_table(self) -> str:
         tags = self.load().get("tags", {})
@@ -837,6 +866,25 @@ def _cmd_rm_batch(tool: TreeTool, args) -> None:
     print(f"已批量删除并重渲染: {n} 条（一次变更，单步历史）")
 
 
+def _cmd_root(tool: TreeTool, args) -> None:
+    if args.clear and args.name:
+        raise ToolError("--clear 与名字不能同时给出")
+    if args.clear:
+        tool.clear_root()
+        tool.render()
+        print("已清除自定义根名，恢复自动取仓库根目录名并重渲染")
+    elif args.name:
+        tool.set_root(args.name)
+        tool.render()
+        print(f"已固定根名并重渲染: {args.name}")
+    else:
+        effective, custom = tool.current_root_name()
+        if custom is not None:
+            print(f"当前根名: {effective}（自定义；--clear 恢复自动）")
+        else:
+            print(f"当前根名: {effective}（自动 = 仓库根目录名；建议 root <名> 固定，防 worktree 目录名漂移）")
+
+
 def _cmd_get(tool: TreeTool, args) -> None:
     node = tool.get(args.path)
     print(args.path)
@@ -998,6 +1046,10 @@ def main(argv=None) -> int:
 
     sub.add_parser("render", help="重渲染 AGENTS.md 两个标记块（缺标记自动附加到尾部，无文件则生成）")
 
+    p = sub.add_parser("root", help="查看/固定/清除渲染根名（建议初始化后固定，防 worktree 检出目录名漂移）")
+    p.add_argument("name", nargs="?", help="固定根名；省略则查看当前")
+    p.add_argument("--clear", action="store_true", help="清除自定义根名，恢复自动取仓库根目录名")
+
     args = parser.parse_args(argv)
     tool = TreeTool(
         tree_json=SKILL_DIR / "tree.json",
@@ -1021,6 +1073,7 @@ def main(argv=None) -> int:
         "history": _cmd_history,
         "check": _cmd_check,
         "render": _cmd_render,
+        "root": _cmd_root,
     }
     try:
         return handlers[args.command](tool, args) or 0

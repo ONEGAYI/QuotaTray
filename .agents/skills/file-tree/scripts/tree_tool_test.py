@@ -21,6 +21,7 @@ from tree_tool import (  # noqa: E402
     _cmd_add_batch,
     _cmd_query,
     _cmd_rm_batch,
+    _cmd_root,
     default_history_path,
     normalize_data,
     replace_block,
@@ -1053,6 +1054,117 @@ class CmdBatchTest(SandboxTest):
         data = tool.load()
         self.assertEqual(data["tree"]["apps"]["children"], {"util.ts": data["tree"]["apps"]["children"]["util.ts"]})
         self.assertNotIn("Cargo.toml", data["tree"])
+
+
+class RootTest(SandboxTest):
+    """root：固定/清除渲染根名——防 worktree 检出目录名漂移；未设置时自动取仓库根目录名。"""
+
+    def brief_first_line(self, tool: TreeTool) -> str:
+        return tool.render_brief_tree().split("\n", 1)[0]
+
+    def test_default_uses_repo_root_name(self):
+        tool = self.make_tool()
+        self.assertEqual(self.brief_first_line(tool), "Demo/")
+
+    def test_set_root_persists_and_renders(self):
+        tool = self.make_tool()
+        tool.set_root("Fixed")
+        self.assertEqual(tool.load()["root"], "Fixed")
+        self.assertEqual(self.brief_first_line(tool), "Fixed/")
+        tool.render()
+        errors, _ = tool.check()
+        self.assertEqual(errors, [])
+
+    def test_canonical_puts_root_first(self):
+        tool = self.make_tool()
+        tool.set_root("Fixed")
+        text = tool.tree_json.read_text(encoding="utf-8")
+        self.assertLess(text.index('"root"'), text.index('"tags"'))
+
+    def test_clear_root_restores_auto(self):
+        tool = self.make_tool()
+        tool.set_root("Fixed")
+        tool.clear_root()
+        self.assertNotIn("root", tool.load())
+        self.assertEqual(self.brief_first_line(tool), "Demo/")
+
+    def test_clear_without_custom_rejected(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.clear_root()
+
+    def test_set_root_rejects_empty(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            tool.set_root("")
+        with self.assertRaises(ToolError):
+            tool.set_root(None)
+
+    def test_root_change_is_single_undo_step(self):
+        tool = self.make_tool()
+        tool.set_root("Fixed")
+        undo, _ = tool.history_summary()
+        self.assertEqual(len(undo), 1)
+        tool.undo()
+        self.assertNotIn("root", tool.load())
+
+    def test_worktree_dir_rename_does_not_drift(self):
+        """同一 tree.json 在不同检出目录名下：未固定根名随目录漂移，设置后渲染稳定。"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        skill_dir = root / ".agents" / "skills" / "file-tree"
+        (skill_dir / "scripts").mkdir(parents=True)
+        common = dict(
+            tree_json=skill_dir / "tree.json", agents_md=root / "AGENTS.md",
+            repo_root=root, history_path=skill_dir / ".history.json",
+        )
+        tool_a = TreeTool(root_name="QuotaTray", **common)
+        tool_a.write_data(make_data())
+        tool_b = TreeTool(root_name="QuotaTray-feat", **common)  # 同数据、不同检出目录名
+        self.assertNotEqual(self.brief_first_line(tool_a), self.brief_first_line(tool_b))
+        tool_a.set_root("QuotaTray")
+        self.assertEqual(self.brief_first_line(tool_a), self.brief_first_line(tool_b))
+
+    def test_normalize_rejects_bad_root(self):
+        for bad in (123, "", [], {}, None):
+            with self.assertRaises(ToolError):
+                normalize_data({"root": bad, "tags": {}, "tree": {}})
+
+    def test_check_reports_hand_edited_bad_root(self):
+        tool = self.make_tool()
+        tool.render()
+        original = tool.tree_json.read_text(encoding="utf-8")
+        tool.tree_json.write_text(original.replace("{", '{"root": 1,', 1), encoding="utf-8", newline="\n")
+        errors, _ = tool.check()
+        self.assertTrue(any("结构非法" in e for e in errors))
+
+
+class CmdRootTest(SandboxTest):
+    """CLI 层 root 命令：查看/设置/清除与互斥约束。"""
+
+    def make_args(self, name=None, clear=False):
+        import types
+
+        return types.SimpleNamespace(name=name, clear=clear)
+
+    def test_view_without_args_shows_current(self):
+        tool = self.make_tool()
+        _cmd_root(tool, self.make_args())  # 仅查看，不抛错即通过
+
+    def test_set_then_clear_roundtrip(self):
+        tool = self.make_tool()
+        _cmd_root(tool, self.make_args(name="Fixed"))
+        self.assertEqual(tool.load()["root"], "Fixed")
+        self.assertIn("Fixed/", tool.agents_md.read_text(encoding="utf-8"))
+        _cmd_root(tool, self.make_args(clear=True))
+        self.assertNotIn("root", tool.load())
+        self.assertIn("Demo/", tool.agents_md.read_text(encoding="utf-8"))
+
+    def test_clear_with_name_rejected(self):
+        tool = self.make_tool()
+        with self.assertRaises(ToolError):
+            _cmd_root(tool, self.make_args(name="X", clear=True))
 
 
 class SelfHostTest(unittest.TestCase):
