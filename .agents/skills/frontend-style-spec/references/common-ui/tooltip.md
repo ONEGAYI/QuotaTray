@@ -28,6 +28,16 @@
 注意：`select` 等 replaced 元素上伪元素不渲染，须用 `Tooltip` 组件包裹而非直接挂属性；
 `text` 可能缺省时传 `?? ""`——空串不渲染气泡（对齐原生 title 的 undefined 语义）。
 
+**长文本判定与病根**（2026-08-28）：默认气泡 `nowrap + 240px 限宽`，溢出文字以
+`--qt-surface` 色落在页面同色底上**不可见**（观感是"被截断"）。凡文案可能超过约
+40 个拉丁字符或 16 个汉字的挂载点必须 multiline。已知长文本实例：
+
+- provider 卡模型窗口选择器：select 气泡（`Tooltip multiline`）与默认态路由标签
+  气泡（`is-multiline` 类）——同一段「平台 · 模型」长标题，两个挂载点都要挂
+  （路由标签气泡在窄屏媒体查询下可悬停触发，非死代码）
+- 定价三档解释（PricingSection，英文 47-51 字符）
+- 错误详情（ProviderCard / SettingsDialog，headline + 脱敏 detail）
+
 **禁止**：原生 `title=` 属性——系统默认样式不可定制、出现有延迟、观感与标准气泡不一致。
 
 **例外与豁免**：

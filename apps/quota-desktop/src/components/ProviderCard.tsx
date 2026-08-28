@@ -303,14 +303,14 @@ export const ProviderCard = memo(function ProviderCard({
             </div>
             <div className="qt-provider-route">
               <span
-                className="qt-provider-route-label"
+                className="qt-provider-route-label is-multiline"
                 data-tooltip={pricingView?.modelLabel ? `${platformName} · ${pricingView.modelLabel}` : platformName}
               >
                 {platformName}
                 {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
               </span>
               {showModelSelect && (
-                <Tooltip text={selectedTitle ?? ""}>
+                <Tooltip text={selectedTitle ?? ""} multiline>
                   <select
                     aria-label={t("card.switchModel")}
                     value={modelSelectValue}
