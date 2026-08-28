@@ -151,6 +151,13 @@
                             "T-003：控件/输入两档契约、button 全局兜底无白名单、特例登记"
                           ]
                         },
+                        "message-center.md": {
+                          "kind": "file",
+                          "desc": "消息中心组件规范",
+                          "detail": [
+                            "T-009 条目（草案）：铃铛图标钮复用标题栏菜单锚定、红点 danger 药丸、面板复用 DropdownMenu 定制 280px 宽、消息卡片分层与空态。"
+                          ]
+                        },
                         "segmented.md": {
                           "kind": "file",
                           "desc": "分段控件规范",
@@ -915,6 +922,40 @@
                       "desc": "聚光视图纯逻辑",
                       "detail": [
                         "鼠标聚光视图纯逻辑：距离计算与柔光显现参数"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "MessageCenter.tsx": {
+                      "kind": "file",
+                      "desc": "标题栏铃铛消息中心",
+                      "detail": [
+                        "铃铛图标钮 + 未读红点 + 点击展开下拉面板；「更新就绪」消息卡片提供「现在安装」直调静默安装（点击即确认，不叠加系统弹窗）。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/messageCenterView.ts",
+                        "apps/quota-desktop/src/components/TitleBar.tsx"
+                      ]
+                    },
+                    "messageCenterView.test.ts": {
+                      "kind": "file",
+                      "desc": "消息中心逻辑测试",
+                      "detail": [
+                        "锁定 mergeMessage 去重、hasUnread 红点点亮/清零与后续新消息重新点亮的语义。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/messageCenterView.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "messageCenterView.ts": {
+                      "kind": "file",
+                      "desc": "消息中心纯逻辑",
+                      "detail": [
+                        "标题栏铃铛消息中心的入列去重（kind+版本标识）与未读红点判定，纯函数可单测。"
                       ],
                       "tags": [
                         "pure"
@@ -2038,9 +2079,9 @@
                 },
                 "update.rs": {
                   "kind": "file",
-                  "desc": "更新检测与下载",
+                  "desc": "更新检测下载与清理判定",
                   "detail": [
-                    "版本比较、GitHub release 解析、架构×分发形态精确资产选择；x64 setup 自动安装，ARM64/Portable zip 手动覆盖；下载限额、代理、进度与原子落盘"
+                    "版本比较、release 解析、安装包资产挑选（架构×形态精确匹配）、检测节流与安装包下载；新增资产文件名反向解析与惰性清理陈旧判定（parse_asset_filename / is_stale_installer）。"
                   ]
                 },
                 "vault": {

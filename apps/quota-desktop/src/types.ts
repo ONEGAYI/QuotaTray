@@ -180,6 +180,8 @@ export interface Settings {
   update_last_check: number | null;
   /** 更新通道代理端口（本机 HTTP 代理；null = 直连，CLI 共用） */
   update_proxy_port: number | null;
+  /** 检测到新版本后自动下载安装包（仅安装版；完成后经消息中心询问安装） */
+  update_auto_download: boolean;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
@@ -197,6 +199,7 @@ export interface SettingsPatch {
   update_check_enabled?: boolean;
   update_check_time?: string;
   update_proxy_port?: number | null;
+  update_auto_download?: boolean;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

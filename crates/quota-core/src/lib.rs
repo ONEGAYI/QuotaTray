@@ -49,5 +49,6 @@ pub use template::{TemplateConfig, TemplateError};
 pub use update::{
     AssetDownloader, AssetSelector, DownloadProgress, DownloadProgressReporter, Flavor,
     ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION, arch_label, expected_asset_name,
+    is_stale_installer, parse_asset_filename,
 };
 pub use vault::{FileStore, InMemoryStore, KeyringStore, SecretStore, Vault};

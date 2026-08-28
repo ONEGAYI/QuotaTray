@@ -25,6 +25,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2" # 标题栏 GitHub 按钮：外部浏览器打开仓库主页
+tauri-plugin-notification = "2" # 更新就绪系统通知（主窗不可见时；Rust 侧发送）
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

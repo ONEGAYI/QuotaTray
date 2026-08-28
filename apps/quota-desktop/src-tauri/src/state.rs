@@ -279,6 +279,9 @@ impl AppState {
                 HistoryStore::open_in_memory().map_err(|e| e.to_string())?
             }
         };
+        // 启动惰性清理：删除下载目录中不新于当前版本的旧安装包/旧 zip
+        // （安装成功后的回收路径；失败仅告警，见 update_ctl 契约）
+        crate::update_ctl::cleanup_stale_installers();
         Ok(Self {
             engine: std::sync::RwLock::new(engine),
             vault,

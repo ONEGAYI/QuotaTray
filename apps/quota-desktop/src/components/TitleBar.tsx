@@ -20,6 +20,8 @@ import { resolveSetting, useTheme } from "../theme";
 import { applyThemeTransition, shouldAnimate, themeTriggerOrigin } from "../themeTransition";
 import type { SettingsPatch } from "../types";
 import { BrandMark } from "./BrandMark";
+import { MessageCenter } from "./MessageCenter";
+import type { CenterMessage } from "./messageCenterView";
 import { DropdownMenu, IconButton, MenuItem } from "./ui";
 
 type MenuKind = "language" | "theme" | null;
@@ -37,7 +39,15 @@ function GithubMark() {
   );
 }
 
-export function TitleBar() {
+export function TitleBar({
+  messages,
+  messageSeen,
+  onMessagesSeen,
+}: {
+  messages: CenterMessage[];
+  messageSeen: ReadonlySet<string>;
+  onMessagesSeen: () => void;
+}) {
   const { t } = useLang();
   const resolvedTheme = useTheme();
   const qc = useQueryClient();
@@ -110,6 +120,8 @@ export function TitleBar() {
         >
           <GithubMark />
         </IconButton>
+
+        <MessageCenter messages={messages} seen={messageSeen} onSeenAll={onMessagesSeen} />
 
         <div className="qt-titlebar-menu-anchor">
           <IconButton

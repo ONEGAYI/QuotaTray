@@ -40,6 +40,7 @@ description: 桌面端前端样式规范的唯一事实源与查询/维护入口
 | T-006 | 空态与占位卡（empty-state） | [common-ui/empty-state.md](references/common-ui/empty-state.md) | 全部视图 | 生效 | 2026-08-28 |
 | T-007 | 反馈提示块与进度条 | [common-ui/feedback-banner.md](references/common-ui/feedback-banner.md) | 全部视图 | 生效 | 2026-08-28 |
 | T-008 | 定价编辑区禁用 Tailwind 色板 | [edit-dialog/pricing-section.md](references/edit-dialog/pricing-section.md) | PricingSection | 生效 | 2026-08-28 |
+| T-009 | 消息中心（铃铛 + 红点 + 点击展开面板） | [common-ui/message-center.md](references/common-ui/message-center.md) | 标题栏 | 草案 | 2026-08-28 |
 
 ### 令牌条目（DT-）
 

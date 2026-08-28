@@ -435,6 +435,16 @@ export function SettingsDialog({ open, onClose }: Props) {
                   onChange={(update_check_enabled) => setDraft({ ...draft, update_check_enabled })}
                 />
               </SettingRow>
+              <SettingRow
+                title={t("settings.updateAutoDownloadTitle")}
+                description={t("settings.updateAutoDownloadHint")}
+              >
+                <Switch
+                  label={t("settings.updateAutoDownloadTitle")}
+                  checked={draft.update_auto_download}
+                  onChange={(update_auto_download) => setDraft({ ...draft, update_auto_download })}
+                />
+              </SettingRow>
               <SettingRow title={t("settings.updateTimeTitle")} description={t("settings.updateTimeHint")}>
                 <input
                   className="qt-input"

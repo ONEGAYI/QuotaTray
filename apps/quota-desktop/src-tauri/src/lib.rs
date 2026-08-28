@@ -132,6 +132,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             if let Some(mode) = gate_mode {
                 // 便携首启：仅托管门控，AppState/托盘/调度器待确认后补齐。

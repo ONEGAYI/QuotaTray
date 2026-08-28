@@ -12,6 +12,8 @@ import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { TitleBar } from "./components/TitleBar";
 import { UsageStatsPage } from "./components/UsageStatsPage";
+import type { CenterMessage } from "./components/messageCenterView";
+import { mergeMessage, messageId } from "./components/messageCenterView";
 import { LangProvider, useLang } from "./i18n";
 import { ThemeProvider } from "./theme";
 import {
@@ -48,6 +50,27 @@ function AppInner() {
       void unlisten.then((fn) => fn());
     };
   }, []);
+  // 消息中心：后端「更新就绪」广播（自动下载完成 / 重启后探测恢复）入列，
+  // 铃铛红点由未读判定驱动；会话级内存态，重启后由后端重新广播恢复
+  const [messages, setMessages] = useState<CenterMessage[]>([]);
+  const [messageSeen, setMessageSeen] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const unlisten = listen<{ version: string }>("update-ready", (event) => {
+      setMessages((prev) =>
+        mergeMessage(prev, { kind: "update-ready", version: event.payload.version }),
+      );
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+  const onMessagesSeen = useCallback(() => {
+    setMessageSeen((prev) => {
+      const next = new Set(prev);
+      for (const message of messages) next.add(messageId(message));
+      return next;
+    });
+  }, [messages]);
   const qc = useQueryClient();
   const providers = useProviders();
   const settings = useSettings();
@@ -127,7 +150,7 @@ function AppInner() {
       {instanceToast && (
         <div className="qt-toast" role="status">{t("app.instanceRunning")}</div>
       )}
-      <TitleBar />
+      <TitleBar messages={messages} messageSeen={messageSeen} onMessagesSeen={onMessagesSeen} />
 
       <main className="qt-main-content">
         <header className="qt-page-heading">

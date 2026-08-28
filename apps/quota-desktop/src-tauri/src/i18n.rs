@@ -347,6 +347,25 @@ impl Lang {
         }
     }
 
+    /// 「更新就绪」系统通知标题（主窗不可见、自动下载完成后发送）。
+    pub fn update_ready_title(&self) -> String {
+        match self {
+            Self::Zh => "QuotaTray 更新就绪".into(),
+            Self::En => "QuotaTray update ready".into(),
+        }
+    }
+
+    /// 「更新就绪」系统通知正文：引导打开主窗（通知点击唤主窗在部分
+    /// 平台不可用，正文自带引导路径兜底）。
+    pub fn update_ready_body(&self, version: &str) -> String {
+        match self {
+            Self::Zh => format!("新版本 v{version} 已下载完成，点击托盘图标打开主窗安装"),
+            Self::En => format!(
+                "New version v{version} downloaded. Click the tray icon to open QuotaTray and install"
+            ),
+        }
+    }
+
     pub fn err_update_client(&self, e: &dyn std::fmt::Display) -> String {
         match self {
             Self::Zh => format!("HTTP 客户端初始化失败：{e}"),
@@ -442,6 +461,21 @@ mod tests {
         assert_eq!(Lang::parse("en"), Lang::En);
         assert!(matches!(Lang::parse("system"), Lang::Zh | Lang::En));
         assert!(matches!(Lang::parse("fr"), Lang::Zh | Lang::En));
+    }
+
+    /// 契约：更新就绪通知双语（标题 + 带版本正文）。
+    #[test]
+    fn update_ready_notification_both_langs() {
+        assert_eq!(Lang::Zh.update_ready_title(), "QuotaTray 更新就绪");
+        assert_eq!(Lang::En.update_ready_title(), "QuotaTray update ready");
+        assert_eq!(
+            Lang::Zh.update_ready_body("0.8.0"),
+            "新版本 v0.8.0 已下载完成，点击托盘图标打开主窗安装"
+        );
+        assert_eq!(
+            Lang::En.update_ready_body("0.8.0"),
+            "New version v0.8.0 downloaded. Click the tray icon to open QuotaTray and install"
+        );
     }
 
     /// 契约：相对时间分档双语（边界与前端 display.ts 成对：0-9 刚刚、
