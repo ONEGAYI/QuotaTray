@@ -146,7 +146,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ```
 <!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->
-QuotaTray-woa-preview/
+QuotaTray/
 ├── .agents/                # Agent 技能库（项目级）
 │   └── skills/ # 技能目录
 │       ├── file-tree/           # 文件树技能
