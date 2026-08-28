@@ -306,7 +306,6 @@ export const en: Record<TextKey, string> = {
   "settings.updateProxyPort": "Network proxy port",
   "settings.updateProxyPortTitle": "Network proxy port",
   "settings.updateProxyPortHint": "Route update checks and proxied provider queries through a local HTTP proxy (e.g. 7897 for Clash); leave empty for a direct connection",
-  "settings.updateAutoDownload": "Auto-download installer",
   "settings.updateAutoDownloadTitle": "Auto-download installer",
   "settings.updateAutoDownloadHint": "Silently download new versions when detected (installed builds only); you will be asked before installing",
   "settings.currentVersion": "Current version",

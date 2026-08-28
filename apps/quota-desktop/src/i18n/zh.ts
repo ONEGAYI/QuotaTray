@@ -305,7 +305,6 @@ export const zh = {
   "settings.updateProxyPort": "网络代理端口",
   "settings.updateProxyPortTitle": "网络代理端口",
   "settings.updateProxyPortHint": "更新检测与开启代理的条目查询经本机 HTTP 代理（如 Clash 填 7897），留空直连",
-  "settings.updateAutoDownload": "自动下载安装包",
   "settings.updateAutoDownloadTitle": "自动下载安装包",
   "settings.updateAutoDownloadHint": "检测到新版本时静默下载（仅安装版），完成后经消息与通知询问安装",
   "settings.currentVersion": "当前版本",

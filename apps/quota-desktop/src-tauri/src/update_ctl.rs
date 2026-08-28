@@ -395,27 +395,50 @@ pub fn should_auto_download(
     auto_enabled && !manual_update && !downloaded && info.is_some_and(|i| i.downloadable)
 }
 
-/// 「更新就绪」单次广播：已下载记录存在且本会话未广播过该资产时，
-/// 推送 [`UPDATE_READY_EVENT`] 并在主窗不可见时补发系统通知；随后登记
-/// 广播状态防重复。覆盖自动下载完成与重启后探测恢复两个来源。
-fn notify_ready_once(app: &AppHandle, state: &AppState) {
-    let inner = state.update_ctl.read().unwrap().clone();
-    let Some(d) = &inner.downloaded else {
-        return;
-    };
+/// 就绪广播判定（纯函数）：返回 Some(version) 表示应广播。
+///
+/// 门禁与 [`should_auto_download`] 同口径——zip 手动覆盖形态（便携 /
+/// ARM64 Preview）不广播：其「现在安装」必然被 install_update 的形态
+/// 拒绝，消息卡片只会给出永远无效的重试引导，正确入口是设置页的
+/// 「打开下载目录」手动覆盖流程。
+pub fn should_notify_ready(manual_update: bool, inner: &UpdateCtlState) -> Option<String> {
+    if manual_update {
+        return None;
+    }
+    let d = inner.downloaded.as_ref()?;
     if inner.ready_notified.as_deref() == Some(d.asset_name.as_str()) {
-        return;
+        return None;
     }
     // 版本号取自当前 available（与 downloaded 同源——carry/探测恢复均
-    // 以资产名一致为前提）；取不到时跳过广播（保守不误发）
-    let Some(version) = inner
+    // 以资产名一致为前提）；取不到时不广播（保守不误发）
+    inner
         .info
         .as_ref()
         .filter(|i| i.asset_name.as_deref() == Some(d.asset_name.as_str()))
         .map(|i| i.version.clone())
-    else {
-        return;
+}
+
+/// 「更新就绪」单次广播：[`should_notify_ready`] 判定通过时，先登记
+/// 广播状态（防与手动检测并发的双重系统通知）再推送事件；主窗不可见
+/// 时补发系统通知。覆盖自动下载完成与重启后探测恢复两个来源。
+fn notify_ready_once(app: &AppHandle, state: &AppState) {
+    let manual_update =
+        update::AssetSelector::for_runtime(update::arch_label(), state.mode.is_portable())
+            .requires_manual_update();
+    let (version, asset_name) = {
+        let inner = state.update_ctl.read().unwrap();
+        let Some(version) = should_notify_ready(manual_update, &inner) else {
+            return;
+        };
+        (
+            version,
+            inner.downloaded.as_ref().unwrap().asset_name.clone(),
+        )
     };
+    // 先置位后广播：与手动检测命令并发时，后到者读到已置位的
+    // ready_notified 直接短路——前端 mergeMessage 本就去重，此处防的是
+    // 用户可见的重复系统通知
+    state.update_ctl.write().unwrap().ready_notified = Some(asset_name);
     let _ = app.emit(
         UPDATE_READY_EVENT,
         UpdateReadyEvent {
@@ -442,7 +465,6 @@ fn notify_ready_once(app: &AppHandle, state: &AppState) {
             eprintln!("更新就绪通知发送失败：{e}");
         }
     }
-    state.update_ctl.write().unwrap().ready_notified = Some(d.asset_name.clone());
 }
 
 /// 检测后的统一联动（调度器与手动检测命令在 [`run_check`] 之后调用）：
@@ -1069,6 +1091,74 @@ mod tests {
             "无资产（downloadable=false）不下载"
         );
         assert!(!should_auto_download(true, false, None, false), "无新版本");
+        assert!(
+            !should_auto_download(true, false, None, true),
+            "无新版本且已下载同样不触发"
+        );
+    }
+
+    /// 契约：就绪广播判定——zip 手动覆盖形态短路（防便携形态出现必然
+    /// 失败的「现在安装」入口）、未下载 / 已广播 / 资产不匹配不广播。
+    #[test]
+    fn should_notify_ready_matrix() {
+        let name = update::expected_asset_name("9.9.9", "x64", update::Flavor::SetupExe);
+        let mk = |downloaded: bool, notified: bool, asset_match: bool| UpdateCtlState {
+            downloaded: downloaded.then(|| DownloadedInstaller {
+                path: installer_dir().join(&name).to_string_lossy().into_owned(),
+                asset_name: name.clone(),
+            }),
+            ready_notified: notified.then(|| name.clone()),
+            info: Some(AvailableInfo {
+                version: "9.9.9".into(),
+                html_url: "u".into(),
+                notes: None,
+                // 资产不匹配场景用别的名字（模拟记录与 available 脱钩）
+                asset_name: Some(if asset_match {
+                    name.clone()
+                } else {
+                    "other.exe".into()
+                }),
+                asset_size: None,
+                downloadable: true,
+                asset_url: Some("dl".into()),
+            }),
+            ..Default::default()
+        };
+        // 正路径：安装形态 + 已下载 + 未广播 + 资产一致 → 返回版本号
+        assert_eq!(
+            should_notify_ready(false, &mk(true, false, true)),
+            Some("9.9.9".into())
+        );
+        // zip 手动覆盖形态（便携 / ARM64 Preview）一律不广播
+        assert_eq!(
+            should_notify_ready(true, &mk(true, false, true)),
+            None,
+            "便携形态死按钮"
+        );
+        // 其余门禁
+        assert_eq!(
+            should_notify_ready(false, &mk(false, false, true)),
+            None,
+            "未下载"
+        );
+        assert_eq!(
+            should_notify_ready(false, &mk(true, true, true)),
+            None,
+            "本会话已广播"
+        );
+        assert_eq!(
+            should_notify_ready(false, &mk(true, false, false)),
+            None,
+            "available 与已下载记录资产不一致（脱钩态不广播）"
+        );
+        // 无 available（检测失败沿用旧记录的中间态）
+        let mut inner = mk(true, false, true);
+        inner.info = None;
+        assert_eq!(
+            should_notify_ready(false, &inner),
+            None,
+            "无 available 不广播"
+        );
     }
 
     /// 契约：ready_notified 跟随已下载记录——同资产保留（不重复广播）、

@@ -35,14 +35,13 @@ export function MessageCenter({
   const unread = hasUnread(messages, seen);
 
   const toggle = () => {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next) {
-        setInstallFailed(false);
-        onSeenAll();
-      }
-      return next;
-    });
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setInstallFailed(false);
+    onSeenAll();
+    setOpen(true);
   };
 
   return (
