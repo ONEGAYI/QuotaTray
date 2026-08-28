@@ -116,9 +116,22 @@ export function Switch({
   );
 }
 
-export function Tooltip({ text, children }: { text: string; children: ReactNode }) {
+export function Tooltip({
+  text,
+  multiline = false,
+  children,
+}: {
+  text: string;
+  /** 长文本（错误详情、多句解释）：气泡允许换行并放宽限宽，见样式规范 T-001 */
+  multiline?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <span className="qt-tooltip-anchor" data-tooltip={text} aria-label={text}>
+    <span
+      className={`qt-tooltip-anchor ${multiline ? "is-multiline" : ""}`}
+      data-tooltip={text}
+      aria-label={text}
+    >
       {children}
     </span>
   );

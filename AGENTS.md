@@ -146,17 +146,34 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ```
 <!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->
-QuotaTray/
+QuotaTray-gui-tooltip/
 ├── .agents/                # Agent 技能库（项目级）
 │   └── skills/ # 技能目录
-│       └── file-tree/ # 文件树技能
-│           ├── agents/   # Codex 元数据目录
+│       ├── file-tree/           # 文件树技能
+│       │   ├── agents/   # Codex 元数据目录
+│       │   │   └── openai.yaml # Codex 技能元数据
+│       │   ├── scripts/  # 技能脚本
+│       │   │   ├── tree_tool.py      # 文件树唯一维护脚本
+│       │   │   └── tree_tool_test.py # 脚本契约测试
+│       │   ├── SKILL.md  # 技能主入口
+│       │   └── tree.json # 文件树唯一数据源
+│       └── frontend-style-spec/ # 前端样式规范技能
+│           ├── agents/     # Codex 元数据目录
 │           │   └── openai.yaml # Codex 技能元数据
-│           ├── scripts/  # 技能脚本
-│           │   ├── tree_tool.py      # 文件树唯一维护脚本
-│           │   └── tree_tool_test.py # 脚本契约测试
-│           ├── SKILL.md  # 技能主入口
-│           └── tree.json # 文件树唯一数据源
+│           ├── references/ # 规范正文目录
+│           │   ├── common-ui/     # 通用 UI 组件域
+│           │   │   ├── button.md          # 按钮规范
+│           │   │   ├── empty-state.md     # 空态卡规范
+│           │   │   ├── feedback-banner.md # 反馈块规范
+│           │   │   ├── field.md           # 表单字段规范
+│           │   │   ├── focus.md           # 焦点环规范
+│           │   │   ├── segmented.md       # 分段控件规范
+│           │   │   └── tooltip.md         # 悬停气泡组件规范
+│           │   ├── design-tokens/ # 设计令牌域目录
+│           │   │   └── tokens.md # 设计令牌规范
+│           │   └── edit-dialog/   # 编辑弹窗域目录
+│           │       └── pricing-section.md # 定价编辑区规范
+│           └── SKILL.md    # 技能主入口
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
 ├── .githooks/              # Git hooks 本地门禁

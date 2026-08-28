@@ -149,7 +149,7 @@ export function PricingSection(props: Props) {
         </Badge>
       </div>
 
-      <div className="qt-pricing-mode">
+      <div className="qt-segmented qt-pricing-mode">
         <ModeButton active={!draft.custom} onClick={() => setMode(false)}>
           {selectedChoice?.source === "custom"
             ? t("pricing.modeModel")
@@ -236,21 +236,20 @@ export function PricingSection(props: Props) {
           <section className="px-4 py-4" aria-labelledby="pricing-windows-heading">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 id="pricing-windows-heading" className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                <h3 id="pricing-windows-heading" className="text-sm font-medium text-[var(--qt-text)]">
                   {t("pricing.windowsTitle")}
                 </h3>
                 <p className={`mt-1 ${subduedTextCls}`}>{t("pricing.windowsHint")}</p>
               </div>
               {props.preset && (
-                <div className="grid shrink-0 grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900/70">
+                <div className="qt-segmented qt-segmented-compact shrink-0">
                   <ModeButton
                     active={!draft.scheduleCustom}
-                    compact
                     onClick={() => patch({ scheduleCustom: false })}
                   >
                     {t("pricing.schedulePreset")}
                   </ModeButton>
-                  <ModeButton active={draft.scheduleCustom} compact onClick={activateCustomSchedule}>
+                  <ModeButton active={draft.scheduleCustom} onClick={activateCustomSchedule}>
                     {t("pricing.scheduleCustom")}
                   </ModeButton>
                 </div>
@@ -258,7 +257,7 @@ export function PricingSection(props: Props) {
             </div>
 
             <div className="mt-4 grid gap-2 sm:grid-cols-[7rem_minmax(12rem,18rem)_1fr] sm:items-center">
-              <label htmlFor="pricing-timezone" className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              <label htmlFor="pricing-timezone" className="text-sm font-medium text-[var(--qt-text)]">
                 {t("pricing.timezone")}
               </label>
               <input
@@ -285,7 +284,7 @@ export function PricingSection(props: Props) {
             {draft.scheduleCustom && (
               <div className="mt-4 space-y-2.5">
                 {draft.windows.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-xs text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                  <p className="rounded-[var(--qt-radius-md)] border border-dashed border-[var(--qt-border-strong)] px-3 py-4 text-center text-xs text-[var(--qt-text-soft)]">
                     {t("pricing.emptyWindows")}
                   </p>
                 )}
@@ -318,7 +317,7 @@ export function PricingSection(props: Props) {
                       },
                     ])
                   }
-                  className="py-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  className="py-1 text-xs font-medium text-[var(--qt-accent-strong)] hover:underline"
                 >
                   {t("pricing.addWindow")}
                 </button>
@@ -326,10 +325,10 @@ export function PricingSection(props: Props) {
             )}
           </section>
 
-          <section className="border-t border-slate-200 px-4 py-4 dark:border-slate-700" aria-labelledby="pricing-price-heading">
+          <section className="border-t border-[var(--qt-border)] px-4 py-4" aria-labelledby="pricing-price-heading">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h3 id="pricing-price-heading" className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                <h3 id="pricing-price-heading" className="text-sm font-medium text-[var(--qt-text)]">
                   {t("pricing.priceTitle")}
                 </h3>
                 <p className={`mt-1 ${subduedTextCls}`}>
@@ -340,7 +339,7 @@ export function PricingSection(props: Props) {
               </div>
               {effectivePlan === "pay_as_you_go" && (
                 <label className="grid gap-1 sm:grid-cols-[auto_7rem] sm:items-center sm:gap-2">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                <span className="text-sm font-medium text-[var(--qt-text)]">
                   {t("pricing.currency")}
                 </span>
                 <input
@@ -355,7 +354,7 @@ export function PricingSection(props: Props) {
 
             {!props.preset && (
               <label className="mt-4 block">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                <span className="text-sm font-medium text-[var(--qt-text)]">
                   {t("pricing.modelTag")}
                 </span>
                 <input
@@ -388,9 +387,9 @@ export function PricingSection(props: Props) {
   );
 }
 
+/* 分段按钮：视觉全部由 qt-segmented 承担（样式规范 T-002），此处仅行为 */
 function ModeButton(props: {
   active: boolean;
-  compact?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -399,11 +398,6 @@ function ModeButton(props: {
       type="button"
       aria-pressed={props.active}
       onClick={props.onClick}
-      className={`rounded-md text-sm transition-colors ${props.compact ? "px-3 py-1.5" : "px-3 py-2"} ${
-        props.active
-          ? "bg-white font-medium text-indigo-700 shadow-sm dark:bg-slate-700 dark:text-indigo-300"
-          : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-      }`}
     >
       {props.children}
     </button>
@@ -493,15 +487,15 @@ function WindowEditor(props: {
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+    <div className="rounded-[var(--qt-radius-md)] border border-[var(--qt-border)] bg-[var(--qt-surface-soft)] px-3 py-3">
       <div className="mb-2.5 flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+        <span className="text-xs font-medium text-[var(--qt-text)]">
           {t("pricing.windowN", { n: props.index + 1 })}
         </span>
         <button
           type="button"
           onClick={props.onRemove}
-          className="text-xs text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400"
+          className="text-xs text-[var(--qt-text-soft)] hover:text-[var(--qt-danger)]"
         >
           {t("pricing.removeWindow")}
         </button>
@@ -516,10 +510,10 @@ function WindowEditor(props: {
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleDay(day)}
-                className={`rounded-md border px-2 py-1.5 text-xs ${
+                className={`rounded-[var(--qt-radius-xs)] border px-2 py-1.5 text-xs ${
                   active
-                    ? "border-indigo-400 bg-indigo-50 font-medium text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/70 dark:text-indigo-300"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                    ? "border-[var(--qt-accent)] bg-[var(--qt-accent-soft)] font-medium text-[var(--qt-accent-strong)]"
+                    : "border-[var(--qt-border)] bg-[var(--qt-surface)] text-[var(--qt-text-soft)] hover:border-[var(--qt-border-strong)]"
                 }`}
               >
                 {t(`pricing.day.${day}`)}
@@ -537,7 +531,7 @@ function WindowEditor(props: {
             aria-label={t("pricing.start")}
             className={`${compactFieldCls} text-center`}
           />
-          <span className="text-xs text-slate-500 dark:text-slate-400">{t("pricing.to")}</span>
+          <span className="text-xs text-[var(--qt-text-soft)]">{t("pricing.to")}</span>
           <input
             type="text"
             inputMode="numeric"
@@ -582,13 +576,13 @@ function PriceTierEditor(props: {
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/50">
+    <div className="rounded-[var(--qt-radius-md)] border border-[var(--qt-border)] bg-[var(--qt-surface-soft)] px-3 py-3">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h4 className="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
-          <span className={`h-2 w-2 rounded-full ${peak ? "bg-orange-500" : "bg-blue-500"}`} />
+        <h4 className="flex items-center gap-2 text-sm font-medium text-[var(--qt-text)]">
+          <span className={`h-2 w-2 rounded-full ${peak ? "bg-[var(--qt-peak)]" : "bg-[var(--qt-offpeak)]"}`} />
           {peak ? t("pricing.peak") : t("pricing.offPeak")}
         </h4>
-        <button type="button" onClick={reset} className="text-xs text-slate-500 hover:underline dark:text-slate-400">
+        <button type="button" onClick={reset} className="text-xs text-[var(--qt-text-soft)] hover:underline">
           {t("pricing.resetTier")}
         </button>
       </div>
@@ -597,9 +591,10 @@ function PriceTierEditor(props: {
           const inherited = props.presetTier?.[presetKey];
           return (
             <label key={draftKey} className="grid grid-cols-[minmax(8rem,1fr)_minmax(5rem,7rem)] items-center gap-x-2 py-1">
-              <span className="flex items-center gap-1 text-xs text-slate-700 dark:text-slate-300">
+              <span className="flex items-center gap-1 text-xs text-[var(--qt-text-soft)]">
                 {label}
                 <Tooltip
+                  multiline
                   text={
                     presetKey === "cache_hit_input"
                       ? t("pricing.hitExplain")

@@ -307,7 +307,7 @@ export function EditDialog({ open, initial, usageCurrency, onClose }: Props) {
         </>
       }
     >
-      <div className="qt-edit-tabs">
+      <div className="qt-segmented qt-edit-tabs">
         {(["native", "template", "script"] as Tab[]).map((tabId) => (
           <button
             type="button"

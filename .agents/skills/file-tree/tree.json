@@ -81,6 +81,133 @@
                   ]
                 }
               }
+            },
+            "frontend-style-spec": {
+              "kind": "dir",
+              "desc": "前端样式规范技能",
+              "detail": [
+                "桌面端前端样式规范唯一事实源与维护入口",
+                "动手前查询 spec.md 条目，约定变更同 PR 回写"
+              ],
+              "children": {
+                "agents": {
+                  "kind": "dir",
+                  "desc": "Codex 元数据目录",
+                  "children": {
+                    "openai.yaml": {
+                      "kind": "file",
+                      "desc": "Codex 技能元数据",
+                      "detail": [
+                        "interface 三件套：显示名、简介与默认提示语"
+                      ]
+                    }
+                  }
+                },
+                "references": {
+                  "kind": "dir",
+                  "desc": "规范正文目录",
+                  "children": {
+                    "common-ui": {
+                      "kind": "dir",
+                      "desc": "通用 UI 组件域",
+                      "detail": [
+                        "ui.tsx 共享组件与 index.css 全局机制的样式规范",
+                        "域内按组件粒度分指导文件"
+                      ],
+                      "children": {
+                        "button.md": {
+                          "kind": "file",
+                          "desc": "按钮规范",
+                          "detail": [
+                            "T-004：四 variant 矩阵、激活态走 accent、图标钮四尺寸档"
+                          ]
+                        },
+                        "empty-state.md": {
+                          "kind": "file",
+                          "desc": "空态卡规范",
+                          "detail": [
+                            "T-006：基础/加强两档占位卡、圆角一律 lg"
+                          ]
+                        },
+                        "feedback-banner.md": {
+                          "kind": "file",
+                          "desc": "反馈块规范",
+                          "detail": [
+                            "T-007：行内/横幅两档提示块、细进度条统一规格"
+                          ]
+                        },
+                        "field.md": {
+                          "kind": "file",
+                          "desc": "表单字段规范",
+                          "detail": [
+                            "T-005：input/select 统一规格与紧凑变体、label 风格调档"
+                          ]
+                        },
+                        "focus.md": {
+                          "kind": "file",
+                          "desc": "焦点环规范",
+                          "detail": [
+                            "T-003：控件/输入两档契约、button 全局兜底无白名单、特例登记"
+                          ]
+                        },
+                        "segmented.md": {
+                          "kind": "file",
+                          "desc": "分段控件规范",
+                          "detail": [
+                            "T-002：qt-segmented 唯一实现、禁平行分叉、compact 档与布局钩子"
+                          ]
+                        },
+                        "tooltip.md": {
+                          "kind": "file",
+                          "desc": "悬停气泡组件规范",
+                          "detail": [
+                            "T-001：data-tooltip 机制、禁原生 title、option 例外、is-multiline 长文本"
+                          ]
+                        }
+                      }
+                    },
+                    "design-tokens": {
+                      "kind": "dir",
+                      "desc": "设计令牌域目录",
+                      "detail": [
+                        "令牌档位与例外组的唯一值定义处",
+                        "组件条目只写场景，值全部归本域"
+                      ],
+                      "children": {
+                        "tokens.md": {
+                          "kind": "file",
+                          "desc": "设计令牌规范",
+                          "detail": [
+                            "DT-001 颜色成对规则、DT-002 圆角五档、DT-003 动效四档",
+                            "DT-004 不随主题例外组（logo 色组/关闭红/系列色板）",
+                            "间距与字号暂不令牌化的决策记录"
+                          ]
+                        }
+                      }
+                    },
+                    "edit-dialog": {
+                      "kind": "dir",
+                      "desc": "编辑弹窗域目录",
+                      "children": {
+                        "pricing-section.md": {
+                          "kind": "file",
+                          "desc": "定价编辑区规范",
+                          "detail": [
+                            "T-008：禁 Tailwind 色板、峰谷语义对号入座"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "SKILL.md": {
+                  "kind": "file",
+                  "desc": "技能主入口",
+                  "detail": [
+                    "条目索引与维护流程；规范正文按组件归属在 references/ 分文件"
+                  ]
+                }
+              }
             }
           }
         }
