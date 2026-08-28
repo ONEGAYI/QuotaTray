@@ -81,6 +81,44 @@
                   ]
                 }
               }
+            },
+            "frontend-style-spec": {
+              "kind": "dir",
+              "desc": "前端样式规范技能",
+              "detail": [
+                "桌面端前端样式规范唯一事实源与维护入口",
+                "动手前查询 spec.md 条目，约定变更同 PR 回写"
+              ],
+              "children": {
+                "agents": {
+                  "kind": "dir",
+                  "desc": "Codex 元数据目录",
+                  "children": {
+                    "openai.yaml": {
+                      "kind": "file",
+                      "desc": "Codex 技能元数据",
+                      "detail": [
+                        "interface 三件套：显示名、简介与默认提示语"
+                      ]
+                    }
+                  }
+                },
+                "SKILL.md": {
+                  "kind": "file",
+                  "desc": "技能主入口",
+                  "detail": [
+                    "核心约定与维护流程；规范数据不在此文件"
+                  ]
+                },
+                "spec.md": {
+                  "kind": "file",
+                  "desc": "样式规范唯一事实源",
+                  "detail": [
+                    "每条规范一个条目，含 ID、状态与最后确认日期",
+                    "首条 T-001 悬停气泡：data-tooltip 机制、禁原生 title、option 例外"
+                  ]
+                }
+              }
             }
           }
         }

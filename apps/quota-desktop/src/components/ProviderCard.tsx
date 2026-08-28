@@ -281,7 +281,7 @@ export const ProviderCard = memo(function ProviderCard({
           type="button"
           className="qt-drag-handle"
           aria-label={t("card.dragHandle")}
-          title={t("card.dragHandleHint")}
+          data-tooltip={t("card.dragHandleHint")}
           disabled={dragHandleProps.disabled}
           onPointerDown={dragHandleProps.onPointerDown}
           onKeyDown={dragHandleProps.onKeyDown}
@@ -304,35 +304,37 @@ export const ProviderCard = memo(function ProviderCard({
             <div className="qt-provider-route">
               <span
                 className="qt-provider-route-label"
-                title={pricingView?.modelLabel ? `${platformName} · ${pricingView.modelLabel}` : platformName}
+                data-tooltip={pricingView?.modelLabel ? `${platformName} · ${pricingView.modelLabel}` : platformName}
               >
                 {platformName}
                 {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
               </span>
               {showModelSelect && (
-                <select
-                  aria-label={t("card.switchModel")}
-                  title={selectedTitle}
-                  value={modelSelectValue}
-                  disabled={switchModel.isPending}
-                  onChange={(event) => {
-                    setFeedback(null);
-                    switchModel.mutate(event.target.value);
-                  }}
-                  className="qt-select qt-provider-model-select"
-                >
-                  {!explicitModelChoice && entry.pricing?.model && (
-                    <option value={`model:${entry.pricing.model}`}>{entry.pricing.model}</option>
-                  )}
-                  {!hasImplicitDefaultChoice && (
-                    <option value="default">{t("pricing.noModel")}</option>
-                  )}
-                  {modelChoices.map((choice) => (
-                    <option key={choice.value} value={choice.value} title={optionText(choice)}>
-                      {optionText(choice)}
-                    </option>
-                  ))}
-                </select>
+                <Tooltip text={selectedTitle}>
+                  <select
+                    aria-label={t("card.switchModel")}
+                    value={modelSelectValue}
+                    disabled={switchModel.isPending}
+                    onChange={(event) => {
+                      setFeedback(null);
+                      switchModel.mutate(event.target.value);
+                    }}
+                    className="qt-select qt-provider-model-select"
+                  >
+                    {!explicitModelChoice && entry.pricing?.model && (
+                      <option value={`model:${entry.pricing.model}`}>{entry.pricing.model}</option>
+                    )}
+                    {!hasImplicitDefaultChoice && (
+                      <option value="default">{t("pricing.noModel")}</option>
+                    )}
+                    {modelChoices.map((choice) => (
+                      // option 悬停提示走原生 title：下拉列表项由 OS 渲染，CSS 气泡无法作用
+                      <option key={choice.value} value={choice.value} title={optionText(choice)}>
+                        {optionText(choice)}
+                      </option>
+                    ))}
+                  </select>
+                </Tooltip>
               )}
             </div>
           </div>
@@ -354,7 +356,7 @@ export const ProviderCard = memo(function ProviderCard({
                     {itemReset && (
                       <small
                         className="qt-balance-reset"
-                        title={t("card.resetIn", { time: itemReset })}
+                        data-tooltip={t("card.resetIn", { time: itemReset })}
                       >
                         {itemReset}
                       </small>
@@ -370,7 +372,7 @@ export const ProviderCard = memo(function ProviderCard({
               <span>{primary.label}</span>
               <strong className={overThreshold ? "is-alert" : ""}>
                 {mainReset && (
-                  <small className="qt-balance-reset" title={t("card.resetIn", { time: mainReset })}>
+                  <small className="qt-balance-reset" data-tooltip={t("card.resetIn", { time: mainReset })}>
                     {mainReset}
                   </small>
                 )}
@@ -462,12 +464,12 @@ export const ProviderCard = memo(function ProviderCard({
           )}
           {displayedError && (
             <p
-              className={`qt-provider-error ${
+              className={`qt-provider-error is-multiline ${
                 view.kind === "deterministic" || view.kind === "invalid" ? "is-danger" : ""
               }`}
               // 悬停显示完整报错（headline + 已脱敏 detail），与复制内容一致；
-              // invalid 业务失效无 detail，文案已完整展示，不挂 title
-              title={copyable ? errorCopyText(view) : undefined}
+              // invalid 业务失效无 detail，文案已完整展示，不挂气泡
+              data-tooltip={copyable ? errorCopyText(view) : undefined}
             >
               {displayedError}
               {copyable && (

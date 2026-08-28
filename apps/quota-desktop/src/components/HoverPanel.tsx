@@ -272,7 +272,7 @@ function HoverPanelInner() {
               <div>
                 <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "used" ? (heroWindow ? (lang === "zh" ? `已用 ${heroWindow}` : `Used ${heroWindow}`) : t("hover.usedQuota")) : t("card.noData")}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
-                {heroReset && <small className="qt-hover-reset" title={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
+                {heroReset && <small className="qt-hover-reset" data-tooltip={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>
               <div className={`qt-hover-ring ${overThreshold ? "is-alert" : ""}`} aria-label={renderedStatus}>
                 <svg viewBox="0 0 48 48" aria-hidden="true">
