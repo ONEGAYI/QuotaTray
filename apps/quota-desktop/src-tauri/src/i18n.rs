@@ -186,6 +186,15 @@ impl Lang {
         }
     }
 
+    pub fn err_mobile_cli_credentials(&self) -> String {
+        match self {
+            Self::Zh => "该平台依赖桌面官方 CLI 的本机登录文件，Android 端无法读取".into(),
+            Self::En => {
+                "This provider depends on a desktop CLI login file that Android cannot read".into()
+            }
+        }
+    }
+
     pub fn err_reorder_mismatch(&self) -> String {
         match self {
             Self::Zh => "排序列表与现有条目不一致，请刷新后重试".into(),
@@ -263,6 +272,25 @@ impl Lang {
                 "This build updates via zip: quit the app, then extract the downloaded zip over the application directory"
                     .to_string()
             }
+        }
+    }
+
+    /// Android/iOS 尚未接入平台原生更新资产与安装流程，后端硬门禁。
+    pub fn err_mobile_update_unsupported(&self) -> String {
+        match self {
+            Self::Zh => "移动端尚未接入平台专属更新与下载流程".to_string(),
+            Self::En => {
+                "Platform-specific update and download flows are not available on mobile yet"
+                    .to_string()
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    pub fn err_mobile_autostart_unsupported(&self) -> String {
+        match self {
+            Self::Zh => "移动端不支持开机自启动".to_string(),
+            Self::En => "Mobile platforms do not support autostart".to_string(),
         }
     }
 

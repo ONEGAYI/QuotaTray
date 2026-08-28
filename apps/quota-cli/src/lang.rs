@@ -106,10 +106,10 @@ pub fn scan_args(args: &[String]) -> (Option<Lang>, Option<PathBuf>) {
             }
         } else if let Some(v) = a.strip_prefix("--config=") {
             config = Some(PathBuf::from(v));
-        } else if a == "--config" || a == "-c" {
-            if let Some(v) = iter.next() {
-                config = Some(PathBuf::from(v));
-            }
+        } else if (a == "--config" || a == "-c")
+            && let Some(v) = iter.next()
+        {
+            config = Some(PathBuf::from(v));
         }
     }
     (lang, config)

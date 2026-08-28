@@ -4,7 +4,7 @@
 
 托盘常驻的多平台 AI 账户余额监视器：预置官方平台查询，声明式模板自助接入其余平台，凭据全程密文、不落明文。
 
-![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![OS](https://img.shields.io/badge/OS-Windows%20%7C%20Android%20Preview-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## 为什么需要 QuotaTray
 
@@ -31,6 +31,15 @@ QuotaTray 把这件事压缩成一眼：常驻系统托盘，图标即余额状�
 - keep-last-good：查询失败时在时限内继续展示上次成功结果；重启后快照先行，无空窗期
 - Windows ARM64（预览版）：提供普通 zip 与便携 zip，GUI/CLI 均为 ARM64 原生二进制
 - 便携版（Windows x64 / ARM64 预览版）：数据全部随身于 `Data/` 目录，首次运行安全确认，删除目录即卸载
+
+**Android Preview**
+
+- 复用同一 Rust core、配置格式与 Provider 能力，主密钥由 Android Keystore 保护
+- 底部导航、顶部应用栏、全屏编辑页；卡片与多级选择器使用点击状态机，不依赖悬停
+- 首期只承诺应用前台刷新，不提供托盘、自启动、后台任务、桌面更新安装或内置 CLI
+- PR CI 生成 ARM64 Preview 调试 APK；真实设备完整验收前不视为稳定支持
+
+实现、安全边界和验收清单见 [Android 端预览版说明](docs/Android端预览版说明.md)。
 
 **命令行（quota-cli，与 GUI 平级共享同一核心）**
 

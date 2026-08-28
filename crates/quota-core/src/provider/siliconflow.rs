@@ -73,14 +73,14 @@ impl NativeProvider for SiliconFlow {
                 // 提示以免误判 Key 无效；原始 410 detail 保留供排查。
                 // 前缀匹配耦合 status_error_with_body 的 "HTTP {status}" 格式
                 //（状态码至多三位数，"410" 后只会是结尾或冒号）。
-                if let Some(notice) = self.deprecated_410_notice {
-                    if e.message().starts_with("HTTP 410") {
-                        let mut hint = QueryError::deterministic(notice.to_string());
-                        if let Some(d) = e.detail() {
-                            hint = hint.with_detail(d);
-                        }
-                        return Err(hint);
+                if let Some(notice) = self.deprecated_410_notice
+                    && e.message().starts_with("HTTP 410")
+                {
+                    let mut hint = QueryError::deterministic(notice.to_string());
+                    if let Some(d) = e.detail() {
+                        hint = hint.with_detail(d);
                     }
+                    return Err(hint);
                 }
                 return Err(e);
             }
@@ -88,17 +88,17 @@ impl NativeProvider for SiliconFlow {
 
         // code != 20000 为平台业务错误（含 message），重试无意义；
         // 兼容数字与字符串两种 code 形态（历史版本 API 曾返回字符串）
-        if let Some(code) = body.get("code").and_then(parse_int) {
-            if code != 20000 {
-                let message = body
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("未知业务错误");
-                return Err(redact_error_message(
-                    QueryError::deterministic(format!("SiliconFlow {code}：{message}")),
-                    &snapshot,
-                ));
-            }
+        if let Some(code) = body.get("code").and_then(parse_int)
+            && code != 20000
+        {
+            let message = body
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("未知业务错误");
+            return Err(redact_error_message(
+                QueryError::deterministic(format!("SiliconFlow {code}：{message}")),
+                &snapshot,
+            ));
         }
 
         let data = body

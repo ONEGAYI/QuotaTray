@@ -37,10 +37,10 @@ pub struct EditInput {
 /// 将编辑输入应用到条目（纯函数，向导逻辑的可测内核）。
 /// 模板/脚本/base_url 的修改只对对应类型条目生效，native 条目忽略。
 pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
-    if let Some(name) = &input.name {
-        if !name.trim().is_empty() {
-            entry.name = name.trim().to_string();
-        }
+    if let Some(name) = &input.name
+        && !name.trim().is_empty()
+    {
+        entry.name = name.trim().to_string();
     }
     match &entry.kind {
         ProviderKind::Template(_) => {
@@ -49,10 +49,10 @@ pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
                 BaseUrlEdit::Set(v) => entry.base_url = Some(v.clone()),
                 BaseUrlEdit::Clear => entry.base_url = None,
             }
-            if let Some(new_tpl) = &input.template {
-                if let ProviderKind::Template(tpl) = &mut entry.kind {
-                    **tpl = new_tpl.clone();
-                }
+            if let Some(new_tpl) = &input.template
+                && let ProviderKind::Template(tpl) = &mut entry.kind
+            {
+                **tpl = new_tpl.clone();
             }
         }
         ProviderKind::Script(_) => {
@@ -61,15 +61,15 @@ pub fn apply_edit(entry: &mut ProviderEntry, input: &EditInput) {
                 BaseUrlEdit::Set(v) => entry.base_url = Some(v.clone()),
                 BaseUrlEdit::Clear => entry.base_url = None,
             }
-            if let Some(new_code) = &input.script_code {
-                if let ProviderKind::Script(s) = &mut entry.kind {
-                    s.code = new_code.clone();
-                }
+            if let Some(new_code) = &input.script_code
+                && let ProviderKind::Script(s) = &mut entry.kind
+            {
+                s.code = new_code.clone();
             }
-            if let Some(allow) = input.script_allow_insecure {
-                if let ProviderKind::Script(s) = &mut entry.kind {
-                    s.allow_insecure = allow;
-                }
+            if let Some(allow) = input.script_allow_insecure
+                && let ProviderKind::Script(s) = &mut entry.kind
+            {
+                s.allow_insecure = allow;
             }
         }
         ProviderKind::Native { .. } => {}

@@ -8,6 +8,7 @@ import { api } from "./api";
 import { EditDialog } from "./components/EditDialog";
 import { PortableInitGate } from "./components/PortableInitGate";
 import { MainPanelTabs } from "./components/MainPanelTabs";
+import { MobileBottomNavigation, MobileTopBar } from "./components/MobileChrome";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { TitleBar } from "./components/TitleBar";
@@ -28,12 +29,18 @@ import type { ProviderEntry } from "./types";
 import { Button } from "./components/ui";
 import { initialMainPanelState, reduceMainPanelTransition } from "./mainPanelView";
 import { useCardDragSort } from "./useCardDragSort";
+import { runtimeUiPolicy, type RuntimePlatform } from "./runtimeView";
 
 const queryClient = new QueryClient();
 
-function AppInner() {
+function AppInner({ platform }: { platform: RuntimePlatform }) {
   useRefreshNow();
   const { t } = useLang();
+  const runtime = runtimeUiPolicy(platform);
+  useEffect(() => {
+    document.body.classList.toggle("qt-mobile-runtime", runtime.mobile);
+    return () => document.body.classList.remove("qt-mobile-runtime");
+  }, [runtime.mobile]);
   // 同机互斥提示：第二实例启动被 single-instance 拦截后聚焦本窗，
   // 顶部短暂 toast 让用户明白「为什么新点的没有打开」
   const [instanceToast, setInstanceToast] = useState(false);
@@ -145,45 +152,62 @@ function AppInner() {
     setEditOpen(true);
   }, []);
 
+  const openAdd = () => {
+    setEditing(null);
+    setEditingCurrency(undefined);
+    setDialogSeq((sequence) => sequence + 1);
+    setEditOpen(true);
+  };
+
   return (
-    <div className="qt-app-shell">
+    <div className={`qt-app-shell ${runtime.mobile ? "is-mobile" : "is-desktop"}`}>
       {instanceToast && (
         <div className="qt-toast" role="status">{t("app.instanceRunning")}</div>
       )}
-      <TitleBar messages={messages} messageSeen={messageSeen} onMessagesSeen={onMessagesSeen} />
+      {runtime.titleBar ? (
+        <TitleBar
+          messages={messages}
+          messageSeen={messageSeen}
+          onMessagesSeen={onMessagesSeen}
+        />
+      ) : (
+        <MobileTopBar
+          addLabel={t("app.addAccount")}
+          settingsLabel={t("app.settings")}
+          onAdd={openAdd}
+          onSettings={() => setSettingsOpen(true)}
+        />
+      )}
 
       <main className="qt-main-content">
         <header className="qt-page-heading">
           <div>
-            <MainPanelTabs
-              selected={mainPanel.target}
-              accountsLabel={t("app.accounts")}
-              usageLabel={t("app.usageStats")}
-              ariaLabel={t("app.viewTabs")}
-              onSelect={(panel) => dispatchMainPanel({ type: "select", panel })}
-            />
+            {!runtime.bottomNavigation && (
+              <MainPanelTabs
+                selected={mainPanel.target}
+                accountsLabel={t("app.accounts")}
+                usageLabel={t("app.usageStats")}
+                ariaLabel={t("app.viewTabs")}
+                onSelect={(panel) => dispatchMainPanel({ type: "select", panel })}
+              />
+            )}
             <p>
               <span className="qt-page-status-dot" />
               {t("app.accountCount", { count: providers.data?.length ?? 0 })}
             </p>
           </div>
-          <div className="qt-page-actions">
+          {!runtime.mobile && <div className="qt-page-actions">
             <Button icon={SettingsIcon} onClick={() => setSettingsOpen(true)}>
               {t("app.settings")}
             </Button>
             <Button
               variant="primary"
               icon={Plus}
-              onClick={() => {
-                setEditing(null);
-                setEditingCurrency(undefined);
-                setDialogSeq((sequence) => sequence + 1);
-                setEditOpen(true);
-              }}
+              onClick={openAdd}
             >
               {t("app.addAccount")}
             </Button>
-          </div>
+          </div>}
         </header>
 
         <div
@@ -255,22 +279,38 @@ function AppInner() {
               providers={providers.data ?? []}
               providersLoading={providers.isLoading}
               providersError={providers.error}
+              mobile={runtime.mobile}
             />
           </div>
         </div>
       </main>
 
+      {runtime.bottomNavigation && (
+        <MobileBottomNavigation
+          selected={mainPanel.target}
+          accountsLabel={t("app.accounts")}
+          usageLabel={t("app.usageStats")}
+          ariaLabel={t("app.viewTabs")}
+          onSelect={(panel) => dispatchMainPanel({ type: "select", panel })}
+        />
+      )}
+
       <EditDialog
         open={editOpen}
         initial={editing}
         usageCurrency={editingCurrency}
+        mobile={runtime.mobile}
         onClose={() => {
           setEditOpen(false);
           setDialogSeq((s) => s + 1); // 关闭即作废当前表单态，重开从 initial 重建
         }}
         key={`${editing?.id ?? "new"}-${dialogSeq}`}
       />
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsDialog
+        open={settingsOpen}
+        mobile={runtime.mobile}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }
@@ -284,7 +324,7 @@ function BootLayer() {
   if (boot.data?.pendingPortableInit) {
     return <PortableInitGate onDone={() => void boot.refetch()} />;
   }
-  return <AppInner />;
+  return <AppInner platform={boot.data?.platform ?? "desktop"} />;
 }
 
 export default function App() {

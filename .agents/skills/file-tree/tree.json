@@ -205,14 +205,40 @@
                           ]
                         }
                       }
+                    },
+                    "mobile": {
+                      "kind": "dir",
+                      "desc": "移动端规范域",
+                      "children": {
+                        "interaction.md": {
+                          "kind": "file",
+                          "desc": "移动触摸交互规范",
+                          "detail": [
+                            "T-009：平台判定、悬停转点击状态机、触摸目标与图表手势"
+                          ],
+                          "rel": [
+                            "apps/quota-desktop/src/runtimeView.ts"
+                          ]
+                        },
+                        "layout.md": {
+                          "kind": "file",
+                          "desc": "移动壳层布局规范",
+                          "detail": [
+                            "T-010：顶部应用栏、底部导航、全屏页面、安全区与平台裁剪"
+                          ],
+                          "rel": [
+                            "apps/quota-desktop/src/components/MobileChrome.tsx"
+                          ]
+                        }
+                      }
                     }
                   }
                 },
                 "SKILL.md": {
                   "kind": "file",
-                  "desc": "技能主入口",
+                  "desc": "跨端前端规范索引",
                   "detail": [
-                    "条目索引与维护流程；规范正文按组件归属在 references/ 分文件"
+                    "桌面与 Android 样式/交互规范的条目索引、唯一事实源与维护流程"
                   ]
                 }
               }
@@ -269,9 +295,9 @@
           "children": {
             "ci.yml": {
               "kind": "file",
-              "desc": "CI双矩阵流水线",
+              "desc": "桌面与Android CI",
               "detail": [
-                "Windows/Ubuntu 执行 fmt、clippy、测试与 release check；Windows 另做 ARM64 all-targets 交叉检查；前端执行 lint/build"
+                "Windows/Ubuntu Rust、前端与移动契约门禁、WoA 交叉检查及 Android ARM64 Preview APK 构建上传；校验 CI 与仓库锁定的 Rust 版本一致。"
               ]
             }
           }
@@ -282,7 +308,7 @@
       "kind": "file",
       "desc": "忽略清单（密钥/生成物）",
       "detail": [
-        "忽略本地密钥、target/前端/schema 构建物、Tauri generated CLI 暂存、编辑器目录与 Python 字节码"
+        "忽略本地密钥、target/前端/Tauri移动工程与schema构建物、generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
     },
     "AGENTS.md": {
@@ -596,16 +622,14 @@
               "kind": "file",
               "desc": "Vite HTML 入口",
               "detail": [
-                "Vite HTML 入口（挂载 #root）"
+                "Vite HTML 入口与 Android edge-to-edge 安全区 viewport 声明。"
               ]
             },
             "package.json": {
               "kind": "file",
-              "desc": "pnpm 前端清单",
+              "desc": "pnpm前端清单",
               "detail": [
-                "pnpm：React 18/Vite/Tailwind 4/React Query 5/CodeMirror/",
-                "（lang-json + lang-javascript）/Lucide/Vitest/opener +",
-                "dialog（系统文件选择器）"
+                "前端依赖、质量与移动样式契约脚本、Tauri 命令及 Android 初始化/加固入口。"
               ]
             },
             "pnpm-lock.yaml": {
@@ -629,11 +653,60 @@
                 "Tauri 前置构建钩子及其契约测试"
               ],
               "children": {
+                "android-post-init.contract.mjs": {
+                  "kind": "file",
+                  "desc": "Android初始化契约测试",
+                  "detail": [
+                    "锁定 Manifest 备份加固、Keyring JNI 桥接签名、MainActivity 初始化顺序与幂等性"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-post-init.mjs"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "android-post-init.mjs": {
+                  "kind": "file",
+                  "desc": "Android工程安全初始化",
+                  "detail": [
+                    "Android init 后关闭系统自动备份，在 Tauri 生命周期前注入 Keyring JNI Context，并对生成模板锚点漂移执行 fail-fast 校验。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-post-init.contract.mjs"
+                  ],
+                  "tags": [
+                    "security"
+                  ]
+                },
+                "android-tauri.contract.mjs": {
+                  "kind": "file",
+                  "desc": "Android构建入口测试",
+                  "detail": [
+                    "覆盖 NDK host tag、四目标 Bindgen 环境、NDK_HOME 缺失与 JDK 版本解析契约"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-tauri.mjs"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "android-tauri.mjs": {
+                  "kind": "file",
+                  "desc": "Android构建环境入口",
+                  "detail": [
+                    "从 NDK_HOME 与主机平台推导 Bindgen sysroot，强制 JDK 17 后转发 Tauri Android build/dev"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-tauri.contract.mjs"
+                  ]
+                },
                 "build-hook.contract.mjs": {
                   "kind": "file",
                   "desc": "构建钩子契约测试",
                   "detail": [
-                    "锁定 Tauri 架构到 Cargo target 映射及 Windows Node 24 下 pnpm shell 启动方式"
+                    "Windows 架构映射、pnpm 启动和 Android 跳过 CLI 的 Node 契约测试"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/build-hook.mjs"
@@ -644,12 +717,25 @@
                 },
                 "build-hook.mjs": {
                   "kind": "file",
-                  "desc": "目标感知构建钩子",
+                  "desc": "跨目标Tauri构建钩子",
                   "detail": [
-                    "读取 Tauri 目标平台/架构，为 Windows ARM64 构建同目标 quota CLI 后执行前端生产构建"
+                    "桌面构建目标匹配 CLI sidecar；Android 跳过 CLI 并统一构建前端"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/build-hook.contract.mjs"
+                  ]
+                },
+                "mobile-style.contract.mjs": {
+                  "kind": "file",
+                  "desc": "移动样式契约测试",
+                  "detail": [
+                    "静态锁定 Android 宽视口点击展开与通用按钮按压反馈，防止移动语义退回媒体查询或悬停。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/index.css"
+                  ],
+                  "tags": [
+                    "test"
                   ]
                 }
               }
@@ -673,10 +759,9 @@
                 },
                 "App.tsx": {
                   "kind": "file",
-                  "desc": "主窗布局与页签",
+                  "desc": "跨端主界面壳层",
                   "detail": [
-                    "Calm Native 主布局（标题栏/账户与使用统计页签/供应商列表/交互式使用统计示意页）",
-                    "编辑时传递查询币种；双面板常挂载、hidden 切换——换页不卸载卡片，不触发重查也不丢展开态"
+                    "按后端运行平台装配桌面标题栏或 Android 顶底导航，并托管账户/统计/全屏页"
                   ],
                   "rel": [
                     "apps/quota-desktop/src/components/UsageStatsPage.tsx"
@@ -835,9 +920,9 @@
                     },
                     "EditDialog.tsx": {
                       "kind": "file",
-                      "desc": "添加/编辑弹窗",
+                      "desc": "跨端添加编辑页",
                       "detail": [
-                        "三形态编辑弹窗：主/第二凭据双写入通道（空=保持）、峰谷定价、模板/脚本编辑与试查；诊断包携带已存条目 entryId 供 assist test 端测"
+                        "桌面弹窗/Android 全屏添加编辑，移动端裁剪 CLI 求助及桌面 CLI 凭据平台"
                       ]
                     },
                     "HoverPanel.tsx": {
@@ -961,6 +1046,16 @@
                         "pure"
                       ]
                     },
+                    "MobileChrome.tsx": {
+                      "kind": "file",
+                      "desc": "移动端应用壳组件",
+                      "detail": [
+                        "Android 顶部应用栏与账户/统计底部双导航组件；消息中心入口尚待移动适配。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/runtimeView.ts"
+                      ]
+                    },
                     "nativeProviderGroups.test.ts": {
                       "kind": "file",
                       "desc": "平台分组测试",
@@ -986,13 +1081,9 @@
                     },
                     "NativeProviderPicker.tsx": {
                       "kind": "file",
-                      "desc": "平台聚合选择器",
+                      "desc": "跨端平台聚合选择器",
                       "detail": [
-                        "添加/编辑平台聚合选择器：SVG 一级菜单+悬停/键盘展开",
-                        "二级 Provider 选单；菜单为 fixed 浮层不占文档流，",
-                        "高度自适应主窗口（min(剩余空间, 460px)），",
-                        "左右双栏 minmax(0,1fr)+min-height:0 各自独立滚动",
-                        "（滚动条走全局主题变量）"
+                        "桌面悬停/键盘与 Android 点击分组的聚合 Provider 选择器"
                       ]
                     },
                     "PortableInitGate.tsx": {
@@ -1149,12 +1240,9 @@
                     },
                     "SettingsDialog.tsx": {
                       "kind": "file",
-                      "desc": "设置弹窗",
+                      "desc": "跨端设置页",
                       "detail": [
-                        "常规/更新/数据迁移导航：更新下载进度 +",
-                        "下载完成后「立即安装」（确认后运行安装包并退出应用）+",
-                        "更新代理端口输入（空=直连）+系统文件选择器导入导出",
-                        "与双重风险确认"
+                        "桌面设置弹窗与 Android 全屏设置；移动端隐藏托盘/自启/更新并保留代理/数据管理"
                       ]
                     },
                     "settingsView.test.ts": {
@@ -1200,11 +1288,9 @@
                     },
                     "ui.tsx": {
                       "kind": "file",
-                      "desc": "共享基础组件",
+                      "desc": "跨端共享基础组件",
                       "detail": [
-                        "按钮/菜单/徽标/开关/Tooltip/Dialog 等共享基础组件",
-                        "（Dialog 以 body Portal 保证主窗居中，含 Escape、",
-                        "焦点圈定与关闭后焦点恢复）"
+                        "按钮、分段、tooltip、菜单、设置行与桌面弹窗/Android 全屏返回栈基础组件"
                       ]
                     },
                     "usageChartView.test.ts": {
@@ -1236,9 +1322,9 @@
                     },
                     "UsageStatsPage.tsx": {
                       "kind": "file",
-                      "desc": "使用统计趋势页",
+                      "desc": "跨端使用统计页",
                       "detail": [
-                        "真实历史驱动的双轴 SVG 趋势图：百分比 Scope 展示剩余额度、绝对值展示余额；滚动最近 7 天/1h 桶、实时跟随/历史保留、Scope、缺失留白、Tooltip、拖拽与绘图区 Ctrl+滚轮缩放"
+                        "桌面悬停与 Android 触摸保留选点的历史趋势图表页"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/queries.ts"
@@ -1307,9 +1393,9 @@
                 },
                 "index.css": {
                   "kind": "file",
-                  "desc": "设计令牌与全局样式",
+                  "desc": "跨端令牌与全局样式",
                   "detail": [
-                    "明暗设计令牌、Mica-like 基底、主窗响应式系统、图表/悬停面板与 AI 调试面板样式"
+                    "明暗令牌、桌面主窗/托盘面板及 Android 安全区、宽视口点击展开、触摸目标与按压反馈样式。"
                   ]
                 },
                 "main.tsx": {
@@ -1363,6 +1449,32 @@
                     "React Query hooks：Provider 轮询、按当前时间读取滚动历史并响应成功查询事件失效、快照/更新/Provider 缓存失效与峰谷 tick"
                   ]
                 },
+                "runtimeView.test.ts": {
+                  "kind": "file",
+                  "desc": "跨端界面策略测试",
+                  "detail": [
+                    "Android 平台裁剪与点击 disclosure 状态机的 Vitest 契约"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/runtimeView.ts"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "runtimeView.ts": {
+                  "kind": "file",
+                  "desc": "跨端界面能力策略",
+                  "detail": [
+                    "桌面/Android UI 能力矩阵、点击 disclosure 与 Android 返回栈纯函数"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/runtimeView.test.ts"
+                  ],
+                  "tags": [
+                    "pure"
+                  ]
+                },
                 "theme.tsx": {
                   "kind": "file",
                   "desc": "ThemeProvider 三态",
@@ -1400,9 +1512,9 @@
                 },
                 "types.ts": {
                   "kind": "file",
-                  "desc": "core serde 的 TS 镜像",
+                  "desc": "跨端IPC类型镜像",
                   "detail": [
-                    "core serde 形状的 TS 镜像：UsageData/HistoryPoint、Provider/定价/设置/更新与 KEEP_LAST_GOOD_MS"
+                    "core serde、设置、更新、启动平台与查询结果的 TypeScript 镜像"
                   ]
                 },
                 "useCardDragSort.ts": {
@@ -1477,6 +1589,16 @@
                       "detail": [
                         "悬停窗口事件与主题最小 ACL"
                       ]
+                    },
+                    "mobile.json": {
+                      "kind": "file",
+                      "desc": "Android主窗ACL",
+                      "detail": [
+                        "Android 主 WebView 的事件、主题、文档对话框与受限外链权限"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/tauri.android.conf.json"
+                      ]
                     }
                   }
                 },
@@ -1515,9 +1637,9 @@
                   "children": {
                     "commands.rs": {
                       "kind": "file",
-                      "desc": "IPC 命令集",
+                      "desc": "跨端IPC命令集",
                       "detail": [
-                        "IPC 命令集：Provider/查询/历史/设置/迁移/AI 诊断包与 CLI 路径解析；upsert 与 test_template/test_script 支持第二凭据槽（apply_key2_policy 空=保持），template_needs_api_key2 判定"
+                        "GUI IPC 命令、副作用装配、Android 文档 URI 迁移、移动 CLI 凭据门禁及桌面更新命令移动端后端守卫。"
                       ]
                     },
                     "hover_panel.rs": {
@@ -1535,6 +1657,13 @@
                         "由后台轮询与面板手动刷新按钮（单条 queryProvider）兜底"
                       ]
                     },
+                    "hover_panel_mobile.rs": {
+                      "kind": "file",
+                      "desc": "移动悬停面板空实现",
+                      "detail": [
+                        "Android 无托盘悬停面板，保留兼容 IPC 形状与主窗聚焦实现"
+                      ]
+                    },
                     "i18n.rs": {
                       "kind": "file",
                       "desc": "托盘/命令双语文案",
@@ -1545,9 +1674,9 @@
                     },
                     "lib.rs": {
                       "kind": "file",
-                      "desc": "Tauri Builder 装配",
+                      "desc": "跨端Tauri装配",
                       "detail": [
-                        "Builder：单实例/自启/dialog/托盘/窗口隐藏/更新调度/命令注册（含历史、AI 诊断包写入与 CLI 路径解析）"
+                        "桌面托盘/单实例与 Android 移动入口、私有数据目录、平台插件的条件装配"
                       ],
                       "rel": [
                         "apps/quota-desktop/src-tauri/src/commands.rs"
@@ -1613,6 +1742,13 @@
                         "peak-flip 事件，前端锚点重算 #15）"
                       ]
                     },
+                    "tray_mobile.rs": {
+                      "kind": "file",
+                      "desc": "移动托盘空实现",
+                      "detail": [
+                        "Android 无系统托盘，对命令侧重建调用提供显式 no-op"
+                      ]
+                    },
                     "update_ctl.rs": {
                       "kind": "file",
                       "desc": "更新检测控制",
@@ -1628,6 +1764,16 @@
                       ]
                     }
                   }
+                },
+                "tauri.android.conf.json": {
+                  "kind": "file",
+                  "desc": "Android Tauri配置",
+                  "detail": [
+                    "Android 包标识、移动主窗、构建钩子、图标与 minSdk 覆盖配置"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src-tauri/capabilities/mobile.json"
+                  ]
                 },
                 "tauri.conf.json": {
                   "kind": "file",
@@ -2113,9 +2259,9 @@
                     },
                     "store.rs": {
                       "kind": "file",
-                      "desc": "密钥存储抽象",
+                      "desc": "跨平台主密钥存储",
                       "detail": [
-                        "SecretStore trait + KeyringStore（生产）/ InMemoryStore（测试）"
+                        "统一 keyring-core 适配 Windows/Linux/Apple/Android 原生 Store；便携文件与测试内存后端"
                       ],
                       "tags": [
                         "security"
@@ -2133,6 +2279,13 @@
       "kind": "dir",
       "desc": "文档",
       "children": {
+        "Android端预览版说明.md": {
+          "kind": "file",
+          "desc": "Android预览端说明",
+          "detail": [
+            "记录触摸优先交互、构建环境、模拟器验证范围与预览限制。"
+          ]
+        },
         "design": {
           "kind": "dir",
           "desc": "设计文档",
@@ -2342,9 +2495,9 @@
     },
     "rust-toolchain.toml": {
       "kind": "file",
-      "desc": "锁定 stable 工具链",
+      "desc": "锁定开发与CI工具链",
       "detail": [
-        "锁定 stable 工具链"
+        "固定开发机与 CI 共用的 Rust 精确版本，避免 stable 浮动导致本地与流水线规则漂移。"
       ]
     },
     "scripts": {

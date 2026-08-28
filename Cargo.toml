@@ -5,7 +5,7 @@ members = ["crates/quota-core", "apps/quota-cli", "apps/quota-desktop/src-tauri"
 [workspace.package]
 version = "0.7.0"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 license = "MIT"
 
 [workspace.dependencies]
@@ -16,7 +16,7 @@ thiserror = "2"
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "signal"] }
 aes-gcm = "0.10"
-keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+keyring-core = "1.0.0"
 base64 = "0.22"
 dirs = "6"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }

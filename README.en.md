@@ -4,7 +4,7 @@ English | **[中文](README.md)**
 
 A tray-resident multi-platform AI account balance monitor: built-in queries for official platforms, a declarative template system for everything else — with credentials always encrypted, never stored in plaintext.
 
-![OS](https://img.shields.io/badge/OS-Windows-blue) ![License](https://img.shields.io/badge/License-MIT-green)
+![OS](https://img.shields.io/badge/OS-Windows%20%7C%20Android%20Preview-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Why QuotaTray
 
@@ -31,6 +31,15 @@ The key difference from other balance tools is **credential security**:
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window
 - Windows ARM64 (Preview): standalone and portable zips with native ARM64 GUI and CLI binaries
 - Portable build (Windows x64 / ARM64 Preview): all data travels in the `Data/` folder, first-run security confirmation, delete the folder to uninstall
+
+**Android Preview**
+
+- Reuses the same Rust core, configuration format, and provider implementations; the master key is protected by Android Keystore
+- Touch-first bottom navigation, top app bar, full-screen editors, and click-driven disclosure states instead of hover-only interactions
+- The first preview only promises foreground refresh; there is no tray, autostart, background worker, desktop updater, or bundled CLI
+- PR CI produces an ARM64 Preview debug APK; Android remains Preview until full physical-device acceptance
+
+See the Chinese [Android Preview implementation note](docs/Android端预览版说明.md) for security boundaries and the acceptance checklist.
 
 **Command line (quota-cli, sharing the same core as the GUI)**
 

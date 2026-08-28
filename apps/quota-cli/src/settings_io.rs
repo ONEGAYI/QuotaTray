@@ -105,10 +105,10 @@ pub fn write_last_check(config_path: &Path, now_ms: u64) -> std::io::Result<()> 
 /// core config 同一模式）。
 fn atomic_write(path: &Path, v: &serde_json::Value) -> std::io::Result<()> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    if let Some(dir) = path.parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir)?;
-        }
+    if let Some(dir) = path.parent()
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dir)?;
     }
     let text = serde_json::to_string_pretty(v).map_err(std::io::Error::other)?;
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);

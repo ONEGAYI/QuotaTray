@@ -447,12 +447,12 @@ impl ReqwestAssetDownloader {
             )));
         }
         let total_bytes = resp.content_length();
-        if let Some(len) = total_bytes {
-            if len > MAX_DOWNLOAD_BYTES as u64 {
-                return Err(HttpError::Network(format!(
-                    "安装包过大（{len} 字节，上限 {MAX_DOWNLOAD_BYTES}）"
-                )));
-            }
+        if let Some(len) = total_bytes
+            && len > MAX_DOWNLOAD_BYTES as u64
+        {
+            return Err(HttpError::Network(format!(
+                "安装包过大（{len} 字节，上限 {MAX_DOWNLOAD_BYTES}）"
+            )));
         }
 
         let mut bytes = Vec::with_capacity(
@@ -475,16 +475,16 @@ impl ReqwestAssetDownloader {
                 return Err(HttpError::Network("安装包超过大小上限".into()));
             }
             bytes.extend_from_slice(&chunk);
-            if let Some(reporter) = reporter {
-                if last_report.elapsed() >= Duration::from_millis(200) {
-                    let elapsed = started.elapsed();
-                    reporter.report(DownloadProgress {
-                        downloaded_bytes: bytes.len() as u64,
-                        total_bytes,
-                        bytes_per_second: calculate_bytes_per_second(bytes.len() as u64, elapsed),
-                    });
-                    last_report = Instant::now();
-                }
+            if let Some(reporter) = reporter
+                && last_report.elapsed() >= Duration::from_millis(200)
+            {
+                let elapsed = started.elapsed();
+                reporter.report(DownloadProgress {
+                    downloaded_bytes: bytes.len() as u64,
+                    total_bytes,
+                    bytes_per_second: calculate_bytes_per_second(bytes.len() as u64, elapsed),
+                });
+                last_report = Instant::now();
             }
         }
 

@@ -123,11 +123,11 @@ fn record_history(
     let Some(store) = history else { return };
     let now = chrono::Local::now().timestamp_millis().max(0) as u64;
     for outcome in outcomes {
-        if let Ok(data) = &outcome.result {
-            if let Err(e) = store.record(&outcome.id, data, now) {
-                eprintln!("{}{e}", t(lang, T::HistoryWriteFail));
-                return;
-            }
+        if let Ok(data) = &outcome.result
+            && let Err(e) = store.record(&outcome.id, data, now)
+        {
+            eprintln!("{}{e}", t(lang, T::HistoryWriteFail));
+            return;
         }
     }
 }

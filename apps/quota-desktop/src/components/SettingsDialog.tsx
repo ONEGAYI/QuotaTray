@@ -43,12 +43,13 @@ import { Button, DialogShell, SettingRow, Switch } from "./ui";
 interface Props {
   open: boolean;
   onClose: () => void;
+  mobile?: boolean;
 }
 
 type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
-export function SettingsDialog({ open, onClose }: Props) {
+export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const settings = useSettings();
@@ -73,6 +74,10 @@ export function SettingsDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
   }, [open, qc]);
+
+  useEffect(() => {
+    if (mobile && tab === "update") setTab("general");
+  }, [mobile, tab]);
 
   useEffect(() => {
     const unlisten = listen<DownloadProgress>("update-download-progress", (event) => {
@@ -145,26 +150,29 @@ export function SettingsDialog({ open, onClose }: Props) {
       cancelLabel: t("common.cancel"),
     });
     if (!confirmed) return;
+    // Android 的系统文档选择器按 MIME 类型过滤；tauri-plugin-dialog 仍复用
+    // extensions 字段传递该值。桌面端继续使用真实扩展名。
     const path = await saveDialog({
       title: t("settings.exportDialogTitle"),
       defaultPath: defaultTransferFileName(new Date()),
       filters: [{
         name: t("settings.transferDialogFilter"),
-        extensions: ["qtray-export"],
+        extensions: mobile ? ["application/octet-stream"] : ["qtray-export"],
       }],
     });
-    if (path) exportConfiguration.mutate(ensureTransferExtension(path));
+    if (path) exportConfiguration.mutate(mobile ? path : ensureTransferExtension(path));
   };
 
   const beginImport = async () => {
     setTransferFeedback(null);
+    // 与导出同口径：Android SAF 需要 MIME，桌面文件选择器需要扩展名。
     const path = await openDialog({
       title: t("settings.importDialogTitle"),
       multiple: false,
       directory: false,
       filters: [{
         name: t("settings.transferDialogFilter"),
-        extensions: ["qtray-export"],
+        extensions: mobile ? ["application/octet-stream"] : ["qtray-export"],
       }],
     });
     if (!path) return;
@@ -249,14 +257,14 @@ export function SettingsDialog({ open, onClose }: Props) {
             <SlidersHorizontal size={16} aria-hidden="true" />
             {t("settings.tabGeneral")}
           </button>
-          <button
+          {!mobile && <button
             type="button"
             aria-selected={tab === "update"}
             onClick={() => setTab("update")}
           >
             <PackageCheck size={16} aria-hidden="true" />
             {t("settings.tabUpdate")}
-          </button>
+          </button>}
           <button
             type="button"
             aria-selected={tab === "data"}
@@ -302,7 +310,56 @@ export function SettingsDialog({ open, onClose }: Props) {
                   <span>%</span>
                 </div>
               </SettingRow>
-              <SettingRow
+              {mobile && (
+                <SettingRow title={t("titlebar.language")} description={t("settings.mobileLanguageHint")}>
+                  <select
+                    className="qt-select"
+                    value={draft.language}
+                    onChange={(event) => setDraft({ ...draft, language: event.target.value })}
+                  >
+                    <option value="zh">{t("settings.langZh")}</option>
+                    <option value="en">{t("settings.langEn")}</option>
+                    <option value="system">{t("settings.langSystem")}</option>
+                  </select>
+                </SettingRow>
+              )}
+              {mobile && (
+                <SettingRow title={t("titlebar.theme")} description={t("settings.mobileThemeHint")}>
+                  <select
+                    className="qt-select"
+                    value={draft.theme}
+                    onChange={(event) => setDraft({ ...draft, theme: event.target.value })}
+                  >
+                    <option value="light">{t("settings.themeLight")}</option>
+                    <option value="dark">{t("settings.themeDark")}</option>
+                    <option value="system">{t("settings.themeSystem")}</option>
+                  </select>
+                </SettingRow>
+              )}
+              {mobile && (
+                <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
+                  <input
+                    className="qt-input"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    step={1}
+                    value={draft.update_proxy_port ?? ""}
+                    onChange={(event) => {
+                      const raw = event.target.value;
+                      const parsed = Number(raw);
+                      setDraft({
+                        ...draft,
+                        update_proxy_port:
+                          raw === "" || !Number.isFinite(parsed)
+                            ? null
+                            : Math.min(65535, Math.max(1, Math.round(parsed))),
+                      });
+                    }}
+                  />
+                </SettingRow>
+              )}
+              {!mobile && <SettingRow
                 title={t("settings.autostart")}
                 description={portableRun ? t("settings.autostartPortableHint") : t("settings.autostartHint")}
               >
@@ -312,8 +369,8 @@ export function SettingsDialog({ open, onClose }: Props) {
                   disabled={portableRun}
                   onChange={(autostart) => setDraft({ ...draft, autostart })}
                 />
-              </SettingRow>
-              <SettingRow title={t("settings.ringUnits")} description={t("settings.ringUnitsHint")}>
+              </SettingRow>}
+              {!mobile && <SettingRow title={t("settings.ringUnits")} description={t("settings.ringUnitsHint")}>
                 <input
                   className="qt-input"
                   type="number"
@@ -324,7 +381,7 @@ export function SettingsDialog({ open, onClose }: Props) {
                     setDraft({ ...draft, ring_units_per_circle: Number(event.target.value) })
                   }
                 />
-              </SettingRow>
+              </SettingRow>}
             </>
           ) : tab === "update" ? (
             <>

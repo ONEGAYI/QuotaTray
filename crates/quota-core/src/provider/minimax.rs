@@ -115,18 +115,17 @@ impl NativeProvider for MiniMax {
             .get("base_resp")
             .and_then(|r| r.get("status_code"))
             .and_then(parse_int)
+            && code != 0
         {
-            if code != 0 {
-                let message = body
-                    .get("base_resp")
-                    .and_then(|r| r.get("status_msg"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("未知业务错误");
-                return Err(redact_error_message(
-                    QueryError::deterministic(format!("MiniMax {code}：{message}")),
-                    &snapshot,
-                ));
-            }
+            let message = body
+                .get("base_resp")
+                .and_then(|r| r.get("status_msg"))
+                .and_then(Value::as_str)
+                .unwrap_or("未知业务错误");
+            return Err(redact_error_message(
+                QueryError::deterministic(format!("MiniMax {code}：{message}")),
+                &snapshot,
+            ));
         }
 
         // general 条目位置无关；缺失即结构异常（video 等其他模型条目丢弃）

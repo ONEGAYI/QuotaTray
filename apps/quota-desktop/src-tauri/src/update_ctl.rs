@@ -226,19 +226,18 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
         // 探测恢复：已下载记录为空但下载目录存在同名资产文件（应用重启
         // 后内存态丢失、安装失败/稍后安装后重开的场景）——磁盘文件即
         // 状态，恢复记录免重新下载；就绪广播由 post_check 统一判定
-        if inner.downloaded.is_none() {
-            if let Some(name) = inner
+        if inner.downloaded.is_none()
+            && let Some(name) = inner
                 .info
                 .as_ref()
                 .and_then(|i| i.asset_name.as_deref())
                 .filter(|n| validate_asset_name(n))
                 .filter(|n| installer_dir().join(n).is_file())
-            {
-                inner.downloaded = Some(DownloadedInstaller {
-                    path: installer_dir().join(name).to_string_lossy().into_owned(),
-                    asset_name: name.to_string(),
-                });
-            }
+        {
+            inner.downloaded = Some(DownloadedInstaller {
+                path: installer_dir().join(name).to_string_lossy().into_owned(),
+                asset_name: name.to_string(),
+            });
         }
     }
 
@@ -376,10 +375,10 @@ pub fn cleanup_stale_installers() {
     };
     for entry in entries.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if is_stale_installer(&name, VERSION) {
-            if let Err(e) = std::fs::remove_file(entry.path()) {
-                eprintln!("旧安装包清理失败（{name}）：{e}");
-            }
+        if is_stale_installer(&name, VERSION)
+            && let Err(e) = std::fs::remove_file(entry.path())
+        {
+            eprintln!("旧安装包清理失败（{name}）：{e}");
         }
     }
 }
@@ -522,18 +521,17 @@ pub fn spawn_scheduler(app: AppHandle) {
                         s.update_check_time.clone(),
                     )
                 };
-                if quota_core::update::due_check(enabled, last, &time, now_ms()) {
-                    if let Ok(http) = ReqwestHttpClient::new_with_proxy(
+                if quota_core::update::due_check(enabled, last, &time, now_ms())
+                    && let Ok(http) = ReqwestHttpClient::new_with_proxy(
                         Duration::from_secs(10),
                         proxy_url(&state).as_deref(),
-                    ) {
-                        let inner = run_check(&state, &http).await;
-                        let _ =
-                            app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
-                        tray::rebuild(&app, &state);
-                        // 检测后联动：探测恢复广播 + 自动下载（内部自 spawn）
-                        post_check(&app, &state);
-                    }
+                    )
+                {
+                    let inner = run_check(&state, &http).await;
+                    let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
+                    tray::rebuild(&app, &state);
+                    // 检测后联动：探测恢复广播 + 自动下载（内部自 spawn）
+                    post_check(&app, &state);
                 }
                 // 峰谷标签过期兜底：任一启用条目峰/谷翻转才重建并广播（内部自比对）
                 tray::rebuild_on_peak_flip(&app, &state);

@@ -402,7 +402,9 @@ fn draw_center_text(pm: &mut tiny_skia::Pixmap, text: &str, (r, g, b): (u8, u8, 
 /// tiny-skia 输出预乘 RGBA，托盘 Image 需要直通：逐像素除回 alpha。
 fn premultiplied_to_straight(src: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; src.len()];
-    for (s, d) in src.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
+    let (src_pixels, _) = src.as_chunks::<4>();
+    let (out_pixels, _) = out.as_chunks_mut::<4>();
+    for (s, d) in src_pixels.iter().zip(out_pixels.iter_mut()) {
         let a = u32::from(s[3]);
         if a == 0 || a == 255 {
             d[..3].copy_from_slice(&s[..3]);
@@ -712,11 +714,11 @@ mod tests {
             let rgba = render_rgba(&spec, true, false);
             assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
             assert!(
-                rgba.chunks_exact(4).any(|p| p[3] > 0),
+                rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 0),
                 "{input:?} 应有可见像素"
             );
             // 直通格式的输出契约：a==0 时 RGB 亦为 0（全透明像素无颜色信息）
-            for p in rgba.chunks_exact(4) {
+            for p in rgba.as_chunks::<4>().0 {
                 if p[3] == 0 {
                     assert_eq!(&p[..3], &[0, 0, 0], "全透明像素 RGB 应为 0");
                 }
@@ -841,7 +843,9 @@ mod tests {
                 let rgba = render_rgba(&spec, dark, false);
                 // 直通 → 预乘（Pixmap::from_vec 要求）
                 let mut premult = rgba.clone();
-                for (d, s) in premult.chunks_exact_mut(4).zip(rgba.chunks_exact(4)) {
+                let (premult_pixels, _) = premult.as_chunks_mut::<4>();
+                let (rgba_pixels, _) = rgba.as_chunks::<4>();
+                for (d, s) in premult_pixels.iter_mut().zip(rgba_pixels.iter()) {
                     let a = u32::from(s[3]);
                     d[0] = ((u32::from(s[0]) * a + 127) / 255) as u8;
                     d[1] = ((u32::from(s[1]) * a + 127) / 255) as u8;

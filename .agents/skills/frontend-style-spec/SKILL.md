@@ -1,6 +1,6 @@
 ---
 name: frontend-style-spec
-description: 桌面端前端样式规范的唯一事实源与查询/维护入口。凡涉及 apps/quota-desktop 前端样式工作——新增或修改组件样式、引入新 UI 模式（悬停提示、按钮、弹窗、动效等）、使用 title 属性、调整设计令牌、样式相关 code review——动手前必须先读本技能索引定位条目；样式约定发生任何变更时，必须在同一 PR 内回写对应 references 文件，改代码不改规范视为任务未完成。散落在代码注释或对话中的样式约定一律以本技能为准确。
+description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实源与查询维护入口。凡涉及 apps/quota-desktop 的组件样式、悬停或触摸交互、移动端布局、按钮、弹窗、动效、title 属性、设计令牌及样式 review，动手前必须按索引读取对应 references；约定变更必须与代码同 PR 回写，散落说明一律不作为规范。
 ---
 
 # 前端样式规范（Spec）
@@ -41,6 +41,8 @@ description: 桌面端前端样式规范的唯一事实源与查询/维护入口
 | T-007 | 反馈提示块与进度条 | [common-ui/feedback-banner.md](references/common-ui/feedback-banner.md) | 全部视图 | 生效 | 2026-08-28 |
 | T-008 | 定价编辑区禁用 Tailwind 色板 | [edit-dialog/pricing-section.md](references/edit-dialog/pricing-section.md) | PricingSection | 生效 | 2026-08-28 |
 | T-009 | 消息中心（铃铛 + 红点 + 点击展开面板） | [common-ui/message-center.md](references/common-ui/message-center.md) | 标题栏 | 草案 | 2026-08-28 |
+| T-010 | 移动端触摸交互与 disclosure | [mobile/interaction.md](references/mobile/interaction.md) | Android 前端 | 生效 | 2026-08-28 |
+| T-011 | 移动端壳层与全屏页面 | [mobile/layout.md](references/mobile/layout.md) | Android 前端 | 生效 | 2026-08-28 |
 
 ### 令牌条目（DT-）
 

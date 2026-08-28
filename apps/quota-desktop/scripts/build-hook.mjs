@@ -20,6 +20,10 @@ export function pnpmInvocation(platform) {
     : { command: "pnpm", args: ["build"], shell: false };
 }
 
+export function shouldBuildCli(platform) {
+  return platform?.toLowerCase() !== "android";
+}
+
 function run(command, args, cwd, shell = false) {
   const result = spawnSync(command, args, { cwd, stdio: "inherit", shell });
   if (result.error) throw result.error;
@@ -30,11 +34,13 @@ function run(command, args, cwd, shell = false) {
 
 export function main() {
   const appRoot = fileURLToPath(new URL("..", import.meta.url));
-  const target = cargoTargetFor(process.env.TAURI_ENV_PLATFORM, process.env.TAURI_ENV_ARCH);
-  const cargoArgs = ["build", "-p", "quota-cli", "--release"];
-  if (target) cargoArgs.push("--target", target);
-
-  run("cargo", cargoArgs, appRoot);
+  const platform = process.env.TAURI_ENV_PLATFORM;
+  if (shouldBuildCli(platform)) {
+    const target = cargoTargetFor(platform, process.env.TAURI_ENV_ARCH);
+    const cargoArgs = ["build", "-p", "quota-cli", "--release"];
+    if (target) cargoArgs.push("--target", target);
+    run("cargo", cargoArgs, appRoot);
+  }
   const pnpm = pnpmInvocation(process.platform);
   run(pnpm.command, pnpm.args, appRoot, pnpm.shell);
 }
