@@ -46,7 +46,8 @@ interface Props {
 const HOUR = 60 * 60 * 1_000;
 const HISTORY_SPAN_MS = 7 * 24 * HOUR;
 const HISTORY_BUCKET_MS = HOUR;
-const SERIES_COLORS = ["#6c6ef2", "#df6f9f", "#3d9b87", "#e49537", "#397bd8", "#a45fd4"];
+// 首系列锚定品牌强调色令牌（明暗自适应），其余为固定辅助色板（见 DT-004）
+const SERIES_COLORS = ["var(--qt-accent)", "#df6f9f", "#3d9b87", "#e49537", "#397bd8", "#a45fd4"];
 const CHART = { width: 840, height: 410, left: 74, right: 766, top: 42, bottom: 338 };
 const PLOT_WIDTH = CHART.right - CHART.left;
 const PLOT_HEIGHT = CHART.bottom - CHART.top;

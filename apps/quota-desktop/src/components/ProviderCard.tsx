@@ -310,7 +310,7 @@ export const ProviderCard = memo(function ProviderCard({
                 {pricingView?.modelLabel ? ` · ${pricingView.modelLabel}` : ""}
               </span>
               {showModelSelect && (
-                <Tooltip text={selectedTitle}>
+                <Tooltip text={selectedTitle ?? ""}>
                   <select
                     aria-label={t("card.switchModel")}
                     value={modelSelectValue}
