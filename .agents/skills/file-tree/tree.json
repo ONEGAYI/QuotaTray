@@ -2136,14 +2136,29 @@
           "kind": "dir",
           "desc": "立项前调研与预研报告",
           "children": {
-            "CC-Switch调研报告.md": {
+            "2026-08-22 项目方案预研.md": {
+              "kind": "file",
+              "desc": "项目方案预研",
+              "detail": [
+                "架构、凭据安全、查询体系、CLI/GUI 设计与里程碑"
+              ]
+            },
+            "2026-08-23 CC-Switch调研报告.md": {
               "kind": "file",
               "desc": "cc-switch 调研",
               "detail": [
                 "cc-switch 代码级调研（技术栈/密钥安全/余额查询）"
               ]
             },
-            "WoA与便携版预研报告.md": {
+            "2026-08-25 预置Provider缺口预研.md": {
+              "kind": "file",
+              "desc": "预置缺口预研",
+              "detail": [
+                "预置平台缺口对照 cc-switch（A/B/C 分层、批次标记与",
+                "StepFun/Novita/MiniMax/NewAPI 模板移植参考）"
+              ]
+            },
+            "2026-08-27 WoA与便携版预研报告.md": {
               "kind": "file",
               "desc": "WoA 与便携版预研",
               "detail": [
@@ -2152,28 +2167,13 @@
                 "覆盖目标感知 CLI 暂存、Windows-only CI、WebView2 数据便携、首次密钥确认、分发 flavor 精确更新及风险登记。"
               ]
             },
-            "自动更新预研报告.md": {
+            "2026-08-28 自动更新预研报告.md": {
               "kind": "file",
               "desc": "自动更新静默与双目录预研",
               "detail": [
                 "短期 NSIS 静默安装（/S /UPDATE /R 组合实证于 Tauri 2 模板）闭环 issue #58 的可行性、改动清单与决策点。",
                 "长期 Chrome 式双目录版本化布局：复用 portable.zip 资产、junction 切换、两阶段提交回退协议、NSIS 首装钩子与存量迁移。",
                 "含 issue 诉求差距盘点、分期触发条件与凭据安全红线对照。"
-              ]
-            },
-            "项目方案预研.md": {
-              "kind": "file",
-              "desc": "项目方案预研",
-              "detail": [
-                "架构、凭据安全、查询体系、CLI/GUI 设计与里程碑"
-              ]
-            },
-            "预置Provider缺口预研.md": {
-              "kind": "file",
-              "desc": "预置缺口预研",
-              "detail": [
-                "预置平台缺口对照 cc-switch（A/B/C 分层、批次标记与",
-                "StepFun/Novita/MiniMax/NewAPI 模板移植参考）"
               ]
             }
           }
