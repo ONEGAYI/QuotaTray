@@ -10,7 +10,10 @@
     "test": "vitest run",
     "test:build-hook": "node --test scripts/build-hook.contract.mjs",
     "test:android-init": "node --test scripts/android-post-init.contract.mjs",
+    "test:android-tauri": "node --test scripts/android-tauri.contract.mjs",
     "android:init": "tauri android init --ci --skip-targets-install && node scripts/android-post-init.mjs",
+    "android:build": "node scripts/android-tauri.mjs build",
+    "android:dev": "node scripts/android-tauri.mjs dev",
     "tauri": "tauri"
   },
   "dependencies": {

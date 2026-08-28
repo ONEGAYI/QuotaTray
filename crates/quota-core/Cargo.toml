@@ -38,3 +38,5 @@ apple-native-keyring-store = { version = "1.0.1", features = ["protected"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-native-keyring-store = "1.0.0"
+# rquickjs-sys 不随 crate 发布 Android 预生成绑定，Android 目标需在构建时生成。
+rquickjs = { workspace = true, features = ["bindgen"] }

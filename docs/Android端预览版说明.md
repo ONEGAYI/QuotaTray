@@ -6,9 +6,10 @@ Android 端首期按 **Preview** 发布。它复用 QuotaTray 的 Rust core、�
 但不是桌面窗口的等比缩小版：移动端采用触摸优先壳层，并明确裁掉托盘、悬停窗、自启动和
 桌面安装包更新。
 
-当前仓库没有可用的本机 Android SDK/模拟器，因此本阶段以契约测试、Android 目标依赖
-检查和 GitHub Actions 真机构建链作为盲测门禁。完成真实 Android 设备的完整运行验收前，
-不得宣称稳定支持。
+当前实现已在 API 36 的 Pixel 8 `x86_64` 模拟器上通过 ARM64 转译运行验收，包括冷启动、
+底部导航、全屏设置与返回键、平台选择、卡片点击展开及 Android Keystore 重启持久化。
+模拟器不能替代厂商 WebView、系统文件选择器和真实设备 Keystore 的兼容性验收；完成真实
+Android 设备的完整运行验收前，不得宣称稳定支持。
 
 ## 首期能力
 
@@ -39,6 +40,8 @@ Android 端退出或进入后台后，系统可以挂起或终止 WebView/Rust �
   位于应用私有数据目录，凭据字段仍为 `v1:<base64>` AES-GCM 密文。
 - Android 工程生成后由 `android-post-init.mjs` 强制关闭系统自动备份，避免只恢复配置
   密文、却没有原设备 Keystore 密钥的不可解状态。
+- 同一后处理脚本在 `MainActivity.onCreate` 进入 Tauri 生命周期前初始化 `ndk-context`，
+  使 Android Keyring 的 JNI 桥接稳定取得应用 Context；该顺序由契约测试锁定。
 - 配置迁移包的读写留在 Rust 侧，通过文件系统插件打开 `content://` 文档描述符；迁移包
   字节不回传 WebView。
 
@@ -56,16 +59,19 @@ Android 端退出或进入后台后，系统可以挂起或终止 WebView/Rust �
 
 ## 构建与验收
 
-本机准备好 Android SDK/NDK 后，在 `apps/quota-desktop` 执行：
+本机准备好 JDK 17、Android SDK 36、Build-Tools 36.0.0 与 NDK 27.2.12479018，并设置
+`JAVA_HOME`、`ANDROID_HOME`、`NDK_HOME` 后，在 `apps/quota-desktop` 执行：
 
 ```powershell
 pnpm install --frozen-lockfile
 pnpm android:init
-pnpm tauri android build --ci --debug --apk --target aarch64
+pnpm android:build -- --ci --debug --apk --target aarch64
 ```
 
-`pnpm android:init` 会生成 `src-tauri/gen/android`，随后自动加固 Manifest。生成目录不作为
-手写源码维护；CI 每次从配置重新生成，以检查初始化过程可复现。
+`pnpm android:init` 会生成 `src-tauri/gen/android`，随后自动加固 Manifest 并注入 Android
+Keyring JNI 初始化桥。生成目录不作为手写源码维护；CI 每次从配置重新生成，以检查初始化
+过程可复现。`android:build` 与 `android:dev` 由仓库脚本根据 `NDK_HOME` 和当前操作系统
+自动推导 Bindgen sysroot，并在运行前拒绝非 JDK 17 环境；开发者无需配置额外变量。
 
 PR 的 `android-preview` job 会上传 `QuotaTray-android-arm64-preview-debug` artifact。
 真实设备验收至少覆盖：首次建库、重启解密、三类 Provider 查询、前后台切换、触摸展开、

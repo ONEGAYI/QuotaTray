@@ -5,8 +5,8 @@
 node_modules/
 dist/
 
-# Tauri 自动生成的 schema 快照（构建产物）
-apps/quota-desktop/src-tauri/gen/schemas/
+# Tauri 自动生成的移动工程与 schema 快照（构建产物）
+apps/quota-desktop/src-tauri/gen/
 apps/quota-desktop/src-tauri/generated/
 
 # 本地运行时数据（密文快照、缓存）

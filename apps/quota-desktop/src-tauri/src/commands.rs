@@ -284,9 +284,10 @@ fn export_configuration_to_uri(
     let result = (|| {
         export_configuration_at(&state.paths.config(), &temp, &state.vault, history)?;
         let bytes = std::fs::read(&temp).map_err(|e| format!("读取迁移缓存失败：{e}"))?;
-        let path = uri
-            .parse::<tauri_plugin_fs::FilePath>()
-            .map_err(|never| match never {})?;
+        let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
+            Ok(path) => path,
+            Err(never) => match never {},
+        };
         let mut options = tauri_plugin_fs::OpenOptions::new();
         options.write(true).truncate(true).create(true);
         let mut target = app
@@ -313,9 +314,10 @@ fn import_configuration_from_uri(
 
     let temp = android_transfer_temp(app, "import")?;
     let result = (|| {
-        let path = uri
-            .parse::<tauri_plugin_fs::FilePath>()
-            .map_err(|never| match never {})?;
+        let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
+            Ok(path) => path,
+            Err(never) => match never {},
+        };
         let mut options = tauri_plugin_fs::OpenOptions::new();
         options.read(true);
         let mut source = app

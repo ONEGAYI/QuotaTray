@@ -97,7 +97,7 @@ jobs:
       - name: 生成 Android 工程
         run: pnpm android:init
       - name: 构建 ARM64 Preview 调试 APK
-        run: pnpm tauri android build --ci --debug --apk --target aarch64
+        run: pnpm android:build -- --ci --debug --apk --target aarch64
       - name: 上传可安装 Preview APK
         uses: actions/upload-artifact@v4
         with:

@@ -60,7 +60,7 @@ fn resolve_runtime_mode() -> Result<RuntimeMode, String> {
 
 fn runtime_mode_for_app(
     app: &tauri::AppHandle,
-    startup_mode: &RuntimeMode,
+    _startup_mode: &RuntimeMode,
 ) -> Result<RuntimeMode, String> {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
@@ -75,7 +75,7 @@ fn runtime_mode_for_app(
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = app;
-        Ok(startup_mode.clone())
+        Ok(_startup_mode.clone())
     }
 }
 

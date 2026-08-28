@@ -243,8 +243,10 @@ QuotaTray/
 │       ├── pnpm-lock.yaml      # 前端依赖锁文件
 │       ├── pnpm-workspace.yaml # pnpm 构建许可
 │       ├── scripts/            # 构建辅助脚本目录
-│       │   ├── android-post-init.contract.mjs # Android加固契约测试
-│       │   ├── android-post-init.mjs          # Android工程加固脚本
+│       │   ├── android-post-init.contract.mjs # Android初始化契约测试
+│       │   ├── android-post-init.mjs          # Android工程安全初始化
+│       │   ├── android-tauri.contract.mjs     # Android构建入口测试
+│       │   ├── android-tauri.mjs              # Android构建环境入口
 │       │   ├── build-hook.contract.mjs        # 构建钩子契约测试
 │       │   └── build-hook.mjs                 # 跨目标Tauri构建钩子
 │       ├── src/                # React 前端源码
@@ -406,13 +408,14 @@ QuotaTray/
 │               ├── mod.rs    # Vault 门面
 │               └── store.rs  # 跨平台主密钥存储
 ├── docs/                   # 文档
-│   ├── design/ # 设计文档
+│   ├── Android端预览版说明.md # Android预览端说明
+│   ├── design/          # 设计文档
 │   │   └── tray-ring-demo.html # 圆环视觉规格
-│   ├── specs/  # 规格文档
+│   ├── specs/           # 规格文档
 │   │   ├── CLI-spec.md     # CLI 规格（M2b）
 │   │   ├── GUI-spec.md     # GUI 规格（M3）
 │   │   └── history-spec.md # 历史存储规格（M5）
-│   └── 预研文档/   # 立项前调研与预研报告
+│   └── 预研文档/            # 立项前调研与预研报告
 │       ├── 2026-08-22 项目方案预研.md         # 项目方案预研
 │       ├── 2026-08-23 CC-Switch调研报告.md  # cc-switch 调研
 │       ├── 2026-08-25 预置Provider缺口预研.md # 预置缺口预研

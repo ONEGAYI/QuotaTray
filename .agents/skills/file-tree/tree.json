@@ -308,7 +308,7 @@
       "kind": "file",
       "desc": "忽略清单（密钥/生成物）",
       "detail": [
-        "忽略本地密钥、target/前端/schema 构建物、Tauri generated CLI 暂存、编辑器目录与 Python 字节码"
+        "忽略本地密钥、target/前端/Tauri移动工程与schema构建物、generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
     },
     "AGENTS.md": {
@@ -655,9 +655,9 @@
               "children": {
                 "android-post-init.contract.mjs": {
                   "kind": "file",
-                  "desc": "Android加固契约测试",
+                  "desc": "Android初始化契约测试",
                   "detail": [
-                    "Manifest 关闭备份与重复执行幂等性的 Node 契约测试"
+                    "锁定 Manifest 备份加固、Keyring JNI 桥接签名、MainActivity 初始化顺序与幂等性"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/android-post-init.mjs"
@@ -668,15 +668,38 @@
                 },
                 "android-post-init.mjs": {
                   "kind": "file",
-                  "desc": "Android工程加固脚本",
+                  "desc": "Android工程安全初始化",
                   "detail": [
-                    "Android init 后关闭系统自动备份，避免配置密文与 Keystore 主密钥分离恢复"
+                    "Android init 后关闭系统自动备份，并在 Tauri 生命周期前注入 Android Keyring JNI Context 初始化桥"
                   ],
                   "rel": [
                     "apps/quota-desktop/scripts/android-post-init.contract.mjs"
                   ],
                   "tags": [
                     "security"
+                  ]
+                },
+                "android-tauri.contract.mjs": {
+                  "kind": "file",
+                  "desc": "Android构建入口测试",
+                  "detail": [
+                    "覆盖 NDK host tag、四目标 Bindgen 环境、NDK_HOME 缺失与 JDK 版本解析契约"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-tauri.mjs"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "android-tauri.mjs": {
+                  "kind": "file",
+                  "desc": "Android构建环境入口",
+                  "detail": [
+                    "从 NDK_HOME 与主机平台推导 Bindgen sysroot，强制 JDK 17 后转发 Tauri Android build/dev"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/android-tauri.contract.mjs"
                   ]
                 },
                 "build-hook.contract.mjs": {
@@ -2233,6 +2256,13 @@
       "kind": "dir",
       "desc": "文档",
       "children": {
+        "Android端预览版说明.md": {
+          "kind": "file",
+          "desc": "Android预览端说明",
+          "detail": [
+            "记录触摸优先交互、构建环境、模拟器验证范围与预览限制。"
+          ]
+        },
         "design": {
           "kind": "dir",
           "desc": "设计文档",
