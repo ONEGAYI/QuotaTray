@@ -866,3 +866,14 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 
 /* 同机互斥提示 toast（第二实例启动时） */
 .qt-toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 70; padding: 9px 16px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); background: var(--qt-surface); color: var(--qt-text-soft); font-size: 12.5px; box-shadow: 0 10px 32px var(--qt-shadow); }
+
+/* 标题栏消息中心（铃铛 + 红点 + 下拉面板，样式契约见 T-009） */
+.qt-msg-dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 999px; background: var(--qt-danger); pointer-events: none; }
+.qt-msg-panel { width: 280px; }
+.qt-msg-empty { margin: 0; padding: 14px 0; text-align: center; font-size: 12px; color: var(--qt-text-faint); }
+.qt-msg-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 10px 8px; }
+.qt-msg-card + .qt-msg-card { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--qt-border); }
+.qt-msg-card-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--qt-text); }
+.qt-msg-card-body { margin: 0; font-size: 12px; color: var(--qt-text-soft); }
+.qt-msg-install { min-height: 28px; padding: 4px 10px; font-size: 12px; }
+.qt-msg-card-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--qt-text-faint); }

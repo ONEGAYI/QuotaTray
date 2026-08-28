@@ -110,6 +110,45 @@ pub fn expected_asset_name(version: &str, arch: &str, flavor: Flavor) -> String 
     }
 }
 
+/// [`expected_asset_name`] 的反向解析：下载目录惰性清理用。
+///
+/// 只认命名契约内的形态——前缀 `QuotaTray_`、合法 arch 段（`x64` /
+/// `arm64-preview`）、三种 flavor 后缀之一；arch 与大小写均精确匹配
+/// （与 pick_asset 的「大小写变体不命中」同精神）。版本段不校验可比较性
+/// （形态合法即返回，版本语义交给 [`is_stale_installer`] 的比较判定）。
+pub fn parse_asset_filename(name: &str) -> Option<(String, Flavor)> {
+    let (flavor, stripped) = if let Some(base) = name.strip_suffix("-setup.exe") {
+        (Flavor::SetupExe, base)
+    } else if let Some(base) = name.strip_suffix("-portable.zip") {
+        (Flavor::PortableZip, base)
+    } else if let Some(base) = name.strip_suffix(".zip") {
+        (Flavor::StandaloneZip, base)
+    } else {
+        return None;
+    };
+    let rest = stripped.strip_prefix("QuotaTray_")?;
+    // `QuotaTray_{version}_{arch_tag}`：arch 段在尾部，按下划线自右拆分，
+    // 版本段为三段数字不含下划线，rSplit 一次即得两段。
+    let (version, arch_tag) = rest.rsplit_once('_')?;
+    if !matches!(arch_tag, "x64" | "arm64-preview") {
+        return None;
+    }
+    Some((version.to_string(), flavor))
+}
+
+/// 下载目录惰性清理判定：文件名落在命名契约内、且其版本不严格新于
+/// 当前运行版本（含版本不可比较——无法证明更新的文件不构成有效安装源）。
+///
+/// 命名契约外的文件一律不判陈旧（清理只作用于本命名空间，用户自放的
+/// 杂项文件不动）。该策略同时满足：安装成功后新版启动清理旧包、安装
+/// 失败/稍后安装时旧版保留新包（版本更高 → 不陈旧）。
+pub fn is_stale_installer(name: &str, current_version: &str) -> bool {
+    match parse_asset_filename(name) {
+        Some((file_version, _)) => !is_newer(&file_version, current_version).unwrap_or(false),
+        None => false,
+    }
+}
+
 /// release 所在仓库（owner/repo）。
 pub const GITHUB_REPO: &str = "ONEGAYI/QuotaTray";
 
@@ -976,6 +1015,76 @@ mod tests {
             expected_asset_name("0.7.0", "unknown", Flavor::SetupExe),
             "QuotaTray_0.7.0_unknown-setup.exe"
         );
+    }
+
+    /// 契约：文件名反向解析——三 flavor × 双 arch 段命中，与正向拼装
+    /// 互为镜像；形态不合契约（前缀/arch 段/后缀/路径分隔符/大小写）
+    /// 一律 None，清理只作用于本命名空间。
+    #[test]
+    fn parse_asset_filename_roundtrip_and_rejects_unknown_forms() {
+        // 正反互为镜像：拼装结果可完整还原 (version, flavor)
+        for (version, arch, flavor) in [
+            ("0.8.0", "x64", Flavor::SetupExe),
+            ("0.8.0", "x64", Flavor::StandaloneZip),
+            ("0.8.0", "x64", Flavor::PortableZip),
+            ("0.8.0", "ARM64", Flavor::StandaloneZip),
+            ("0.8.0", "ARM64", Flavor::PortableZip),
+        ] {
+            let name = expected_asset_name(version, arch, flavor);
+            assert_eq!(
+                parse_asset_filename(&name),
+                Some((version.to_string(), flavor)),
+                "镜像解析失败：{name}"
+            );
+        }
+        // 形态不合契约
+        for bad in [
+            "setup.exe",
+            "QuotaTray_0.8.0-setup.exe",         // 缺 arch 段
+            "QuotaTray_0.8.0_arm64-setup.exe",   // arm64 必须带 preview 段
+            "QuotaTray_0.8.0_Unknown-setup.exe", // 非契约 arch 段
+            "quotatray_0.8.0_x64-setup.exe",     // 前缀大小写
+            "QUOTATRAY_0.8.0_X64-SETUP.EXE",     // 整体大小写变体
+            "QuotaTray_0.8.0_x64-setup.exe.bak", // 后缀不完整
+            "QuotaTray_0.8.0_x64.rar",           // 非发布后缀
+            "notes.txt",
+            "dir/QuotaTray_0.8.0_x64-setup.exe", // 含路径分隔符
+            "..\\QuotaTray_0.8.0_x64-setup.exe",
+        ] {
+            assert_eq!(parse_asset_filename(bad), None, "{bad} 不应命中");
+        }
+    }
+
+    /// 契约：惰性清理陈旧判定——契约内文件按版本比较（不严格新于当前
+    /// 即陈旧，含版本不可比较），契约外文件不动。
+    #[test]
+    fn is_stale_installer_version_gating() {
+        let cur = "0.7.0";
+        assert!(
+            is_stale_installer("QuotaTray_0.7.0_x64-setup.exe", cur),
+            "同版本 → 删"
+        );
+        assert!(
+            is_stale_installer("QuotaTray_0.6.1_x64-setup.exe", cur),
+            "旧版本 → 删"
+        );
+        assert!(
+            !is_stale_installer("QuotaTray_0.8.0_x64-setup.exe", cur),
+            "新版本（稍后安装/安装失败保留）→ 留"
+        );
+        assert!(
+            !is_stale_installer("QuotaTray_0.8.0_arm64-preview-portable.zip", cur),
+            "新版本便携包同样保留"
+        );
+        // 形态契约内但版本不可比较：无法证明更新 → 视为陈旧
+        // （不可能来自真实下载流——release tag 不可比较时不会产生 available）
+        assert!(is_stale_installer("QuotaTray_dev_x64-setup.exe", cur));
+        // 契约外文件不动（用户自放杂项）
+        assert!(!is_stale_installer("payload.zip", cur));
+        assert!(!is_stale_installer("setup.exe", cur));
+        // 当前版本本身不可比较：所有可解析文件均视为陈旧（极端场景，
+        // 开发构建下的保守行为——Temp 清理语义允许）
+        assert!(is_stale_installer("QuotaTray_0.8.0_x64-setup.exe", "dev"));
     }
 
     #[tokio::test]

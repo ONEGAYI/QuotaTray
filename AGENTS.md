@@ -167,6 +167,7 @@ QuotaTray/
 │           │   │   ├── feedback-banner.md # 反馈块规范
 │           │   │   ├── field.md           # 表单字段规范
 │           │   │   ├── focus.md           # 焦点环规范
+│           │   │   ├── message-center.md  # 消息中心组件规范
 │           │   │   ├── segmented.md       # 分段控件规范
 │           │   │   └── tooltip.md         # 悬停气泡组件规范
 │           │   ├── design-tokens/ # 设计令牌域目录
@@ -253,6 +254,9 @@ QuotaTray/
 │       │   │   ├── MainPanelTabs.tsx            # 页签与鼠标聚光
 │       │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
 │       │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
+│       │   │   ├── MessageCenter.tsx            # 标题栏铃铛消息中心
+│       │   │   ├── messageCenterView.test.ts    # 消息中心逻辑测试
+│       │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
 │       │   │   ├── NativeProviderPicker.tsx     # 平台聚合选择器
@@ -370,7 +374,7 @@ QuotaTray/
 │           ├── template/  # 声明式模板 DSL（M2a）
 │           │   ├── mod.rs  # DSL 结构与执行器
 │           │   └── path.rs # JSONPath 子集
-│           ├── update.rs  # 更新检测与下载
+│           ├── update.rs  # 更新检测下载与清理判定
 │           └── vault/     # 凭据保险库
 │               ├── cipher.rs # AES-256-GCM 密文格式
 │               ├── mod.rs    # Vault 门面

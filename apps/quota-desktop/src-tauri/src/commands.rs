@@ -853,6 +853,7 @@ pub struct SettingsPatch {
     pub update_check_time: Option<String>,
     #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
+    pub update_auto_download: Option<bool>,
 }
 
 /// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
@@ -899,6 +900,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.update_proxy_port {
         base.update_proxy_port = v;
+    }
+    if let Some(v) = patch.update_auto_download {
+        base.update_auto_download = v;
     }
 }
 
@@ -1228,6 +1232,8 @@ pub async fn check_update_now(
     .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
+    // 检测后联动：探测恢复广播 + 自动下载（后台执行，不阻塞本命令返回）
+    crate::update_ctl::post_check(&app, &state);
     Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
 

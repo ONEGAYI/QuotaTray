@@ -44,6 +44,11 @@ pub struct Settings {
     /// 检测与下载安装包共用；CLI 读同一 settings.json 自动生效。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
+    /// 检测到新版本后自动下载安装包（默认关：代理用户流量自主权优先；
+    /// 下载完成后经消息中心/系统通知询问安装）。仅安装版生效——
+    /// 便携/普通 zip 更新维持「打开目录手动覆盖」引导。
+    #[serde(default)]
+    pub update_auto_download: bool,
 }
 
 fn default_interval() -> u32 {
@@ -88,6 +93,7 @@ impl Default for Settings {
             update_check_time: default_update_time(),
             update_last_check: None,
             update_proxy_port: None,
+            update_auto_download: false,
         }
     }
 }
@@ -202,6 +208,7 @@ mod tests {
             update_check_time: "12:30".into(),
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
+            update_auto_download: true,
         };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s);
@@ -224,6 +231,7 @@ mod tests {
         assert_eq!(s.update_check_time, "09:00");
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
+        assert!(!s.update_auto_download, "自动下载默认关闭");
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -278,6 +286,7 @@ mod tests {
             update_check_time: "09:00".into(),
             update_last_check: None,
             update_proxy_port: Some(7897),
+            update_auto_download: false,
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
