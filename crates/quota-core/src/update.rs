@@ -121,10 +121,10 @@ pub fn parse_asset_filename(name: &str) -> Option<(String, Flavor)> {
         (Flavor::SetupExe, base)
     } else if let Some(base) = name.strip_suffix("-portable.zip") {
         (Flavor::PortableZip, base)
-    } else if let Some(base) = name.strip_suffix(".zip") {
-        (Flavor::StandaloneZip, base)
     } else {
-        return None;
+        // 判序在后的裸 `.zip`：`-portable.zip` 已被上一分支截住
+        let base = name.strip_suffix(".zip")?;
+        (Flavor::StandaloneZip, base)
     };
     let rest = stripped.strip_prefix("QuotaTray_")?;
     // `QuotaTray_{version}_{arch_tag}`：arch 段在尾部，按下划线自右拆分，
