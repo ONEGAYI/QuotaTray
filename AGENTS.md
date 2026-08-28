@@ -153,8 +153,18 @@ QuotaTray-gui-tooltip/
 │           ├── agents/     # Codex 元数据目录
 │           │   └── openai.yaml # Codex 技能元数据
 │           ├── references/ # 规范正文目录
-│           │   └── common-ui/ # 通用 UI 组件域
-│           │       └── tooltip.md # 悬停气泡组件规范
+│           │   ├── common-ui/     # 通用 UI 组件域
+│           │   │   ├── button.md          # 按钮规范
+│           │   │   ├── empty-state.md     # 空态卡规范
+│           │   │   ├── feedback-banner.md # 反馈块规范
+│           │   │   ├── field.md           # 表单字段规范
+│           │   │   ├── focus.md           # 焦点环规范
+│           │   │   ├── segmented.md       # 分段控件规范
+│           │   │   └── tooltip.md         # 悬停气泡组件规范
+│           │   ├── design-tokens/ # 设计令牌域目录
+│           │   │   └── tokens.md # 设计令牌规范
+│           │   └── edit-dialog/   # 编辑弹窗域目录
+│           │       └── pricing-section.md # 定价编辑区规范
 │           └── SKILL.md    # 技能主入口
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）

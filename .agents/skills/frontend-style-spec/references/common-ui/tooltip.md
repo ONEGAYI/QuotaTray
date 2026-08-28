@@ -22,10 +22,11 @@
 | --- | --- |
 | 图标按钮 | `IconButton` 组件的 `label` 自动挂 `data-tooltip` |
 | 包裹任意元素 | `Tooltip` 组件（`qt-tooltip-anchor`，已含 `position: relative`） |
+| 长文本 | `Tooltip` 加 `multiline` prop（或手动另挂 `is-multiline` 类）：允许换行并放宽限宽 |
 | 手动挂载 | 元素加 `data-tooltip` 且自身 `position` 非 static（气泡绝对定位的锚点） |
-| 长文本 | 另挂 `is-multiline` 类：允许换行并放宽限宽（用于错误详情等长内容） |
 
-注意：`select` 等 replaced 元素上伪元素不渲染，须用 `Tooltip` 组件包裹而非直接挂属性。
+注意：`select` 等 replaced 元素上伪元素不渲染，须用 `Tooltip` 组件包裹而非直接挂属性；
+`text` 可能缺省时传 `?? ""`——空串不渲染气泡（对齐原生 title 的 undefined 语义）。
 
 **禁止**：原生 `title=` 属性——系统默认样式不可定制、出现有延迟、观感与标准气泡不一致。
 
