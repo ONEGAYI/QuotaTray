@@ -12,9 +12,11 @@
     "test:android-init": "node --test scripts/android-post-init.contract.mjs",
     "test:android-tauri": "node --test scripts/android-tauri.contract.mjs",
     "test:mobile-style": "node --test scripts/mobile-style.contract.mjs",
+    "test:dev": "node --test scripts/dev.contract.mjs",
     "android:init": "tauri android init --ci --skip-targets-install && node scripts/android-post-init.mjs",
     "android:build": "node scripts/android-tauri.mjs build",
     "android:dev": "node scripts/android-tauri.mjs dev",
+    "desktop:dev": "node scripts/dev.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

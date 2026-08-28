@@ -725,6 +725,30 @@
                     "apps/quota-desktop/scripts/build-hook.contract.mjs"
                   ]
                 },
+                "dev.contract.mjs": {
+                  "kind": "file",
+                  "desc": "dev端口探测避让契约测试",
+                  "detail": [
+                    "node --test 契约测试（pnpm test:dev，CI frontend job 接入）：覆盖 parsePortConfig 默认/env覆盖/非法值快速失败/65535 越界、tauriDevConfig 结构、resolveDevPort mock 与真实探测（候选窗口含端点 base+span 双向锁定）、isPortFree 双栈单栈占用判定、isStackUnavailable 回环栈缺失豁免。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/dev.mjs"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "dev.mjs": {
+                  "kind": "file",
+                  "desc": "dev端口探测避让入口",
+                  "detail": [
+                    "桌面端开发入口（pnpm desktop:dev）：自 1420 起对 127.0.0.1 与 ::1 双栈试绑，顺延避让 WinNAT/Hyper-V 动态排除段（EACCES，段宽可达数百）与真实占用（EADDRINUSE），默认顺延上限 500（QUOTA_DEV_PORT_BASE/SPAN 可调）。",
+                    "选定端口以 --config 内联 JSON 覆盖 tauri dev 的 build.devUrl（深合并，不影响 beforeDevCommand），并注入 QUOTA_DEV_PORT 供 vite.config.ts 使用；strictPort 保持 true 兜底探测后被抢。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/dev.contract.mjs"
+                  ]
+                },
                 "mobile-style.contract.mjs": {
                   "kind": "file",
                   "desc": "移动样式契约测试",
