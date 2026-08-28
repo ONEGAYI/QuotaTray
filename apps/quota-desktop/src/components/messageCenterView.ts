@@ -16,13 +16,17 @@ export function messageId(message: CenterMessage): string {
   return `${message.kind}:${message.version}`;
 }
 
-/** 入列合并：已存在同标识消息时原样返回（不重排、不重复），否则追加。 */
+/** 入列合并：同标识消息原样返回（不重排、不重复）；不同版本时新消息
+ * 取代同 kind 旧消息——「现在安装」始终作用于后端 downloaded 指向的
+ * 最新包，旧版本卡片若保留，其按钮承诺的版本会与实际安装版本脱节，
+ * 故每个 kind 只保留最新一条。 */
 export function mergeMessage(
   existing: CenterMessage[],
   incoming: CenterMessage,
 ): CenterMessage[] {
   const id = messageId(incoming);
-  return existing.some((m) => messageId(m) === id) ? existing : [...existing, incoming];
+  if (existing.some((m) => messageId(m) === id)) return existing;
+  return [...existing.filter((m) => m.kind !== incoming.kind), incoming];
 }
 
 /** 未读判定：存在任何未进入已读集合的消息即有红点。 */
