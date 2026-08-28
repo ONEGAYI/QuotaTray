@@ -106,17 +106,23 @@
                 "references": {
                   "kind": "dir",
                   "desc": "规范正文目录",
-                  "detail": [
-                    "按组件归属分类的样式规范正文，条目见各文件"
-                  ],
                   "children": {
-                    "common-ui.md": {
-                      "kind": "file",
-                      "desc": "通用 UI 样式规范",
+                    "common-ui": {
+                      "kind": "dir",
+                      "desc": "通用 UI 组件域",
                       "detail": [
-                        "归属 ui.tsx 共享组件与 index.css 全局机制",
-                        "含 T-001 悬停气泡：data-tooltip 机制、禁原生 title、option 例外"
-                      ]
+                        "ui.tsx 共享组件与 index.css 全局机制的样式规范",
+                        "域内按组件粒度分指导文件"
+                      ],
+                      "children": {
+                        "tooltip.md": {
+                          "kind": "file",
+                          "desc": "悬停气泡组件规范",
+                          "detail": [
+                            "T-001：data-tooltip 机制、禁原生 title、option 例外、is-multiline 长文本"
+                          ]
+                        }
+                      }
                     }
                   }
                 },

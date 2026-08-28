@@ -1,7 +1,7 @@
-# 通用 UI 样式规范（ui.tsx / index.css 全局机制）
+# 悬停气泡（Tooltip / IconButton / data-tooltip 机制）
 
-> 归属范围：共享组件（ui.tsx）与全局 CSS（index.css）定义的样式约定，通常适用于全部组件。
-> 条目按 ID 排列；索引与维护规则见 [SKILL.md](../SKILL.md)。
+> 组件粒度：ui.tsx 的 `Tooltip`、`IconButton` 与 index.css 的 `[data-tooltip]` 全局机制。
+> 条目按 ID 排列；索引与维护规则见 [SKILL.md](../../SKILL.md)。
 
 条目字段：**标准样式**（视觉契约）/ **实现机制**（怎么写代码）/ **禁止**（违反即 bug）/
 **例外与豁免**（附依据）/ **代码锚点**（回源码对质）。

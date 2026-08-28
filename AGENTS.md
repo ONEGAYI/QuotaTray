@@ -153,7 +153,8 @@ QuotaTray-gui-tooltip/
 │           ├── agents/     # Codex 元数据目录
 │           │   └── openai.yaml # Codex 技能元数据
 │           ├── references/ # 规范正文目录
-│           │   └── common-ui.md # 通用 UI 样式规范
+│           │   └── common-ui/ # 通用 UI 组件域
+│           │       └── tooltip.md # 悬停气泡组件规范
 │           └── SKILL.md    # 技能主入口
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
