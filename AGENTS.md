@@ -18,6 +18,7 @@
 | 目标平台 | Windows 优先，全程使用跨平台库，不为未支持平台花工作量 | 仅 Windows（锁死）；三平台同步支持 |
 | 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
+| 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -64,11 +65,13 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ### 基础产物
 
-- 每个 Release 必须附带桌面端 x64 安装包：先把 workspace `Cargo.toml` 版本号改为
-  目标版本，再于 `apps/quota-desktop` 运行 `pnpm tauri build`；上传 NSIS 产物
-  `target/release/bundle/nsis/*-setup.exe`。
-- Portable 与 ARM64 资产接入后，打包脚本必须验证包内 GUI/CLI 的 PE 架构与资产名称
-  一致；更新选择不得跨架构、跨安装/便携形态回退。
+- 每个 Release 必须附带桌面端 x64 安装包与便携 zip：先把 workspace `Cargo.toml`
+  版本号改为目标版本，再于仓库根运行 `.\package`（内部执行 `pnpm tauri build` 并
+  组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
+  `target/release/dist/*-portable.zip`。
+- 打包脚本已验证包内 GUI/CLI 的 PE 架构与资产名称一致（`scripts/package.ps1`
+  逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
+  不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
 
 ### ARM64 Preview 声明
 
@@ -82,8 +85,12 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 - 从首次提供 Portable 资产起，**每个 Release** 的 notes 都必须在完整 CHANGELOG 内容
   之后原样追加下段文本；即使该版本未修改 Portable 功能，也不得省略。
-- README 的 Portable 下载说明、便携包内说明和首次创建 `portable.key` 前的确认界面，
-  同样必须原样展示下段文本：
+- README 的 Portable 下载说明与便携包内说明（中文 `便携版说明.txt` 原样中文、
+  英文 `PORTABLE-README.txt` 内固定提示与 README.en.md 逐字一致）必须原样展示
+  下段文本。GUI 首启确认页为唯一例外（2026-08-27 所有者确认）：正文精简为核心
+  警示两行，完整原文收进问号图标点击展开（悬停展开因卡片居中重排引发闪烁
+  回路而弃用；文案键 `portable.noticeFull` 的值仍为下段原文），「取得显式
+  确认」的要求不变：
 
 > ⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。
 
@@ -103,7 +110,8 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 4. **机器主密钥永不导出**。普通 `config.json` 不含任何解密能力，离开本机不可解；显式生成的 `.qtray-export` 迁移包例外携带每次导出新生成的一次性迁移密钥，敏感级别等同明文凭据。CLI/GUI 接入导出时必须在写文件前显式警告并建议用户迁移后删除。
 5. **Portable 是受控安全例外**：`portable.key` 与配置密文同目录，整个 `Data/` 的
    保密等级等同明文凭据。首次创建前必须显示“发布惯例”中的固定安全提示并取得显式
-   确认；FAT/exFAT/NTFS 文件权限均不得作为安全承诺。Release、README 与便携包说明
+   确认（GUI 确认页按发布惯例 2026-08-27 例外口径精简呈现，显式确认要求不变）；
+   FAT/exFAT/NTFS 文件权限均不得作为安全承诺。Release、README 与便携包说明
    必须持续携带同一固定提示。
 
 ## 外部接口停用追踪（止血备忘）
@@ -183,6 +191,7 @@ QuotaTray-gui-tooltip/
 │   │       ├── cmd/           # 子命令实现（每命令一模块）
 │   │       │   ├── add.rs            # 交互添加向导
 │   │       │   ├── assist.rs         # Agent 无凭据调试
+│   │       │   ├── clear.rs          # 清空全部用户数据命令
 │   │       │   ├── config.rs         # 配置导入导出
 │   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
 │   │       │   ├── edit.rs           # 编辑向导与启停
@@ -225,6 +234,9 @@ QuotaTray-gui-tooltip/
 │       │   │   ├── aiAssistPack.ts              # AI 求助包纯逻辑
 │       │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
 │       │   │   ├── BrandMark.tsx                # 品牌标志薄组件
+│       │   │   ├── ClearConfigDialog.tsx        # 清空配置二级确认弹窗
+│       │   │   ├── clearConfigView.test.ts      # 清空确认逻辑测试
+│       │   │   ├── clearConfigView.ts           # 清空确认纯逻辑
 │       │   │   ├── configTransferView.test.ts   # 迁移视图测试
 │       │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
 │       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
@@ -233,12 +245,15 @@ QuotaTray-gui-tooltip/
 │       │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
 │       │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
 │       │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
+│       │   │   ├── inlineMd.test.ts             # 行内 Markdown 解析测试
+│       │   │   ├── inlineMd.ts                  # 行内 Markdown 解析纯函数
 │       │   │   ├── MainPanelTabs.tsx            # 页签与鼠标聚光
 │       │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
 │       │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
 │       │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
 │       │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
 │       │   │   ├── NativeProviderPicker.tsx     # 平台聚合选择器
+│       │   │   ├── PortableInitGate.tsx         # 便携首启确认页
 │       │   │   ├── presetTemplates.test.ts      # 预设库测试
 │       │   │   ├── presetTemplates.ts           # 模板预设库
 │       │   │   ├── pricingDraft.test.ts         # 定价草稿测试
@@ -343,6 +358,7 @@ QuotaTray-gui-tooltip/
 │           │   └── zhipu_metered.rs # 智谱按量余额
 │           ├── query/     # 查询引擎
 │           │   └── mod.rs # QueryEngine 路由
+│           ├── runtime.rs # 运行模式纯函数（安装/便携）
 │           ├── script/    # 脚本查询（M4）
 │           │   └── mod.rs # QuickJS 沙箱脚本查询
 │           ├── template/  # 声明式模板 DSL（M2a）
@@ -377,12 +393,15 @@ QuotaTray-gui-tooltip/
 │       ├── README.md         # 模板示例说明
 │       └── siliconflow.json  # 双站 baseUrl 示例
 ├── LICENSE                 # MIT 许可证全文
+├── package.cmd             # 一键打包入口包装器
 ├── README.en.md            # 英文自述，互链中文
 ├── README.md               # 中文项目自述
 ├── rust-toolchain.toml     # 锁定 stable 工具链
 ├── scripts/                # 维护脚本
-│   ├── clean.ps1       # 分级清理器
-│   └── clean.tests.ps1 # 清理器契约测试
+│   ├── clean.ps1         # 分级清理器
+│   ├── clean.tests.ps1   # 清理器契约测试
+│   ├── package.ps1       # 一键发布资产打包脚本
+│   └── package.tests.ps1 # 打包脚本契约测试
 └── setup-hooks.cmd         # git hooks 配置入口（幂等）
 <!-- file-tree:tree:end -->
 ```

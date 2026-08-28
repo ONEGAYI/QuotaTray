@@ -21,14 +21,25 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use cmd::history::HistoryRange;
 use ctx::Ctx;
 use lang::Lang;
+use quota_core::SecretStore;
 use std::path::PathBuf;
 use texts::{T, t};
+
+/// `--version` 输出：版本 + 目标架构（与 GUI 更新页共用 core 的 arch_label，
+/// 两端展示一致；便携形态不在此探测——version 保持零 IO 快速返回）。
+fn version_text() -> String {
+    format!(
+        "{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        quota_core::update::arch_label()
+    )
+}
 
 /// quota —— 多平台 AI 账户余额监视器的命令行前端
 #[derive(Parser, Debug)]
 #[command(
     name = "quota",
-    version,
+    version = version_text(),
     about = "多平台 AI 账户余额监视器的命令行前端"
 )]
 struct Cli {
@@ -39,6 +50,11 @@ struct Cli {
     /// 界面语言（本次运行覆盖 settings.json；缺省跟随 settings.json / 系统）
     #[arg(long, global = true, value_name = "zh|en|system")]
     lang: Option<Lang>,
+
+    /// 便携模式：数据与主密钥使用 exe 旁 Data/（与 --config 互斥；
+    /// 缺省时检测 exe 旁 portable.marker 自动进入）
+    #[arg(long, global = true, conflicts_with = "config")]
+    portable: bool,
 
     #[command(subcommand)]
     command: Command,
@@ -88,6 +104,12 @@ enum Command {
         /// 条目 id
         id: String,
         /// 跳过确认提示
+        #[arg(long)]
+        yes: bool,
+    },
+    /// 清空全部用户数据（条目/凭据/定价/历史；应用偏好与主密钥保留）
+    Clear {
+        /// 跳过确认提示（非交互会话必须）
         #[arg(long)]
         yes: bool,
     },
@@ -352,21 +374,154 @@ async fn main() {
     std::process::exit(run(cli).await);
 }
 
+/// 启动形态：配置路径与密钥后端的绑定结果（core RuntimeMode 的 CLI 视角，
+/// default config 解析留在调用侧便于测试注入）。
+#[derive(Debug, PartialEq)]
+enum CliBoot {
+    Installed { config: PathBuf },
+    Portable { root: PathBuf },
+}
+
+/// CLI 启动形态解析（纯函数，预研报告 §4.2 规则）：
+/// - `--config` 显式给定 → 安装态 + 指定路径（规则 4：只覆盖配置、
+///   不隐式切换密钥后端——密钥仍走 keyring，也不做 marker 检测）；
+/// - `--portable` 显式 → 便携（与 --config 互斥，防配置与密钥分离）；
+/// - 无显式参数 → 检测 exe 旁 marker；
+/// - 都没有 → 默认安装态。
+///
+/// 错误返回文案 key（此时尚无法从 settings 解析语言，由调用方兜底打印）。
+fn resolve_cli_boot(
+    explicit_portable: bool,
+    config: Option<PathBuf>,
+    exe_dir: &std::path::Path,
+    lang: Lang,
+    default_config: impl FnOnce() -> Result<PathBuf, String>,
+) -> Result<CliBoot, String> {
+    if let Some(config) = config {
+        if explicit_portable {
+            return Err(t(lang, T::PortableConfigConflict).to_string());
+        }
+        return Ok(CliBoot::Installed { config });
+    }
+    if explicit_portable || quota_core::has_portable_marker(exe_dir) {
+        return Ok(CliBoot::Portable {
+            root: quota_core::portable_data_root(exe_dir),
+        });
+    }
+    Ok(CliBoot::Installed {
+        config: default_config().map_err(|e| e.to_string())?,
+    })
+}
+
+/// 便携数据是否未初始化（密钥文件缺失）；Err = 密钥损坏等确定性错误。
+fn portable_needs_init(root: &std::path::Path) -> Result<bool, quota_core::vault::VaultError> {
+    quota_core::FileStore::new(quota_core::portable_key_path(root))
+        .get()
+        .map(|key| key.is_none())
+}
+
+/// 便携首启门控（AGENTS.md 红线 §5）：密钥缺失时必须先原样展示
+/// 「Portable 固定安全提示」并取得显式确认，确认后才建 marker/key；
+/// 取消则零敏感落盘。非交互终端确定性失败并给出初始化指引。
+fn init_portable(
+    root: &std::path::Path,
+    exe_dir: &std::path::Path,
+    explicit: bool,
+    lang: Lang,
+) -> Result<(), String> {
+    if !portable_needs_init(root).map_err(|e| {
+        // 探测阶段（尚未 Vault::open）：损坏密钥的处置指引已内含在
+        // FileStore 错误文案中，此处前缀用「密钥文件读取失败」而非
+        // 「保险库打开失败」，避免与下方真正的建钥失败混淆
+        format!("{}{e}", t(lang, T::VaultStoreReadFailPortable))
+    })? {
+        return Ok(()); // 已初始化（或另一实例刚完成），即插即用
+    }
+    // dialoguer 的 Confirm 经 stdin 读取（prompt 渲染在 stderr），交互
+    // 判定对齐读取端——Git Bash/mintty 下 stdout 常为管道句柄
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Err(t(lang, T::PortableInitNonTty).to_string());
+    }
+    println!("{}", t(lang, T::PortableSecurityNotice));
+    let confirmed = dialoguer::Confirm::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt(t(lang, T::PortableConfirmPrompt))
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if !confirmed {
+        // 退出码取 1（确定性失败）而非 remove/update 的用户取消 0：
+        // 便携数据不可用导致本次命令整体未执行，属失败而非「操作正常取消」
+        return Err(t(lang, T::PortableConfirmDeclined).to_string());
+    }
+    // 显式 --portable 首次进入：确认后落 marker 记住形态选择，
+    // 后续无参数启动自动同模式（取消则不写任何文件）
+    if explicit && !quota_core::has_portable_marker(exe_dir) {
+        std::fs::write(exe_dir.join(quota_core::PORTABLE_MARKER), "").map_err(|e| {
+            format!(
+                "{}{e}
+{}",
+                t(lang, T::PortableMarkerWriteFail),
+                t(lang, T::PortableMarkerHint)
+            )
+        })?;
+    }
+    quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+        root,
+    )))
+    .map_err(|e| format!("{}{e}", t(lang, T::VaultOpenFailCtx)))?;
+    Ok(())
+}
+
 async fn run(cli: Cli) -> i32 {
-    let config_path = match cli.config {
-        Some(p) => p,
-        None => match quota_core::AppConfig::default_path() {
-            Ok(p) => p,
-            Err(e) => {
-                // 默认路径不可得时语言只能走系统检测（settings 无从推导）
-                eprintln!("{}{e}", t(Lang::System.resolve(), T::Err));
-                return 1;
-            }
-        },
+    // exe 目录仅便携形态与 marker 检测需要（--config 显式时豁免），
+    // 避免 current_exe 异常殃及不依赖它的路径
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    let needs_exe_dir = cli.config.is_none();
+    if needs_exe_dir && exe_dir.is_none() {
+        eprintln!(
+            "{}{}",
+            t(Lang::System.resolve(), T::Err),
+            t(Lang::System.resolve(), T::ExeDirUnavailable)
+        );
+        return 1;
+    }
+    // 默认安装路径惰性求值：--config / 便携路径不依赖宿主 home
+    // （便携包在 home 不可得的环境也应可运行）
+    let default_config = || quota_core::AppConfig::default_path().map_err(|e| e.to_string());
+    // 互斥/默认路径错误发生时尚无法读 settings 解析语言：--lang 显式值优先，否则系统
+    let early_lang = cli.lang.unwrap_or(Lang::System).resolve();
+    let boot = match resolve_cli_boot(
+        cli.portable,
+        cli.config.clone(),
+        exe_dir.as_deref().unwrap_or(std::path::Path::new("")),
+        early_lang,
+        default_config,
+    ) {
+        Ok(b) => b,
+        Err(msg) => {
+            eprintln!("{}{msg}", t(early_lang, T::Err));
+            return 1;
+        }
     };
 
-    let lang = lang::resolve_lang(cli.lang, &config_path).resolve();
-    let ctx = Ctx::production(config_path, lang);
+    let ctx = match boot {
+        CliBoot::Installed { config } => {
+            let lang = lang::resolve_lang(cli.lang, &config).resolve();
+            Ctx::production(config, lang)
+        }
+        CliBoot::Portable { root } => {
+            let exe_dir = exe_dir.expect("便携分支必然已通过 exe_dir 存在性检查");
+            let lang = lang::resolve_lang(cli.lang, &root.join("config.json")).resolve();
+            if let Err(msg) = init_portable(&root, &exe_dir, cli.portable, lang) {
+                eprintln!("{}{msg}", t(lang, T::Err));
+                return 1;
+            }
+            Ctx::portable(root, lang)
+        }
+    };
 
     // 启动更新提示的两个豁免：--json 输出模式（stdout 是机器可读流，
     // 提示只能走 stderr 也会干扰脚本日志）；update 子命令自身（避免重复检测）。
@@ -395,6 +550,7 @@ async fn run(cli: Cli) -> i32 {
             disable,
         } => cmd::edit::run(&ctx, id, enable, disable),
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
+        Command::Clear { yes } => cmd::clear::run(&ctx, yes),
         Command::SetKey { id, slot } => cmd::setkey::run(&ctx, id, slot),
         Command::Natives => cmd::natives::run(ctx.lang),
         Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
@@ -499,7 +655,7 @@ async fn auto_update_hint(ctx: &Ctx) {
     };
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        update::check_update(&http, VERSION),
+        update::check_update(&http, VERSION, ctx.update_selector()),
     )
     .await;
     let _ = settings_io::write_last_check(&ctx.config_path, now);
@@ -512,6 +668,108 @@ async fn auto_update_hint(ctx: &Ctx) {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+
+    /// 契约：CLI 启动形态解析——便携（显式/marker）与 --config 互斥、
+    /// --config 不做 marker 检测、默认安装态（预研报告 §4.2 规则 4）；
+    /// default 路径经惰性闭包注入（便携/--config 路径不依赖 home）。
+    #[test]
+    fn resolve_cli_boot_contract() {
+        let dir = std::env::temp_dir().join(format!("quota-cli-boot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let default_config = dir.join("default.json");
+        let custom = dir.join("custom.json");
+        // 闭包工厂：每次调用返回独立闭包（FnOnce 只能消费一次）
+        let mk_default = || {
+            let expected = default_config.clone();
+            move || Ok(expected)
+        };
+        let conflict_zh = t(Lang::Zh, T::PortableConfigConflict).to_string();
+
+        // 显式 --portable + --config → 互斥（clap 静态拦截前的纯函数层）
+        assert_eq!(
+            resolve_cli_boot(true, Some(custom.clone()), &dir, Lang::Zh, mk_default()),
+            Err(conflict_zh.clone())
+        );
+        // marker 存在 + --config → 安装态（规则 4：--config 不做 marker
+        // 检测、不隐式切换密钥后端——便携包里误用 --config 不会静默
+        // 落到 FileStore 密钥）
+        std::fs::write(dir.join(quota_core::PORTABLE_MARKER), "").unwrap();
+        assert_eq!(
+            resolve_cli_boot(false, Some(custom.clone()), &dir, Lang::Zh, mk_default()),
+            Ok(CliBoot::Installed {
+                config: custom.clone()
+            })
+        );
+        // 显式 --portable（无 marker 亦可）→ 便携，数据根为 exe 旁 Data
+        std::fs::remove_file(dir.join(quota_core::PORTABLE_MARKER)).unwrap();
+        assert_eq!(
+            resolve_cli_boot(true, None, &dir, Lang::Zh, mk_default()),
+            Ok(CliBoot::Portable {
+                root: dir.join("Data")
+            })
+        );
+        // 无参数 + marker → 便携（自动检测）
+        std::fs::write(dir.join(quota_core::PORTABLE_MARKER), "").unwrap();
+        assert_eq!(
+            resolve_cli_boot(false, None, &dir, Lang::Zh, mk_default()),
+            Ok(CliBoot::Portable {
+                root: dir.join("Data")
+            })
+        );
+        // --config 显式（marker 存在但被跳过）→ 安装态 + 指定路径
+        assert_eq!(
+            resolve_cli_boot(false, Some(custom.clone()), &dir, Lang::Zh, mk_default()),
+            Ok(CliBoot::Installed { config: custom })
+        );
+        // 无参数无 marker → 默认安装态（闭包求值）
+        std::fs::remove_file(dir.join(quota_core::PORTABLE_MARKER)).unwrap();
+        assert_eq!(
+            resolve_cli_boot(false, None, &dir, Lang::Zh, mk_default()),
+            Ok(CliBoot::Installed {
+                config: default_config.clone()
+            })
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 契约：便携初始化探测——密钥缺失 true、已初始化 false、损坏 Err。
+    #[test]
+    fn portable_needs_init_contract() {
+        let root = std::env::temp_dir().join(format!("quota-cli-pinit-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(portable_needs_init(&root).unwrap(), "无密钥 = 待初始化");
+        let key = quota_core::FileStore::new(quota_core::portable_key_path(&root));
+        quota_core::Vault::open(&key).unwrap();
+        assert!(!portable_needs_init(&root).unwrap(), "已初始化");
+        // 损坏（31 字节）→ 确定性错误透传（FileStore 文案带处置指引）
+        std::fs::write(quota_core::portable_key_path(&root), vec![0u8; 31]).unwrap();
+        assert!(portable_needs_init(&root).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 契约：--portable 与 --config 的 clap 静态互斥（用法错误码 2），
+    /// 覆盖根级与子命令后的混合位形（global 参数冲突跨层级传播）。
+    #[test]
+    fn rejects_portable_with_config() {
+        // 同一解析层级（都在根级 / 都后置到子命令）→ clap 静态互斥
+        for args in [
+            vec!["quota", "--portable", "--config", "c.json", "list"],
+            vec!["quota", "list", "--portable", "--config", "c.json"],
+        ] {
+            let e = Cli::try_parse_from(args.clone()).unwrap_err();
+            assert_eq!(e.kind(), ErrorKind::ArgumentConflict, "应互斥：{args:?}");
+        }
+
+        // 跨层级（--portable 在根级、--config 后置）→ clap 的 global
+        // 冲突检测不覆盖（只查同一解析层级），解析会成功，由
+        // resolve_cli_boot 纯函数层拒绝（运行时退出 1，见
+        // resolve_cli_boot_contract 首个断言）
+        let cli = Cli::try_parse_from(["quota", "--portable", "list", "--config", "c.json"])
+            .expect("clap 对跨层级 global 放行");
+        assert!(cli.portable && cli.config.is_some());
+        // --portable 自身可解析
+        Cli::try_parse_from(["quota", "--portable", "list"]).unwrap();
+    }
 
     /// 契约：全部子命令可被解析（命令面快照）。
     #[test]
@@ -576,9 +834,14 @@ mod tests {
         ] {
             Cli::try_parse_from(args).unwrap_or_else(|e| panic!("应可解析：{e}"));
         }
-        // --version 是特殊错误类别（携带版本信息退出），不算用法错误
+        // --version 是特殊错误类别（携带版本信息退出），不算用法错误；
+        // 输出携带平台标签（与 GUI 更新页共用 core arch_label）
         let e = Cli::try_parse_from(["quota", "--version"]).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::DisplayVersion);
+        assert!(
+            e.to_string().contains(quota_core::update::arch_label()),
+            "--version 输出应包含平台标签"
+        );
     }
 
     /// 契约：互斥与非法参数被拒。

@@ -15,7 +15,7 @@ mod store;
 
 use cipher::AesGcmCipher;
 pub use cipher::CipherError;
-pub use store::{InMemoryStore, KeyringStore, SecretStore, VaultError};
+pub use store::{FileStore, InMemoryStore, KeyringStore, SecretStore, VaultError};
 
 /// 凭据保险库。持有主密钥（仅内存），提供加解密入口。
 ///
@@ -50,6 +50,10 @@ impl Vault {
     ///
     /// 写入后回读校验，检测同机多进程并发首次初始化的覆盖竞态
     /// （后写者覆盖先写者时，先写者在此报错而非用被覆盖的密钥加密数据）。
+    ///
+    /// 红线护栏：`store` 为 [`crate::FileStore`]（便携版）时，调用端必须
+    /// 先完成「Portable 固定安全提示」的展示与用户显式确认，再进入本
+    /// 函数——首启建钥的门控属端侧职责（AGENTS.md 安全红线 §5）。
     pub fn open(store: &dyn SecretStore) -> Result<Self, VaultError> {
         let key = match store.get()? {
             Some(key) => key,

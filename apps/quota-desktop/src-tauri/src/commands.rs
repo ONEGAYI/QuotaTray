@@ -377,6 +377,42 @@ pub fn remove_provider(
     Ok(())
 }
 
+/// 清空全部用户数据：供应商条目（含凭据密文）、峰谷定价、自定义模型
+/// 库与查询历史。GUI 已在二级确认弹窗（5 秒倒数）取得显式确认；
+/// settings 应用偏好与主密钥保留（重新添加条目可继续使用）。
+/// 与 upsert/remove 同为同步写命令，主线程串行执行，load→save 之间
+/// 无并发写命令插入（并发前提见 reorder_providers 注释）。
+#[tauri::command]
+pub fn clear_all_data(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
+    cfg.clear_user_data();
+    cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+    // 历史是用户显式要求删除的一部分。直接对磁盘库执行而非托管的
+    // 降级实例——启动打开失败时 AppState 持内存库，clear 在其上必然
+    // 成功但磁盘 history.db 原样保留，旧历史会在下次成功打开后复活；
+    // 磁盘路径打开失败（文件锁等）则如实报错。失败不早退：收尾
+    // （results/托盘/快照/事件）照常执行后把错误带出，避免主窗与
+    // 托盘停留在半清理态；重试本命令幂等可补清
+    let history_err = quota_core::HistoryStore::open(&state.paths.history())
+        .and_then(|store| store.clear(None))
+        .err()
+        .map(|e| format!("查询历史清空失败：{e}"));
+    state.results.write().unwrap().clear();
+    state.last_peak.write().unwrap().clear();
+    // 快照过滤后为空、托盘以无数据状态重建
+    after_state_change(&app, &state);
+    // 广播配置级变更（与导入同语义）：主窗与悬停面板（独立 WebView，
+    // snapshots 缓存 staleTime Infinity）各自全量失效——仅靠调用方
+    // invalidateQueries 管不到悬停面板
+    if let Err(e) = app.emit("configuration-imported", 0) {
+        eprintln!("清空事件发送失败：{e}");
+    }
+    match history_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
 /// 重排校验（纯函数可测）：ids 必须与现有条目集合完全一致且无重复——
 /// 拖拽期间的并发增删会让集合失配，此时拒绝落盘，由前端 refetch 恢复。
 fn validate_reorder_ids(existing_ids: &[&str], ids: &[String]) -> bool {
@@ -685,6 +721,18 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
 
     let engine = state.engine.read().unwrap().clone();
     let result = engine.query(&state.vault, &entry).await;
+    // 在途查询迟到复核：查询期间条目可能已被删除/清空（clear/remove 是
+    // 同步写命令，本函数是 async 池线程，load→save 窗口外仍有网络在途
+    // 窗口）——迟到结果不得写回，否则孤儿结果残留 results 且向已清空
+    // 的历史库写入新行（擦除承诺被打破）。复核含 enabled：禁用条目的
+    // 结果同样不该写回。config 读失败（IO 抖动）时宁可放行写入——
+    // 条目大概率仍在，丢正常数据比残留风险更重
+    let still_live = AppConfig::load(&state.paths.config())
+        .map(|cfg| cfg.providers.iter().any(|p| p.id == id && p.enabled))
+        .unwrap_or(true);
+    if !still_live {
+        return Err(format!("条目已删除或已禁用，查询结果丢弃：{id}"));
+    }
     let outcome = {
         let mut results = state.results.write().unwrap();
         match result {
@@ -885,6 +933,11 @@ fn persist_settings(
     }
 
     if old_autostart != settings.autostart {
+        // 便携形态禁止自启动：注册表项指向 U 盘路径会在介质移除后
+        // 残留为无效启动项；前端体验层禁用之外的后端硬门禁
+        if settings.autostart && state.mode.is_portable() {
+            return Err(lang.err_autostart_portable());
+        }
         if let Err(e) = apply_autostart(app, settings.autostart, lang) {
             // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
             settings.autostart = old_autostart;
@@ -973,6 +1026,179 @@ pub fn get_snapshots(
     Ok(snapshots_from_results(&state.results.read().unwrap()).entries)
 }
 
+// ---- 便携启动门控（BootGate） ----------------------------------------------
+
+/// 启动状态：前端首屏查询——ready=false 时渲染便携首启安全确认页。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootStateDto {
+    pub ready: bool,
+    /// 便携首启待确认（ready=false 时的唯一成因）。
+    pub pending_portable_init: bool,
+}
+
+#[tauri::command]
+pub fn get_boot_state(app: AppHandle) -> BootStateDto {
+    // AppState 已托管 = 启动完成；BootGate.pending 有值 = 待确认
+    let ready = app.try_state::<crate::state::AppState>().is_some();
+    let pending = app
+        .try_state::<crate::state::BootGate>()
+        .is_some_and(|g| g.pending.lock().unwrap().is_some());
+    BootStateDto {
+        ready,
+        pending_portable_init: pending,
+    }
+}
+
+/// 便携首启确认：创建主密钥（用户已在 Web 确认页显式接受固定安全
+/// 提示）→ 补齐 AppState/托盘/悬停窗/调度器。
+///
+/// 并发契约：`BootGate.pending` 以锁内 take 作一次性认领——并发的
+/// 第二个调用拿不到 mode 且 AppState 未就绪时静默 Ok（跟随第一个
+/// 调用的结果，杜绝双装配：setup_surfaces 二次执行会因固定窗口
+/// label 冲突弹「初始化失败」误伤成功初始化）；认领后中途失败则
+/// 回填 pending 允许重试。
+///
+/// 必须 async：Windows 上 WebView2 IPC 回调在主线程触发，同步命令
+/// 即在主线程 IPC 调用栈内执行，且 run_on_main_thread 对主线程调用方
+/// 是**同步直执**而非异步入队（tauri-runtime-wry send_user_message 的
+/// 主线程分支）——栈内同步建 WebView2 会等一个需要主线程泵消息才能
+/// 完成的初始化，自等待死锁（P0：确认后按钮灰死）。async 命令跑在
+/// 线程池，run_on_main_thread 变为真正异步入队，主线程退栈后执行。
+#[tauri::command]
+pub async fn confirm_portable_init(app: AppHandle) -> Result<(), String> {
+    if app.try_state::<crate::state::AppState>().is_some() {
+        return Ok(());
+    }
+    let gate = app
+        .try_state::<crate::state::BootGate>()
+        .ok_or("启动门控不存在：非便携首启场景")?;
+    let mode = match gate.pending.lock().unwrap().take() {
+        Some(mode) => mode,
+        None => {
+            // 认领失败：pending=None 且 AppState 未就绪（开头幂等分支
+            // 未命中）只可能是另一并发确认 in-flight——静默跟随其结果。
+            // 成功则 AppState 随后可见；失败则 pending 已回填可重试
+            return Ok(());
+        }
+    };
+    let result = confirm_portable_init_claimed(&app, &mode);
+    if result.is_err() {
+        // 回填门控：失败可重试（重试走完整流程，幂等分支此时不命中）
+        *gate.pending.lock().unwrap() = Some(mode);
+    }
+    result
+}
+
+/// 认领后的确认主体（同步；被 async 命令在线程池调用）。失败路径
+/// 回滚本次新建的 key 与 marker——门控期 key 必然不存在，删除安全；
+/// marker 仅回滚本次新建的（便携 zip 自带的 marker 不动）——维持
+/// 「确认失败不残留敏感/形态文件」，用户重试或取消都回到干净态。
+fn confirm_portable_init_claimed(
+    app: &AppHandle,
+    mode: &quota_core::RuntimeMode,
+) -> Result<(), String> {
+    let quota_core::RuntimeMode::Portable { root } = mode else {
+        return Err("门控内形态非便携：状态异常".into());
+    };
+    // 确认后落 marker（包内未带或显式 --portable 首次进入）：
+    // 形态选择持久化，后续无参数启动不再询问
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .ok_or("无法定位可执行文件所在目录")?;
+    let marker_created = if !quota_core::has_portable_marker(&exe_dir) {
+        std::fs::write(exe_dir.join(quota_core::PORTABLE_MARKER), "")
+            .map_err(|e| format!("便携标记写入失败：{e}"))?;
+        true
+    } else {
+        false
+    };
+    let key_path = quota_core::portable_key_path(root);
+    let init = || -> Result<(), String> {
+        // 建钥（此时才产生敏感文件）：Vault::open 生成并落盘
+        // （create_new 防覆盖；非 rename 原子，存在短暂的 0 字节窗口）
+        quota_core::Vault::open(&quota_core::FileStore::new(key_path.clone()))
+            .map_err(|e| format!("便携主密钥创建失败：{e}"))?;
+        let state = crate::state::AppState::init(mode.clone())?;
+        app.manage(state);
+        Ok(())
+    }();
+    if init.is_err() {
+        let _ = std::fs::remove_file(&key_path);
+        if marker_created {
+            let _ = std::fs::remove_file(exe_dir.join(quota_core::PORTABLE_MARKER));
+        }
+        return init;
+    }
+    // 窗口/托盘创建经主线程任务队列异步执行（setup_surfaces 的线程
+    // 亲和性注释）：命令立即返回，前端 refetch 即见 ready 进入主界面
+    let handle = app.clone();
+    let scheduled = app.run_on_main_thread(move || {
+        if let Err(e) = crate::setup_surfaces(&handle) {
+            use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+            // 非阻塞 show + 回调退出：blocking_show 禁止在主线程调用
+            // （插件文档：会冻结事件循环直至对话框关闭）
+            let for_exit = handle.clone();
+            handle
+                .dialog()
+                .message(format!("QuotaTray 初始化失败：\n{e}"))
+                .kind(MessageDialogKind::Error)
+                .title("QuotaTray")
+                .show(move |_| {
+                    for_exit.exit(1);
+                });
+        }
+    });
+    if let Err(e) = scheduled {
+        // 调度失败 ≈ 事件循环已死（进程正在退出），本会话无托盘/调度器
+        // 的半态无可救药：弹窗后终止（key 已建，重启即正常启动）
+        use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+        app.dialog()
+            .message(format!("QuotaTray 初始化失败：\n主线程调度失败：{e}"))
+            .kind(MessageDialogKind::Error)
+            .title("QuotaTray")
+            .blocking_show();
+        app.exit(1);
+    }
+    Ok(())
+}
+
+/// 便携首启取消：只清理本会话产生的 WebView2 缓存并退出。**不删整个
+/// Data**——门控再现时 Data 内可能仍有既有 config.json/history.db
+/// （如用户按密钥损坏指引删 key 重来、跨机拷贝漏拷 key），整删会连带
+/// 销毁密文配置与历史，超出「取消则不写入任何敏感文件」的授权。
+///
+/// 并发取舍：与 confirm（池线程）并发的窄窗口内，confirm 可能已写入
+/// key/marker 后本命令才执行——此时仅清 WebView2 退出，key 保留
+/// （用户确已点击过确认，下次启动直接进入已初始化态属合理结果）；
+/// 正常 UI 两按钮共用 busy 互斥，该窗口仅 devtools 注入可达。
+#[tauri::command]
+pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
+    if let Some(gate) = app.try_state::<crate::state::BootGate>() {
+        if let Some(quota_core::RuntimeMode::Portable { root }) =
+            gate.pending.lock().unwrap().clone()
+        {
+            // WebView2 进程存活期间句柄锁定，删除尽力而为
+            let _ = std::fs::remove_dir_all(root.join("WebView2"));
+        }
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// 打开更新下载目录（便携形态 v1 手动更新引导：下载 zip 后由用户
+/// 退出应用解压覆盖，不提供自动安装）。走 opener 插件而非裸进程名，
+/// 避免 CreateProcess 搜索序歧义。
+#[tauri::command]
+pub fn open_update_dir(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::update_ctl::installer_dir();
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("打开下载目录失败：{e}"))
+}
+
 // ---- 更新检测（core::update 的薄封装） -------------------------------------
 
 /// 当前更新状态（版本 / 上次检测 / 新版本信息 / 最近错误）。
@@ -980,7 +1206,10 @@ pub fn get_snapshots(
 pub fn get_update_state(
     state: State<'_, AppState>,
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
-    Ok(crate::update_ctl::dto_of(&state.update_ctl.read().unwrap()))
+    Ok(crate::update_ctl::dto_of(
+        &state.update_ctl.read().unwrap(),
+        state.mode.is_portable(),
+    ))
 }
 
 /// 手动检测（设置页「立即检查」）：不受节流限制，检测后重建托盘菜单
@@ -999,7 +1228,7 @@ pub async fn check_update_now(
     .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
-    Ok(crate::update_ctl::dto_of(&inner))
+    Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
 
 /// 下载安装包到 %TEMP%/QuotaTray/Downloads 并记录进状态表，返回完整路径。
@@ -1011,9 +1240,13 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Resu
 
 /// 运行已下载的安装包（NSIS 向导由用户交互完成）。启动成功后应用自动
 /// 退出——覆盖安装需先解锁自身文件；留 400ms 让 IPC 响应送达前端。
+/// 便携形态拒绝：zip 不是安装包，更新走 open_update_dir 手动覆盖引导。
 #[tauri::command]
 pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let lang = lang_of(&state);
+    if state.mode.is_portable() {
+        return Err(lang.err_update_install_portable());
+    }
     crate::update_ctl::run_installer(&state, lang)?;
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(400));

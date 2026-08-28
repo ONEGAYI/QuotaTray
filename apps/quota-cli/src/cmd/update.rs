@@ -133,7 +133,7 @@ pub async fn run_with(
     args: UpdateArgs,
 ) -> i32 {
     let lang = ctx.lang;
-    let status = match update::check_update(http, VERSION).await {
+    let status = match update::check_update(http, VERSION, ctx.update_selector()).await {
         Ok(s) => s,
         Err(e) => {
             // 手动检测也算一次检测：写回节流时间戳（失败也写，语义与启动钩子一致）
@@ -224,7 +224,19 @@ pub async fn run_with(
                         return 1;
                     }
                     println!("{}", texts::update_saved(lang, &path));
-                    println!("{}", t(lang, T::UpdateRunHint));
+                    // 收尾指引按形态分流：便携下载的是 zip（退出后手动
+                    // 解压覆盖），安装包才引导运行 installer
+                    println!(
+                        "{}",
+                        t(
+                            lang,
+                            if ctx.is_portable() {
+                                T::UpdateRunHintPortable
+                            } else {
+                                T::UpdateRunHint
+                            }
+                        )
+                    );
                     0
                 }
             }
@@ -287,18 +299,102 @@ mod tests {
         .with_lang(lang)
     }
 
-    const RELEASE_JSON: &str = r#"{
+    /// mock 资产名按本机架构动态拼装（与 `AssetSelector::installed()`
+    /// 的期望名一致）：精确匹配语义下硬编码 x64 名会让测试退化为
+    /// x64-only（WoA ARM CI 必炸），动态生成保证任意架构可跑。
+    fn local_setup_asset() -> String {
+        quota_core::update::expected_asset_name(
+            "9.9.9",
+            quota_core::update::arch_label(),
+            quota_core::update::Flavor::SetupExe,
+        )
+    }
+
+    fn release_json() -> String {
+        format!(
+            r#"{{
         "tag_name": "v9.9.9",
         "html_url": "https://github.com/ONEGAYI/QuotaTray/releases/v9.9.9",
         "body": "changelog",
-        "assets": [{"name": "QuotaTray_9.9.9_x64-setup.exe",
-                    "browser_download_url": "https://x/setup.exe", "size": 4}]
-    }"#;
+        "assets": [{{"name": "{}",
+                    "browser_download_url": "https://x/setup.exe", "size": 4}}]
+    }}"#,
+            local_setup_asset()
+        )
+    }
 
     fn release_http() -> RouteHttp {
         RouteHttp {
-            routes: vec![("releases/latest", 200, RELEASE_JSON.into())],
+            routes: vec![("releases/latest", 200, release_json())],
         }
+    }
+
+    /// 便携形态的 mock release：资产只含 portable zip（与
+    /// `Ctx::portable` 的选择器期望名一致）。
+    fn portable_release_http() -> RouteHttp {
+        let asset = quota_core::update::expected_asset_name(
+            "9.9.9",
+            quota_core::update::arch_label(),
+            quota_core::update::Flavor::PortableZip,
+        );
+        RouteHttp {
+            routes: vec![(
+                "releases/latest",
+                200,
+                format!(
+                    r#"{{"tag_name": "v9.9.9",
+                    "html_url": "https://github.com/ONEGAYI/QuotaTray/releases/v9.9.9",
+                    "body": "changelog",
+                    "assets": [{{"name": "{asset}",
+                                "browser_download_url": "https://x/setup.exe", "size": 4}}]}}"#
+                ),
+            )],
+        }
+    }
+
+    /// 契约：便携上下文的检测只命中 portable zip——同一 release 不含
+    /// setup.exe 时仍可下载（形态分流不回退到安装包）。
+    #[tokio::test]
+    async fn portable_ctx_selects_portable_zip_asset() {
+        let root = std::env::temp_dir().join(format!("quota-cli-upd-port-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let out =
+            std::env::temp_dir().join(format!("quota-cli-upd-portout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out).unwrap();
+        let store = quota_core::FileStore::new(quota_core::portable_key_path(&root));
+        quota_core::Vault::open(&store).unwrap();
+        let ctx = Ctx::portable(root.clone(), Lang::Zh);
+        let dl = FakeDownloader {
+            url_frag: "setup.exe",
+            bytes: vec![0x50, 0x4b, 0x00],
+            fail: false,
+        };
+        let code = run_with(
+            &portable_release_http(),
+            &dl,
+            &ctx,
+            UpdateArgs {
+                check_only: false,
+                yes: true,
+                output: Some(out.clone()),
+            },
+        )
+        .await;
+        assert_eq!(code, 0);
+        let saved = out.join(quota_core::update::expected_asset_name(
+            "9.9.9",
+            quota_core::update::arch_label(),
+            quota_core::update::Flavor::PortableZip,
+        ));
+        assert_eq!(
+            std::fs::read(&saved).unwrap(),
+            vec![0x50, 0x4b, 0x00],
+            "便携形态下载 portable zip"
+        );
+        let _ = std::fs::remove_dir_all(&out);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
@@ -366,7 +462,7 @@ mod tests {
         )
         .await;
         assert_eq!(code, 0);
-        let saved = dir.join("QuotaTray_9.9.9_x64-setup.exe");
+        let saved = dir.join(local_setup_asset());
         assert_eq!(
             std::fs::read(&saved).unwrap(),
             vec![0x4d, 0x5a, 0x00],

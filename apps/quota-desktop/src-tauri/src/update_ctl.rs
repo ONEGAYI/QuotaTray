@@ -58,10 +58,14 @@ pub struct UpdateCtlState {
     pub downloaded: Option<DownloadedInstaller>,
 }
 
-/// `get_update_state` 的 IPC 返回形状（含当前版本）。
+/// `get_update_state` 的 IPC 返回形状（含当前版本与运行形态）。
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateStateDto {
     pub current_version: &'static str,
+    /// 运行架构标签（x64 / ARM64，编译期确定，与 CLI --version 共用）。
+    pub platform: &'static str,
+    /// 便携形态（数据根存在 portable.key；安装版恒 false）。
+    pub portable: bool,
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
@@ -72,9 +76,11 @@ pub struct UpdateStateDto {
     pub downloaded_path: Option<String>,
 }
 
-pub fn dto_of(inner: &UpdateCtlState) -> UpdateStateDto {
+pub fn dto_of(inner: &UpdateCtlState, portable: bool) -> UpdateStateDto {
     UpdateStateDto {
         current_version: VERSION,
+        platform: update::arch_label(),
+        portable,
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
@@ -141,7 +147,14 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
 pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
     let now = now_ms();
     let prev_downloaded = state.update_ctl.read().unwrap().downloaded.clone();
-    let mut inner = match update::check_update(http, VERSION).await {
+    // 资产选择按运行形态分流：便携选 portable zip、安装选 setup.exe，
+    // 绝不跨形态回退（命名契约见 core::update）
+    let selector = if state.mode.is_portable() {
+        update::AssetSelector::portable()
+    } else {
+        update::AssetSelector::installed()
+    };
+    let mut inner = match update::check_update(http, VERSION, selector).await {
         Ok(UpdateStatus::Available {
             version,
             html_url,
@@ -228,12 +241,14 @@ pub async fn download_installer(
 }
 
 /// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
-/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe` 结尾——防恶意
-/// 资产名使落盘位置逃出下载目录（运行侧另有 validate_installer_path）。
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip` 结尾
+/// （zip = 便携形态更新资产）——防恶意资产名使落盘位置逃出下载目录
+/// （运行安装侧另有 exe-only 的 validate_installer_path）。
 fn validate_asset_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
     !name.is_empty()
         && !name.contains(['/', '\\', ':'])
-        && name.to_ascii_lowercase().ends_with(".exe")
+        && (lower.ends_with(".exe") || lower.ends_with(".zip"))
 }
 
 /// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
@@ -314,7 +329,8 @@ pub fn spawn_scheduler(app: AppHandle) {
                         proxy_url(&state).as_deref(),
                     ) {
                         let inner = run_check(&state, &http).await;
-                        let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner));
+                        let _ =
+                            app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
                         tray::rebuild(&app, &state);
                     }
                 }
@@ -345,6 +361,9 @@ mod tests {
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
+            mode: quota_core::RuntimeMode::Installed {
+                data_dir: Some(dir.to_path_buf()),
+            },
             engine: std::sync::RwLock::new(engine),
             vault,
             paths,
@@ -433,6 +452,41 @@ mod tests {
         assert!(mk(UpdateStatus::UpToDate).info.is_none());
     }
 
+    /// 契约：便携形态的检测只命中 portable zip——同一 release 同时含
+    /// setup.exe 也不回退（形态分流，命名契约见 core::update）。
+    #[tokio::test]
+    async fn run_check_portable_mode_selects_portable_zip() {
+        let dir = std::env::temp_dir().join(format!("qt-updctl-port-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = sandbox_state(&dir);
+        let data_root = dir.join("Data");
+        std::fs::create_dir_all(&data_root).unwrap();
+        state.mode = quota_core::RuntimeMode::Portable {
+            root: data_root.clone(),
+        };
+
+        let zip =
+            update::expected_asset_name("9.9.9", update::arch_label(), update::Flavor::PortableZip);
+        let setup =
+            update::expected_asset_name("9.9.9", update::arch_label(), update::Flavor::SetupExe);
+        let body = format!(
+            r#"{{"tag_name":"v9.9.9","html_url":"u","assets":[
+                {{"name":"{setup}","browser_download_url":"https://x/setup","size":1}},
+                {{"name":"{zip}","browser_download_url":"https://x/zip","size":2}}
+            ]}}"#
+        );
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 200, body)],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(
+            inner.info.as_ref().and_then(|i| i.asset_name.as_deref()),
+            Some(zip.as_str()),
+            "便携形态命中 portable zip 而非 setup.exe"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// 契约：run_check 端到端更新状态表 + settings 节流时间戳落盘；
     /// 已下载记录在检测失败时保留、成功且无匹配资产时清空。
     #[tokio::test]
@@ -519,7 +573,7 @@ mod tests {
             inner.last_error_detail.as_deref(),
             Some("API rate limit exceeded for 1.2.3.4.")
         );
-        let dto = dto_of(&inner);
+        let dto = dto_of(&inner, false);
         assert_eq!(dto.last_error_detail, inner.last_error_detail, "DTO 透传");
 
         // 成功检测（404 无 release）后错误与详情一并清空
@@ -602,18 +656,23 @@ mod tests {
         );
     }
 
-    /// 契约：资产名仅放行纯文件名 .exe——路径分隔符/盘符冒号/
-    /// ADS 形态/非 exe 一律拒绝（写入侧防御，运行侧见路径校验）。
+    /// 契约：资产名仅放行纯文件名 .exe/.zip（zip = 便携更新资产）——
+    /// 路径分隔符/盘符冒号/ADS 形态/其他扩展名一律拒绝（写入侧防御，
+    /// 运行安装侧见 exe-only 路径校验）。
     #[test]
     fn validate_asset_name_contract() {
         assert!(validate_asset_name("QuotaTray_0.4.1_x64-setup.exe"));
         assert!(validate_asset_name("setup.EXE"), "扩展名大小写不敏感");
+        assert!(
+            validate_asset_name("QuotaTray_0.7.0_x64-portable.zip"),
+            "zip = 便携更新资产放行"
+        );
         assert!(!validate_asset_name(""));
         assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
         assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");
         assert!(!validate_asset_name("C:x.exe"), "盘符冒号");
         assert!(!validate_asset_name("setup.exe:ads"), "NTFS ADS 冒号");
-        assert!(!validate_asset_name("setup.zip"), "非 exe");
+        assert!(!validate_asset_name("setup.rar"), "非 exe/zip 拒绝");
         assert!(!validate_asset_name(".."), "目录上跳");
     }
 
@@ -623,7 +682,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("qt-savebad-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let state = sandbox_state(&dir);
-        for bad in ["..\\..\\evil.exe", "a/b.exe", "setup.zip"] {
+        for bad in ["..\\..\\evil.exe", "a/b.exe", "evil.rar"] {
             assert!(
                 save_installer(&state, bad, b"x", Lang::Zh).is_err(),
                 "{bad} 应被拒绝"
@@ -663,12 +722,23 @@ mod tests {
     #[test]
     fn dto_of_exposes_downloaded_path() {
         let mut inner = UpdateCtlState::default();
-        assert!(dto_of(&inner).downloaded_path.is_none());
+        assert!(dto_of(&inner, false).downloaded_path.is_none());
         inner.downloaded = Some(DownloadedInstaller {
             path: "p".into(),
             asset_name: "setup.exe".into(),
         });
-        assert_eq!(dto_of(&inner).downloaded_path.as_deref(), Some("p"));
+        assert_eq!(dto_of(&inner, false).downloaded_path.as_deref(), Some("p"));
+    }
+
+    /// 契约：DTO 携带编译期架构标签（与 core arch_label 一致）并透传便携形态。
+    #[test]
+    fn dto_of_carries_platform_and_portable() {
+        let inner = UpdateCtlState::default();
+        let dto = dto_of(&inner, false);
+        assert_eq!(dto.platform, update::arch_label());
+        assert_eq!(dto.current_version, VERSION);
+        assert!(!dto.portable, "安装形态透传 false");
+        assert!(dto_of(&inner, true).portable, "便携形态透传 true");
     }
 
     /// 契约：安装包文件丢失或路径越界时，run_installer 清记录并报错

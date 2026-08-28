@@ -8,13 +8,14 @@ import {
 import {
   AlertCircle,
   AlertTriangle,
-  ArchiveRestore,
   Check,
+  Database,
   ExternalLink,
   FileDown,
   FileUp,
   PackageCheck,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
@@ -29,12 +30,14 @@ import {
   resolveUpdateError,
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
+  runtimeLabel,
 } from "./settingsView";
 import {
   defaultTransferFileName,
   ensureTransferExtension,
   transferErrorMessage,
 } from "./configTransferView";
+import { ClearConfigDialog } from "./ClearConfigDialog";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -42,7 +45,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "general" | "update" | "transfer";
+type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
 export function SettingsDialog({ open, onClose }: Props) {
@@ -54,10 +57,17 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
 
+  const portableRun = updateState.data?.portable ?? false;
   useEffect(() => {
-    if (open && settings.data) setDraft({ ...settings.data });
-  }, [open, settings.data]);
+    if (open && settings.data) {
+      // 便携形态钳制自启动为关：后端硬门禁拒绝开启，draft 与 UI/持久值
+      // 保持一致（settings.json 手改为 true 的存量也在此归位）
+      const next = { ...settings.data, autostart: portableRun ? false : settings.data.autostart };
+      setDraft(next);
+    }
+  }, [open, settings.data, portableRun]);
 
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
@@ -203,6 +213,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     downloading: download.isPending,
     canDownload,
     hasDownloaded: downloadedPath != null,
+    portable: portableRun,
   });
   const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
@@ -213,8 +224,9 @@ export function SettingsDialog({ open, onClose }: Props) {
       onClose={onClose}
       closeLabel={t("titlebar.close")}
       size="md"
+      className="qt-dialog-settings"
       footer={
-        tab === "transfer" ? (
+        tab === "data" ? (
           <Button onClick={onClose}>{t("titlebar.close")}</Button>
         ) : (
           <>
@@ -246,11 +258,11 @@ export function SettingsDialog({ open, onClose }: Props) {
           </button>
           <button
             type="button"
-            aria-selected={tab === "transfer"}
-            onClick={() => setTab("transfer")}
+            aria-selected={tab === "data"}
+            onClick={() => setTab("data")}
           >
-            <ArchiveRestore size={16} aria-hidden="true" />
-            {t("settings.tabTransfer")}
+            <Database size={16} aria-hidden="true" />
+            {t("settings.tabData")}
           </button>
         </nav>
 
@@ -289,10 +301,14 @@ export function SettingsDialog({ open, onClose }: Props) {
                   <span>%</span>
                 </div>
               </SettingRow>
-              <SettingRow title={t("settings.autostart")} description={t("settings.autostartHint")}>
+              <SettingRow
+                title={t("settings.autostart")}
+                description={portableRun ? t("settings.autostartPortableHint") : t("settings.autostartHint")}
+              >
                 <Switch
                   label={t("settings.autostart")}
-                  checked={draft.autostart}
+                  checked={portableRun ? false : draft.autostart}
+                  disabled={portableRun}
                   onChange={(autostart) => setDraft({ ...draft, autostart })}
                 />
               </SettingRow>
@@ -334,15 +350,29 @@ export function SettingsDialog({ open, onClose }: Props) {
                           : t("settings.upToDate")}
                   </h3>
                   <p>
-                    QuotaTray {update?.current_version ?? "…"} · {update?.last_check
-                      ? relativeTime(update.last_check, lang)
-                      : t("settings.neverChecked")}
+                    {[
+                      `QuotaTray ${update?.current_version ?? "…"}`,
+                      runtimeLabel(update?.platform, update?.portable, t("settings.portableTag")),
+                      update?.last_check
+                        ? relativeTime(update.last_check, lang)
+                        : t("settings.neverChecked"),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <Button
                   variant={updateAction === "install" || updateAction === "download" ? "primary" : undefined}
                   disabled={checkNow.isPending || download.isPending || install.isPending}
                   onClick={() => {
+                    if (updateAction === "open-dir") {
+                      // 便携 v1 手动更新引导：打开下载目录，由用户退出
+                      // 应用后解压覆盖（zip 不是安装包，不自动运行）
+                      void api.openUpdateDir().catch((e) =>
+                        console.error("打开下载目录失败", e),
+                      );
+                      return;
+                    }
                     if (updateAction === "install") {
                       download.reset();
                       checkNow.reset();
@@ -373,9 +403,13 @@ export function SettingsDialog({ open, onClose }: Props) {
                     ? t("settings.downloading")
                     : updateAction === "install"
                       ? t("settings.install")
-                      : updateAction === "download"
-                        ? t("settings.download")
-                        : t("settings.checkNow")}
+                      : updateAction === "open-dir"
+                        ? t("settings.openDownloadDir")
+                        : updateAction === "download"
+                          ? portableRun
+                            ? t("settings.downloadPackage")
+                            : t("settings.download")
+                          : t("settings.checkNow")}
                 </Button>
               </div>
               {download.isPending && downloadProgress && (
@@ -440,7 +474,13 @@ export function SettingsDialog({ open, onClose }: Props) {
                   {t("settings.manualUrl", { url: available.html_url })}
                 </a>
               )}
-              {downloadedPath && <p className="qt-settings-success">{t("settings.downloaded", { path: downloadedPath })}</p>}
+              {downloadedPath && (
+                <p className="qt-settings-success">
+                  {portableRun
+                    ? t("settings.downloadedPortable", { path: downloadedPath })
+                    : t("settings.downloaded", { path: downloadedPath })}
+                </p>
+              )}
               {operationError && (
                 <p className="qt-inline-error">
                   {operationError}
@@ -506,11 +546,32 @@ export function SettingsDialog({ open, onClose }: Props) {
                   {transferFeedback.text}
                 </p>
               )}
+              <SettingRow
+                title={t("settings.clearTitle")}
+                description={t("settings.clearHint")}
+              >
+                <Button
+                  variant="danger"
+                  icon={Trash2}
+                  onClick={() => setClearOpen(true)}
+                >
+                  {t("settings.clearButton")}
+                </Button>
+              </SettingRow>
             </>
           )}
           {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}
         </div>
       </div>
+      <ClearConfigDialog
+        open={clearOpen}
+        onClose={() => setClearOpen(false)}
+        onConfirm={async () => {
+          await api.clearAllData();
+          // 清空影响全部数据面：全量失效（条目/快照/历史/悬停面板缓存）
+          await qc.invalidateQueries();
+        }}
+      />
     </DialogShell>
   );
 }

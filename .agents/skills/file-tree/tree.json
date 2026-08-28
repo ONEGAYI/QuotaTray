@@ -331,6 +331,16 @@
                         "assist 家族：schema（内嵌模板/脚本完整示例与 assistTest 声明）/validate/simulate 无凭据调试；test 子命令借诊断包 entryId 复用本机条目两槽密文真实端测一次，退出码走三分约定"
                       ]
                     },
+                    "clear.rs": {
+                      "kind": "file",
+                      "desc": "清空全部用户数据命令",
+                      "detail": [
+                        "条目/凭据密文/定价/模型库/历史/快照缓存全清，应用偏好与主密钥保留；非 tty 无 --yes 确定性拒绝（门控纯函数可测）"
+                      ],
+                      "tags": [
+                        "security"
+                      ]
+                    },
                     "config.rs": {
                       "kind": "file",
                       "desc": "配置导入导出",
@@ -704,6 +714,33 @@
                         "标题栏/悬停面板共用的静态品牌标志薄组件"
                       ]
                     },
+                    "ClearConfigDialog.tsx": {
+                      "kind": "file",
+                      "desc": "清空配置二级确认弹窗",
+                      "detail": [
+                        "5 秒倒数解锁的 danger 确认弹窗；正文暗红警示（core 清空命令接线前为空壳）"
+                      ]
+                    },
+                    "clearConfigView.test.ts": {
+                      "kind": "file",
+                      "desc": "清空确认逻辑测试",
+                      "detail": [
+                        "覆盖倒数锁定与解锁边界"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "clearConfigView.ts": {
+                      "kind": "file",
+                      "desc": "清空确认纯逻辑",
+                      "detail": [
+                        "倒数步进与确认按钮锁定态纯函数，被清空配置与便携首启确认共用"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
                     "configTransferView.test.ts": {
                       "kind": "file",
                       "desc": "迁移视图测试",
@@ -796,6 +833,29 @@
                         "pure"
                       ]
                     },
+                    "inlineMd.test.ts": {
+                      "kind": "file",
+                      "desc": "行内 Markdown 解析测试",
+                      "detail": [
+                        "无损还原、未闭合标记容错与固定提示全文切分契约"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "inlineMd.ts": {
+                      "kind": "file",
+                      "desc": "行内 Markdown 解析纯函数",
+                      "detail": [
+                        "只认 **粗体** 与 `代码` 两种标记，把与文档逐字一致的固定安全提示渲染为 UI 富文本"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/inlineMd.test.ts"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
                     "MainPanelTabs.tsx": {
                       "kind": "file",
                       "desc": "页签与鼠标聚光",
@@ -859,6 +919,13 @@
                         "高度自适应主窗口（min(剩余空间, 460px)），",
                         "左右双栏 minmax(0,1fr)+min-height:0 各自独立滚动",
                         "（滚动条走全局主题变量）"
+                      ]
+                    },
+                    "PortableInitGate.tsx": {
+                      "kind": "file",
+                      "desc": "便携首启确认页",
+                      "detail": [
+                        "正文精简为两行暗红警示，完整固定提示经 InlineMd 渲染收进问号图标点击展开；5 秒倒数确认建钥、取消退出零敏感落盘"
                       ]
                     },
                     "presetTemplates.test.ts": {
@@ -1849,6 +1916,16 @@
                     }
                   }
                 },
+                "runtime.rs": {
+                  "kind": "file",
+                  "desc": "运行模式纯函数（安装/便携）",
+                  "detail": [
+                    "RuntimeMode 将数据根与密钥后端绑定；resolve_mode 按预研 §4.2 优先级解析（--data-dir 安装态沙箱 > --portable 显式 > exe 旁 portable.marker > 默认安装态），不读进程环境"
+                  ],
+                  "tags": [
+                    "pure"
+                  ]
+                },
                 "script": {
                   "kind": "dir",
                   "desc": "脚本查询（M4）",
@@ -2118,6 +2195,13 @@
         "MIT 许可证全文（参考项目 cc-switch 同为 MIT）"
       ]
     },
+    "package.cmd": {
+      "kind": "file",
+      "desc": "一键打包入口包装器",
+      "detail": [
+        "Git Bash 兼容入口，转发 scripts/package.ps1"
+      ]
+    },
     "README.en.md": {
       "kind": "file",
       "desc": "英文自述，互链中文",
@@ -2159,6 +2243,23 @@
           ],
           "rel": [
             "scripts/clean.ps1"
+          ],
+          "tags": [
+            "test"
+          ]
+        },
+        "package.ps1": {
+          "kind": "file",
+          "desc": "一键发布资产打包脚本",
+          "detail": [
+            "产出 NSIS setup 与便携 zip；版本单源解析、PE 架构断言、staging 五文件（GUI/CLI/marker/中英双说明）"
+          ]
+        },
+        "package.tests.ps1": {
+          "kind": "file",
+          "desc": "打包脚本契约测试",
+          "detail": [
+            "版本解析、资产命名、PE 架构读取与中英说明固定提示契约"
           ],
           "tags": [
             "test"

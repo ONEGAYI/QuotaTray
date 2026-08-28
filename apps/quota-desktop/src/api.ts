@@ -1,6 +1,7 @@
 // IPC 封装：全部后端交互收敛于此，组件不直接触碰 invoke。
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BootStateDto,
   HistoryPoint,
   NativeMeta,
   ProviderEntry,
@@ -12,6 +13,14 @@ import type {
 } from "./types";
 
 export const api = {
+  /** 启动状态：pendingPortableInit=true 时前端渲染便携首启确认页。 */
+  getBootState: (): Promise<BootStateDto> => invoke("get_boot_state"),
+  /** 便携首启确认：创建主密钥并补齐后端启动（用户已显式确认）。 */
+  confirmPortableInit: (): Promise<void> => invoke("confirm_portable_init"),
+  /** 便携首启取消：清理 Data（仅 WebView2 缓存）并退出应用。 */
+  cancelPortableInit: (): Promise<void> => invoke("cancel_portable_init"),
+  /** 打开更新下载目录（便携形态手动覆盖引导）。 */
+  openUpdateDir: (): Promise<void> => invoke("open_update_dir"),
   listProviders: (): Promise<ProviderEntry[]> => invoke("list_providers"),
   /** 将用户预览过的无凭据 AI 诊断包写入指定路径。 */
   writeAssistPackage: (path: string, contents: string): Promise<void> =>
@@ -29,6 +38,9 @@ export const api = {
       newApiKey2: newApiKey2 ?? undefined,
     }),
   removeProvider: (id: string): Promise<void> => invoke("remove_provider", { id }),
+  /** 清空全部用户数据（条目/凭据密文/定价/查询历史；应用偏好与主密钥
+   *  保留）。调用方须已通过二级确认弹窗取得显式确认。 */
+  clearAllData: (): Promise<void> => invoke("clear_all_data"),
   /** 按完整 id 顺序重排条目（卡片拖拽排序落库；集合不一致时后端拒绝）。 */
   reorderProviders: (ids: string[]): Promise<void> => invoke("reorder_providers", { ids }),
   listNativeMetas: (): Promise<NativeMeta[]> => invoke("list_native_metas"),

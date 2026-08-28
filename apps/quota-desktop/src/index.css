@@ -558,6 +558,7 @@ button:focus-visible {
 .qt-dialog-body { min-height: 0; flex: 1; overflow-y: auto; padding: 18px; }
 .qt-dialog-footer { display: flex; flex: none; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--qt-border); }
 .qt-confirm-message { margin: 0; color: var(--qt-text-soft); line-height: 1.6; }
+.qt-confirm-danger { color: var(--qt-danger); }
 
 .qt-setting-row { display: grid; grid-template-columns: 1fr minmax(90px, 140px); align-items: center; gap: 22px; padding: 15px 0; border-bottom: 1px solid var(--qt-border); }
 .qt-setting-row:last-child { border-bottom: 0; }
@@ -652,6 +653,11 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-settings-nav button { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 0; border-radius: var(--qt-radius-sm); background: transparent; color: var(--qt-text-soft); text-align: left; }
 .qt-settings-nav button:hover { background: var(--qt-surface-hover); color: var(--qt-text); }
 .qt-settings-nav button[aria-selected="true"] { background: var(--qt-surface); color: var(--qt-accent-strong); font-weight: 650; }
+/* 设置弹窗：高度锁定为视口百分比（带上限），切页签不跳变；滚动收进右列 */
+.qt-dialog-settings { height: min(80vh, 760px); }
+.qt-dialog-settings .qt-dialog-body { display: flex; padding: 0; overflow: hidden; }
+.qt-dialog-settings .qt-settings-layout { flex: 1; min-height: 0; margin: 0; grid-template-rows: minmax(0, 1fr); }
+.qt-dialog-settings .qt-settings-content { overflow-y: auto; }
 .qt-settings-content { min-width: 0; padding: 10px 18px; }
 .qt-transfer-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 7px 0 9px; padding: 13px; border-radius: var(--qt-radius-md); background: var(--qt-warning-soft); color: var(--qt-text); }
 .qt-transfer-intro-icon { color: var(--qt-warning); }
@@ -807,9 +813,10 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
   .qt-page-tabs { gap: 16px; }
   .qt-page-tab { font-size: 22px; }
   .qt-titlebar-subtitle { display: none; }
-  .qt-settings-layout { grid-template-columns: 1fr; }
+  .qt-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .qt-settings-nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--qt-border); }
   .qt-settings-nav button { flex: 1; justify-content: center; }
+  .qt-settings-content { padding: 10px 14px; }
   .qt-update-status { grid-template-columns: auto 1fr; }
   .qt-update-status .qt-btn { grid-column: 1 / -1; }
   .qt-edit-basics { grid-template-columns: 1fr; }
@@ -829,3 +836,33 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
 }
+
+
+/* 便携首启确认页：接管整个窗口（此时无托盘/主界面） */
+.qt-portable-gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: var(--qt-shell); }
+.qt-portable-gate-card { display: flex; flex-direction: column; gap: 14px; width: min(100%, 640px); max-height: calc(100vh - 40px); overflow-y: auto; padding: 26px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-xl); background: var(--qt-surface); box-shadow: 0 24px 64px var(--qt-shadow); }
+.qt-portable-gate-card header { display: flex; align-items: center; gap: 12px; }
+.qt-portable-gate-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--qt-radius-lg); background: var(--qt-danger-soft); color: var(--qt-danger); flex: none; }
+.qt-portable-gate-card h1 { margin: 0; font-size: 19px; font-weight: 650; }
+/* 正文块：精简警示两行（暗红）+ 右上角问号展开完整固定提示
+ * （形态登记见前端样式规范 T-007 便携首启警示块变体） */
+.qt-portable-gate-notice { position: relative; padding: 13px 40px 13px 13px; border-radius: var(--qt-radius-md); background: var(--qt-danger-soft); font-size: 13px; line-height: 1.7; }
+.qt-portable-gate-notice p { margin: 0; color: var(--qt-danger); }
+.qt-portable-gate-notice p + p { margin-top: 6px; }
+.qt-portable-gate-notice strong { font-weight: 650; }
+/* 问号钮：26px 圆形（50% 圆与药丸同为不入档形态，登记见 T-004）；
+ * danger 变体图标钮 hover 规约——danger-soft 底 + danger 字 */
+.qt-gate-info-btn { position: absolute; top: 9px; right: 9px; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--qt-danger); cursor: pointer; }
+.qt-gate-info-btn:hover, .qt-gate-info-btn[aria-expanded="true"] { background: var(--qt-danger-soft); }
+/* 气泡右对齐按钮（例外登记见 T-001：全局居中锚定会被滚动卡片右缘裁剪） */
+.qt-gate-info-btn[data-tooltip]::after { left: auto; right: 0; transform: none; }
+.qt-gate-info-btn[data-tooltip]:hover::after, .qt-gate-info-btn[data-tooltip]:focus-visible::after { transform: none; }
+.qt-gate-info-panel { margin-top: 11px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--qt-danger) 20%, var(--qt-border)); border-radius: var(--qt-radius-sm); background: var(--qt-surface); color: var(--qt-text); font-size: 12.5px; line-height: 1.8; }
+.qt-gate-info-panel strong { font-weight: 650; }
+.qt-gate-info-panel code, .qt-portable-gate-notice code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: var(--qt-radius-xs); background: color-mix(in srgb, var(--qt-danger) 10%, transparent); }
+.qt-portable-gate-hint { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: var(--qt-text-soft); font-size: 12.5px; line-height: 1.6; }
+.qt-portable-gate-hint svg { flex: none; margin-top: 3px; }
+.qt-portable-gate-card footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; }
+
+/* 同机互斥提示 toast（第二实例启动时） */
+.qt-toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 70; padding: 9px 16px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); background: var(--qt-surface); color: var(--qt-text-soft); font-size: 12.5px; box-shadow: 0 10px 32px var(--qt-shadow); }

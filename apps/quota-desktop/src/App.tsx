@@ -1,10 +1,12 @@
 // 主窗口：供应商列表 + 添加/设置入口。
 // 关闭窗口 = 隐藏收托盘（Rust 侧处理），React 不参与退出逻辑。
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import { Plus, Settings as SettingsIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "./api";
 import { EditDialog } from "./components/EditDialog";
+import { PortableInitGate } from "./components/PortableInitGate";
 import { MainPanelTabs } from "./components/MainPanelTabs";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -12,7 +14,14 @@ import { TitleBar } from "./components/TitleBar";
 import { UsageStatsPage } from "./components/UsageStatsPage";
 import { LangProvider, useLang } from "./i18n";
 import { ThemeProvider } from "./theme";
-import { useNativeMetas, useProviders, useRefreshNow, useSettings, useSnapshots } from "./queries";
+import {
+  useBootState,
+  useNativeMetas,
+  useProviders,
+  useRefreshNow,
+  useSettings,
+  useSnapshots,
+} from "./queries";
 import type { ProviderEntry } from "./types";
 import { Button } from "./components/ui";
 import { initialMainPanelState, reduceMainPanelTransition } from "./mainPanelView";
@@ -23,6 +32,22 @@ const queryClient = new QueryClient();
 function AppInner() {
   useRefreshNow();
   const { t } = useLang();
+  // 同机互斥提示：第二实例启动被 single-instance 拦截后聚焦本窗，
+  // 顶部短暂 toast 让用户明白「为什么新点的没有打开」
+  const [instanceToast, setInstanceToast] = useState(false);
+  // 连续触发（用户连点 exe）时从最后一次起算 3 秒：重设计时器
+  const toastTimer = useRef<number | null>(null);
+  useEffect(() => {
+    const unlisten = listen("instance-already-running", () => {
+      setInstanceToast(true);
+      if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+      toastTimer.current = window.setTimeout(() => setInstanceToast(false), 3000);
+    });
+    return () => {
+      if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
   const qc = useQueryClient();
   const providers = useProviders();
   const settings = useSettings();
@@ -99,6 +124,9 @@ function AppInner() {
 
   return (
     <div className="qt-app-shell">
+      {instanceToast && (
+        <div className="qt-toast" role="status">{t("app.instanceRunning")}</div>
+      )}
       <TitleBar />
 
       <main className="qt-main-content">
@@ -224,12 +252,24 @@ function AppInner() {
   );
 }
 
+/** 启动分支层：便携首启（portable.key 缺失）先渲染安全确认页，
+ * 确认补齐后端后再挂载主界面（期间主界面 hooks 依赖 AppState，
+ * 提前挂载只会得到整屏错误）。 */
+function BootLayer() {
+  const boot = useBootState();
+  if (boot.isLoading) return null;
+  if (boot.data?.pendingPortableInit) {
+    return <PortableInitGate onDone={() => void boot.refetch()} />;
+  }
+  return <AppInner />;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <LangProvider>
         <ThemeProvider>
-          <AppInner />
+          <BootLayer />
         </ThemeProvider>
       </LangProvider>
     </QueryClientProvider>

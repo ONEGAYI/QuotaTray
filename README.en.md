@@ -26,9 +26,10 @@ The key difference from other balance tools is **credential security**:
 - Tray menu lists balance / usage percentage and last-updated time per entry, plus two lines for off-peak pricing
 - Hover detail panel: balance-first summary with quick switching of the ring data-source account and pricing model
 - Main window with card list: add/edit entries, template editor (with validation and live test), structured off-peak pricing editor
-- Settings supports complete cross-machine configuration export/import with native file dialogs and sensitive-file confirmation
+- Settings → Data management: cross-machine configuration export/import (with sensitive-file confirmation) and one-click clear of all user data (5-second countdown double confirmation)
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window
+- Portable build (Windows x64): all data travels in the `Data/` folder, first-run security confirmation, delete the folder to uninstall
 
 **Command line (quota-cli, sharing the same core as the GUI)**
 
@@ -41,6 +42,7 @@ quota pricing show <id>        # effective off-peak pricing & current period ver
 quota template test --json     # template validation + live query
 quota config export <path>     # export a complete transfer package (asks for confirmation)
 quota config import <path>     # replace all and re-encrypt with this machine's key
+quota clear --yes              # wipe all user data (explicit --yes required non-interactively)
 quota update --check           # check for new releases
 ```
 
@@ -133,6 +135,15 @@ Sandbox limits: 16 MiB memory, a 5-second CPU cap per execution, no network/file
 
 Download the NSIS installer (`*-setup.exe`) from [Releases](https://github.com/ONEGAYI/QuotaTray/releases).
 
+### Portable (Windows x64)
+
+Download `*-portable.zip`, extract to any writable folder and run — all data stays
+in the adjacent `Data/` folder; deleting the folder uninstalls. First run shows a
+security confirmation. The zip contains the GUI (`QuotaTray.exe`) and the CLI
+(`quota.exe`), sharing the same `Data/` folder.
+
+> ⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.
+
 ### Build from source
 
 Requires: Rust stable, Node.js, pnpm.
@@ -182,14 +193,26 @@ Credential fields in ~/.quotatray/config.json (v1:<base64>, versioned)
 - Credentials in logs and error messages are always masked (`sk-****<last4>`)
 - The web frontend never receives plaintext credentials: queries happen in the local backend and the UI only shows results; editing credentials goes through a write-only channel with no echo
 
+Global sensitivity comparison across the three data forms:
+
+| Form | Master key location | Sensitivity | Handling |
+| --- | --- | --- | --- |
+| Installed (default) | OS credential vault, never on disk | Config file is undecipherable off this machine | — |
+| Portable | `Data/portable.key`, next to the ciphertext | The whole `Data/` folder equals plaintext credentials | Never upload to cloud drives / commit / share; on leak, rotate every API key |
+| Transfer package `.qtray-export` | Fresh one-time key generated per export, carried in the package | Equals plaintext credentials | Delete after migration |
+
 Cross-machine migration uses the private `.qtray-export` binary container. On every export,
 core generates a fresh 32-byte one-time transfer key, rewraps the source credentials, and
 authenticates the encrypted configuration as a whole. Import rewraps those credentials under
-the destination machine's master key. **Although the package is not directly readable, it
-carries its transfer key and is therefore as sensitive as plaintext credentials.** Do not sync
-it to untrusted locations, and delete it after migration.
-Use `quota config export/import` in the CLI, or open **Settings → Data transfer** in the
+the destination machine's master key.
+Use `quota config export/import` in the CLI, or open **Settings → Data management** in the
 desktop app. Both require explicit confirmation by default; CLI automation can pass `--yes`.
+
+Clearing all data (**Settings → Data management** in the desktop app, or `quota clear`)
+removes every provider entry, encrypted credential, pricing configuration and query
+history, while keeping the master key and app preferences — it is an in-place cleanup
+step before transferring or troubleshooting, not a "secure erase" promise (filesystem
+level remnants are out of scope).
 
 Known boundaries: reading the OS credential vault from another process of the same user is out of scope (same assurance level as browser-saved passwords); memory attacks and local malware are beyond a desktop tool's threat model.
 

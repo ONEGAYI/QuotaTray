@@ -2,6 +2,7 @@
 
 pub mod add;
 pub mod assist;
+pub mod clear;
 pub mod config;
 #[cfg(debug_assertions)]
 pub mod devsmoke;

@@ -26,6 +26,74 @@ use crate::http::{HttpClient, HttpError, HttpRequest};
 /// 当前程序版本（workspace 单源继承，与 CLI `--version` / GUI app 版本一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// 当前构建的目标架构标签，对齐发布资产命名（x64 / ARM64）。
+/// GUI 更新页与 CLI `--version` 共用，保证两端展示一致。
+pub fn arch_label() -> &'static str {
+    if cfg!(target_arch = "x86_64") {
+        "x64"
+    } else if cfg!(target_arch = "aarch64") {
+        "ARM64"
+    } else {
+        "unknown"
+    }
+}
+
+/// 分发形态（资产选择契约：架构 × 形态精确匹配，绝不回退）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flavor {
+    /// NSIS 安装包（仅 x64 发布）。
+    SetupExe,
+    /// 便携 zip（x64 与 ARM64 均发布）。
+    PortableZip,
+}
+
+impl Flavor {
+    /// 资产名的形态后缀（不含架构段）。
+    fn suffix(&self) -> &'static str {
+        match self {
+            Self::SetupExe => "setup.exe",
+            Self::PortableZip => "portable.zip",
+        }
+    }
+}
+
+/// 资产选择器：调用端按自身运行形态（架构 × 安装/便携）构造。
+#[derive(Debug, Clone, Copy)]
+pub struct AssetSelector {
+    pub arch: &'static str,
+    pub flavor: Flavor,
+}
+
+impl AssetSelector {
+    /// 安装版默认选择器（本机架构的 NSIS 安装包）。
+    pub fn installed() -> Self {
+        Self {
+            arch: arch_label(),
+            flavor: Flavor::SetupExe,
+        }
+    }
+
+    /// 便携版选择器（本机架构的便携 zip）。
+    pub fn portable() -> Self {
+        Self {
+            arch: arch_label(),
+            flavor: Flavor::PortableZip,
+        }
+    }
+}
+
+/// 期望资产名（发布命名契约，见预研报告 §五）：
+/// `QuotaTray_{version}_{arch}[-preview]-{suffix}`——ARM64 在完成真实
+/// WoA 验收前统一带 `preview` 段。
+pub fn expected_asset_name(version: &str, arch: &str, flavor: Flavor) -> String {
+    let arch_lower = arch.to_ascii_lowercase();
+    let arch_tag = match arch_lower.as_str() {
+        "arm64" => "arm64-preview",
+        _ => arch_lower.as_str(),
+    };
+    format!("QuotaTray_{version}_{arch_tag}-{}", flavor.suffix())
+}
+
 /// release 所在仓库（owner/repo）。
 pub const GITHUB_REPO: &str = "ONEGAYI/QuotaTray";
 
@@ -158,6 +226,7 @@ pub fn is_newer(remote: &str, current: &str) -> Option<bool> {
 pub async fn check_update(
     http: &dyn HttpClient,
     current: &str,
+    selector: AssetSelector,
 ) -> Result<UpdateStatus, UpdateError> {
     let req = HttpRequest::get(format!(
         "https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -181,16 +250,21 @@ pub async fn check_update(
     let release: GithubRelease =
         serde_json::from_str(&resp.body).map_err(|e| UpdateError::Parse(e.to_string()))?;
     match is_newer(&release.tag_name, current) {
-        Some(true) => Ok(UpdateStatus::Available {
-            version: release
+        Some(true) => {
+            let version = release
                 .tag_name
                 .trim()
                 .trim_start_matches(['v', 'V'])
-                .to_string(),
-            html_url: release.html_url,
-            notes: release.body.filter(|s| !s.trim().is_empty()),
-            asset: pick_asset(&release.assets),
-        }),
+                .to_string();
+            // 精确完整匹配（与 release 资产顺序无关），绝不跨架构/形态回退
+            let expected = expected_asset_name(&version, selector.arch, selector.flavor);
+            Ok(UpdateStatus::Available {
+                version,
+                html_url: release.html_url,
+                notes: release.body.filter(|s| !s.trim().is_empty()),
+                asset: pick_asset(&release.assets, &expected),
+            })
+        }
         // 解析失败（tag 不规范）也归入 UpToDate：不误报
         _ => Ok(UpdateStatus::UpToDate),
     }
@@ -218,16 +292,10 @@ fn extract_error_message(body: &str) -> Option<String> {
     })
 }
 
-/// 挑选安装包资产：名字含 "setup" 的 .exe 优先（NSIS 产物约定），
-/// 否则首个 .exe；无 .exe → None。
-fn pick_asset(assets: &[ReleaseAsset]) -> Option<ReleaseAsset> {
-    let is_exe = |a: &ReleaseAsset| a.name.to_ascii_lowercase().ends_with(".exe");
-    assets
-        .iter()
-        .filter(|a| is_exe(a))
-        .find(|a| a.name.to_ascii_lowercase().contains("setup"))
-        .or_else(|| assets.iter().find(|a| is_exe(a)))
-        .cloned()
+/// 挑选资产：按期望文件名**完整相等**匹配（与资产顺序无关，无任何
+/// 回退——跨架构/跨形态相似名一律不命中，由端侧引导去发布页）。
+fn pick_asset(assets: &[ReleaseAsset], expected: &str) -> Option<ReleaseAsset> {
+    assets.iter().find(|a| a.name == expected).cloned()
 }
 
 // ---- 下载 -----------------------------------------------------------------
@@ -527,6 +595,13 @@ mod tests {
 
     // ---- 版本比较 ----
 
+    /// 契约：架构标签落在已发布资产命名集合内；未支持目标显式
+    /// unknown 而非 panic（跨平台库约束下不应编译失败）。
+    #[test]
+    fn arch_label_in_known_set() {
+        assert!(["x64", "ARM64", "unknown"].contains(&arch_label()));
+    }
+
     #[test]
     fn parse_version_accepts_common_forms() {
         assert_eq!(parse_version("0.1.0"), Some((0, 1, 0)));
@@ -565,14 +640,31 @@ mod tests {
         "assets": [
             {"name": "QuotaTray_0.2.0_x64.zip", "browser_download_url": "https://x/zip", "size": 1},
             {"name": "QuotaTray_0.2.0_x64-setup.exe", "browser_download_url": "https://x/setup", "size": 2},
+            {"name": "QuotaTray_0.2.0_x64-portable.zip", "browser_download_url": "https://x/portable", "size": 4},
+            {"name": "QuotaTray_0.2.0_arm64-preview-portable.zip", "browser_download_url": "https://x/arm-portable", "size": 5},
             {"name": "notes.txt", "browser_download_url": "https://x/txt", "size": 3}
         ]
     }"#;
 
+    /// 测试选择器显式固定 x64（不用 AssetSelector::installed() 的本机
+    /// 架构，防未来非 x64 CI runner 改变 mock 命中结果）。
+    const X64_SETUP: AssetSelector = AssetSelector {
+        arch: "x64",
+        flavor: Flavor::SetupExe,
+    };
+    const X64_PORTABLE: AssetSelector = AssetSelector {
+        arch: "x64",
+        flavor: Flavor::PortableZip,
+    };
+    const ARM64_PORTABLE: AssetSelector = AssetSelector {
+        arch: "ARM64",
+        flavor: Flavor::PortableZip,
+    };
+
     #[tokio::test]
     async fn check_update_finds_new_release_and_picks_setup_asset() {
         let http = MockHttp::ok(RELEASE_JSON);
-        let status = check_update(&http, "0.1.0").await.unwrap();
+        let status = check_update(&http, "0.1.0", X64_SETUP).await.unwrap();
         match status {
             UpdateStatus::Available {
                 version,
@@ -594,10 +686,33 @@ mod tests {
         }
     }
 
+    /// 契约：同一 release 下，安装版选 setup.exe、便携版选 portable.zip、
+    /// ARM64 便携选 arm64-preview-portable.zip——选择器分流互不串扰。
+    #[tokio::test]
+    async fn check_update_selector_routes_flavors_and_arches() {
+        let pick = |selector: AssetSelector| {
+            let http = MockHttp::ok(RELEASE_JSON);
+            async move {
+                match check_update(&http, "0.1.0", selector).await.unwrap() {
+                    UpdateStatus::Available { asset, .. } => asset.map(|a| a.name),
+                    other => panic!("应为 Available：{other:?}"),
+                }
+            }
+        };
+        assert_eq!(
+            pick(X64_PORTABLE).await,
+            Some("QuotaTray_0.2.0_x64-portable.zip".into())
+        );
+        assert_eq!(
+            pick(ARM64_PORTABLE).await,
+            Some("QuotaTray_0.2.0_arm64-preview-portable.zip".into())
+        );
+    }
+
     #[tokio::test]
     async fn check_update_sends_required_headers() {
         let http = MockHttp::ok(RELEASE_JSON);
-        check_update(&http, "0.1.0").await.unwrap();
+        check_update(&http, "0.1.0", X64_SETUP).await.unwrap();
         let reqs = http.captured_requests();
         assert_eq!(reqs.len(), 1);
         let req = &reqs[0];
@@ -627,7 +742,9 @@ mod tests {
 
     #[tokio::test]
     async fn check_update_404_means_no_release() {
-        let status = check_update(&MockHttp::status(404), "0.1.0").await.unwrap();
+        let status = check_update(&MockHttp::status(404), "0.1.0", X64_SETUP)
+            .await
+            .unwrap();
         assert_eq!(
             status,
             UpdateStatus::NoRelease,
@@ -639,20 +756,22 @@ mod tests {
     async fn check_update_same_or_bad_tag_is_up_to_date() {
         let http = MockHttp::ok(r#"{"tag_name":"v0.1.0","assets":[]}"#);
         assert_eq!(
-            check_update(&http, "0.1.0").await.unwrap(),
+            check_update(&http, "0.1.0", X64_SETUP).await.unwrap(),
             UpdateStatus::UpToDate
         );
         // tag 不规范：宁可不提示
         let http = MockHttp::ok(r#"{"tag_name":"latest-hotfix","assets":[]}"#);
         assert_eq!(
-            check_update(&http, "0.1.0").await.unwrap(),
+            check_update(&http, "0.1.0", X64_SETUP).await.unwrap(),
             UpdateStatus::UpToDate
         );
     }
 
     #[tokio::test]
     async fn check_update_network_error_propagates_as_transient() {
-        let err = check_update(&MockHttp::fail(), "0.1.0").await.unwrap_err();
+        let err = check_update(&MockHttp::fail(), "0.1.0", X64_SETUP)
+            .await
+            .unwrap_err();
         assert!(err.is_transient(), "网络错误应归瞬时：{err}");
     }
 
@@ -665,7 +784,7 @@ mod tests {
             403,
             r#"{"message":"API rate limit exceeded for 103.190.179.2. (But here's the good news: Authenticated requests get a higher rate limit.)","documentation_url":"https://docs.github.com"}"#,
         );
-        let err = check_update(&http, "0.1.0").await.unwrap_err();
+        let err = check_update(&http, "0.1.0", X64_SETUP).await.unwrap_err();
         let UpdateError::HttpStatus {
             status_text,
             detail,
@@ -697,7 +816,7 @@ mod tests {
     #[tokio::test]
     async fn check_update_status_error_without_message_falls_back() {
         for body in ["", "<html>blocked</html>", r#"{"message":"  "}"#] {
-            let err = check_update(&MockHttp::status_body(403, body), "0.1.0")
+            let err = check_update(&MockHttp::status_body(403, body), "0.1.0", X64_SETUP)
                 .await
                 .unwrap_err();
             let UpdateError::HttpStatus { detail, .. } = &err else {
@@ -735,25 +854,81 @@ mod tests {
 
     #[tokio::test]
     async fn check_update_bad_json_is_deterministic_parse_error() {
-        let err = check_update(&MockHttp::ok("not json"), "0.1.0")
+        let err = check_update(&MockHttp::ok("not json"), "0.1.0", X64_SETUP)
             .await
             .unwrap_err();
         assert!(!err.is_transient(), "解析失败是确定性错误：{err}");
         assert!(matches!(err, UpdateError::Parse(_)));
     }
 
+    /// 契约：pick_asset 按期望名完整相等匹配——与顺序无关，相似名
+    /// （跨架构/跨形态/子串包含）一律不命中，无任何回退。
     #[test]
-    fn pick_asset_prefers_setup_exe_then_any_exe() {
+    fn pick_asset_matches_exactly_without_fallback() {
         let mk = |name: &str| ReleaseAsset {
             name: name.into(),
             browser_download_url: format!("https://x/{name}"),
             size: 1,
         };
-        let assets = vec![mk("a.zip"), mk("b.exe"), mk("c-setup.exe")];
-        assert_eq!(pick_asset(&assets).unwrap().name, "c-setup.exe");
-        let assets = vec![mk("a.zip"), mk("b.exe")];
-        assert_eq!(pick_asset(&assets).unwrap().name, "b.exe");
-        assert_eq!(pick_asset(&[mk("a.zip")]), None, "无 exe 资产 → None");
+        let expected = "QuotaTray_0.2.0_x64-portable.zip";
+        // 顺序无关命中
+        let assets = vec![
+            mk("QuotaTray_0.2.0_arm64-preview-portable.zip"),
+            mk("QuotaTray_0.2.0_x64-setup.exe"),
+            mk(expected),
+        ];
+        assert_eq!(pick_asset(&assets, expected).unwrap().name, expected);
+        // 相似名不回退：仅有安装包/其他架构时返回 None
+        let assets = vec![
+            mk("QuotaTray_0.2.0_x64-setup.exe"),
+            mk("QuotaTray_0.2.0_x64-portable.zip.bak"),
+            mk("prefix-QuotaTray_0.2.0_x64-portable.zip"),
+        ];
+        assert_eq!(pick_asset(&assets, expected), None, "绝不跨形态/名称回退");
+        assert_eq!(pick_asset(&[], expected), None);
+        // 大小写敏感：GitHub 资产名由本项目的打包格式固定，大小写变体
+        // 视为异常上传——不命中、端侧引导发布页
+        let assets = vec![mk("QUOTATRAY_0.2.0_X64-PORTABLE.ZIP")];
+        assert_eq!(
+            pick_asset(&assets, expected),
+            None,
+            "大写变体不命中（精确匹配含大小写）"
+        );
+    }
+
+    /// 契约：期望资产名拼装——x64 直名，ARM64 带 preview 段
+    /// （WoA 验收通过前 Preview 口径，见 AGENTS.md 发布惯例）。
+    #[test]
+    fn expected_asset_name_naming_contract() {
+        assert_eq!(
+            expected_asset_name("0.7.0", "x64", Flavor::SetupExe),
+            "QuotaTray_0.7.0_x64-setup.exe"
+        );
+        assert_eq!(
+            expected_asset_name("0.7.0", "x64", Flavor::PortableZip),
+            "QuotaTray_0.7.0_x64-portable.zip"
+        );
+        assert_eq!(
+            expected_asset_name("0.7.0", "ARM64", Flavor::PortableZip),
+            "QuotaTray_0.7.0_arm64-preview-portable.zip"
+        );
+        // 架构标签大小写归一（arch_label 返回 "ARM64" 大写）
+        assert_eq!(
+            expected_asset_name("0.7.0", "arm64", Flavor::PortableZip),
+            "QuotaTray_0.7.0_arm64-preview-portable.zip"
+        );
+        // 版本不做归一化（v 前缀裁剪是 check_update 对 release tag 的
+        // 职责，公共纯函数原样透传）——带前缀的名字永不匹配真实资产
+        assert_eq!(
+            expected_asset_name("v0.7.0", "x64", Flavor::SetupExe),
+            "QuotaTray_v0.7.0_x64-setup.exe"
+        );
+        // 未支持架构不加 preview 段：拼出的名字不在发布矩阵中、永不
+        // 命中 → 端侧引导去发布页（不给假下载入口）
+        assert_eq!(
+            expected_asset_name("0.7.0", "unknown", Flavor::SetupExe),
+            "QuotaTray_0.7.0_unknown-setup.exe"
+        );
     }
 
     #[tokio::test]

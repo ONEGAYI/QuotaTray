@@ -4,12 +4,14 @@
 //! - native 条目来自 `--key-file`（`.DevApiKey.json`，空 key 跳过）；
 //! - 追加一个指向本地 mock 服务的 template 条目（`--mock-url`）。
 //!
-//! 凭据经系统凭据库的正式主密钥加密（与 GUI 同一把 keyring 条目），
-//! key 全程不回显（安全红线 1/2）。运行示例：
+//! 凭据加密主密钥默认走系统凭据库（与 GUI 安装态同一把 keyring 条目）；
+//! `--portable` 时改用 `<data-dir>/portable.key`（FileStore，便携沙箱
+//! 冒烟用——跳过 GUI 的首启确认流程直接建钥），key 全程不回显（安全
+//! 红线 1/2）。运行示例：
 //!
 //! ```text
 //! cargo run -p quota-desktop --example smoke_setup -- \
-//!   --data-dir <沙箱目录> --mock-url http://127.0.0.1:18080
+//!   --data-dir <沙箱目录> --mock-url http://127.0.0.1:18080 [--portable]
 //! ```
 
 use std::collections::BTreeMap;
@@ -22,12 +24,14 @@ fn main() {
     let mut data_dir: Option<PathBuf> = None;
     let mut key_file = PathBuf::from(".DevApiKey.json");
     let mut mock_url: Option<String> = None;
+    let mut portable = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--data-dir" => data_dir = args.next().map(PathBuf::from),
             "--key-file" => key_file = args.next().map(PathBuf::from).unwrap_or(key_file),
             "--mock-url" => mock_url = args.next(),
+            "--portable" => portable = true,
             other => {
                 eprintln!("未知参数：{other}");
                 std::process::exit(2);
@@ -37,7 +41,15 @@ fn main() {
     let data_dir = data_dir.unwrap_or_else(|| std::env::temp_dir().join("quotatray-gui-smoke"));
     let mock_url = mock_url.unwrap_or_else(|| "http://127.0.0.1:18080".into());
 
-    let vault = Vault::open(&quota_core::KeyringStore::new()).expect("打开系统凭据库失败");
+    let vault = if portable {
+        // 便携沙箱：注入器代行首启建钥（冒烟环境无交互确认）
+        Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+            &data_dir,
+        )))
+        .expect("便携主密钥创建失败")
+    } else {
+        Vault::open(&quota_core::KeyringStore::new()).expect("打开系统凭据库失败")
+    };
     let keys: BTreeMap<String, String> = serde_json::from_str(
         &std::fs::read_to_string(&key_file)
             .unwrap_or_else(|e| panic!("读取 key 文件失败（{}）：{e}", key_file.display())),

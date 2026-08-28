@@ -7,6 +7,7 @@ import {
   resolveUpdateError,
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
+  runtimeLabel,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -104,6 +105,19 @@ describe("更新设置视图", () => {
       .toBe("check");
   });
 
+  it("便携形态：已下载动作是打开下载目录，不提供运行安装包", () => {
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true, portable: true }),
+    ).toBe("open-dir");
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: false, portable: true }),
+    ).toBe("download");
+    // 安装态默认不受 portable 缺省影响
+    expect(
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true }),
+    ).toBe("install");
+  });
+
   it("格式化已知总量的下载进度与速率", () => {
     const progress = {
       downloaded_bytes: 5 * 1024 * 1024,
@@ -123,5 +137,16 @@ describe("更新设置视图", () => {
     expect(downloadPercent(progress)).toBeNull();
     expect(formatDownloadProgress(progress)).toBe("1.5 KB · 0 B/s");
     expect(formatBytes(1024 * 1024 * 1024)).toBe("1.0 GB");
+  });
+
+  it("运行形态标签：安装版只显示架构，便携版追加便携标记", () => {
+    expect(runtimeLabel("x64", false, "便携版")).toBe("x64");
+    expect(runtimeLabel("ARM64", true, "便携版")).toBe("ARM64 · 便携版");
+  });
+
+  it("运行形态标签：平台缺失时退化为仅便携标记或空串", () => {
+    expect(runtimeLabel(null, false, "便携版")).toBe("");
+    expect(runtimeLabel("  ", false, "便携版")).toBe("");
+    expect(runtimeLabel(null, true, "便携版")).toBe("便携版");
   });
 });

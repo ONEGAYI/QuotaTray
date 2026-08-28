@@ -10,7 +10,7 @@ use clap::Command;
 use quota_core::WindowKind;
 
 /// 无参 / 前缀型文案键。exhaustive match 保证每键双语齐全（漏译即编译错误）。
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum T {
     // ---- 通用 ----
     /// 「错误：」前缀。
@@ -175,6 +175,12 @@ pub enum T {
     VaultStoreNotInit,
     VaultStoreReadFail,
     VaultStoreHint,
+    /// 便携后端读取失败的排查提示。
+    VaultStoreHintPortable,
+    /// 便携后端（FileStore）三态标签：与 keyring 版措辞成对维护。
+    VaultStoreOkPortable,
+    VaultStoreNotInitPortable,
+    VaultStoreReadFailPortable,
     VaultHealthy,
     VaultOpenFail,
     /// ctx 侧的「凭据保险库打开失败：」前缀（与 vault 命令的措辞不同源）。
@@ -182,6 +188,43 @@ pub enum T {
     EngineInitFail,
     ConfigFilePrefix,
     ConfigTransferFail,
+
+    // ---- 便携模式 ----
+    /// 首启固定安全提示（AGENTS.md「Portable 固定安全提示」原文，不得改写）。
+    PortableSecurityNotice,
+    /// 首启确认问句。
+    PortableConfirmPrompt,
+    /// 首启确认被拒绝。
+    PortableConfirmDeclined,
+    /// 非交互终端下的初始化失败指引。
+    PortableInitNonTty,
+    /// 密钥缺失的重新初始化指引（vault status 等启动门控之后的场景，
+    /// 与 NonTty 的区别：此时用户可能就在交互终端）。
+    PortableKeyMissingHint,
+    /// 便携形态与 --config 互斥说明。
+    PortableConfigConflict,
+    /// 便携标记写入失败前缀。
+    PortableMarkerWriteFail,
+    /// 便携标记写入失败的处置指引。
+    PortableMarkerHint,
+    /// 便携更新包下载完成提示（zip 手动覆盖口径）。
+    UpdateRunHintPortable,
+    /// exe 目录无法定位。
+    ExeDirUnavailable,
+    /// --portable 的 help 双语文案。
+    HelpPortable,
+
+    // ---- clear（清空全部用户数据）----
+    /// 清空确认提示（与 GUI 二级确认弹窗同口径 + 问句）。
+    ClearConfirm,
+    /// 非交互会话未显式 --yes 的拒绝提示。
+    ClearNonTty,
+    /// 清空完成提示（注明保留项）。
+    ClearDone,
+    /// clear 子命令 help。
+    HelpClear,
+    /// clear --yes help（与 remove 共语义，独立键保持各命令文案自洽）。
+    HelpClearYes,
 
     // ---- devsmoke（仅 debug）----
     SmokeKeyFileFormat,
@@ -319,6 +362,7 @@ pub enum T {
     HelpPricingModelRemoveId,
     HelpDevSmoke,
     HelpDevSmokeKeyFile,
+    HelpDevSmokeProxy,
 }
 
 /// 取文案。`System` 未消解时按中文兜底（调用约定：先 `resolve` 再取文案）。
@@ -458,15 +502,59 @@ fn zh(key: T) -> &'static str {
         T::VaultStoreOk => "系统凭据库：可读（主密钥已存在）",
         T::VaultStoreNotInit => "系统凭据库：可读（主密钥尚未初始化，本次检查将生成新密钥）",
         T::VaultStoreReadFail => "系统凭据库读取失败：",
+        T::VaultStoreOkPortable => "便携密钥文件：可读（主密钥已存在）",
+        T::VaultStoreNotInitPortable => "便携密钥文件：不存在（尚未完成便携初始化）",
+        T::VaultStoreReadFailPortable => "便携密钥文件读取失败：",
         T::VaultStoreHint => {
             "（Windows 请检查凭据管理器可用性；Linux 需要 Secret Service / gnome-keyring）"
         }
+        T::VaultStoreHintPortable => "（请检查 Data/portable.key 文件完整性与所在介质的可读写性）",
         T::VaultHealthy => "保险库：健康（加解密就绪）",
         T::VaultOpenFail => "保险库打开失败：",
         T::VaultOpenFailCtx => "凭据保险库打开失败：",
         T::EngineInitFail => "查询引擎初始化失败：",
         T::ConfigFilePrefix => "配置文件：",
         T::ConfigTransferFail => "配置迁移失败：",
+
+        T::PortableSecurityNotice => {
+            "⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。\
+            虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，\
+            因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库\
+            或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。"
+        }
+        T::PortableConfirmPrompt => "是否创建便携主密钥并初始化数据目录？",
+        T::PortableConfirmDeclined => {
+            "已取消：未写入任何敏感文件，本次不进入便携模式（可改用安装形态运行）。"
+        }
+        T::PortableKeyMissingHint => {
+            "便携密钥文件缺失：请在交互终端运行一次带 --portable 的命令，            重新完成首启安全确认与初始化。"
+        }
+        T::PortableInitNonTty => {
+            "便携数据尚未初始化，且当前不是交互终端。请在交互终端运行一次带 --portable \
+            的命令完成初始化（例如 `quota --portable list`），确认安全提示后即可正常使用。"
+        }
+        T::PortableConfigConflict => {
+            "--portable 与 --config 互斥：便携模式的配置固定为 Data/config.json，同时显式指定其他路径会造成密钥与配置分离的混合状态。"
+        }
+        T::PortableMarkerWriteFail => "便携标记写入失败：",
+        T::PortableMarkerHint => {
+            "请将程序移至可写目录后重试（Program Files 等系统目录不允许写入）。"
+        }
+        T::UpdateRunHintPortable => {
+            "下载完成。请退出正在运行的 QuotaTray 后，将 zip 内容解压覆盖到便携目录（Data/ 数据不受影响）。"
+        }
+        T::ExeDirUnavailable => "无法定位可执行文件所在目录。",
+        T::HelpPortable => {
+            "便携模式：数据与主密钥使用 exe 旁 Data/（与 --config 互斥；缺省时检测 exe 旁 portable.marker 自动进入）"
+        }
+
+        T::ClearConfirm => {
+            "将永久删除全部供应商条目、加密凭据、定价配置与查询历史（不可恢复）。确认清空？"
+        }
+        T::ClearNonTty => "非交互会话必须显式 --yes 才能执行清空。",
+        T::ClearDone => "已清空全部用户数据（应用偏好与主密钥保留，重新添加条目可继续使用）。",
+        T::HelpClear => "清空全部用户数据（条目/凭据/定价/历史）",
+        T::HelpClearYes => "跳过确认提示（非交互会话必须）",
 
         T::SmokeKeyFileFormat => "key 文件应为 {\"平台id\": \"key\"} 的 JSON 对象：",
         T::SmokeSkipBody => "跳过（key 为空）",
@@ -582,6 +670,7 @@ fn zh(key: T) -> &'static str {
         T::HelpPricingModelRemoveId => "模型 id",
         T::HelpDevSmoke => "真机冒烟（仅 debug 构建，读 .DevApiKey.json 走完整链路）",
         T::HelpDevSmokeKeyFile => "key 文件路径（默认当前目录 .DevApiKey.json）",
+        T::HelpDevSmokeProxy => "对 dev-smoke 条目开启查询代理（走 settings.json 的网络代理端口）",
     }
 }
 
@@ -728,8 +817,16 @@ fn en(key: T) -> &'static str {
             "system credential store: readable (master key not initialized yet; this check will generate one)"
         }
         T::VaultStoreReadFail => "system credential store read failed: ",
+        T::VaultStoreOkPortable => "portable key file: readable (master key present)",
+        T::VaultStoreNotInitPortable => {
+            "portable key file: missing (portable initialization not completed)"
+        }
+        T::VaultStoreReadFailPortable => "portable key file read failed: ",
         T::VaultStoreHint => {
             "(on Windows check Credential Manager availability; on Linux a Secret Service / gnome-keyring is required)"
+        }
+        T::VaultStoreHintPortable => {
+            "(check the integrity of Data/portable.key and the read/write state of the medium)"
         }
         T::VaultHealthy => "vault: healthy (encrypt/decrypt ready)",
         T::VaultOpenFail => "vault open failed: ",
@@ -737,6 +834,55 @@ fn en(key: T) -> &'static str {
         T::EngineInitFail => "query engine init failed: ",
         T::ConfigFilePrefix => "config file: ",
         T::ConfigTransferFail => "configuration transfer failed: ",
+
+        T::PortableSecurityNotice => {
+            "⚠️ Portable security notice: the portable build stores the master key that \
+            decrypts your credentials in `Data/portable.key`. Although credentials remain \
+            AES-GCM encrypted in the configuration, the key and the ciphertext live in the \
+            same portable directory, so the entire `Data/` folder must be treated as \
+            plaintext credentials. Do not upload it to cloud drives, commit it to version \
+            control, or share it with others; if the medium is lost or the folder leaks, \
+            rotate every API key it contained immediately."
+        }
+        T::PortableConfirmPrompt => {
+            "Create the portable master key and initialize the data directory?"
+        }
+        T::PortableConfirmDeclined => {
+            "Declined: no sensitive file was written; not entering portable mode this run \
+            (run the installed form instead)."
+        }
+        T::PortableKeyMissingHint => {
+            "portable key file is missing: run a command with --portable once in             an interactive terminal to redo the first-run security notice and             initialization."
+        }
+        T::PortableInitNonTty => {
+            "portable data is not initialized and this is not an interactive terminal. \
+            Run a command with --portable once in an interactive terminal (e.g. \
+            `quota --portable list`) to accept the security notice and initialize."
+        }
+        T::PortableConfigConflict => {
+            "--portable conflicts with --config: the portable configuration is fixed to Data/config.json, and pointing it elsewhere would split the key and the configuration into a mixed state."
+        }
+        T::PortableMarkerWriteFail => "portable marker write failed: ",
+        T::PortableMarkerHint => {
+            "move the program to a writable directory and retry (system folders such as Program Files are not writable)."
+        }
+        T::UpdateRunHintPortable => {
+            "download complete. Quit the running QuotaTray, then extract the zip over the portable directory (Data/ is unaffected)."
+        }
+        T::ExeDirUnavailable => "cannot locate the directory of the running executable.",
+        T::HelpPortable => {
+            "portable mode: data and master key live in Data/ next to the exe (conflicts with --config; auto-detected via portable.marker when omitted)"
+        }
+
+        T::ClearConfirm => {
+            "This permanently deletes all provider entries, encrypted credentials, pricing and query history (irreversible). Proceed?"
+        }
+        T::ClearNonTty => "non-interactive session requires an explicit --yes to clear.",
+        T::ClearDone => {
+            "all user data cleared (app preferences and the master key are kept; re-adding entries keeps working)"
+        }
+        T::HelpClear => "clear all user data (entries/credentials/pricing/history)",
+        T::HelpClearYes => "skip the confirmation prompt (required in non-interactive sessions)",
 
         T::SmokeKeyFileFormat => "key file must be a JSON object of {\"platform-id\": \"key\"}: ",
         T::SmokeSkipBody => "skipped (empty key)",
@@ -884,6 +1030,7 @@ fn en(key: T) -> &'static str {
         T::HelpDevSmokeKeyFile => {
             "Key file path (default: .DevApiKey.json in the current directory)"
         }
+        T::HelpDevSmokeProxy => "route dev-smoke entries through the proxy port from settings.json",
     }
 }
 
@@ -1348,13 +1495,15 @@ pub fn update_proxy_note(lang: Lang, port: u16) -> String {
 ///
 /// derive 的 doc comment 是编译期中文默认；本函数对两个语言都做覆盖，
 /// 使文案表成为唯一事实源（doc comment 仅保留源码可读性）。
-/// `dev-smoke` 子命令仅在 debug 构建存在，release 下 `mut_subcommand`
-/// 对不存在的名字是 no-op。
+/// `dev-smoke` 子命令仅在 debug 构建注册：clap 4.6 对未注册名字的
+/// `mut_subcommand` 会 panic（并非 no-op），故该段按构建形态条件追加。
 pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
     let tr = |k: T| t(lang, k);
-    cmd.about(tr(T::HelpAbout))
+    let cmd = cmd
+        .about(tr(T::HelpAbout))
         .mut_arg("config", |a| a.help(tr(T::HelpConfig)))
         .mut_arg("lang", |a| a.help(tr(T::HelpLang)))
+        .mut_arg("portable", |a| a.help(tr(T::HelpPortable)))
         .mut_subcommand("list", |c| {
             c.about(tr(T::HelpList))
                 .mut_arg("json", |a| a.help(tr(T::HelpListJson)))
@@ -1380,6 +1529,10 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
             c.about(tr(T::HelpRemove))
                 .mut_arg("id", |a| a.help(tr(T::HelpRemoveId)))
                 .mut_arg("yes", |a| a.help(tr(T::HelpRemoveYes)))
+        })
+        .mut_subcommand("clear", |c| {
+            c.about(tr(T::HelpClear))
+                .mut_arg("yes", |a| a.help(tr(T::HelpClearYes)))
         })
         .mut_subcommand("set-key", |c| {
             c.about(tr(T::HelpSetKey))
@@ -1470,11 +1623,16 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
                 .mut_arg("check", |a| a.help(tr(T::HelpUpdateCheck)))
                 .mut_arg("yes", |a| a.help(tr(T::HelpUpdateYes)))
                 .mut_arg("output", |a| a.help(tr(T::HelpUpdateOutput)))
-        })
-        .mut_subcommand("dev-smoke", |c| {
-            c.about(tr(T::HelpDevSmoke))
-                .mut_arg("key_file", |a| a.help(tr(T::HelpDevSmokeKeyFile)))
-        })
+        });
+    // dev-smoke 仅 debug 构建注册（release 下 mut_subcommand 对未注册
+    // 名字 panic——本条修复曾让所有 release CLI 一运行即崩的预存缺陷）
+    #[cfg(debug_assertions)]
+    let cmd = cmd.mut_subcommand("dev-smoke", |c| {
+        c.about(tr(T::HelpDevSmoke))
+            .mut_arg("key_file", |a| a.help(tr(T::HelpDevSmokeKeyFile)))
+            .mut_arg("proxy", |a| a.help(tr(T::HelpDevSmokeProxy)))
+    });
+    cmd
 }
 
 #[cfg(test)]

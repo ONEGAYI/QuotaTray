@@ -163,6 +163,15 @@ export function useSnapshots() {
   });
 }
 
+/** 启动状态（首屏分支：便携首启确认页；确认成功后由调用方 refetch）。 */
+export function useBootState() {
+  return useQuery({
+    queryKey: ["boot-state"],
+    queryFn: api.getBootState,
+    staleTime: Infinity,
+  });
+}
+
 /** 更新检测状态（设置页「更新」分页展示；自动调度完成后由后端事件即时推送）。 */
 export function useUpdateState() {
   const qc = useQueryClient();

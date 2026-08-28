@@ -29,3 +29,7 @@ Thumbs.db
 # Python 字节码（file-tree 技能脚本）
 __pycache__/
 *.pyc
+
+# 便携版本地烟测残留（发布 zip 内的这两个文件不进仓库）
+portable.key
+portable.marker
