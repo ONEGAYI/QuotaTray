@@ -224,13 +224,13 @@ pub async fn run_with(
                         return 1;
                     }
                     println!("{}", texts::update_saved(lang, &path));
-                    // 收尾指引按形态分流：便携下载的是 zip（退出后手动
-                    // 解压覆盖），安装包才引导运行 installer
+                    // 收尾指引按资产形态分流：zip 退出后手动解压覆盖，
+                    // NSIS 才引导运行 installer。
                     println!(
                         "{}",
                         t(
                             lang,
-                            if ctx.is_portable() {
+                            if ctx.update_selector().requires_manual_update() {
                                 T::UpdateRunHintPortable
                             } else {
                                 T::UpdateRunHint
@@ -302,12 +302,9 @@ mod tests {
     /// mock 资产名按本机架构动态拼装（与 `AssetSelector::installed()`
     /// 的期望名一致）：精确匹配语义下硬编码 x64 名会让测试退化为
     /// x64-only（WoA ARM CI 必炸），动态生成保证任意架构可跑。
-    fn local_setup_asset() -> String {
-        quota_core::update::expected_asset_name(
-            "9.9.9",
-            quota_core::update::arch_label(),
-            quota_core::update::Flavor::SetupExe,
-        )
+    fn local_installed_asset() -> String {
+        let selector = quota_core::update::AssetSelector::installed();
+        quota_core::update::expected_asset_name("9.9.9", selector.arch, selector.flavor)
     }
 
     fn release_json() -> String {
@@ -319,7 +316,7 @@ mod tests {
         "assets": [{{"name": "{}",
                     "browser_download_url": "https://x/setup.exe", "size": 4}}]
     }}"#,
-            local_setup_asset()
+            local_installed_asset()
         )
     }
 
@@ -462,7 +459,7 @@ mod tests {
         )
         .await;
         assert_eq!(code, 0);
-        let saved = dir.join(local_setup_asset());
+        let saved = dir.join(local_installed_asset());
         assert_eq!(
             std::fs::read(&saved).unwrap(),
             vec![0x4d, 0x5a, 0x00],

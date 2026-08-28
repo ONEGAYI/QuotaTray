@@ -232,6 +232,8 @@ export interface UpdateStateDto {
   platform: string;
   /** 便携形态（数据根存在 portable.key；安装版恒 false）。 */
   portable: boolean;
+  /** 当前构建使用 zip 手动覆盖更新。 */
+  manual_update: boolean;
   last_check: number | null;
   available: UpdateAvailable | null;
   last_error: string | null;

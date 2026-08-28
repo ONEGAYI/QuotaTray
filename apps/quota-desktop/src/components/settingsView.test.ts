@@ -105,14 +105,14 @@ describe("更新设置视图", () => {
       .toBe("check");
   });
 
-  it("便携形态：已下载动作是打开下载目录，不提供运行安装包", () => {
+  it("zip 更新形态：已下载动作是打开下载目录，不提供运行安装包", () => {
     expect(
-      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true, portable: true }),
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true, manualUpdate: true }),
     ).toBe("open-dir");
     expect(
-      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: false, portable: true }),
+      resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: false, manualUpdate: true }),
     ).toBe("download");
-    // 安装态默认不受 portable 缺省影响
+    // x64 安装态默认仍运行 setup
     expect(
       resolveUpdateAction({ downloading: false, canDownload: true, hasDownloaded: true }),
     ).toBe("install");

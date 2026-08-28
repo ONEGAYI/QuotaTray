@@ -281,6 +281,7 @@ export const en: Record<TextKey, string> = {
   "settings.autostartPortableHint": "Portable builds do not support autostart: the launch entry would point to removable media and leave a dead entry after unplug",
   "settings.downloadPackage": "Download update package",
   "settings.downloadedPortable": "Update package downloaded to: {path}. Quit QuotaTray, then extract the zip over the portable directory (Data/ is unaffected).",
+  "settings.downloadedArchive": "Update package downloaded to: {path}. Quit QuotaTray, then extract the zip over the application directory (user data is unaffected).",
   "settings.openDownloadDir": "Open download folder",
 
   // ---- Portable first-run confirmation: body keeps only "why + do-not";

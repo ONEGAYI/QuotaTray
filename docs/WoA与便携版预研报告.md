@@ -1,6 +1,7 @@
 # WoA 与便携版可行性与路线预研
 
 - 日期：2026-08-27
+- 实施更新：2026-08-28（ARM64 交叉检查、桌面端链接与双 Preview zip 组包已通过；无 WoA 实机运行环境）
 - 背景：评估 QuotaTray 支持 **Windows on ARM（WoA）原生构建** 与 **Windows 便携版（Portable）**，以及两者组合形态 **WoA Portable** 的可行性、难度与实施路线。
 - 范围：仅 Windows 桌面端；不涉及 Android/iOS 移动端（另见结论速览末行）。
 - 结论效力：预研文档；项目所有者已于 2026-08-27 确认便携版采用**方案 A：包内密钥**，WoA 首发按**预览版**发布。实现仍须遵守本文安全门槛与 AGENTS.md 固定发布提示。
@@ -11,7 +12,7 @@
 
 | 特性 | 可行性 | 难度 | 核心结论 |
 |---|---|---|---|
-| WoA 原生（aarch64） | ✅ | 2.5/5 | 查询等业务代码预计无需修改；本机已通过 workspace 交叉 `cargo check` 与 ARM64 CLI 链接，但桌面端资源暂存仍按宿主架构取 CLI，需修正构建编排；完成真实 WoA 验收前统一标记为 Preview |
+| WoA 原生（aarch64） | ✅ | 2.5/5 | 目标感知构建已闭环：workspace 交叉检查、ARM64 GUI/CLI 链接与双 zip 架构校验均通过；尚无真实 WoA 运行验收，继续标记 Preview |
 | Windows 便携版 | ✅ | 代码 3/5 · 决策 4/5 | **已确认方案 A**：`Data/portable.key` 与密文配置同目录，保密等级等同明文凭据；实现必须覆盖首次安全确认、WebView2 用户数据目录、更新资产分流三条产品链路 |
 | WoA Portable（组合） | ✅ | 1.5/5（在前两项之上） | 指令架构与运行时数据模式基本正交；组合发布本身简单，但必须保证 zip 内 GUI/CLI 同架构、更新资产与运行模式严格匹配 |
 
@@ -43,20 +44,21 @@ root 派生。CLI 的配置路径在 `Ctx::production`（`apps/quota-cli/src/ctx
 初始化 Vault。方案 A 因此不仅是新增 `FileStore`，还需增加“告知并确认 → 创建密钥
 → 初始化状态”的启动门控。
 
-**CLI 运行时查找兼容便携布局，但 ARM64 构建暂存尚不兼容。**
+**CLI 运行时查找兼容便携布局，ARM64 构建暂存已改为目标感知。**
 `resolve_quota_cli_path_from`（`apps/quota-desktop/src-tauri/src/commands.rs:1646`）的第一
-候选确是 GUI exe 同目录；便携包运行时无需改这段解析。当前
-`beforeBuildCommand` 却固定构建宿主 target，`build.rs` 也固定从
-`target/<profile>/quota.exe` 暂存资源。ARM64 包必须先改为目标感知构建，否则 GUI
-可以是 ARM64，旁边或包内的 CLI 仍可能是 x64。
+候选确是 GUI exe 同目录；便携包运行时无需改这段解析。Tauri
+`beforeBuildCommand` 现按 `TAURI_ENV_ARCH` 为 ARM64 构建同目标 CLI，`build.rs` 再按
+Cargo `HOST`/`TARGET` 从 `target/<triple>/<profile>/quota.exe` 暂存资源；普通原生构建
+仍读取扁平的 `target/<profile>/quota.exe`。
 
-**发布链已能产出裸 exe，但 zip 需要独立组装契约。** `pnpm tauri build --no-bundle`
-会输出嵌入前端资源的 GUI exe；NSIS 另带 CLI 资源。便携 zip 不需要新的 Rust 编译
-形态，但打包脚本必须从同一目标目录取得 GUI/CLI，并验证两者 PE 架构一致。
+**发布链已闭环四类资产。** `package.cmd -Arch x64` 产出 NSIS 与 x64 Portable；
+`package.cmd -Arch arm64` 以 `--no-bundle` 链接 ARM64 GUI/CLI，并组装普通 Preview 与
+Portable Preview 两个 zip。脚本从同一目标目录取 GUI/CLI，逐个读取 PE Machine 字段，
+架构不符即拒绝组包。
 
-**更新机制目前只有 x64 安装包语义。** core 的资产选择不接收架构或分发形态，
-优先挑任意名称含 `setup` 的 exe；GUI 下载状态和路径校验也只接受 exe。加入四类资产
-后必须显式传入“架构 × 分发形态”，否则 ARM64/Portable 可能选中错误资产（见 §4.4）。
+**更新机制已按架构 × 分发形态精确选择。** x64 安装态选择 setup；ARM64 安装态选择
+普通 Preview zip；两架构 Portable 均选择 portable zip。zip 统一走“下载 → 打开目录 →
+退出后覆盖”，不伪装成 installer，且没有跨架构、跨形态回退。
 
 **CI 已是双 OS 矩阵。** `.github/workflows/ci.yml` 跑 windows-latest +
 ubuntu-latest。WoA 交叉检查只能在 Windows 条件分支执行，且需先安装 Rust target；
@@ -107,8 +109,8 @@ rustup target add aarch64-pc-windows-msvc
 # 3. 构建（VS 的 clang 默认不在 PATH，需显式带入；装了独立 LLVM 则可省）
 export PATH="/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin:$PATH"
 
-# CLI 必须显式构建同一 target；当前 beforeBuildCommand 仍会额外构建宿主版，
-# 实现 P1 时须同步把 build.rs 暂存源改为目标感知路径。
+# CLI 由 Tauri beforeBuildCommand 按 TAURI_ENV_ARCH 构建同一 target，
+# build.rs 再按 Cargo HOST/TARGET 从目标目录暂存。
 cargo build -p quota-cli --release --target aarch64-pc-windows-msvc
 
 # --target 是 Tauri build 选项，不能放在表示 runner 参数起点的 "--" 之后。
@@ -140,9 +142,9 @@ PATH 上以首次 CI 为准。
 单实例、查询与退出；在真实 WoA 完整验收并重新确认前，Release 和 README 必须保留
 “ARM64 预览版”标记，仅 `cargo check` 通过不得写成稳定支持。
 
-**发布产物**：随 release 附 `QuotaTray_<版本>_arm64-preview.zip`（裸 exe + CLI），与
-既有 x64 NSIS 安装包并列。ARM64 是否补 NSIS 安装包留待有真实需求再验证；Preview
-阶段先用 zip，降低安装器变量并与便携版共享打包脚本。
+**发布产物**：随 release 附 `QuotaTray_<版本>_arm64-preview.zip`（裸 exe + CLI）和
+`QuotaTray_<版本>_arm64-preview-portable.zip`，与既有 x64 NSIS/Portable 并列。ARM64
+是否补 NSIS 安装包留待有真实需求再验证；Preview 阶段只用 zip，降低安装器变量。
 
 ### 3.3 为什么仍应提供原生版
 
@@ -314,7 +316,7 @@ marker 决定密钥来源和数据位置，“删除一个文件即可切换安�
 项目所有者已确认方案 A 与 WoA Preview 口径。四类资产名称按 §五作为实现契约；若
 以后修改便携安全模型或移除 Preview 标记，需重新确认并同步 AGENTS.md。
 
-### P1 · WoA 构建与验收打通（小~中，约 1~2 天）
+### P1 · WoA 构建与验收打通（代码与盲测完成，实机验收待办）
 
 1. TDD：为“给定 target 只暂存同架构 CLI”增加构建脚本/纯逻辑契约测试；
 2. 修正 beforeBuild/build.rs 的 target 传播，按 §3.2 完成桌面端 ARM64 链接；
@@ -323,7 +325,7 @@ marker 决定密钥来源和数据位置，“删除一个文件即可切换安�
 5. README 与 Release 按 AGENTS.md 固定文案标记 ARM64 Preview；真实 WoA 完成 §3.2
    冒烟后仍需所有者重新确认，才可移除 Preview。
 
-### P2 · Portable 主体（中，约 4~7 天）
+### P2 · Portable 主体（已于 v0.7.0 完成）
 
 1. core 独立 PR：运行模式纯函数 + `FileStore` + 并发首次创建/损坏密钥契约测试；
 2. 桌面端：首次安全确认状态机、mode/path/store 绑定、主窗口与悬停窗口 WebView2
@@ -332,16 +334,17 @@ marker 决定密钥来源和数据位置，“删除一个文件即可切换安�
 4. 烟测：安装态/便携态隔离、取消确认零敏感落盘、FAT/exFAT 等无 ACL 介质、拔盘或
    只读目录错误文案、双窗口 WebView2 数据不外溢。
 
-### P3 · Portable 发布形态与更新（中，约 2~4 天）
+### P3 · Portable 发布形态与更新（已于 v0.7.0 完成）
 
 1. 打包脚本：四种 flavor 明确输入、架构与 marker 契约检查；
 2. core 独立 PR：更新选择 API 按架构 × 分发形态精确匹配，并覆盖资产乱序/缺失测试；
 3. GUI 下载状态从 installer 抽象为 asset，Portable 实现 v1 手动更新引导；
 4. README 下载节与便携版安全须知（持久密钥暴露周期、备份/同步风险）。
 
-### P4 · 组合发布与收尾（小，约 0.5~1 天）
+### P4 · 组合发布与收尾（代码与文档完成，正式 Release 待办）
 
-arm64 preview portable zip 进发布矩阵；AGENTS.md 文件树与安全红线章节更新；CHANGELOG。
+arm64 preview portable zip 已进入打包矩阵；README 与 AGENTS.md 文件树同步更新。
+CHANGELOG、PR 编号、版本号和正式 Release 资产留到人类验收后的发布流程处理。
 
 ---
 

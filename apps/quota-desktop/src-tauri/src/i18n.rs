@@ -254,13 +254,13 @@ impl Lang {
         }
     }
 
-    /// 便携形态拒绝运行安装包（更新走手动覆盖引导）。
+    /// zip 分发形态拒绝运行安装包（更新走手动覆盖引导）。
     pub fn err_update_install_portable(&self) -> String {
         match self {
-            Self::Zh => "便携版更新请使用「下载更新包」：下载完成后退出应用，将 zip 内容解压覆盖到便携目录"
+            Self::Zh => "当前构建使用 zip 更新包：下载完成后退出应用，将 zip 内容解压覆盖到程序目录"
                 .to_string(),
             Self::En => {
-                "Portable builds update via the downloaded zip: quit the app, then extract the zip over the portable directory"
+                "This build updates via zip: quit the app, then extract the downloaded zip over the application directory"
                     .to_string()
             }
         }

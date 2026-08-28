@@ -1187,7 +1187,7 @@ pub fn cancel_portable_init(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 打开更新下载目录（便携形态 v1 手动更新引导：下载 zip 后由用户
+/// 打开更新下载目录（zip 形态手动更新引导：下载后由用户
 /// 退出应用解压覆盖，不提供自动安装）。走 opener 插件而非裸进程名，
 /// 避免 CreateProcess 搜索序歧义。
 #[tauri::command]
@@ -1240,11 +1240,15 @@ pub async fn download_update(app: AppHandle, state: State<'_, AppState>) -> Resu
 
 /// 运行已下载的安装包（NSIS 向导由用户交互完成）。启动成功后应用自动
 /// 退出——覆盖安装需先解锁自身文件；留 400ms 让 IPC 响应送达前端。
-/// 便携形态拒绝：zip 不是安装包，更新走 open_update_dir 手动覆盖引导。
+/// zip 形态拒绝：普通 ARM64 Preview 与 Portable 都走手动覆盖引导。
 #[tauri::command]
 pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let lang = lang_of(&state);
-    if state.mode.is_portable() {
+    let selector = quota_core::AssetSelector::for_runtime(
+        quota_core::update::arch_label(),
+        state.mode.is_portable(),
+    );
+    if selector.requires_manual_update() {
         return Err(lang.err_update_install_portable());
     }
     crate::update_ctl::run_installer(&state, lang)?;

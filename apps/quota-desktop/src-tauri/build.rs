@@ -1,3 +1,6 @@
+#[cfg(windows)]
+mod build_support;
+
 fn main() {
     stage_quota_cli();
     tauri_build::build()
@@ -15,11 +18,10 @@ fn stage_quota_cli() {
         std::env::var_os("CARGO_MANIFEST_DIR").expect("缺少 CARGO_MANIFEST_DIR"),
     );
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
-    let source = manifest_dir
-        .join("../../..")
-        .join("target")
-        .join(&profile)
-        .join("quota.exe");
+    let workspace_root = manifest_dir.join("../../..");
+    let host = std::env::var("HOST").expect("缺少 Cargo HOST 三元组");
+    let target = std::env::var("TARGET").expect("缺少 Cargo TARGET 三元组");
+    let source = build_support::quota_cli_source(&workspace_root, &profile, &host, &target);
     let staged = manifest_dir.join("generated/quota.exe");
     println!("cargo:rerun-if-changed={}", source.display());
     std::fs::create_dir_all(staged.parent().expect("暂存路径应有父目录"))
@@ -29,8 +31,8 @@ fn stage_quota_cli() {
         std::fs::copy(&source, &staged).expect("暂存 quota CLI 失败");
     } else if profile == "release" && tauri_cli_driven() {
         panic!(
-            "release quota CLI 不存在：{}；请先运行 cargo build -p quota-cli --release",
-            source.display()
+            "release quota CLI 不存在：{}；请先为目标 {target} 构建 quota-cli",
+            source.display(),
         );
     } else if !staged.exists() {
         std::fs::write(&staged, []).expect("创建 quota CLI 测试占位失败");

@@ -146,7 +146,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ```
 <!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->
-QuotaTray/
+QuotaTray-woa-preview/
 ├── .agents/                # Agent 技能库（项目级）
 │   └── skills/ # 技能目录
 │       ├── file-tree/           # 文件树技能
@@ -181,7 +181,7 @@ QuotaTray/
 │   └── pre-push   # 推送级重门禁（clippy+tsc）
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
-│       └── ci.yml # CI 双矩阵流水线
+│       └── ci.yml # CI双矩阵流水线
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
 ├── apps/                   # 应用层（CLI 与桌面端）
@@ -223,6 +223,9 @@ QuotaTray/
 │       ├── package.json        # pnpm 前端清单
 │       ├── pnpm-lock.yaml      # 前端依赖锁文件
 │       ├── pnpm-workspace.yaml # pnpm 构建许可
+│       ├── scripts/            # 构建辅助脚本目录
+│       │   ├── build-hook.contract.mjs # 构建钩子契约测试
+│       │   └── build-hook.mjs          # 目标感知构建钩子
 │       ├── src/                # React 前端源码
 │       │   ├── api.ts                  # invoke 封装
 │       │   ├── App.tsx                 # 主窗布局与页签
@@ -294,7 +297,8 @@ QuotaTray/
 │       │   ├── useCardDragSort.ts      # 卡片拖拽排序状态机
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
-│       │   ├── build.rs                # Tauri 构建脚本
+│       │   ├── build.rs                # Tauri构建脚本
+│       │   ├── build_support.rs        # CLI产物路径纯函数
 │       │   ├── capabilities/           # 权限 ACL
 │       │   │   ├── default.json     # 主窗 ACL
 │       │   │   └── hover-panel.json # 悬停窗 ACL
@@ -314,8 +318,10 @@ QuotaTray/
 │       │   │   ├── state.rs       # AppState
 │       │   │   ├── tray.rs        # 托盘菜单与图标
 │       │   │   └── update_ctl.rs  # 更新检测控制
-│       │   ├── tauri.conf.json         # Tauri 配置
-│       │   └── tauri.windows.conf.json # Windows Tauri 覆盖配置
+│       │   ├── tauri.conf.json         # Tauri配置
+│       │   ├── tauri.windows.conf.json # Windows Tauri 覆盖配置
+│       │   └── tests/                  # 构建逻辑测试目录
+│       │       └── build_support.rs # CLI路径契约测试
 │       ├── tsconfig.json       # TS 编译配置
 │       └── vite.config.ts      # Vite 配置
 ├── Cargo.lock              # 依赖锁文件

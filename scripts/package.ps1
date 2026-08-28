@@ -1,10 +1,10 @@
-﻿# 一键发布资产打包：NSIS 安装包 + x64 便携 zip。
+﻿# 一键发布资产打包：x64 NSIS/Portable + ARM64 Preview/Portable。
 #
 # 用法（仓库根）：
-#   .\package.cmd                    # 全部资产（setup + portable，x64）
+#   .\package.cmd                    # x64 全部资产（setup + portable）
 #   .\package.cmd -Flavor portable   # 仅便携 zip
 #   .\package.cmd -SkipBuild         # 复用 target/release 既有产物（重组装）
-#   .\package.cmd -Arch arm64        # WoA 预留（需先按预研 §3.2 配置交叉工具链）
+#   .\package.cmd -Arch arm64        # WoA 双 Preview zip（普通 + 便携）
 #
 # 契约（AGENTS.md 发布惯例）：
 # - 版本号唯一来源是 workspace Cargo.toml，本脚本不做版本改写；
@@ -14,7 +14,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("setup", "portable", "all")]
+    [ValidateSet("setup", "standalone", "portable", "all")]
     [string] $Flavor = "all",
 
     [ValidateSet("x64", "arm64")]
@@ -69,14 +69,39 @@ function Get-ExpectedAssetName {
     param(
         [Parameter(Mandatory)] [string] $Version,
         [Parameter(Mandatory)] [string] $Arch,
-        [Parameter(Mandatory)] [ValidateSet("SetupExe", "PortableZip")] [string] $FlavorKind
+        [Parameter(Mandatory)] [ValidateSet("SetupExe", "StandaloneZip", "PortableZip")] [string] $FlavorKind
     )
 
     # 与 core::update::expected_asset_name 同契约：ARM64 在完成真实 WoA
     # 验收前统一带 -preview 段（AGENTS.md ARM64 Preview 声明）
     $archTag = if ($Arch -eq "arm64") { "arm64-preview" } else { $Arch }
-    $suffix = if ($FlavorKind -eq "SetupExe") { "setup.exe" } else { "portable.zip" }
-    return "QuotaTray_${Version}_${archTag}-${suffix}"
+    switch ($FlavorKind) {
+        "SetupExe" { return "QuotaTray_${Version}_${archTag}-setup.exe" }
+        "StandaloneZip" { return "QuotaTray_${Version}_${archTag}.zip" }
+        "PortableZip" { return "QuotaTray_${Version}_${archTag}-portable.zip" }
+    }
+}
+
+function Get-PackageKinds {
+    param(
+        [Parameter(Mandatory)] [ValidateSet("x64", "arm64")] [string] $Arch,
+        [Parameter(Mandatory)] [ValidateSet("setup", "standalone", "portable", "all")] [string] $Flavor
+    )
+
+    if ($Arch -eq "arm64" -and $Flavor -eq "setup") {
+        throw "ARM64 在真实 WoA 完整验收前不发布安装包；请使用 standalone、portable 或 all"
+    }
+    if ($Arch -eq "x64" -and $Flavor -eq "standalone") {
+        throw "x64 普通分发使用 NSIS setup；standalone 仅用于 ARM64 Preview"
+    }
+
+    if ($Arch -eq "x64") {
+        if ($Flavor -in @("setup", "all")) { "SetupExe" }
+    }
+    else {
+        if ($Flavor -in @("standalone", "all")) { "StandaloneZip" }
+    }
+    if ($Flavor -in @("portable", "all")) { "PortableZip" }
 }
 
 function Get-PEMachine {
@@ -148,27 +173,50 @@ untouched).
 '@
 }
 
+function New-ZipStaging {
+    param(
+        [Parameter(Mandatory)] [string] $Staging,
+        [Parameter(Mandatory)] [string] $GuiExe,
+        [Parameter(Mandatory)] [string] $CliExe,
+        [switch] $Portable
+    )
+
+    if (Test-Path -LiteralPath $Staging) {
+        Remove-Item -LiteralPath $Staging -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $Staging | Out-Null
+    Copy-Item -LiteralPath $GuiExe -Destination (Join-Path $Staging "QuotaTray.exe")
+    Copy-Item -LiteralPath $CliExe -Destination (Join-Path $Staging "quota.exe")
+
+    if ($Portable) {
+        New-Item -ItemType File -Path (Join-Path $Staging "portable.marker") | Out-Null
+        Get-PortableReadme | Set-Content -LiteralPath (Join-Path $Staging "便携版说明.txt") -Encoding UTF8
+        Get-PortableReadmeEn | Set-Content -LiteralPath (Join-Path $Staging "PORTABLE-README.txt") -Encoding UTF8
+    }
+}
+
 $root = Resolve-WorkspaceRoot -Path $WorkspaceRoot
 $version = Get-WorkspaceVersion -Root $root
+$packageKinds = @(Get-PackageKinds -Arch $Arch -Flavor $Flavor)
 $targetDir = Join-Path $root "target/release"
 $distDir = Join-Path $targetDir "dist"
 
 Write-Host "QuotaTray $version 打包：Flavor=$Flavor Arch=$Arch"
 
 if (-not $SkipBuild) {
-    if ($Flavor -eq "portable" -and (Test-Path -LiteralPath (Join-Path $distDir "portable-staging"))) {
-        # 便携重组装前清掉旧 staging，防旧文件混入 zip
-        Remove-Item -LiteralPath (Join-Path $distDir "portable-staging") -Recurse -Force
-    }
     Push-Location (Join-Path $root "apps/quota-desktop")
     try {
         # tauri build 同时产出裸 GUI exe 与 CLI（beforeBuildCommand），
         # NSIS 在其上叠加——便携 zip 无需第二次构建
         if ($Arch -eq "arm64") {
-            pnpm tauri build --target aarch64-pc-windows-msvc
+            # Preview 阶段不产 ARM64 NSIS，只链接裸 GUI/CLI 后组装双 zip。
+            pnpm tauri build --no-bundle --target aarch64-pc-windows-msvc
+        }
+        elseif ($packageKinds -contains "SetupExe") {
+            pnpm tauri build
         }
         else {
-            pnpm tauri build
+            pnpm tauri build --no-bundle
         }
         if ($LASTEXITCODE -ne 0) {
             throw "tauri build 失败（退出码 $LASTEXITCODE）"
@@ -181,13 +229,12 @@ if (-not $SkipBuild) {
 
 $artifacts = @()
 
-# 产物根目录（setup 与 portable 两分支共用；须在分支外定义——
-# -Flavor portable 单跑时 setup 分支不执行，分支内定义会让 StrictMode
+# 产物根目录（各 flavor 分支共用；须在分支外定义——
+# 单跑 zip 时 setup 分支不执行，分支内定义会让 StrictMode
 # 在下方引用处直接报未定义变量）
 # --target 交叉时 tauri 产物整体落在 target/<triple>/release/ 下
-# （NSIS bundle 与裸 exe 同根）。arm64 为 WoA P1 预留：还需先显式
-# 构建 ARM64 CLI 并完成 build.rs 目标感知暂存（预研 §3.2），该分支
-# 路径未实跑验证，Assert-PEArch 会拦下架构错配产物
+# （NSIS bundle 与裸 exe 同根）。ARM64 构建钩子与 build.rs 共同保证
+# CLI 从同一 target triple 取得；Assert-PEArch 再守最终资产边界。
 $archTargetDir = if ($Arch -eq "arm64") {
     Join-Path (Join-Path $root "target") "aarch64-pc-windows-msvc/release"
 }
@@ -195,7 +242,7 @@ else {
     $targetDir
 }
 
-if ($Flavor -in @("setup", "all")) {
+if ($packageKinds -contains "SetupExe") {
     $setupName = Get-ExpectedAssetName -Version $version -Arch $Arch -FlavorKind "SetupExe"
     $nsisDir = Join-Path $archTargetDir "bundle/nsis"
     $setupPath = Join-Path $nsisDir $setupName
@@ -205,31 +252,36 @@ if ($Flavor -in @("setup", "all")) {
     $artifacts += $setupPath
 }
 
-if ($Flavor -in @("portable", "all")) {
+if (($packageKinds -contains "StandaloneZip") -or ($packageKinds -contains "PortableZip")) {
     $guiExe = Join-Path $archTargetDir "quota-desktop.exe"
     $cliExe = Join-Path $archTargetDir "quota.exe"
     foreach ($exe in @($guiExe, $cliExe)) {
         if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-            throw "便携构建产物缺失：$exe（先完整执行一次不带 -SkipBuild 的打包）"
+            throw "zip 构建产物缺失：$exe（先完整执行一次不带 -SkipBuild 的打包）"
         }
         # AGENTS.md 门禁：包内 GUI/CLI 的 PE 架构必须与资产名称一致
         Assert-PEArch -Path $exe -Arch $Arch
     }
 
-    $staging = Join-Path $distDir "portable-staging"
-    if (Test-Path -LiteralPath $staging) {
-        Remove-Item -LiteralPath $staging -Recurse -Force
+}
+
+if ($packageKinds -contains "StandaloneZip") {
+    # 普通 ARM64 Preview 不带 marker，继续使用安装态数据目录与系统凭据库。
+    $staging = Join-Path $distDir "arm64-standalone-staging"
+    New-ZipStaging -Staging $staging -GuiExe $guiExe -CliExe $cliExe
+    $zipName = Get-ExpectedAssetName -Version $version -Arch $Arch -FlavorKind "StandaloneZip"
+    $zipPath = Join-Path $distDir $zipName
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
     }
-    New-Item -ItemType Directory -Path $staging | Out-Null
+    Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $zipPath
+    $artifacts += $zipPath
+}
 
-    # zip 布局：GUI 改名 QuotaTray.exe + CLI + marker + 说明；不带 Data/
-    # （首启确认后由应用创建，取消则零敏感落盘）
-    Copy-Item -LiteralPath $guiExe -Destination (Join-Path $staging "QuotaTray.exe")
-    Copy-Item -LiteralPath $cliExe -Destination (Join-Path $staging "quota.exe")
-    New-Item -ItemType File -Path (Join-Path $staging "portable.marker") | Out-Null
-    Get-PortableReadme | Set-Content -LiteralPath (Join-Path $staging "便携版说明.txt") -Encoding UTF8
-    Get-PortableReadmeEn | Set-Content -LiteralPath (Join-Path $staging "PORTABLE-README.txt") -Encoding UTF8
-
+if ($packageKinds -contains "PortableZip") {
+    # marker 决定便携模式；Data/ 由首次确认门控创建，不预置进包。
+    $staging = Join-Path $distDir ("{0}-portable-staging" -f $Arch)
+    New-ZipStaging -Staging $staging -GuiExe $guiExe -CliExe $cliExe -Portable
     $zipName = Get-ExpectedAssetName -Version $version -Arch $Arch -FlavorKind "PortableZip"
     $zipPath = Join-Path $distDir $zipName
     if (Test-Path -LiteralPath $zipPath) {

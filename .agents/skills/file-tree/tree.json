@@ -261,9 +261,9 @@
           "children": {
             "ci.yml": {
               "kind": "file",
-              "desc": "CI 双矩阵流水线",
+              "desc": "CI双矩阵流水线",
               "detail": [
-                "CI：双矩阵 fmt+clippy+test（Ubuntu 含 Tauri 依赖）+ 前端 lint/build"
+                "Windows/Ubuntu 执行 fmt、clippy、测试与 release check；Windows 另做 ARM64 all-targets 交叉检查；前端执行 lint/build"
               ]
             }
           }
@@ -613,6 +613,38 @@
               "detail": [
                 "pnpm 11 构建脚本许可（esbuild）"
               ]
+            },
+            "scripts": {
+              "kind": "dir",
+              "desc": "构建辅助脚本目录",
+              "detail": [
+                "Tauri 前置构建钩子及其契约测试"
+              ],
+              "children": {
+                "build-hook.contract.mjs": {
+                  "kind": "file",
+                  "desc": "构建钩子契约测试",
+                  "detail": [
+                    "锁定 Tauri 架构到 Cargo target 映射及 Windows Node 24 下 pnpm shell 启动方式"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/build-hook.mjs"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "build-hook.mjs": {
+                  "kind": "file",
+                  "desc": "目标感知构建钩子",
+                  "detail": [
+                    "读取 Tauri 目标平台/架构，为 Windows ARM64 构建同目标 quota CLI 后执行前端生产构建"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/scripts/build-hook.contract.mjs"
+                  ]
+                }
+              }
             },
             "src": {
               "kind": "dir",
@@ -1364,9 +1396,25 @@
               "children": {
                 "build.rs": {
                   "kind": "file",
-                  "desc": "Tauri 构建脚本",
+                  "desc": "Tauri构建脚本",
                   "detail": [
-                    "tauri-build 前暂存同 profile quota CLI：release 缺失硬失败；debug/test 缺失可建仅供配置校验的 ignored 占位；为 Windows bundle 资源清单提供稳定源路径"
+                    "按 Cargo HOST/TARGET 暂存同架构 quota CLI：release 缺失硬失败，普通 check/test 缺失仅建资源清单占位"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src-tauri/build_support.rs"
+                  ]
+                },
+                "build_support.rs": {
+                  "kind": "file",
+                  "desc": "CLI产物路径纯函数",
+                  "detail": [
+                    "按 Cargo HOST/TARGET 区分原生扁平 target 与交叉 target triple 目录，供 build.rs 暂存同架构 CLI"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src-tauri/tests/build_support.rs"
+                  ],
+                  "tags": [
+                    "pure"
                   ]
                 },
                 "capabilities": {
@@ -1541,9 +1589,9 @@
                 },
                 "tauri.conf.json": {
                   "kind": "file",
-                  "desc": "Tauri 配置",
+                  "desc": "Tauri配置",
                   "detail": [
-                    "版本继承 workspace、CSP/decorations/NSIS；dev/build 前分别构建 debug/release quota CLI，build.rs 再暂存给 Windows bundle"
+                    "CSP/窗口/NSIS 配置；beforeBuildCommand 由目标感知 Node 钩子构建同架构 CLI 与前端"
                   ]
                 },
                 "tauri.windows.conf.json": {
@@ -1552,6 +1600,28 @@
                   "detail": [
                     "Windows bundle 资源映射：把 build.rs 暂存的 generated/quota.exe 打入安装包 bin/quota.exe，供 Agent 调试提示词解析真实绝对路径"
                   ]
+                },
+                "tests": {
+                  "kind": "dir",
+                  "desc": "构建逻辑测试目录",
+                  "detail": [
+                    "Tauri 构建期纯逻辑的集成测试"
+                  ],
+                  "children": {
+                    "build_support.rs": {
+                      "kind": "file",
+                      "desc": "CLI路径契约测试",
+                      "detail": [
+                        "验证原生构建读取 target/profile，交叉构建读取 target/triple/profile"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/build_support.rs"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    }
+                  }
                 }
               }
             },
@@ -1969,11 +2039,7 @@
                   "kind": "file",
                   "desc": "更新检测与下载",
                   "detail": [
-                    "更新检测（M4-b）：版本三段比较、GitHub release 解析与资产",
-                    "选择、节流/每日到点纯函数、AssetDownloader 独立下载通道",
-                    "（10min 总超时 + 15s 连接超时快速失败、256MB 上限、分块",
-                    "进度/速率回调且兼容旧实现、可选代理构造——显式代理不叠加",
-                    "环境变量；proxy_url_of 端口→URL 单一拼接口径）、字节原子落盘"
+                    "版本比较、GitHub release 解析、架构×分发形态精确资产选择；x64 setup 自动安装，ARM64/Portable zip 手动覆盖；下载限额、代理、进度与原子落盘"
                   ]
                 },
                 "vault": {
@@ -2252,14 +2318,14 @@
           "kind": "file",
           "desc": "一键发布资产打包脚本",
           "detail": [
-            "产出 NSIS setup 与便携 zip；版本单源解析、PE 架构断言、staging 五文件（GUI/CLI/marker/中英双说明）"
+            "产出 x64 NSIS/Portable 与 ARM64 普通/Portable Preview；锁定四资产命名、marker 布局与 GUI/CLI PE 架构"
           ]
         },
         "package.tests.ps1": {
           "kind": "file",
           "desc": "打包脚本契约测试",
           "detail": [
-            "版本解析、资产命名、PE 架构读取与中英说明固定提示契约"
+            "验证四资产命名与矩阵、普通/便携 staging 布局、PE Machine 读取及中英固定安全提示"
           ],
           "tags": [
             "test"

@@ -29,7 +29,8 @@ QuotaTray 把这件事压缩成一眼：常驻系统托盘，图标即余额状�
 - 设置 → 数据管理：配置跨机器导出/导入（高敏感文件确认）与一键清空全部数据（5 秒倒数双重确认）
 - 明暗主题三态（浅色/深色/跟随系统）、中英双语三态、自定义标题栏
 - keep-last-good：查询失败时在时限内继续展示上次成功结果；重启后快照先行，无空窗期
-- 便携版（Windows x64）：数据全部随身于 `Data/` 目录，首次运行安全确认，删除目录即卸载
+- Windows ARM64（预览版）：提供普通 zip 与便携 zip，GUI/CLI 均为 ARM64 原生二进制
+- 便携版（Windows x64 / ARM64 预览版）：数据全部随身于 `Data/` 目录，首次运行安全确认，删除目录即卸载
 
 **命令行（quota-cli，与 GUI 平级共享同一核心）**
 
@@ -130,13 +131,21 @@ function extract(resp) {
 
 ## 安装
 
-### Windows
+### Windows x64
 
 从 [Releases](https://github.com/ONEGAYI/QuotaTray/releases) 下载 NSIS 安装包（`*-setup.exe`）安装。
 
-### 便携版（Windows x64）
+### Windows on ARM
 
-下载 `*-portable.zip` 解压到任意可写目录运行，数据全部保留在旁边的
+- **ARM64（预览版）**：下载 `*-arm64-preview.zip`，解压后运行 `QuotaTray.exe`。该包不带安装器，配置与主密钥沿用安装态目录和系统凭据库。
+- **ARM64（预览版）便携版**：下载 `*-arm64-preview-portable.zip`；数据与便携主密钥均位于程序旁的 `Data/`。
+
+> 🧪 **ARM64 预览版**：ARM64 构建已通过交叉编译与产物架构检查，但尚未完成真实 Windows on ARM 设备的完整运行验收。该资产仅供预览和反馈，不应视为稳定支持。
+
+### 便携版（Windows x64 / ARM64 预览版）
+
+Windows x64 下载 `*-x64-portable.zip`；ARM64（预览版）下载
+`*-arm64-preview-portable.zip`。解压到任意可写目录运行，数据全部保留在旁边的
 `Data/` 目录；删除整个目录即卸载。首次运行会展示安全确认。包内含 GUI
 （`QuotaTray.exe`）与 CLI（`quota.exe`），共用同一份 `Data/` 数据。
 
@@ -151,6 +160,13 @@ function extract(resp) {
 cd apps/quota-desktop
 pnpm install
 pnpm tauri build
+
+# 仓库根一键组装 x64 setup + portable
+cd ../..
+.\package
+
+# WoA 普通/便携双 Preview zip（需 ARM64 MSVC + clang 工具链）
+.\package -Arch arm64
 
 # 仅 CLI
 cargo build -p quota-cli --release

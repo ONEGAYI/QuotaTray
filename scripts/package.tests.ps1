@@ -47,7 +47,15 @@ Write-Host "== Get-ExpectedAssetName =="
 # 契约：四类资产命名与 core::update::expected_asset_name 同构（预研 §五）
 Assert-That ((Get-ExpectedAssetName -Version "0.7.0" -Arch "x64" -FlavorKind "SetupExe") -eq "QuotaTray_0.7.0_x64-setup.exe") "x64 安装包命名"
 Assert-That ((Get-ExpectedAssetName -Version "0.7.0" -Arch "x64" -FlavorKind "PortableZip") -eq "QuotaTray_0.7.0_x64-portable.zip") "x64 便携包命名"
+Assert-That ((Get-ExpectedAssetName -Version "0.7.0" -Arch "arm64" -FlavorKind "StandaloneZip") -eq "QuotaTray_0.7.0_arm64-preview.zip") "ARM64 普通预览包命名"
 Assert-That ((Get-ExpectedAssetName -Version "0.7.0" -Arch "arm64" -FlavorKind "PortableZip") -eq "QuotaTray_0.7.0_arm64-preview-portable.zip") "ARM64 便携包带 -preview 段"
+
+Write-Host "== Get-PackageKinds =="
+Assert-That (((Get-PackageKinds -Arch "x64" -Flavor "all") -join ",") -eq "SetupExe,PortableZip") "x64 all = setup + portable"
+Assert-That (((Get-PackageKinds -Arch "arm64" -Flavor "all") -join ",") -eq "StandaloneZip,PortableZip") "ARM64 all = 普通预览 zip + 便携预览 zip"
+$invalidPairRejected = $false
+try { Get-PackageKinds -Arch "arm64" -Flavor "setup" | Out-Null } catch { $invalidPairRejected = $true }
+Assert-That $invalidPairRejected "ARM64 拒绝生成未验收的 setup"
 
 Write-Host "== Get-PortableReadme =="
 # 契约：固定安全提示为 AGENTS.md 原文——含字面 ** 与反引号（曾因
@@ -110,6 +118,18 @@ try {
     Assert-That $threw "Assert-PEArch 对架构不符的 PE 抛错"
     Assert-PEArch -Path $x64Pe -Arch "x64"
     Assert-That $true "Assert-PEArch 对匹配的 PE 放行"
+
+    Write-Host "== New-ZipStaging =="
+    $standalone = Join-Path $sandbox "standalone"
+    New-ZipStaging -Staging $standalone -GuiExe $armPe -CliExe $armPe
+    Assert-That ((Test-Path -LiteralPath (Join-Path $standalone "QuotaTray.exe")) -and (Test-Path -LiteralPath (Join-Path $standalone "quota.exe"))) "普通 ARM64 zip 含 GUI 与 CLI"
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $standalone "portable.marker"))) "普通 ARM64 zip 不含 portable.marker"
+
+    $portable = Join-Path $sandbox "portable"
+    New-ZipStaging -Staging $portable -GuiExe $armPe -CliExe $armPe -Portable
+    Assert-That (Test-Path -LiteralPath (Join-Path $portable "portable.marker")) "便携 ARM64 zip 含 portable.marker"
+    Assert-That ((Test-Path -LiteralPath (Join-Path $portable "便携版说明.txt")) -and (Test-Path -LiteralPath (Join-Path $portable "PORTABLE-README.txt"))) "便携 zip 含中英双说明"
+    Assert-That (-not (Test-Path -LiteralPath (Join-Path $portable "Data"))) "便携 zip 不预置 Data 目录"
 }
 finally {
     Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue

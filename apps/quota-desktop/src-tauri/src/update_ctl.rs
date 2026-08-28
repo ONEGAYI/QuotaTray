@@ -66,6 +66,8 @@ pub struct UpdateStateDto {
     pub platform: &'static str,
     /// 便携形态（数据根存在 portable.key；安装版恒 false）。
     pub portable: bool,
+    /// 当前构建使用 zip 手动覆盖更新（x64 Portable 与两种 ARM64 Preview）。
+    pub manual_update: bool,
     pub last_check: Option<u64>,
     pub available: Option<AvailableInfo>,
     pub last_error: Option<String>,
@@ -77,10 +79,12 @@ pub struct UpdateStateDto {
 }
 
 pub fn dto_of(inner: &UpdateCtlState, portable: bool) -> UpdateStateDto {
+    let selector = update::AssetSelector::for_runtime(update::arch_label(), portable);
     UpdateStateDto {
         current_version: VERSION,
         platform: update::arch_label(),
         portable,
+        manual_update: selector.requires_manual_update(),
         last_check: inner.last_check,
         available: inner.info.clone(),
         last_error: inner.last_error.clone(),
@@ -147,13 +151,9 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
 pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
     let now = now_ms();
     let prev_downloaded = state.update_ctl.read().unwrap().downloaded.clone();
-    // 资产选择按运行形态分流：便携选 portable zip、安装选 setup.exe，
-    // 绝不跨形态回退（命名契约见 core::update）
-    let selector = if state.mode.is_portable() {
-        update::AssetSelector::portable()
-    } else {
-        update::AssetSelector::installed()
-    };
+    // 资产选择按架构 × 运行形态分流，绝不跨形态回退。
+    let selector =
+        update::AssetSelector::for_runtime(update::arch_label(), state.mode.is_portable());
     let mut inner = match update::check_update(http, VERSION, selector).await {
         Ok(UpdateStatus::Available {
             version,
@@ -739,6 +739,11 @@ mod tests {
         assert_eq!(dto.current_version, VERSION);
         assert!(!dto.portable, "安装形态透传 false");
         assert!(dto_of(&inner, true).portable, "便携形态透传 true");
+        assert_eq!(
+            dto.manual_update,
+            update::AssetSelector::installed().requires_manual_update()
+        );
+        assert!(dto_of(&inner, true).manual_update, "便携 zip 必须手动覆盖");
     }
 
     /// 契约：安装包文件丢失或路径越界时，run_installer 清记录并报错

@@ -24,6 +24,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: 安装 WoA Rust 目标
+        if: runner.os == 'Windows'
+        run: rustup target add aarch64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
       - name: 格式检查
         run: cargo fmt --all --check
@@ -35,6 +38,9 @@ jobs:
         run: cargo check --release --workspace
         # dev-smoke 子命令仅 debug 构建存在（cfg(debug_assertions)），
         # release 编译通过 = 双面 cfg 无残留引用的自动验证
+      - name: WoA 交叉编译检查
+        if: runner.os == 'Windows'
+        run: cargo check --workspace --all-targets --target aarch64-pc-windows-msvc
 
   frontend:
     runs-on: ubuntu-latest

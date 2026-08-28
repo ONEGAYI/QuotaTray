@@ -43,17 +43,16 @@ pub fn arch_label() -> &'static str {
 pub enum Flavor {
     /// NSIS 安装包（仅 x64 发布）。
     SetupExe,
+    /// 普通 zip（ARM64 Preview 发布，不启用便携数据模式）。
+    StandaloneZip,
     /// 便携 zip（x64 与 ARM64 均发布）。
     PortableZip,
 }
 
 impl Flavor {
-    /// 资产名的形态后缀（不含架构段）。
-    fn suffix(&self) -> &'static str {
-        match self {
-            Self::SetupExe => "setup.exe",
-            Self::PortableZip => "portable.zip",
-        }
+    /// zip 资产需退出应用后手动覆盖，不能按安装包直接运行。
+    pub fn requires_manual_update(self) -> bool {
+        !matches!(self, Self::SetupExe)
     }
 }
 
@@ -65,20 +64,32 @@ pub struct AssetSelector {
 }
 
 impl AssetSelector {
-    /// 安装版默认选择器（本机架构的 NSIS 安装包）。
+    /// 按运行架构与数据形态构造选择器。x64 安装态使用 NSIS；ARM64
+    /// Preview 安装态使用普通 zip；两种架构的便携态均使用 portable zip。
+    pub fn for_runtime(arch: &'static str, portable: bool) -> Self {
+        let flavor = if portable {
+            Flavor::PortableZip
+        } else if arch.eq_ignore_ascii_case("arm64") {
+            Flavor::StandaloneZip
+        } else {
+            Flavor::SetupExe
+        };
+        Self { arch, flavor }
+    }
+
+    /// 当前构建安装态的选择器。
     pub fn installed() -> Self {
-        Self {
-            arch: arch_label(),
-            flavor: Flavor::SetupExe,
-        }
+        Self::for_runtime(arch_label(), false)
     }
 
     /// 便携版选择器（本机架构的便携 zip）。
     pub fn portable() -> Self {
-        Self {
-            arch: arch_label(),
-            flavor: Flavor::PortableZip,
-        }
+        Self::for_runtime(arch_label(), true)
+    }
+
+    /// 当前选择器的更新是否必须走“打开目录、退出后覆盖”。
+    pub fn requires_manual_update(self) -> bool {
+        self.flavor.requires_manual_update()
     }
 }
 
@@ -91,7 +102,12 @@ pub fn expected_asset_name(version: &str, arch: &str, flavor: Flavor) -> String 
         "arm64" => "arm64-preview",
         _ => arch_lower.as_str(),
     };
-    format!("QuotaTray_{version}_{arch_tag}-{}", flavor.suffix())
+    let base = format!("QuotaTray_{version}_{arch_tag}");
+    match flavor {
+        Flavor::SetupExe => format!("{base}-setup.exe"),
+        Flavor::StandaloneZip => format!("{base}.zip"),
+        Flavor::PortableZip => format!("{base}-portable.zip"),
+    }
 }
 
 /// release 所在仓库（owner/repo）。
@@ -641,6 +657,7 @@ mod tests {
             {"name": "QuotaTray_0.2.0_x64.zip", "browser_download_url": "https://x/zip", "size": 1},
             {"name": "QuotaTray_0.2.0_x64-setup.exe", "browser_download_url": "https://x/setup", "size": 2},
             {"name": "QuotaTray_0.2.0_x64-portable.zip", "browser_download_url": "https://x/portable", "size": 4},
+            {"name": "QuotaTray_0.2.0_arm64-preview.zip", "browser_download_url": "https://x/arm", "size": 6},
             {"name": "QuotaTray_0.2.0_arm64-preview-portable.zip", "browser_download_url": "https://x/arm-portable", "size": 5},
             {"name": "notes.txt", "browser_download_url": "https://x/txt", "size": 3}
         ]
@@ -659,6 +676,10 @@ mod tests {
     const ARM64_PORTABLE: AssetSelector = AssetSelector {
         arch: "ARM64",
         flavor: Flavor::PortableZip,
+    };
+    const ARM64_STANDALONE: AssetSelector = AssetSelector {
+        arch: "ARM64",
+        flavor: Flavor::StandaloneZip,
     };
 
     #[tokio::test]
@@ -687,7 +708,8 @@ mod tests {
     }
 
     /// 契约：同一 release 下，安装版选 setup.exe、便携版选 portable.zip、
-    /// ARM64 便携选 arm64-preview-portable.zip——选择器分流互不串扰。
+    /// ARM64 普通版选 arm64-preview.zip、ARM64 便携版选
+    /// arm64-preview-portable.zip——选择器分流互不串扰。
     #[tokio::test]
     async fn check_update_selector_routes_flavors_and_arches() {
         let pick = |selector: AssetSelector| {
@@ -704,9 +726,30 @@ mod tests {
             Some("QuotaTray_0.2.0_x64-portable.zip".into())
         );
         assert_eq!(
+            pick(ARM64_STANDALONE).await,
+            Some("QuotaTray_0.2.0_arm64-preview.zip".into())
+        );
+        assert_eq!(
             pick(ARM64_PORTABLE).await,
             Some("QuotaTray_0.2.0_arm64-preview-portable.zip".into())
         );
+    }
+
+    #[test]
+    fn runtime_selector_routes_arch_and_distribution() {
+        let x64_installed = AssetSelector::for_runtime("x64", false);
+        assert_eq!(x64_installed.flavor, Flavor::SetupExe);
+        assert!(!x64_installed.requires_manual_update());
+
+        let arm64_installed = AssetSelector::for_runtime("ARM64", false);
+        assert_eq!(arm64_installed.flavor, Flavor::StandaloneZip);
+        assert!(arm64_installed.requires_manual_update());
+
+        for arch in ["x64", "ARM64"] {
+            let portable = AssetSelector::for_runtime(arch, true);
+            assert_eq!(portable.flavor, Flavor::PortableZip);
+            assert!(portable.requires_manual_update());
+        }
     }
 
     #[tokio::test]
@@ -907,6 +950,10 @@ mod tests {
         assert_eq!(
             expected_asset_name("0.7.0", "x64", Flavor::PortableZip),
             "QuotaTray_0.7.0_x64-portable.zip"
+        );
+        assert_eq!(
+            expected_asset_name("0.7.0", "ARM64", Flavor::StandaloneZip),
+            "QuotaTray_0.7.0_arm64-preview.zip"
         );
         assert_eq!(
             expected_asset_name("0.7.0", "ARM64", Flavor::PortableZip),
