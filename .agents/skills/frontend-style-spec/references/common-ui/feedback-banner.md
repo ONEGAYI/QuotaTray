@@ -15,6 +15,11 @@
 
 - 语义配色只从 `success/warning/danger/accent` 四组 soft+主色对里选。
 - 托盘悬停窗 `qt-hover-error` 是紧凑变体（sm 圆角、10px 字），密度豁免。
+- `qt-portable-gate-notice`（便携首启警示块，草案 2026-08-28 待所有者确认）：
+  danger soft 底 + danger 字两行正文（InlineMd 渲染粗体/代码）+ 右上角问号
+  disclosure 展开完整固定安全提示。取值登记：md 圆角、padding 13px 40px 13px 13px
+  （右侧 40px 为问号钮让位）、字号 13、行距 1.7；内嵌展开面板 sm 圆角、
+  12.5px 字、danger 20% 混色边框——容器/内嵌圆角差 2px 符合 DT-002 内缩规则。
 
 **细进度条**：高 5px、药丸 999px、轨道 `text-faint 17%` 混色底、填充 accent
 （`qt-hover-progress` 与 `qt-update-progress-track` 共用此规格，2026-08-28 统一）。

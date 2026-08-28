@@ -47,6 +47,9 @@
 - `<option title>`：原生下拉选项由操作系统渲染，CSS 无法作用，允许保留（技术限制）。
 - `qt-usage-tooltip`（使用统计图表数据悬浮卡）：富内容数据卡（时间 + 数值 + 说明，
   跟随数据点定位），不适用纯文字气泡形态，整体豁免本条目（2026-08-28 所有者确认）。
+- `.qt-gate-info-btn[data-tooltip]::after` 右对齐变体（便携首启确认页问号钮）：
+  `left: auto; right: 0; transform: none` 覆盖居中锚定与 3px 上浮——按钮贴卡片右缘，
+  居中锚定的气泡会被滚动卡片（overflow 裁剪容器）右缘裁掉（2026-08-28，技术限制）。
 
 **代码锚点**：`index.css` 的 `[data-tooltip]::after` 与 `.qt-tooltip-anchor`；
 `ui.tsx` 的 `IconButton`、`Tooltip`。

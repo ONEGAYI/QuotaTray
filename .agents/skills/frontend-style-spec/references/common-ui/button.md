@@ -29,5 +29,12 @@
 新图标钮按场景选档，不另设尺寸；hover 一律 `surface-soft` 底 + `text` 字
 （danger 变体例外：danger-soft 底 + danger 字）。
 
+**特例登记**：
+
+- `qt-gate-info-btn`（便携首启确认页问号钮）：26px（同迷你档尺寸）但
+  `border-radius: 50%` 圆形——圆形与药丸 `999px` 同为不入档位形态；
+  danger 变体（danger 字，hover danger-soft 底，展开态同 hover）。
+  同时是 disclosure 按钮（aria-expanded），非纯图标钮（2026-08-28 登记）。
+
 **文字链接式按钮**（行内下划线动作）：`accent-strong` 字 + hover 下划线；
 删除类动作 hover 转 `danger` 字。不得引入 Tailwind 色板（见 T-008）。
