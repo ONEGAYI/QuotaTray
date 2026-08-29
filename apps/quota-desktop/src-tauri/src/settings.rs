@@ -319,4 +319,21 @@ mod tests {
         assert_eq!(s.tray_icon_entry_id, None);
         let _ = std::fs::remove_file(&path);
     }
+
+    /// 契约：旧版 settings.json 残留已删字段（如 update_check_time）时
+    /// 忽略未知键正常加载——升级路径依赖 serde 默认容忍，防止未来引入
+    /// `deny_unknown_fields` 静默破坏存量配置。
+    #[test]
+    fn legacy_removed_field_is_ignored() {
+        let path = temp_path("legacy-removed");
+        std::fs::write(
+            &path,
+            r#"{"update_check_time":"09:00","language":"en","update_last_check":123}"#,
+        )
+        .unwrap();
+        let s = Settings::load(&path);
+        assert_eq!(s.language, "en", "已存字段正常读取");
+        assert_eq!(s.update_last_check, Some(123));
+        let _ = std::fs::remove_file(&path);
+    }
 }

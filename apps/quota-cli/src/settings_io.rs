@@ -154,6 +154,23 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// 契约：旧版 settings.json 残留已删字段（update_check_time）被忽略，
+    /// 其余字段正常读取——升级路径依赖 serde 默认容忍未知键。
+    #[test]
+    fn load_prefs_ignores_removed_field() {
+        let dir = temp_dir("legacy-removed");
+        let cfg = dir.join("config.json");
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"update_check_time":"09:00","update_check_enabled":true,"update_last_check":77}"#,
+        )
+        .unwrap();
+        let p = load_prefs(&cfg);
+        assert!(p.update_check_enabled);
+        assert_eq!(p.update_last_check, Some(77));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// 契约：写回 last_check 保留未知字段（桌面端并行新增的 theme 等）。
     #[test]
     fn write_last_check_preserves_unknown_fields() {

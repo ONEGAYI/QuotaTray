@@ -161,8 +161,8 @@ pub fn next_change(
 
 /// epoch 毫秒 → (时区星期, 当日分钟数)。tz None = 本地；非法偏移/超范围
 /// 兜底仍基于**入参时刻**的本地时区（保持纯函数——`next_change` 的扫描
-/// 依赖同一入参的可重判定），仅入参超出 chrono 有效范围才按当前时间兜底
-/// （与 `update::local_datetime` 同策略，不 panic）。
+/// 依赖同一入参的可重判定），入参超出 chrono 有效范围时落到确定性
+/// 兜底值，不读真实时钟、不 panic。
 fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
     fn parts<Tz: chrono::TimeZone>(dt: chrono::DateTime<Tz>) -> (chrono::Weekday, u32) {
         (dt.weekday(), dt.hour() * 60 + dt.minute())

@@ -147,7 +147,7 @@ pub fn is_stale_installer(name: &str, current_version: &str) -> bool {
 /// release 所在仓库（owner/repo）。
 pub const GITHUB_REPO: &str = "ONEGAYI/QuotaTray";
 
-/// 周期检测的最小间隔（自动检测每 24h 至多一次，与每日到点判定互补）。
+/// CLI 启动节流的最小间隔（一次性进程，24h 至多自动提示一次）。
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// GUI 常驻轮询间隔：应用运行期间每 5 分钟检测一次（GitHub 未认证
@@ -578,15 +578,16 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 // ---- 自动检测节流（纯函数，epoch ms 入参） ---------------------------------
 
-/// 周期检测判定（CLI 启动钩子与 GUI 首启共用）：开关开启且距上次检测
-/// ≥24h（从未检测视为应检）。
+/// 周期检测判定（CLI 启动钩子用）：开关开启且距上次检测 ≥24h（从未
+/// 检测视为应检）。
 pub fn should_check(enabled: bool, last_check_ms: Option<u64>, now_ms: u64) -> bool {
     should_check_within(enabled, last_check_ms, now_ms, DAY_MS)
 }
 
 /// 泛化节流判定：开关开启且距上次检测 ≥`interval_ms`（从未检测视为
 /// 应检；时钟回退 saturating 到 0，不 panic）。GUI 轮询调度以
-/// `POLL_INTERVAL_MS` 为间隔调用。
+/// `POLL_INTERVAL_MS` 为间隔调用。`interval_ms` 传 0 时恒为 true
+/// （每次判定都检测），调用方应传非零间隔。
 pub fn should_check_within(
     enabled: bool,
     last_check_ms: Option<u64>,

@@ -94,7 +94,7 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
         // 托盘首屏即渲染快照（消除重启空窗）
         let state = app.state::<state::AppState>();
         tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
-        // 更新检测轮询调度：启动后一分钟的首次 wake 即覆盖「启动时检测」
+        // 更新检测轮询调度：spawn 后立即首次判定，「启动时检测」由首判覆盖
         update_ctl::spawn_scheduler(app.clone());
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
