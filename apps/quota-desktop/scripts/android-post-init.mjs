@@ -253,6 +253,14 @@ export async function main() {
 
   const buildGradlePath = fileURLToPath(buildGradleUrl);
   const buildGradle = await readFile(buildGradlePath, "utf8");
+  // keep 规则文件依赖上游模板的 fileTree 收编（app 目录全部 .pro 进
+  // proguardFiles）；上游若改为显式文件名列表，keep 会静默失效且契约
+  // 测试全绿——锚点漂移即抛错，与签名注入同防线（R2 复验 2026-08-29）
+  if (!buildGradle.includes('fileTree(".") { include("**/*.pro") }')) {
+    throw new Error(
+      `build.gradle.kts 缺少 fileTree("**/*.pro") 收编锚点，keep 规则将失效：${buildGradlePath}`,
+    );
+  }
   const injectedGradle = injectAndroidReleaseSigning(buildGradle);
   if (!injectedGradle.includes('signingConfigs.findByName("release")')) {
     throw new Error(`build.gradle.kts 未能注入 release 签名配置：${buildGradlePath}`);

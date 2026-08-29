@@ -127,3 +127,14 @@ export function resolveUpdateAction({
   }
   return "check";
 }
+
+/** Android 已保存 APK（SAF content URI）的有效性判定：下载时记录的
+ * 可用版本快照与当前可用版本一致才可用——重检测发现新版本时自动
+ * 失效（旧包不该再装），同版本重复检测不清空（18MB 产物不白费）。
+ * available 为 null（无可用更新/检测失败）时只有 null 快照匹配。 */
+export function savedApkIsCurrent(
+  saved: { uri: string; version: string | null } | null,
+  availableVersion: string | null,
+): saved is { uri: string; version: string | null } {
+  return saved != null && saved.version === availableVersion;
+}

@@ -31,6 +31,7 @@ import {
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
   runtimeLabel,
+  savedApkIsCurrent,
 } from "./settingsView";
 import {
   defaultTransferFileName,
@@ -66,8 +67,9 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const [savedApk, setSavedApk] = useState<{ uri: string; version: string | null } | null>(null);
   /** Android：open_downloaded_apk 返回 false（系统无安装器）后的降级引导。 */
   const [installFallback, setInstallFallback] = useState(false);
-  /** Android：open_install_consent 返回 false（API 26 以下无该设置页）。 */
-  const [consentUnavailable, setConsentUnavailable] = useState(false);
+  /** Android：授权页入口反馈——"unsupported" = API 26 以下无该设置页；
+   * "error" = 桥故障（JNI/类加载失败等），两者的用户出路一致。 */
+  const [consentFeedback, setConsentFeedback] = useState<"unsupported" | "error" | null>(null);
 
   const portableRun = updateState.data?.portable ?? false;
   const manualUpdateRun = updateState.data?.manual_update ?? portableRun;
@@ -257,8 +259,9 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const update = updateState.data;
   const available = update?.available ?? null;
   // 版本快照一致的已保存 APK 才可用（重检测出新版本自动失效）
-  const savedApkUri =
-    savedApk && savedApk.version === (available?.version ?? null) ? savedApk.uri : null;
+  const savedApkUri = savedApkIsCurrent(savedApk, available?.version ?? null)
+    ? savedApk.uri
+    : null;
   const downloadedPath = update?.downloaded_path ?? null;
   const operationError = resolveUpdateError({
     checkError: checkNow.isError ? checkNow.error : null,
@@ -642,16 +645,16 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                     type="button"
                     className="qt-inline-link"
                     onClick={() => {
-                      setConsentUnavailable(false);
+                      setConsentFeedback(null);
                       // false = API 26 以下无该设置页（Kotlin 侧版本门）
                       void api
                         .openInstallConsent()
                         .then((dispatched) => {
-                          if (!dispatched) setConsentUnavailable(true);
+                          if (!dispatched) setConsentFeedback("unsupported");
                         })
                         .catch((e) => {
                           console.error("打开安装授权页失败", e);
-                          setConsentUnavailable(true);
+                          setConsentFeedback("error");
                         });
                     }}
                   >
@@ -659,8 +662,11 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   </button>
                 </p>
               )}
-              {mobile && consentUnavailable && (
-                <p className="qt-inline-error">{t("settings.installConsentUnavailable")}</p>
+              {mobile && consentFeedback === "unsupported" && (
+                <p className="qt-inline-error">{t("settings.installConsentUnsupported")}</p>
+              )}
+              {mobile && consentFeedback === "error" && (
+                <p className="qt-inline-error">{t("settings.installConsentFailed")}</p>
               )}
               {installFallback && (
                 <p className="qt-inline-error">{t("settings.noInstaller")}</p>

@@ -349,8 +349,10 @@ export const en: Record<TextKey, string> = {
   "settings.installConsentHint":
     "No install confirmation shown? Open the saved APK from your file manager to install it, or first allow this app to install unknown apps on some systems",
   "settings.installConsentOpen": "Open system setting",
-  "settings.installConsentUnavailable":
+  "settings.installConsentUnsupported":
     "This system does not provide that settings page (version too old); install from your file manager instead",
+  "settings.installConsentFailed":
+    "Failed to open the system settings page; install from your file manager instead",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "Peak/off-peak pricing",
   "pricing.unit": "All prices are per 1M tokens",

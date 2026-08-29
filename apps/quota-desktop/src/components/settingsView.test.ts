@@ -8,6 +8,7 @@ import {
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
   runtimeLabel,
+  savedApkIsCurrent,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -189,5 +190,27 @@ describe("更新设置视图", () => {
     expect(runtimeLabel(null, false, "便携版")).toBe("");
     expect(runtimeLabel("  ", false, "便携版")).toBe("");
     expect(runtimeLabel(null, true, "便携版")).toBe("便携版");
+  });
+});
+
+describe("savedApkIsCurrent：Android 已保存 APK 的版本快照有效性", () => {
+  it("未保存（null）恒不可用", () => {
+    expect(savedApkIsCurrent(null, "0.8.1")).toBe(false);
+    expect(savedApkIsCurrent(null, null)).toBe(false);
+  });
+
+  it("快照与当前可用版本一致时可用（同版本重检不清空 18MB 产物）", () => {
+    const saved = { uri: "content://downloads/42", version: "0.8.1" };
+    expect(savedApkIsCurrent(saved, "0.8.1")).toBe(true);
+  });
+
+  it("重检测出新版本时自动失效（旧包不该再装）", () => {
+    const saved = { uri: "content://downloads/42", version: "0.8.1" };
+    expect(savedApkIsCurrent(saved, "0.9.0")).toBe(false);
+  });
+
+  it("available 为 null 时仅 null 快照匹配（版本未知不装旧包）", () => {
+    expect(savedApkIsCurrent({ uri: "content://1", version: null }, null)).toBe(true);
+    expect(savedApkIsCurrent({ uri: "content://1", version: "0.8.1" }, null)).toBe(false);
   });
 });

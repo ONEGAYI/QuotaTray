@@ -46,3 +46,12 @@ test("Android 控制台直达为 trailing 文字按钮且满足 44px 命中区�
     /body\.qt-mobile-runtime \.qt-provider-route-label[^{]*\{[^}]*flex:\s*1;[^}]*min-width:\s*0;/s,
   );
 });
+
+test("Android 更新页主行动按钮满足 44px 命中区（T-010）", () => {
+  // 检测/下载/安装是更新页唯一主行动（对话框 footer 外），2026-08-29
+  // 审查修复补齐；与 dialog-footer 的 44px 同口径
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-update-status \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
+  );
+});

@@ -83,38 +83,45 @@ where
     // SAFETY: 见上；raw 指针即该 GlobalRef 的底层引用，非线程局部引用
     let j_context = unsafe { JObject::from_raw(ctx.context() as jni::sys::jobject) };
 
-    // 经应用 ClassLoader 加载 helper 类（见模块注释）
-    let loader = env
-        .call_method(
-            &j_context,
-            "getClassLoader",
-            "()Ljava/lang/ClassLoader;",
-            &[],
-        )
-        .and_then(|v| v.l())
-        .map_err(|e| format!("获取应用 ClassLoader 失败：{e}"))?;
-    let class_name = env
-        .new_string(HELPER_CLASS)
-        .map_err(|e| format!("构造类名失败：{e}"))?;
-    let helper_obj = env
-        .call_method(
-            &loader,
-            "loadClass",
-            "(Ljava/lang/String;)Ljava/lang/Class;",
-            &[JValue::Object(&class_name)],
-        )
-        .and_then(|v| v.l())
-        .map_err(|e| format!("加载 {HELPER_CLASS} 失败：{e}"))?;
-    // loadClass 返回的 java.lang.Class 实例即静态调用的类对象；
-    // into_raw 移交 JObject 所有权（jni 0.21 的 JObject/JClass 无 Drop，
-    // 局部引用靠 AttachGuard detach 时随线程引用表整体释放，每次调用
-    // 量级 <16 个，无泄漏）。
-    // SAFETY: raw 指针来自同一线程的有效局部引用
-    let helper = unsafe { JClass::from_raw(helper_obj.into_raw()) };
-    let result = f(&mut env, &j_context, &helper);
+    // 前置链与回调一体收口：getClassLoader/new_string/loadClass 任一失败
+    // （含 keep 规则失效时 loadClass 的 ClassNotFoundException）都走到
+    // 函数末尾的统一 exception_clear，不带 pending exception detach。
+    let load_and_call = move |env: &mut JNIEnv| -> Result<T, String> {
+        // 经应用 ClassLoader 加载 helper 类（见模块注释）
+        let loader = env
+            .call_method(
+                &j_context,
+                "getClassLoader",
+                "()Ljava/lang/ClassLoader;",
+                &[],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| format!("获取应用 ClassLoader 失败：{e}"))?;
+        let class_name = env
+            .new_string(HELPER_CLASS)
+            .map_err(|e| format!("构造类名失败：{e}"))?;
+        let helper_obj = env
+            .call_method(
+                &loader,
+                "loadClass",
+                "(Ljava/lang/String;)Ljava/lang/Class;",
+                &[JValue::Object(&class_name)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| format!("加载 {HELPER_CLASS} 失败：{e}"))?;
+        // loadClass 返回的 java.lang.Class 实例即静态调用的类对象；
+        // into_raw 移交 JObject 所有权（jni 0.21 的 JObject/JClass 无 Drop，
+        // 局部引用靠 AttachGuard detach 时随线程引用表整体释放，每次调用
+        // 量级 <16 个，无泄漏）。
+        // SAFETY: raw 指针来自同一线程的有效局部引用
+        let helper = unsafe { JClass::from_raw(helper_obj.into_raw()) };
+        f(env, &j_context, &helper)
+    };
+
+    let result = load_and_call(&mut env);
     // jni crate 的 call_* 出错不清理 pending exception（官方文档明示由
     // 调用方负责）；带着未清异常 detach 违反 JNI 规范，CheckJNI 下可
-    // abort——骨架层统一收口：回调失败即清理。
+    // abort——骨架层统一收口：任何失败（前置链或回调）即清理。
     if result.is_err() {
         let _ = env.exception_clear();
     }

@@ -338,7 +338,8 @@ export const zh = {
   "settings.noInstaller": "系统未提供安装器，请从文件管理器点击已保存的 APK 手动安装",
   "settings.installConsentHint": "未弹出安装确认？可从文件管理器打开已保存的 APK 直接安装；部分系统需先允许本应用安装未知应用",
   "settings.installConsentOpen": "去系统设置",
-  "settings.installConsentUnavailable": "当前系统未提供该设置页（版本过低），请直接从文件管理器安装",
+  "settings.installConsentUnsupported": "当前系统未提供该设置页（版本过低），请直接从文件管理器安装",
+  "settings.installConsentFailed": "打开系统设置页失败，请直接从文件管理器安装",
   // ---- 标题栏消息中心 ----
   "titlebar.messages": "消息",
   "msgCenter.empty": "暂无消息",
