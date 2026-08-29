@@ -47,9 +47,11 @@ pub struct Settings {
     /// 便携/普通 zip 更新维持「打开目录手动覆盖」引导。
     #[serde(default)]
     pub update_auto_download: bool,
-    /// 系统通知总开关（两端共用；默认开——桌面「更新就绪」主窗不可见时
-    /// 补通知的现状行为不变）。Android 侧叠加系统运行时权限层：
-    /// 开关开但 POST_NOTIFICATIONS 未授权时通知被系统静默丢弃（等效关闭）。
+    /// 系统通知总开关（两端共用；默认开——开关只拦截「显式关闭」，桌面
+    /// 默认行为不变）。消费方：桌面 notify_desktop（更新就绪 + 低余额，
+    /// 主窗不可见时）、Android notify_background（后台补发）。Android 侧
+    /// 叠加系统运行时权限层：开关开但 POST_NOTIFICATIONS 未授权时通知被
+    /// 系统静默丢弃（等效关闭）。
     #[serde(default = "default_notifications_enabled")]
     pub notifications_enabled: bool,
 }
@@ -248,6 +250,7 @@ mod tests {
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
+        assert!(s.notifications_enabled, "老版本配置缺字段回退默认开启");
         let _ = std::fs::remove_file(&path);
     }
 

@@ -27,6 +27,7 @@ import {
   downloadPercent,
   formatDownloadProgress,
   resolveNotificationPermissionAction,
+  resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
@@ -61,7 +62,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const updateState = useUpdateState();
   const [tab, setTab] = useState<Tab>("general");
   useEffect(() => {
-    if (open) setTab(initialTab);
+    setTab((current) => resolveTabOnOpen(open, initialTab, current));
   }, [open, initialTab]);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
@@ -150,12 +151,13 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
     onError: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
   });
 
-  /** Android 通知权限状态（消息中心二阶）：仅在移动端设置页打开时查询。 */
+  /** Android 通知权限状态（消息中心二阶）：仅在移动端设置页打开时查询。
+   * 不设 staleTime——用户可能经「去系统设置」手动改权限，返回应用后
+   * （visibilitychange invalidate + 对话框重开）必须能取到新值。 */
   const notificationPermission = useQuery({
     queryKey: ["notification-permission"],
     queryFn: api.getNotificationPermission,
     enabled: mobile && open,
-    staleTime: Infinity,
   });
   /** 请求通知运行时权限（弹系统对话框；结果即最新权限状态）。 */
   const requestNotification = useMutation({
@@ -517,7 +519,11 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     <Button
                       variant="secondary"
                       disabled={openNotificationSettings.isPending}
-                      onClick={() => openNotificationSettings.mutate()}
+                      onClick={() => {
+                        // 先清历史失败标记：上次跳转失败不延续到本次点击
+                        setOpenNotificationSettingsFailed(false);
+                        openNotificationSettings.mutate();
+                      }}
                     >
                       {t("settings.notificationOpenSettings")}
                     </Button>

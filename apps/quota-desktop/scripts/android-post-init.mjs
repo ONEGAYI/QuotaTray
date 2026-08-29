@@ -187,9 +187,10 @@ object NotificationHelper {
 }
 
 /**
- * R8 keep 规则：ApkInstallHelper 仅被 Rust 侧反射加载（无 Java 引用），
- * release 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust
- * loadClass 抛 ClassNotFoundException、安装链恒失败。build.gradle.kts 的
+ * R8 keep 规则：ApkInstallHelper（APK 安装链）与 NotificationHelper
+ * （系统通知设置页跳转）仅被 Rust 侧反射加载（无 Java 引用），release
+ * 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust loadClass 抛
+ * ClassNotFoundException、对应链路恒失败。build.gradle.kts 的
  * proguardFiles 已以 fileTree 收编 app 目录全部 .pro，落文件即生效。
  */
 export function proguardKeepRulesSource() {

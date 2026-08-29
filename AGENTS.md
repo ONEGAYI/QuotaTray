@@ -83,15 +83,18 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   形态）；消息模型三类——`update-ready`（桌面）、`update-available`（移动手动
   检测发现新版本，卡片「查看更新」直达设置·更新页）、`low-balance`（两端共用，
   后端查询成功后按 `low_balance_threshold_percent` 阈值判定，core
-  `used_percent` 与前端卡片高亮同语义）。系统通知二阶已就绪：Android 通知渠道
-  `quotatray-messages`（setup 幂等创建）、`POST_NOTIFICATIONS` 运行时权限流
-  （权限由插件 AAR manifest 自动带入；设置页开关 + 请求/跳系统设置引导，
-  `NotificationHelper.kt` JNI 桥三件套）、前后台生命周期（前端
-  visibilitychange → `set_app_foreground` 状态表）、后台补发收口在
-  `notify_background`（开关 + 后台 + 已授权三条件，失败静默红点仍在）；
-  `notifications_enabled` 两端设置开关（默认 true，桌面现状行为不变）。模拟器
-  已验：面板外点关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块
-  渲染 → 系统对话框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
+  `used_percent` 与前端卡片高亮同语义；**边沿触发防重**——首次达标才广播/
+  通知，持续达标静默，回落清除登记下次达标重提，防后台轮询每周期重复打扰）。
+  系统通知二阶已就绪：Android 通知渠道 `quotatray-messages`（setup 幂等创建）、
+  `POST_NOTIFICATIONS` 运行时权限流（权限由插件 AAR manifest 自动带入；设置页
+  开关 + 请求/跳系统设置引导，`NotificationHelper.kt` JNI 桥三件套）、前后台
+  生命周期（前端 visibilitychange → `set_app_foreground` 状态表）、平台各自
+  的发射收口——Android `notify_background`（开关 + 后台两条件，未授权由系统
+  静默丢弃，失败仅日志红点仍在）、桌面 `notify_desktop`（开关 + 主窗不可见
+  两条件）；`notifications_enabled` 两端设置开关真实生效（默认 true 桌面现状
+  不变，显式关闭后两端更新就绪与低余额通知均拦截）。模拟器已验：面板外点
+  关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块渲染 → 系统对话
+  框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
   **后台通知当前触发窗口仅「请求在途时退后台」**——两个发射点
   （update-available/low-balance）均由前端命令驱动，Android 后台 WebView
   冻结后无查询/检测发生；常态化「退后台收通知」依赖 WorkManager 后台刷新

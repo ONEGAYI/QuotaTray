@@ -164,3 +164,11 @@ export function resolveNotificationPermissionAction({
   if (permission === "prompt" || permission === "prompt-with-rationale") return "request";
   return "none";
 }
+
+/** 设置页签的消费时序（纯函数）：对话框打开时消费 initialTab——含
+ * 「开着期间 prop 变化」的直达场景（消息卡片「查看更新」在设置页已开
+ * 时再次触发也要生效）；关闭/未打开不消费（关闭重置由调用方 onClose
+ * 负责，此后自然回退默认页签）。 */
+export function resolveTabOnOpen<T extends string>(open: boolean, initialTab: T, current: T): T {
+  return open ? initialTab : current;
+}

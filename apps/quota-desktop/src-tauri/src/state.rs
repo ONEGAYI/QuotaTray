@@ -135,6 +135,11 @@ pub struct AppState {
     /// 桌面不消费）。由前端 visibilitychange 经 `set_app_foreground` 命令
     /// 同步；初始 true（乐观假设启动即前台，首个 visibility 事件即校正）。
     pub app_foreground: std::sync::atomic::AtomicBool,
+    /// 低余额提醒的会话级登记（条目 id 集合，边沿触发防重）：「已用 ≥
+    /// 阈值」是持续状态，直接广播会随轮询周期重复打扰（后台时即重复
+    /// 系统通知）——首次达标广播一次并登记，持续达标静默，回落阈值
+    /// 以下清除登记（下次达标重新提醒）。会话内存，不持久化。
+    pub low_balance_notified: Mutex<std::collections::HashSet<String>>,
 }
 
 /// 启动门控：便携形态首次运行（`portable.key` 缺失）时，setup 阶段
@@ -302,6 +307,7 @@ impl AppState {
             last_peak: RwLock::new(HashMap::new()),
             history: Mutex::new(history),
             app_foreground: std::sync::atomic::AtomicBool::new(true),
+            low_balance_notified: Mutex::new(std::collections::HashSet::new()),
         })
     }
 }
@@ -388,6 +394,7 @@ mod tests {
             last_peak: RwLock::new(HashMap::new()),
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
             app_foreground: std::sync::atomic::AtomicBool::new(true),
+            low_balance_notified: Mutex::new(std::collections::HashSet::new()),
         }
     }
 

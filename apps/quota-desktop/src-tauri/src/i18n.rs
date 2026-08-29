@@ -475,8 +475,8 @@ impl Lang {
         }
     }
 
-    /// 「低余额提醒」系统通知标题（后台时发送，两端共用文案、Android 消费）。
-    #[cfg(target_os = "android")]
+    /// 「低余额提醒」系统通知标题（后台时发送，两端共用文案与消费方：
+    /// Android 走 notify_background、桌面走 notify_desktop）。
     pub fn low_balance_notify_title(&self) -> String {
         match self {
             Self::Zh => "余额提醒".into(),
@@ -484,8 +484,7 @@ impl Lang {
         }
     }
 
-    /// 「低余额提醒」系统通知正文（percent 已取整）。
-    #[cfg(target_os = "android")]
+    /// 「低余额提醒」系统通知正文（percent 已取整；消费方同上，两端）。
     pub fn low_balance_notify_body(&self, name: &str, percent: u32) -> String {
         match self {
             Self::Zh => format!("{name} 已用 {percent}%"),

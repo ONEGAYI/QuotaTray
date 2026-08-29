@@ -4,6 +4,7 @@ import {
   formatBytes,
   formatDownloadProgress,
   resolveNotificationPermissionAction,
+  resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
@@ -246,5 +247,19 @@ describe("通知权限行动作", () => {
       "none",
     );
     expect(resolveNotificationPermissionAction({ ...base, permission: null })).toBe("none");
+  });
+});
+
+describe("设置页签消费时序", () => {
+  it("打开时消费 initialTab（覆盖当前页签，支持消息卡片直达）", () => {
+    expect(resolveTabOnOpen(true, "update", "general")).toBe("update");
+  });
+
+  it("开着期间直达入口变化同样消费（设置页已开时再次触发直达）", () => {
+    expect(resolveTabOnOpen(true, "data", "update")).toBe("data");
+  });
+
+  it("关闭/未打开不消费——页签状态保持（重置由 onClose 负责）", () => {
+    expect(resolveTabOnOpen(false, "update", "general")).toBe("general");
   });
 });

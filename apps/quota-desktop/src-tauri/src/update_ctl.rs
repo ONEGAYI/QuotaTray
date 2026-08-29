@@ -183,7 +183,8 @@ pub fn should_notify_available(inner: &UpdateCtlState) -> Option<String> {
 /// 「发现新版本」单次广播（移动端）：判定通过后先登记再推送事件
 /// （先置位防并发重复，口径同桌面 [`notify_ready_once`]）；应用在后台
 /// 且通知开关开启时补发系统通知（前台只入列红点，不打扰）。
-#[cfg(any(target_os = "android", target_os = "ios"))]
+/// iOS 无通知链（无渠道/权限桥），本函数与通知文案均为 android-only。
+#[cfg(target_os = "android")]
 pub fn notify_available_once(app: &AppHandle, state: &AppState) {
     let version = {
         let inner = state.update_ctl.read().unwrap();
@@ -210,9 +211,8 @@ pub fn notify_available_once(app: &AppHandle, state: &AppState) {
 
 /// 后台补发系统通知（Android，消息中心二阶）：仅当应用在后台（由前端
 /// visibilitychange 经 `set_app_foreground` 同步）且 `notifications_enabled`
-/// 开启时发送。发送失败（含 POST_NOTIFICATIONS 未授权被系统静默丢弃）仅
-/// 日志不阻断——前端消息中心红点仍在。桌面通知路径（主窗不可见判定）
-/// 独立于本函数（托盘常驻形态，语义不同）。
+/// 开启时发送；权限未授予时由系统静默丢弃（不显式判定）。发送失败仅
+/// 日志不阻断——前端消息中心红点仍在。
 #[cfg(target_os = "android")]
 pub(crate) fn notify_background(app: &AppHandle, state: &AppState, title: &str, body: &str) {
     if !state.settings.read().unwrap().notifications_enabled {
@@ -233,6 +233,28 @@ pub(crate) fn notify_background(app: &AppHandle, state: &AppState, title: &str, 
         .body(body)
         .show()
     {
+        eprintln!("系统通知发送失败：{e}");
+    }
+}
+
+/// 主窗不可见时补发系统通知（桌面收口，与 Android [`notify_background`]
+/// 对称）：仅当主窗不可见（托盘常驻常态——桌面语义下对应移动端
+/// 「应用在后台」）且 `notifications_enabled` 开启时发送。发送失败
+/// （Windows 通知权限/AUMID 异常场景）仅日志不阻断——红点仍在。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub(crate) fn notify_desktop(app: &AppHandle, state: &AppState, title: &str, body: &str) {
+    if !state.settings.read().unwrap().notifications_enabled {
+        return;
+    }
+    let main_visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if main_visible {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app.notification().builder().title(title).body(body).show() {
         eprintln!("系统通知发送失败：{e}");
     }
 }
@@ -562,26 +584,16 @@ fn notify_ready_once(app: &AppHandle, state: &AppState) {
             version: version.clone(),
         },
     );
-    // 主窗不可见（托盘常驻常态）时补系统通知；正文自带「打开主窗」
-    // 引导（通知点击唤主窗的平台支持不一，不依赖之）
-    let main_visible = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_visible().ok())
-        .unwrap_or(false);
-    if !main_visible {
-        use tauri_plugin_notification::NotificationExt;
-        let lang = Lang::parse(&state.settings.read().unwrap().language);
-        if let Err(e) = app
-            .notification()
-            .builder()
-            .title(lang.update_ready_title())
-            .body(lang.update_ready_body(&version))
-            .show()
-        {
-            // 通知失败不阻断（Windows 通知权限/AUMID 异常场景），红点仍在
-            eprintln!("更新就绪通知发送失败：{e}");
-        }
-    }
+    // 主窗不可见（托盘常驻常态）且通知开关开启时补系统通知；正文自带
+    // 「打开主窗」引导（通知点击唤主窗的平台支持不一，不依赖之）。
+    // 开关消费与低余额提醒共口（notify_desktop），桌面关开关后不再打扰。
+    let lang = Lang::parse(&state.settings.read().unwrap().language);
+    notify_desktop(
+        app,
+        state,
+        &lang.update_ready_title(),
+        &lang.update_ready_body(&version),
+    );
 }
 
 /// 检测后的统一联动（调度器与手动检测命令在 [`run_check`] 之后调用）：
@@ -695,6 +707,7 @@ mod tests {
             // 更新调度测试不消费历史，内存库即可
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
             app_foreground: std::sync::atomic::AtomicBool::new(true),
+            low_balance_notified: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -1385,6 +1398,52 @@ mod tests {
             inner.ready_notified.as_deref(),
             Some("setup.exe"),
             "检测失败沿用旧广播位"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：available_notified 跟随 available——同版本保留（进更新页
+    /// 反复检测不重复打扰）、换版本清空（新版本重新广播）、检测失败
+    /// 沿用旧值（与 ready_notified 迁移同款三段式）。
+    #[tokio::test]
+    async fn available_notified_carries_with_info() {
+        let dir = std::env::temp_dir().join(format!("qt-availnf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+        let name = update::expected_asset_name("9.9.9", "x64", update::Flavor::SetupExe);
+        let body = format!(
+            r#"{{"tag_name":"v9.9.9","html_url":"u","assets":[
+                {{"name":"{name}","browser_download_url":"https://x/s","size":3}}
+            ]}}"#
+        );
+
+        // 换版本：登记的是旧版本，检测出新版本 → 清空（重新可广播）
+        state.update_ctl.write().unwrap().available_notified = Some("0.1.0".into());
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 200, body.clone())],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(inner.available_notified, None, "换版本清空旧登记");
+
+        // 同版本：登记与 available 一致 → 保留（不重复打扰）
+        state.update_ctl.write().unwrap().available_notified = Some("9.9.9".into());
+        let http = RouteHttp {
+            routes: vec![("releases/latest", 200, body)],
+        };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(
+            inner.available_notified.as_deref(),
+            Some("9.9.9"),
+            "同版本保留登记"
+        );
+
+        // 检测失败：沿用旧登记
+        let http = RouteHttp { routes: vec![] };
+        let inner = run_check(&state, &http).await;
+        assert_eq!(
+            inner.available_notified.as_deref(),
+            Some("9.9.9"),
+            "检测失败沿用旧登记"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
