@@ -132,7 +132,8 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
   `target/release/dist/*-portable.zip`。
 - **Android 资产口径**（2026-08-29 更新，签名链已就绪）：推纯三段版本 tag
-  （`vX.Y.Z`，预发布/测试后缀不触发构建）后 `android-release.yml` 自动构建固定
+  （`vX.Y.Z`；含 `-` 后缀的预发布/测试 tag 在 job 层不进入构建，其他非三段
+  tag 在断言步失败）后 `android-release.yml` 自动构建固定
   密钥签名的 APK（`QuotaTray_<版本>_android-arm64.apk`），Release 不存在时创建
   草稿并上传；正式发布时人工对同一 tag 执行 `gh release edit` 补全 notes，桌面
   资产经 `gh release upload` 上传（Android 资产由 CI 注入，桌面资产仍走本地

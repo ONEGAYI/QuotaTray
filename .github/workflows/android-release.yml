@@ -2,8 +2,8 @@ name: Android Release
 
 # 签名发布链：正式版本 tag 触发 → 固定密钥签名 Release APK → 资产断言 → 附加到 Release 草稿。
 # 密钥材料只经 secrets 环境变量注入（安全红线：签名材料即密钥，不入库、不进日志）。
-# 仅接受纯三段 tag（vX.Y.Z）：预发布/测试后缀 tag 不触发构建——rc 与正式版的
-# versionCode 派生值相同（tauri 忽略 pre 段），覆盖升级语义无法区分，试跑一律用正式 tag。
+# 仅接受纯三段 tag（vX.Y.Z）：含 `-` 后缀的预发布/测试 tag 在 job if 层即不进入构建——
+# tauri 派生忽略 pre 段，rc 与正式版同 versionCode，覆盖升级语义无法区分，试跑一律用正式 tag。
 on:
   push:
     tags: ['v*']
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   android-release:
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v') && !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -86,7 +86,8 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          if ! [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          # 捕获组供 BASH_REMATCH 派生期望 versionCode，不能省略
+          if ! [[ "$TAG" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
             echo "::error::仅接受纯三段版本 tag（vX.Y.Z），收到：$GITHUB_REF_NAME"
             exit 1
           fi
