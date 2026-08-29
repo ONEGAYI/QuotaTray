@@ -502,14 +502,6 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   onChange={(update_auto_download) => setDraft({ ...draft, update_auto_download })}
                 />
               </SettingRow>
-              <SettingRow title={t("settings.updateTimeTitle")} description={t("settings.updateTimeHint")}>
-                <input
-                  className="qt-input"
-                  type="text"
-                  value={draft.update_check_time}
-                  onChange={(event) => setDraft({ ...draft, update_check_time: event.target.value })}
-                />
-              </SettingRow>
               <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
                 <input
                   className="qt-input"
