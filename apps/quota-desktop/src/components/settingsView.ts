@@ -138,3 +138,29 @@ export function savedApkIsCurrent(
 ): saved is { uri: string; version: string | null } {
   return saved != null && saved.version === availableVersion;
 }
+
+/** Android 通知权限行的动作形态（消息中心二阶）：
+ * - none：无需按钮（桌面/开关关闭/未加载/已授权）；
+ * - request：未请求过（prompt），点按弹系统运行时权限对话框；
+ * - open-settings：拒绝过（denied）——Android 13+ 系统不再弹对话框，
+ *   跳「应用通知设置」页由用户手动开启是唯一出路。
+ * 开关只管 notifications_enabled（发不发），权限行只管系统授权（能不能
+ * 弹出），两者解耦——打开开关不隐式弹权限，请求由按钮显式触发。 */
+export type NotificationPermissionAction = "none" | "request" | "open-settings";
+
+export function resolveNotificationPermissionAction({
+  mobile,
+  notificationsEnabled,
+  permission,
+}: {
+  /** 移动壳层（桌面无运行时权限概念，恒 granted）。 */
+  mobile: boolean;
+  notificationsEnabled: boolean;
+  /** 后端 get_notification_permission 结果；null = 尚未加载。 */
+  permission: string | null;
+}): NotificationPermissionAction {
+  if (!mobile || !notificationsEnabled) return "none";
+  if (permission === "denied") return "open-settings";
+  if (permission === "prompt" || permission === "prompt-with-rationale") return "request";
+  return "none";
+}

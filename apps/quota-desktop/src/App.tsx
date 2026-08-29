@@ -102,6 +102,15 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       return next;
     });
   }, [messages]);
+  // 前后台状态同步（Android 消息通知发射条件：后台才补发系统通知）。
+  // 两端统一挂载：桌面调用无害（后端不消费）；Android 退后台 WebView
+  // 定时器冻结前 visibilitychange 先行触发（时机属真机验收项）。
+  useEffect(() => {
+    const sync = () => void api.setAppForeground(document.visibilityState === "visible");
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
   const qc = useQueryClient();
   const providers = useProviders();
   const settings = useSettings();

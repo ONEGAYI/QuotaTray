@@ -47,6 +47,11 @@ pub struct Settings {
     /// 便携/普通 zip 更新维持「打开目录手动覆盖」引导。
     #[serde(default)]
     pub update_auto_download: bool,
+    /// 系统通知总开关（两端共用；默认开——桌面「更新就绪」主窗不可见时
+    /// 补通知的现状行为不变）。Android 侧叠加系统运行时权限层：
+    /// 开关开但 POST_NOTIFICATIONS 未授权时通知被系统静默丢弃（等效关闭）。
+    #[serde(default = "default_notifications_enabled")]
+    pub notifications_enabled: bool,
 }
 
 fn default_interval() -> u32 {
@@ -73,6 +78,10 @@ fn default_update_enabled() -> bool {
     true
 }
 
+fn default_notifications_enabled() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -87,6 +96,7 @@ impl Default for Settings {
             update_last_check: None,
             update_proxy_port: None,
             update_auto_download: false,
+            notifications_enabled: default_notifications_enabled(),
         }
     }
 }
@@ -197,6 +207,7 @@ mod tests {
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
             update_auto_download: true,
+            notifications_enabled: false,
         };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s);
@@ -219,6 +230,10 @@ mod tests {
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
         assert!(!s.update_auto_download, "自动下载默认关闭");
+        assert!(
+            s.notifications_enabled,
+            "系统通知默认开启（桌面现状行为不变）"
+        );
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -273,6 +288,7 @@ mod tests {
             update_last_check: None,
             update_proxy_port: Some(7897),
             update_auto_download: false,
+            notifications_enabled: true,
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);

@@ -3,6 +3,7 @@ import {
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
+  resolveNotificationPermissionAction,
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
@@ -212,5 +213,38 @@ describe("savedApkIsCurrent：Android 已保存 APK 的版本快照有效性", (
   it("available 为 null 时仅 null 快照匹配（版本未知不装旧包）", () => {
     expect(savedApkIsCurrent({ uri: "content://1", version: null }, null)).toBe(true);
     expect(savedApkIsCurrent({ uri: "content://1", version: "0.8.1" }, null)).toBe(false);
+  });
+});
+
+describe("通知权限行动作", () => {
+  const base = { mobile: true, notificationsEnabled: true, permission: "prompt" };
+
+  it("桌面与开关关闭时无权限行（桌面无运行时权限概念）", () => {
+    expect(resolveNotificationPermissionAction({ ...base, mobile: false })).toBe("none");
+    expect(
+      resolveNotificationPermissionAction({ ...base, notificationsEnabled: false }),
+    ).toBe("none");
+  });
+
+  it("未请求过（prompt 系）显示请求按钮——点按弹系统对话框", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "prompt" })).toBe(
+      "request",
+    );
+    expect(
+      resolveNotificationPermissionAction({ ...base, permission: "prompt-with-rationale" }),
+    ).toBe("request");
+  });
+
+  it("拒绝过（denied）改为引导跳系统设置——Android 13+ 不再弹对话框", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "denied" })).toBe(
+      "open-settings",
+    );
+  });
+
+  it("已授权与未加载不显示动作（加载完成后 granted 即终态）", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "granted" })).toBe(
+      "none",
+    );
+    expect(resolveNotificationPermissionAction({ ...base, permission: null })).toBe("none");
   });
 });

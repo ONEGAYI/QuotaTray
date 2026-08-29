@@ -131,6 +131,10 @@ pub struct AppState {
     /// 查询历史库（M5）。非关键数据：打开失败降级内存库（eprintln 告警），
     /// 查询主链路照常，仅历史不落盘。
     pub history: Mutex<HistoryStore>,
+    /// 应用是否前台（Android 消息通知的发射条件：仅后台时补发系统通知，
+    /// 桌面不消费）。由前端 visibilitychange 经 `set_app_foreground` 命令
+    /// 同步；初始 true（乐观假设启动即前台，首个 visibility 事件即校正）。
+    pub app_foreground: std::sync::atomic::AtomicBool,
 }
 
 /// 启动门控：便携形态首次运行（`portable.key` 缺失）时，setup 阶段
@@ -297,6 +301,7 @@ impl AppState {
             }),
             last_peak: RwLock::new(HashMap::new()),
             history: Mutex::new(history),
+            app_foreground: std::sync::atomic::AtomicBool::new(true),
         })
     }
 }
@@ -382,6 +387,7 @@ mod tests {
             update_ctl: RwLock::new(crate::update_ctl::UpdateCtlState::default()),
             last_peak: RwLock::new(HashMap::new()),
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
+            app_foreground: std::sync::atomic::AtomicBool::new(true),
         }
     }
 

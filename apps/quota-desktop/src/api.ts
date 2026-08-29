@@ -107,6 +107,16 @@ export const api = {
     invoke("open_downloaded_apk", { path }),
   /** Android：打开「允许安装未知应用」授权页；false = 系统无该页面（API<26）。 */
   openInstallConsent: (): Promise<boolean> => invoke("open_install_consent"),
+  /** 通知权限状态（Android 13+ 运行时权限；桌面恒 "granted"）。 */
+  getNotificationPermission: (): Promise<string> => invoke("get_notification_permission"),
+  /** 请求通知运行时权限（Android 弹系统对话框；拒绝过则直接返回 denied）。 */
+  requestNotificationPermission: (): Promise<string> =>
+    invoke("request_notification_permission"),
+  /** Android：跳系统「应用通知设置」页；false = 系统无该页面（API<26）。 */
+  openNotificationSettings: (): Promise<boolean> => invoke("open_notification_settings"),
+  /** 前后台状态同步（Android 通知发射条件；桌面调用无害）。 */
+  setAppForeground: (foreground: boolean): Promise<void> =>
+    invoke("set_app_foreground", { foreground }),
   /** 运行已下载的安装包（应用随后自动退出，NSIS 向导接管）。 */
   installUpdate: (): Promise<void> => invoke("install_update"),
   setHoverPanelPointerInside: (inside: boolean): Promise<void> =>

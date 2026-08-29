@@ -927,7 +927,8 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         eprintln!("历史记录写入失败：{e}");
     }
     // 低余额提醒：成功查询后按设置阈值判定（两端共用），达标即广播
-    // low-balance；前端消息中心按条目 id 去重入列，重复广播不叠加
+    // low-balance；前端消息中心按条目 id 去重入列，重复广播不叠加。
+    // Android 后台时补发系统通知（发射条件收口在 notify_background）。
     if outcome.ok
         && let Some(data) = outcome.data.as_ref()
         && let Some(percent) = low_balance_breach(
@@ -943,6 +944,16 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
                 percent,
             },
         );
+        #[cfg(target_os = "android")]
+        {
+            let lang = lang_of(&state);
+            crate::update_ctl::notify_background(
+                app,
+                &state,
+                &lang.low_balance_notify_title(),
+                &lang.low_balance_notify_body(&entry.name, percent.round() as u32),
+            );
+        }
     }
     after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
@@ -1651,6 +1662,79 @@ fn write_apk_to_uri(app: &AppHandle, uri: &str, bytes: &[u8], lang: &Lang) -> Re
         .write_all(bytes)
         .and_then(|_| target.sync_all())
         .map_err(|e| lang.err_update_write_uri(&e))
+}
+
+// ---- 系统通知（消息中心二阶：权限 / 前后台 / 渠道） -------------------------
+
+/// 通知权限状态查询：Android 13+ 的 POST_NOTIFICATIONS 运行时权限
+/// （serde 小写串 "granted"/"denied"/"prompt"）；桌面无运行时权限概念恒 granted。
+#[tauri::command]
+pub fn get_notification_permission(app: AppHandle) -> String {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        app.notification()
+            .permission_state()
+            .map(|s| s.to_string())
+            // 桥故障按未授权处理（保守：通知不发，设置页仍可引导授权）
+            .unwrap_or_else(|e| {
+                eprintln!("通知权限状态查询失败：{e}");
+                "denied".into()
+            })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        "granted".into()
+    }
+}
+
+/// 请求通知运行时权限（Android 13+ 弹系统对话框；用户曾拒绝后系统不再
+/// 弹、直接返回 denied——前端据此改为引导跳系统设置页）。桌面恒 granted。
+#[tauri::command]
+pub fn request_notification_permission(app: AppHandle) -> String {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        app.notification()
+            .request_permission()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|e| {
+                eprintln!("通知权限请求失败：{e}");
+                "denied".into()
+            })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        "granted".into()
+    }
+}
+
+/// 跳系统「应用通知设置」页（Android 13+ 拒绝过权限后的唯一出路）。
+/// `Ok(true)` = 已发起跳转；桌面确定性拒绝。
+#[tauri::command]
+pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &state;
+        crate::notification_android::open_notification_settings()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let lang = lang_of(&state);
+        Err(lang.err_android_only_notification())
+    }
+}
+
+/// 前后台状态同步（Android 消息通知的发射条件）：前端 visibilitychange
+/// 驱动写入；通知发射点读它决定「入列红点」还是「补发系统通知」。
+/// 桌面调用无害（不消费）。Relaxed 足够：布尔提示，无跨字段不变式。
+#[tauri::command]
+pub fn set_app_foreground(foreground: bool, state: State<'_, AppState>) {
+    state
+        .app_foreground
+        .store(foreground, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ---- 契约测试 -------------------------------------------------------------

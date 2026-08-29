@@ -134,6 +134,9 @@ fn carry_downloaded(
 
 /// 前端监听的安装包下载进度事件。
 pub const DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
+/// 消息中心系统通知渠道 id（Android，`setup_surfaces` 创建、发射点引用）。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) const MESSAGES_CHANNEL_ID: &str = "quotatray-messages";
 /// 自动调度完成检测后推送完整状态，已打开的设置页可立即刷新。
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const UPDATE_STATE_EVENT: &str = "update-state-changed";
@@ -178,8 +181,8 @@ pub fn should_notify_available(inner: &UpdateCtlState) -> Option<String> {
 }
 
 /// 「发现新版本」单次广播（移动端）：判定通过后先登记再推送事件
-/// （先置位防并发重复，口径同桌面 [`notify_ready_once`]）。系统通知
-/// 与前后台生命周期联动在消息中心后续 PR 接入。
+/// （先置位防并发重复，口径同桌面 [`notify_ready_once`]）；应用在后台
+/// 且通知开关开启时补发系统通知（前台只入列红点，不打扰）。
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub fn notify_available_once(app: &AppHandle, state: &AppState) {
     let version = {
@@ -190,7 +193,48 @@ pub fn notify_available_once(app: &AppHandle, state: &AppState) {
         version
     };
     state.update_ctl.write().unwrap().available_notified = Some(version.clone());
-    let _ = app.emit(UPDATE_AVAILABLE_EVENT, UpdateAvailableEvent { version });
+    let _ = app.emit(
+        UPDATE_AVAILABLE_EVENT,
+        UpdateAvailableEvent {
+            version: version.clone(),
+        },
+    );
+    let lang = Lang::parse(&state.settings.read().unwrap().language);
+    notify_background(
+        app,
+        state,
+        &lang.update_available_notify_title(),
+        &lang.update_available_notify_body(&version),
+    );
+}
+
+/// 后台补发系统通知（Android，消息中心二阶）：仅当应用在后台（由前端
+/// visibilitychange 经 `set_app_foreground` 同步）且 `notifications_enabled`
+/// 开启时发送。发送失败（含 POST_NOTIFICATIONS 未授权被系统静默丢弃）仅
+/// 日志不阻断——前端消息中心红点仍在。桌面通知路径（主窗不可见判定）
+/// 独立于本函数（托盘常驻形态，语义不同）。
+#[cfg(target_os = "android")]
+pub(crate) fn notify_background(app: &AppHandle, state: &AppState, title: &str, body: &str) {
+    if !state.settings.read().unwrap().notifications_enabled {
+        return;
+    }
+    if state
+        .app_foreground
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .channel_id(MESSAGES_CHANNEL_ID)
+        .title(title)
+        .body(body)
+        .show()
+    {
+        eprintln!("系统通知发送失败：{e}");
+    }
 }
 
 /// 更新通道代理 URL（settings 端口 → `http://127.0.0.1:{port}`；None = 直连）。
@@ -650,6 +694,7 @@ mod tests {
             last_peak: std::sync::RwLock::new(HashMap::new()),
             // 更新调度测试不消费历史，内存库即可
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
+            app_foreground: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
