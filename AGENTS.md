@@ -90,11 +90,19 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   visibilitychange → `set_app_foreground` 状态表）、后台补发收口在
   `notify_background`（开关 + 后台 + 已授权三条件，失败静默红点仍在）；
   `notifications_enabled` 两端设置开关（默认 true，桌面现状行为不变）。模拟器
-  已验：面板外点关闭（WebView 触摸合成 mousedown）通过。余项：通知链路
-  （权限对话框/后台通知/通知点击行为拉起应用）、visibilitychange 后台触发
-  时机等真机验收；不得依赖托盘、悬停或桌面静默更新事件。
+  已验：面板外点关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块
+  渲染 → 系统对话框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
+  **后台通知当前触发窗口仅「请求在途时退后台」**——两个发射点
+  （update-available/low-balance）均由前端命令驱动，Android 后台 WebView
+  冻结后无查询/检测发生；常态化「退后台收通知」依赖 WorkManager 后台刷新
+  产生消息源（届时直接复用 `app_foreground` 状态表与 `notify_background`
+  发射收口，见「后台刷新」条目）。余项：在途窗口的后台通知实际送达、
+  visibilitychange 冻结时机、通知点击行为拉起应用等真机验收；不得依赖托盘、
+  悬停或桌面静默更新事件。
 - **后台刷新**：当前只承诺应用前台轮询。后台周期任务、网络/省电约束和恢复后的补查
-  尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。
+  尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。通知联动
+  落点已随消息中心二阶就绪（2026-08-30）：后台查询产生的消息直接走既有入列与
+  `notify_background` 发射路径，无需重复设计。
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
   登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
   接入移动端等价授权，必须单独评估凭据来源与安全边界。
