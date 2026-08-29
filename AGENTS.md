@@ -114,6 +114,10 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **最低 Rust 版本**：workspace MSRV 为 1.88；CLI、桌面、WoA 与 Android 工作树需同步
   使用满足该版本的 stable 工具链，依赖升级不得使实际要求高于 workspace 声明。
 - **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
+  已知口径缺口（审查轮 R4 2026-08-29 登记）：clippy 门禁与 CI 均只跑
+  host target，对 `--target aarch64-linux-android` 会报 18 处 Android cfg
+  组合下桌面专属代码的 dead_code——android-preview job 只构建不 clippy。
+  是否把交叉 clippy 纳入门禁属维护决策，暂不强制。
 - **Git hooks 本地门禁（两层）**：仓库内 `.githooks/` 提供按检查代价分层的钩子——
   `pre-commit`（秒级：`cargo fmt --all --check` + 前端 `pnpm lint`，按暂存文件按需触发）与
   `pre-push`（分钟级：`cargo clippy --workspace --all-targets -- -D warnings` + 前端
