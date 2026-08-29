@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  androidBuildArgs,
   androidBuildEnvironment,
   androidHostTag,
+  cargoWorkspaceVersion,
   parseJavaMajor,
 } from "./android-tauri.mjs";
 
@@ -47,4 +49,35 @@ test("JDK release 版本解析锁定 Java 17 门禁", () => {
   assert.equal(parseJavaMajor('JAVA_VERSION="17.0.12"'), 17);
   assert.equal(parseJavaMajor('JAVA_VERSION="25"'), 25);
   assert.throws(() => parseJavaMajor("IMPLEMENTOR=Adoptium"), /JAVA_VERSION/);
+});
+
+test("workspace Cargo.toml 版本提取供 versionCode 派生注入", () => {
+  const toml = [
+    "[workspace.package]",
+    'version = "0.8.1"',
+    "edition = " + '"2021"',
+    "",
+    "[workspace.dependencies]",
+    'serde = "1"',
+  ].join("\n");
+  assert.equal(cargoWorkspaceVersion(toml), "0.8.1");
+  // version 必须取自 [workspace.package] 段，不能匹配到依赖段
+  const noSection = '[workspace.dependencies]\nversion_tomb = "x"\n';
+  assert.throws(() => cargoWorkspaceVersion(noSection), /workspace\.package/);
+});
+
+test("Android 构建参数注入 version 配置驱动 tauri versionCode 派生", () => {
+  // tauri.conf.json 无 version 字段时 tauri-cli 不生成 tauri.properties，
+  // Android versionCode 恒为 gradle fallback 1；经 --config 注入 workspace
+  // 版本后由 tauri 原生公式派生（major*1000000+minor*1000+patch）
+  assert.deepEqual(androidBuildArgs(["--ci", "--apk"], "0.8.1"), [
+    "--config",
+    '{"version":"0.8.1"}',
+    "--ci",
+    "--apk",
+  ]);
+  assert.deepEqual(androidBuildArgs([], "0.9.0"), [
+    "--config",
+    '{"version":"0.9.0"}',
+  ]);
 });
