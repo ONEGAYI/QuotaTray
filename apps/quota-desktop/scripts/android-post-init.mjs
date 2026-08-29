@@ -14,6 +14,10 @@ const keyringBridgeUrl = new URL(
   "../src-tauri/gen/android/app/src/main/java/io/crates/keyring/Keyring.kt",
   import.meta.url,
 );
+const buildGradleUrl = new URL(
+  "../src-tauri/gen/android/app/build.gradle.kts",
+  import.meta.url,
+);
 
 export function hardenAndroidManifest(source) {
   if (!source.includes("<application")) return source;
@@ -74,6 +78,40 @@ export function initializeAndroidKeyringInMainActivity(source) {
   return initialized;
 }
 
+export function injectAndroidReleaseSigning(source) {
+  if (source.includes("signingConfigs {")) return source;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const buildTypesLine = source.match(/^[ \t]*buildTypes \{[ \t]*$/m);
+  if (!buildTypesLine) {
+    throw new Error("build.gradle.kts 缺少 buildTypes 锚点");
+  }
+  const releaseLine = source.match(/^[ \t]*getByName\("release"\) \{[ \t]*$/m);
+  if (!releaseLine) {
+    throw new Error('build.gradle.kts 缺少 getByName("release") 锚点');
+  }
+  // 无 keystore.properties 时 signingConfigs 为空、release 不挂签名（与 Tauri 模板默认一致）
+  const signingConfigsBlock = [
+    "    signingConfigs {",
+    '        val keystorePropertiesFile = rootProject.file("keystore.properties")',
+    "        val keystoreProperties = Properties()",
+    "        if (keystorePropertiesFile.exists()) {",
+    "            keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }",
+    '            create("release") {',
+    '                keyAlias = keystoreProperties["keyAlias"] as String',
+    '                keyPassword = keystoreProperties["keyPassword"] as String',
+    '                storeFile = file(keystoreProperties["storeFile"] as String)',
+    '                storePassword = keystoreProperties["storePassword"] as String',
+    "            }",
+    "        }",
+    "    }",
+  ].join(newline);
+  const signingHook = '            signingConfigs.findByName("release")?.let { signingConfig = it }';
+  const injected = source
+    .replace(buildTypesLine[0], `${signingConfigsBlock}${newline}${buildTypesLine[0]}`)
+    .replace(releaseLine[0], `${releaseLine[0]}${newline}${signingHook}`);
+  return injected;
+}
+
 async function writeIfChanged(path, contents) {
   let current;
   try {
@@ -107,6 +145,14 @@ export async function main() {
     fileURLToPath(keyringBridgeUrl),
     androidKeyringBridgeSource(),
   );
+
+  const buildGradlePath = fileURLToPath(buildGradleUrl);
+  const buildGradle = await readFile(buildGradlePath, "utf8");
+  const injectedGradle = injectAndroidReleaseSigning(buildGradle);
+  if (!injectedGradle.includes('signingConfigs.findByName("release")')) {
+    throw new Error(`build.gradle.kts 未能注入 release 签名配置：${buildGradlePath}`);
+  }
+  await writeIfChanged(buildGradlePath, injectedGradle);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

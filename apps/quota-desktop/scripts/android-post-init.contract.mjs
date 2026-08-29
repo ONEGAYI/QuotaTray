@@ -5,6 +5,7 @@ import {
   androidKeyringBridgeSource,
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
+  injectAndroidReleaseSigning,
 } from "./android-post-init.mjs";
 
 test("Android manifest 关闭系统备份且重复执行幂等", () => {
@@ -60,5 +61,73 @@ class MainActivity : TauriActivity() {
   assert.throws(
     () => initializeAndroidKeyringInMainActivity(source),
     /缺少 enableEdgeToEdge import 锚点/,
+  );
+});
+
+function buildGradleKtsFixture() {
+  return `import java.util.Properties
+
+plugins {
+    id("com.android.application")
+}
+
+android {
+    compileSdk = 36
+    namespace = "com.quotatray.android"
+    defaultConfig {
+        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    buildTypes {
+        getByName("debug") {
+            isDebuggable = true
+        }
+        getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(
+                *fileTree(".") { include("**/*.pro") }
+                    .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
+                    .toList().toTypedArray()
+            )
+        }
+    }
+}
+`;
+}
+
+test("release 签名配置注入读取 keystore.properties 且幂等", () => {
+  const injected = injectAndroidReleaseSigning(buildGradleKtsFixture());
+  assert.match(injected, /signingConfigs \{/);
+  assert.match(injected, /rootProject\.file\("keystore\.properties"\)/);
+  assert.match(injected, /if \(keystorePropertiesFile\.exists\(\)\)/);
+  assert.match(injected, /create\("release"\)/);
+  assert.match(injected, /keyAlias = keystoreProperties\["keyAlias"\] as String/);
+  assert.match(injected, /keyPassword = keystoreProperties\["keyPassword"\] as String/);
+  assert.match(injected, /storeFile = file\(keystoreProperties\["storeFile"\] as String\)/);
+  assert.match(
+    injected,
+    /storePassword = keystoreProperties\["storePassword"\] as String/,
+  );
+  assert.match(
+    injected,
+    /signingConfigs\.findByName\("release"\)\?\.let \{ signingConfig = it \}/,
+  );
+  assert.ok(
+    injected.indexOf("signingConfigs {") < injected.indexOf("buildTypes {"),
+  );
+  assert.equal(injectAndroidReleaseSigning(injected), injected);
+});
+
+test("build.gradle.kts 锚点漂移时拒绝静默生成无签名工程", () => {
+  assert.throws(
+    () => injectAndroidReleaseSigning("android {\n}\n"),
+    /缺少 buildTypes 锚点/,
+  );
+  assert.throws(
+    () =>
+      injectAndroidReleaseSigning(
+        'android {\n    buildTypes {\n        getByName("debug") {\n        }\n    }\n}\n',
+      ),
+    /缺少 getByName\("release"\) 锚点/,
   );
 });
