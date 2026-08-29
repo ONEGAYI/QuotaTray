@@ -45,6 +45,25 @@ export function parseJavaMajor(releaseSource) {
   return Number.parseInt(match[1], 10);
 }
 
+export function cargoWorkspaceVersion(tomlSource) {
+  // 段头必须行首锚定（容忍行内注释），否则注释里引用段名会被当作伪段吞掉 version 行
+  const header = tomlSource.match(/^\[workspace\.package\][ \t]*(?:#.*)?$/m);
+  if (!header) throw new Error("Cargo.toml 缺少 [workspace.package] 段");
+  const after = tomlSource.slice(header.index + header[0].length);
+  const nextHeader = after.search(/^\[/m);
+  const body = nextHeader === -1 ? after : after.slice(0, nextHeader);
+  const version = body.match(/^version\s*=\s*"([^"]+)"/m);
+  if (!version) throw new Error("[workspace.package] 缺少 version 字段");
+  return version[1];
+}
+
+export function androidBuildArgs(rawArgs, version) {
+  // tauri.conf.json 不写 version（crate 继承 workspace），而 tauri-cli 仅在配置
+  // 显式含 version 时才生成 tauri.properties 派生 Android versionCode；经
+  // --config 注入 workspace 版本，恢复原生派生（major*1000000+minor*1000+patch）
+  return ["--config", JSON.stringify({ version }), ...rawArgs];
+}
+
 function assertAndroidToolchain(environment) {
   if (!environment.JAVA_HOME) {
     throw new Error("Android 构建需要设置 JAVA_HOME，并使用 JDK 17");
@@ -71,7 +90,6 @@ export async function main() {
   if (command !== "build" && command !== "dev") {
     throw new Error("用法：node scripts/android-tauri.mjs <build|dev> [Tauri 参数]");
   }
-  const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
   const environment = androidBuildEnvironment();
   assertAndroidToolchain(environment);
   const tauriCli = fileURLToPath(
@@ -80,6 +98,16 @@ export async function main() {
   if (!existsSync(tauriCli)) {
     throw new Error("未安装 @tauri-apps/cli，请先执行 pnpm install");
   }
+  const workspaceCargoToml = fileURLToPath(
+    new URL("../../../Cargo.toml", import.meta.url),
+  );
+  const version = cargoWorkspaceVersion(
+    readFileSync(workspaceCargoToml, "utf8"),
+  );
+  const args = androidBuildArgs(
+    rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs,
+    version,
+  );
   const exitCode = await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,

@@ -37,7 +37,7 @@ The key difference from other balance tools is **credential security**:
 - Reuses the same Rust core, configuration format, and provider implementations; the master key is protected by Android Keystore
 - Touch-first bottom navigation, top app bar, full-screen editors, and click-driven disclosure states instead of hover-only interactions
 - The first preview only promises foreground refresh; there is no tray, autostart, background worker, desktop updater, or bundled CLI
-- PR CI produces an ARM64 Preview debug APK; Android remains Preview until full physical-device acceptance
+- Releases carry a signed ARM64 APK built automatically by the release-tag CI; Android remains Preview until full physical-device acceptance
 
 See the Chinese [Android Preview implementation note](docs/Android端预览版说明.md) for security boundaries and the acceptance checklist.
 
@@ -161,6 +161,18 @@ security confirmation. The zip contains the GUI (`QuotaTray.exe`) and the CLI
 (`quota.exe`), sharing the same `Data/` folder.
 
 > ⚠️ **Portable security notice**: the portable build stores the master key that decrypts your credentials in `Data/portable.key`. Although credentials remain AES-GCM encrypted in the configuration, the key and the ciphertext live in the same portable directory, so the entire `Data/` folder must be treated as plaintext credentials. Do not upload it to cloud drives, commit it to version control, or share it with others; if the medium is lost or the folder leaks, rotate every API key it contained immediately.
+
+### Android (Preview)
+
+Download the signed APK (`QuotaTray_<version>_android-arm64.apk`, ARM64 devices) from
+[Releases](https://github.com/ONEGAYI/QuotaTray/releases) and install it. The APK is
+signed with a long-term key by the release-tag CI; same-signature versions upgrade
+in place without uninstalling (verified on emulator; physical-device acceptance in
+progress).
+
+> 🧪 **Android Preview**: the Android build has passed emulator smoke acceptance but has
+> not completed full acceptance on physical devices. Treat the asset as preview-only,
+> not stable support.
 
 ### Build from source
 

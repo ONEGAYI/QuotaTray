@@ -293,6 +293,18 @@
           "kind": "dir",
           "desc": "CI 工作流",
           "children": {
+            "android-release.yml": {
+              "kind": "file",
+              "desc": "Android签名发布链",
+              "detail": [
+                "v* tag 触发：解码 GitHub Secrets 中的 keystore，注入 gen/android 签名配置，构建固定密钥签名的 ARM64 Release APK（QuotaTray_<版本>_android-arm64.apk）",
+                "构建后断言产物非 -unsigned、APK 证书 SHA-256 指纹与 keystore 一致、v2 签名方案存在、versionCode 等于 tag 派生值（major*1000000+minor*1000+patch），再附加到 Release 草稿（不存在则创建）"
+              ],
+              "rel": [
+                ".github/workflows/ci.yml",
+                "apps/quota-desktop/scripts/android-post-init.mjs"
+              ]
+            },
             "ci.yml": {
               "kind": "file",
               "desc": "桌面与Android CI",

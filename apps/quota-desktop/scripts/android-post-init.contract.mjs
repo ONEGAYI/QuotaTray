@@ -5,6 +5,7 @@ import {
   androidKeyringBridgeSource,
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
+  injectAndroidReleaseSigning,
 } from "./android-post-init.mjs";
 
 test("Android manifest 关闭系统备份且重复执行幂等", () => {
@@ -60,5 +61,107 @@ class MainActivity : TauriActivity() {
   assert.throws(
     () => initializeAndroidKeyringInMainActivity(source),
     /缺少 enableEdgeToEdge import 锚点/,
+  );
+});
+
+function buildGradleKtsFixture() {
+  return `import java.util.Properties
+
+plugins {
+    id("com.android.application")
+}
+
+android {
+    compileSdk = 36
+    namespace = "com.quotatray.android"
+    defaultConfig {
+        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    buildTypes {
+        getByName("debug") {
+            isDebuggable = true
+        }
+        getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(
+                *fileTree(".") { include("**/*.pro") }
+                    .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
+                    .toList().toTypedArray()
+            )
+        }
+    }
+}
+`;
+}
+
+test("release 签名配置注入读取 keystore.properties 且幂等", () => {
+  const injected = injectAndroidReleaseSigning(buildGradleKtsFixture());
+  assert.match(injected, /signingConfigs \{/);
+  assert.match(injected, /rootProject\.file\("keystore\.properties"\)/);
+  assert.match(injected, /if \(keystorePropertiesFile\.exists\(\)\)/);
+  // Properties.load(InputStream) 按 ISO-8859-1 解码，中文 keystore 路径会乱码导致
+  // 签名文件找不到；必须以 UTF-8 Reader 读取（真实故障：2026-08-29 中文路径验收）
+  assert.match(
+    injected,
+    /reader\(Charsets\.UTF_8\)\.use \{ keystoreProperties\.load\(it\) \}/,
+  );
+  assert.match(injected, /create\("release"\)/);
+  assert.match(injected, /keyAlias = keystoreProperties\["keyAlias"\] as String/);
+  assert.match(injected, /keyPassword = keystoreProperties\["keyPassword"\] as String/);
+  assert.match(injected, /storeFile = file\(keystoreProperties\["storeFile"\] as String\)/);
+  assert.match(
+    injected,
+    /storePassword = keystoreProperties\["storePassword"\] as String/,
+  );
+  assert.match(
+    injected,
+    /signingConfigs\.findByName\("release"\)\?\.let \{ signingConfig = it \}/,
+  );
+  assert.ok(
+    injected.indexOf("signingConfigs {") < injected.indexOf("buildTypes {"),
+  );
+  // 挂载行必须落在 release 块体内（getByName("release") 行之后），而非 debug 块
+  assert.ok(
+    injected.indexOf('findByName("release")') >
+      injected.indexOf('getByName("release")'),
+  );
+  assert.equal(injectAndroidReleaseSigning(injected), injected);
+});
+
+test("CRLF 模板注入保持 CRLF 行尾且幂等", () => {
+  // 行尾正确性依赖 m 标志下 $ 视 \r 为行终止符的语义，此处以契约锁定防回退
+  const crlf = buildGradleKtsFixture().replace(/\n/g, "\r\n");
+  const injected = injectAndroidReleaseSigning(crlf);
+  const block = injected.slice(
+    injected.indexOf("    signingConfigs {"),
+    injected.indexOf("    buildTypes {"),
+  );
+  assert.ok(!block.includes(" \n") || block.includes(" \r\n"));
+  assert.match(block, /signingConfigs \{\r\n/);
+  assert.equal(injectAndroidReleaseSigning(injected), injected);
+});
+
+test("上游模板自带 signingConfigs 时不误判为已注入", () => {
+  const withForeign = buildGradleKtsFixture().replace(
+    "    buildTypes {",
+    '    signingConfigs {\n        create("debug")\n    }\n    buildTypes {',
+  );
+  // 幂等标记是 keystore.properties 特征串，模板原生 signingConfigs 不拦截注入
+  const injected = injectAndroidReleaseSigning(withForeign);
+  assert.match(injected, /rootProject\.file\("keystore\.properties"\)/);
+});
+
+test("build.gradle.kts 锚点漂移时拒绝静默生成无签名工程", () => {
+  assert.throws(
+    () => injectAndroidReleaseSigning("android {\n}\n"),
+    /缺少 buildTypes 锚点/,
+  );
+  assert.throws(
+    () =>
+      injectAndroidReleaseSigning(
+        'android {\n    buildTypes {\n        getByName("debug") {\n        }\n    }\n}\n',
+      ),
+    /缺少 getByName\("release"\) 锚点/,
   );
 });

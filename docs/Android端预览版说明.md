@@ -76,6 +76,18 @@ Keyring JNI 初始化桥。生成目录不作为手写源码维护；CI 每次�
 过程可复现。`android:build` 与 `android:dev` 由仓库脚本根据 `NDK_HOME` 和当前操作系统
 自动推导 Bindgen sysroot，并在运行前拒绝非 JDK 17 环境；开发者无需配置额外变量。
 
-PR 的 `android-preview` job 会上传 `QuotaTray-android-arm64-preview-debug` artifact。
+获取渠道：正式 Release 附带 `android-release.yml`（发布 tag 触发）自动构建的签名
+APK `QuotaTray_<版本>_android-arm64.apk`，由长期密钥签名，同签名版本可覆盖升级
+（已在模拟器验证，真机验收进行中）；`android-preview` job（push main 与 PR 均
+触发）仍上传 `QuotaTray-android-arm64-preview-debug`
+artifact 供快速验证。本地构建签名 Release APK：`pnpm android:init` 后在
+`src-tauri/gen/android/` 放置 `keystore.properties`（`storeFile`/`storePassword`/
+`keyAlias`/`keyPassword` 四键，路径用正斜杠，口令避免前导空格与反斜杠——
+Properties 语法会剥前者、把后者当转义符；keystore 与口令即密钥材料，该目录
+不入库），随后执行 `pnpm android:build -- --ci --apk --target aarch64`，产物位于
+`gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`。
+无 `keystore.properties` 时同一命令产出未签名 APK（`-unsigned` 后缀），仅供本地
+验证，不可分发。
+
 真实设备验收至少覆盖：首次建库、重启解密、三类 Provider 查询、前后台切换、触摸展开、
 图表拖动、配置导入导出、清空数据、深浅主题和中英文布局。
