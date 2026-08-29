@@ -32,7 +32,7 @@ pub use history::{
     DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, WindowKind,
     window_key, window_kind,
 };
-pub use model::{QueryError, UsageData};
+pub use model::{QueryError, UsageData, used_percent};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
     PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,

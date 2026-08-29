@@ -127,6 +127,19 @@ impl std::fmt::Display for QueryError {
 
 impl std::error::Error for QueryError {}
 
+/// 已用百分比（0-100）：`unit == "%"` 直读 `used`，否则 `used/total` 换算；
+/// 数据不足返回 `None`。与前端 `display.ts` 的 `usedPercent` 互为镜像
+/// （低余额卡片高亮与后端低余额提醒共用同一语义）。
+pub fn used_percent(data: &UsageData) -> Option<f64> {
+    if data.unit.as_deref() == Some("%") {
+        return data.used;
+    }
+    match (data.used, data.total) {
+        (Some(used), Some(total)) if total > 0.0 => Some(used / total * 100.0),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +199,41 @@ mod tests {
             !display.contains("脱敏"),
             "Display 不应输出 detail：{display}"
         );
+    }
+
+    /// 契约：used_percent 与前端 display.ts usedPercent 镜像——
+    /// "%" 单位直读 used；否则 used/total 换算；数据不足 None。
+    #[test]
+    fn used_percent_mirrors_frontend_semantics() {
+        // "%" 单位直读 used（订阅/限额窗口的已用百分比）
+        let pct = UsageData {
+            used: Some(42.0),
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        assert_eq!(used_percent(&pct), Some(42.0));
+        // 金额单位走 used/total 换算
+        let amount = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            unit: Some("USD".into()),
+            ..Default::default()
+        };
+        assert_eq!(used_percent(&amount), Some(15.0));
+        // total <= 0 无意义
+        let bad_total = UsageData {
+            used: Some(10.0),
+            total: Some(0.0),
+            ..Default::default()
+        };
+        assert_eq!(used_percent(&bad_total), None);
+        // 字段缺失（余额型无 total 等）
+        assert_eq!(used_percent(&UsageData::default()), None);
+        // "%" 单位但 used 缺失
+        let pct_missing = UsageData {
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        assert_eq!(used_percent(&pct_missing), None);
     }
 }

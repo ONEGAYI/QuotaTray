@@ -1,6 +1,8 @@
 import { BarChart3, Plus, Settings, WalletCards } from "lucide-react";
 import type { MainPanel } from "../mainPanelView";
 import { BrandMark } from "./BrandMark";
+import { MessageCenter } from "./MessageCenter";
+import type { CenterMessage } from "./messageCenterView";
 import { IconButton } from "./ui";
 
 export function MobileTopBar({
@@ -8,11 +10,21 @@ export function MobileTopBar({
   settingsLabel,
   onAdd,
   onSettings,
+  messages,
+  messageSeen,
+  onMessagesSeen,
+  onViewUpdates,
 }: {
   addLabel: string;
   settingsLabel: string;
   onAdd: () => void;
   onSettings: () => void;
+  /** 消息中心三件 props + 「查看更新」回调（桌面 TitleBar 同款链路，
+   * 数据源与已读 state 均在 App 层，见 App.tsx 分流处）。 */
+  messages: CenterMessage[];
+  messageSeen: ReadonlySet<string>;
+  onMessagesSeen: () => void;
+  onViewUpdates: () => void;
 }) {
   return (
     <header className="qt-mobile-topbar">
@@ -21,6 +33,12 @@ export function MobileTopBar({
         <strong>QuotaTray</strong>
       </div>
       <div className="qt-mobile-topbar-actions">
+        <MessageCenter
+          messages={messages}
+          seen={messageSeen}
+          onSeenAll={onMessagesSeen}
+          onViewUpdates={onViewUpdates}
+        />
         <IconButton icon={Settings} label={settingsLabel} onClick={onSettings} />
         <IconButton icon={Plus} label={addLabel} onClick={onAdd} className="is-primary" />
       </div>

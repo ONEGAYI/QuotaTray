@@ -69,6 +69,11 @@ pub struct UpdateCtlState {
     /// 自动下载完成与探测恢复各广播一次，换版本资产时随之失效。
     /// 纯后端联动状态，不进 DTO。
     pub ready_notified: Option<String>,
+    /// 「发现新版本」已广播过的版本号（None = 未广播；移动端专用，
+    /// 桌面不消费恒 None）。会话内防重复：进更新页反复手动检测不
+    /// 重复打扰，换新版本时随 [`run_check`] 的登记迁移自然失效。
+    /// 纯后端联动状态，不进 DTO。
+    pub available_notified: Option<String>,
 }
 
 /// `get_update_state` 的 IPC 返回形状（含当前版本与运行形态）。
@@ -144,6 +149,50 @@ pub struct UpdateReadyEvent {
     pub version: String,
 }
 
+/// 「发现新版本」事件（移动端）：手动检测（进更新页/按钮）发现可用
+/// 版本且本会话未广播过时推送，前端消息中心红点与卡片据此生成。
+/// 与桌面 [`UPDATE_READY_EVENT`]（安装包已下载完成、卡片直连静默安装）
+/// 语义不同：移动端无自动下载，卡片动作是引导到设置·更新页手动下载。
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub const UPDATE_AVAILABLE_EVENT: &str = "update-available";
+
+/// [`UPDATE_AVAILABLE_EVENT`] 的负载：可用版本号（与桌面
+/// [`UpdateReadyEvent`] 同形，前端入列共用同一 merge 通道）。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub struct UpdateAvailableEvent {
+    pub version: String,
+}
+
+/// 可用广播判定（纯函数，移动端消费）：返回 Some(version) 表示应广播。
+/// 会话内同版本只广播一次（进更新页反复手动检测不重复打扰）；无新
+/// 版本不广播。与桌面 [`should_notify_ready`] 的防重口径一致。
+/// 全平台编译以便 host 单测（桌面无调用方，见 cfg_attr）。
+#[cfg_attr(not(any(target_os = "android", target_os = "ios")), allow(dead_code))]
+pub fn should_notify_available(inner: &UpdateCtlState) -> Option<String> {
+    let info = inner.info.as_ref()?;
+    if inner.available_notified.as_deref() == Some(info.version.as_str()) {
+        return None;
+    }
+    Some(info.version.clone())
+}
+
+/// 「发现新版本」单次广播（移动端）：判定通过后先登记再推送事件
+/// （先置位防并发重复，口径同桌面 [`notify_ready_once`]）。系统通知
+/// 与前后台生命周期联动在消息中心后续 PR 接入。
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn notify_available_once(app: &AppHandle, state: &AppState) {
+    let version = {
+        let inner = state.update_ctl.read().unwrap();
+        let Some(version) = should_notify_available(&inner) else {
+            return;
+        };
+        version
+    };
+    state.update_ctl.write().unwrap().available_notified = Some(version.clone());
+    let _ = app.emit(UPDATE_AVAILABLE_EVENT, UpdateAvailableEvent { version });
+}
+
 /// 更新通道代理 URL（settings 端口 → `http://127.0.0.1:{port}`；None = 直连）。
 /// 检测与下载共用同一设置项。
 pub(crate) fn proxy_url(state: &AppState) -> Option<String> {
@@ -179,6 +228,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
     let prev = state.update_ctl.read().unwrap().clone();
     let prev_downloaded = prev.downloaded.clone();
     let prev_ready_notified = prev.ready_notified.clone();
+    let prev_available_notified = prev.available_notified.clone();
     // 资产选择按架构 × 运行形态分流，绝不跨形态回退。
     let selector =
         update::AssetSelector::for_runtime(update::arch_label(), state.mode.is_portable());
@@ -203,6 +253,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
             last_error_detail: None,
             downloaded: None,
             ready_notified: None,
+            available_notified: None,
         },
         // 无 release / 已最新：清掉旧的新版本信息（跨版本状态不残留）
         Ok(_) => UpdateCtlState {
@@ -212,6 +263,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
             last_error_detail: None,
             downloaded: None,
             ready_notified: None,
+            available_notified: None,
         },
         // 检测失败保留已下载记录：网络故障不应丢状态（成功路径在下方
         // 统一按资产名重判）。主文案用 Display（简短），限流等原因
@@ -224,6 +276,7 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
             downloaded: prev_downloaded.clone(),
             // 检测失败沿用旧广播状态（已提醒过的不重复提醒）
             ready_notified: prev_ready_notified.clone(),
+            available_notified: prev_available_notified.clone(),
         },
     };
     if inner.last_error.is_none() {
@@ -234,6 +287,12 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
             (Some(d), Some(n)) if n == &d.asset_name => Some(n.clone()),
             _ => None,
         };
+        // 「发现新版本」广播登记跟随 available：同版本保留（进更新页
+        // 反复检测不重复打扰），换版本/已最新则失效
+        inner.available_notified = inner
+            .info
+            .as_ref()
+            .and_then(|i| prev_available_notified.filter(|n| n == &i.version));
         // 探测恢复：已下载记录为空但下载目录存在同名资产文件（应用重启
         // 后内存态丢失、安装失败/稍后安装后重开的场景）——磁盘文件即
         // 状态，恢复记录免重新下载；就绪广播由 post_check 统一判定
@@ -636,6 +695,7 @@ mod tests {
                 last_error_detail: None,
                 downloaded: None,
                 ready_notified: None,
+                available_notified: None,
             },
             _ => UpdateCtlState {
                 last_check: Some(1),
@@ -644,6 +704,7 @@ mod tests {
                 last_error_detail: None,
                 downloaded: None,
                 ready_notified: None,
+                available_notified: None,
             },
         };
         // 有资产的新版本 → downloadable
@@ -833,6 +894,58 @@ mod tests {
         assert!(
             !validate_installer_path(&dir.join("../evil.exe")),
             "越出下载目录不放行"
+        );
+    }
+
+    /// 契约：移动端「发现新版本」广播判定——无新版本不广播；有新版本
+    /// 且本会话未登记过才广播；同版本已登记（进更新页反复检测）短路；
+    /// 换新版本重新广播（登记随 run_check 迁移失效）。
+    #[test]
+    fn should_notify_available_contract() {
+        let info = |version: &str| {
+            Some(AvailableInfo {
+                version: version.into(),
+                html_url: "u".into(),
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+                downloadable: false,
+                asset_url: None,
+            })
+        };
+        // 无新版本（已最新/未检测）不广播
+        assert_eq!(
+            should_notify_available(&UpdateCtlState {
+                info: None,
+                ..Default::default()
+            }),
+            None
+        );
+        // 有新版本且未登记 → 广播该版本
+        assert_eq!(
+            should_notify_available(&UpdateCtlState {
+                info: info("0.9.0"),
+                ..Default::default()
+            }),
+            Some("0.9.0".into())
+        );
+        // 同版本已登记 → 短路（不重复打扰）
+        assert_eq!(
+            should_notify_available(&UpdateCtlState {
+                info: info("0.9.0"),
+                available_notified: Some("0.9.0".into()),
+                ..Default::default()
+            }),
+            None
+        );
+        // 登记的是旧版本、当前 available 是更新的版本 → 重新广播
+        assert_eq!(
+            should_notify_available(&UpdateCtlState {
+                info: info("0.10.0"),
+                available_notified: Some("0.9.0".into()),
+                ..Default::default()
+            }),
+            Some("0.10.0".into())
         );
     }
 

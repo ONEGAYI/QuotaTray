@@ -348,6 +348,12 @@ export const zh = {
   "msgCenter.installNow": "现在安装",
   "msgCenter.autoRestartHint": "安装时将短暂退出，完成后自动重启",
   "msgCenter.installFailed": "安装启动失败，可到「设置 · 更新」重试",
+  "msgCenter.updateAvailableTitle": "发现新版本",
+  "msgCenter.updateAvailableBody": "QuotaTray {version} 可更新",
+  "msgCenter.viewUpdate": "查看更新",
+  "msgCenter.updateGoToHint": "到「设置 · 更新」下载并安装",
+  "msgCenter.lowBalanceTitle": "余额提醒",
+  "msgCenter.lowBalanceBody": "{name} 已用 {percent}%",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "峰谷定价",
   "pricing.unit": "所有价格单位均为每百万 Tokens",

@@ -806,6 +806,26 @@ pub async fn test_script(
     Ok(outcome)
 }
 
+/// 「低余额提醒」事件负载（两端共用）：查询成功且任一窗口已用百分比
+/// 达到设置阈值时随查询结果广播；前端消息中心按 provider_id 去重入列。
+#[derive(Clone, Serialize)]
+struct LowBalanceEvent<'a> {
+    provider_id: &'a str,
+    name: &'a str,
+    /// 已用百分比（0-100，取数据中最高的窗口；前端展示时取整）。
+    percent: f64,
+}
+
+/// 低余额判定（纯函数）：任一窗口已用百分比 ≥ 阈值时返回
+/// `Some(最高达标百分比)`，否则 None。百分比语义与前端卡片高亮共用
+/// core [`quota_core::used_percent`]（`display.ts usedPercent` 的镜像）。
+fn low_balance_breach(data: &[quota_core::UsageData], threshold_percent: u8) -> Option<f64> {
+    data.iter()
+        .filter_map(quota_core::used_percent)
+        .filter(|p| *p >= f64::from(threshold_percent))
+        .fold(None::<f64>, |acc, p| Some(acc.map_or(p, |m| m.max(p))))
+}
+
 /// 查询单条目并落入共享结果表：成功更新结果与快照并重建托盘；失败按
 /// 双轨分类透出，结果表保留最后一次成功数据（keep-last-good 数据源）。
 /// 完成后广播 provider-state-changed（悬停面板等只读视图回流）。
@@ -905,6 +925,24 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         && let Err(e) = state.history.lock().unwrap().record(&id, data, at)
     {
         eprintln!("历史记录写入失败：{e}");
+    }
+    // 低余额提醒：成功查询后按设置阈值判定（两端共用），达标即广播
+    // low-balance；前端消息中心按条目 id 去重入列，重复广播不叠加
+    if outcome.ok
+        && let Some(data) = outcome.data.as_ref()
+        && let Some(percent) = low_balance_breach(
+            data,
+            state.settings.read().unwrap().low_balance_threshold_percent,
+        )
+    {
+        let _ = app.emit(
+            "low-balance",
+            LowBalanceEvent {
+                provider_id: &id,
+                name: &entry.name,
+                percent,
+            },
+        );
     }
     after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
@@ -1442,6 +1480,10 @@ pub async fn check_update_now(
     // 两者均为桌面语义（托盘消息、NSIS 自动安装链），移动端不编译
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     crate::update_ctl::post_check(&app, &state);
+    // 移动端联动：发现新版本且本会话未广播过时推送 update-available
+    // （前端消息中心红点/卡片）；同版本重复检测由后端登记短路
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    crate::update_ctl::notify_available_once(&app, &state);
     Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
 
@@ -1633,6 +1675,36 @@ mod tests {
         assert_eq!(runtime_platform_for("android"), "android");
         assert_eq!(runtime_platform_for("windows"), "desktop");
         assert_eq!(runtime_platform_for("linux"), "desktop");
+    }
+
+    /// 契约：低余额判定——百分比语义与前端卡片高亮一致（used_percent
+    /// 镜像），阈值含边界（=），多窗口取最高，数据不足不触发。
+    #[test]
+    fn low_balance_breach_contract() {
+        let window =
+            |used: Option<f64>, total: Option<f64>, unit: Option<&str>| quota_core::UsageData {
+                used,
+                total,
+                unit: unit.map(Into::into),
+                ..Default::default()
+            };
+        // 低于阈值不触发
+        let healthy = vec![window(Some(50.0), Some(100.0), None)];
+        assert_eq!(low_balance_breach(&healthy, 80), None);
+        // 达到阈值触发（边界 = 阈值也算）
+        let edge = vec![window(Some(80.0), Some(100.0), None)];
+        assert_eq!(low_balance_breach(&edge, 80), Some(80.0));
+        // 多窗口：任一达标即触发，取最高达标值
+        let multi = vec![
+            window(Some(50.0), Some(100.0), None),
+            window(Some(92.0), None, Some("%")),
+        ];
+        assert_eq!(low_balance_breach(&multi, 80), Some(92.0));
+        // 余额型（无 total、非 %）数据不足 → 不触发
+        let balance_only = vec![window(Some(3.0), None, Some("CNY"))];
+        assert_eq!(low_balance_breach(&balance_only, 80), None);
+        // 空数据不触发
+        assert_eq!(low_balance_breach(&[], 80), None);
     }
 
     #[test]
