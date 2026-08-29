@@ -114,6 +114,18 @@ jobs:
           cache-dependency-path: apps/quota-desktop/pnpm-lock.yaml
       - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
+      - name: 交叉 Clippy（aarch64-linux-android）
+        # 桌面 cfg 组合外的 Android 目标 lint（host clippy 不编译 android/
+        # 桌面分叉的另一半，2026-08-29 审查轮登记的口径缺口就此闭环）。
+        # clippy check 不链接，但 build.rs 的 C 依赖（ring/rquickjs/
+        # libsqlite3-sys）需要 NDK CC/AR/sysroot。
+        run: cargo clippy -p quota-desktop --all-targets --target aarch64-linux-android -- -D warnings
+        env:
+          CC_aarch64_linux_android: ${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CXX_aarch64_linux_android: ${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
+          AR_aarch64_linux_android: ${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          RANLIB_aarch64_linux_android: ${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib
+          BINDGEN_EXTRA_CLANG_ARGS: --sysroot=${{ env.NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot
       - name: 生成 Android 工程
         run: pnpm android:init
       - name: 构建 ARM64 Preview 调试 APK

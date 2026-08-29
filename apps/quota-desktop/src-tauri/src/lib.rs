@@ -30,6 +30,7 @@ use quota_core::{RuntimeMode, SecretStore};
 use tauri::Manager;
 
 /// 数据目录调试参数：`--data-dir <path>` 覆盖 `~/.quotatray`（烟测隔离用）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn parse_data_dir() -> Option<std::path::PathBuf> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -42,6 +43,7 @@ fn parse_data_dir() -> Option<std::path::PathBuf> {
 
 /// 便携显式参数：`--portable` 选择 exe 旁 `Data/`（与 `--data-dir` 同现
 /// 时后者赢——烟测沙箱保持安装态，优先级契约见 core::runtime）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn parse_portable_flag() -> bool {
     std::env::args().skip(1).any(|arg| arg == "--portable")
 }
