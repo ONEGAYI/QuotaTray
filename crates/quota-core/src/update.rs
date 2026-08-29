@@ -155,6 +155,10 @@ pub const GITHUB_REPO: &str = "ONEGAYI/QuotaTray";
 /// 周期检测的最小间隔（自动检测每 24h 至多一次，与每日到点判定互补）。
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// GUI 常驻轮询间隔：应用运行期间每 5 分钟检测一次（GitHub 未认证
+/// API 限额 60 次/小时，12 次/小时留足手动检测与 CLI 启动钩子余量）。
+pub const POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
+
 /// 下载大小上限（256MB）：NSIS 安装包为 MB 级，超限视为远端异常，防御性拒绝。
 const MAX_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
 
@@ -582,7 +586,19 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// 周期检测判定（CLI 启动钩子与 GUI 首启共用）：开关开启且距上次检测
 /// ≥24h（从未检测视为应检）。
 pub fn should_check(enabled: bool, last_check_ms: Option<u64>, now_ms: u64) -> bool {
-    enabled && last_check_ms.is_none_or(|t| now_ms.saturating_sub(t) >= DAY_MS)
+    should_check_within(enabled, last_check_ms, now_ms, DAY_MS)
+}
+
+/// 泛化节流判定：开关开启且距上次检测 ≥`interval_ms`（从未检测视为
+/// 应检；时钟回退 saturating 到 0，不 panic）。GUI 轮询调度以
+/// `POLL_INTERVAL_MS` 为间隔调用。
+pub fn should_check_within(
+    enabled: bool,
+    last_check_ms: Option<u64>,
+    now_ms: u64,
+    interval_ms: u64,
+) -> bool {
+    enabled && last_check_ms.is_none_or(|t| now_ms.saturating_sub(t) >= interval_ms)
 }
 
 /// "HH:MM" 解析（24 小时制含边界）；非法 → None。
@@ -1196,6 +1212,56 @@ mod tests {
             "不足 24h → 不检"
         );
         assert!(should_check(true, Some(now - DAY_MS), now), "恰 24h → 应检");
+    }
+
+    #[test]
+    fn should_check_within_gating() {
+        let now = 1_000_000_000_000u64;
+        let interval = POLL_INTERVAL_MS;
+        assert!(
+            should_check_within(true, None, now, interval),
+            "从未检测 → 应检"
+        );
+        assert!(
+            !should_check_within(false, None, now, interval),
+            "开关关闭 → 不检"
+        );
+        assert!(
+            !should_check_within(true, Some(now - interval + 1), now, interval),
+            "差 1ms 到间隔 → 不检"
+        );
+        assert!(
+            should_check_within(true, Some(now - interval), now, interval),
+            "恰达间隔 → 应检"
+        );
+        assert!(
+            !should_check_within(true, Some(now + 60_000), now, interval),
+            "时钟回退 → saturating 到 0，不 panic、不检"
+        );
+    }
+
+    /// `should_check` 是 `should_check_within` 的 24h 特例（CLI 启动钩子依赖）。
+    #[test]
+    fn should_check_is_daily_specialization() {
+        let now = 1_000_000_000_000u64;
+        for last in [
+            None,
+            Some(now - 1),
+            Some(now - DAY_MS),
+            Some(now - DAY_MS + 1),
+        ] {
+            assert_eq!(
+                should_check(true, last, now),
+                should_check_within(true, last, now, DAY_MS),
+                "last={last:?} 时两判定应一致"
+            );
+        }
+    }
+
+    /// 轮询间隔常量本身也是契约：GUI 调度直接引用它，防止无意改动。
+    #[test]
+    fn poll_interval_is_five_minutes() {
+        assert_eq!(POLL_INTERVAL_MS, 5 * 60 * 1000);
     }
 
     #[test]
