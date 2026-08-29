@@ -981,7 +981,6 @@ pub struct SettingsPatch {
     #[serde(default, with = "double_option")]
     pub tray_icon_entry_id: Option<Option<String>>,
     pub update_check_enabled: Option<bool>,
-    pub update_check_time: Option<String>,
     #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
     pub update_auto_download: Option<bool>,
@@ -1025,9 +1024,6 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.update_check_enabled {
         base.update_check_enabled = v;
-    }
-    if let Some(v) = patch.update_check_time.clone() {
-        base.update_check_time = v;
     }
     if let Some(v) = patch.update_proxy_port {
         base.update_proxy_port = v;

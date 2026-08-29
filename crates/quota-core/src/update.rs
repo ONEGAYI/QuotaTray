@@ -2,23 +2,18 @@
 //!
 //! 职责边界：本模块只承载纯业务逻辑——版本比较、release 响应解析、
 //! 安装包资产挑选、检测节流判定、字节原子落盘；检测时机的调度
-//! （CLI 启动钩子 / GUI 常驻定时）与 UI 提示留在端侧。
+//! （CLI 启动钩子 / GUI 常驻轮询）与 UI 提示留在端侧。
 //!
 //! 通道拆分：release 元数据是 JSON 文本，复用 [`HttpClient`]（自定义
 //! header 与 302 跟随均支持）；安装包是二进制字节流，走独立的
 //! [`AssetDownloader`]——HttpClient 的 body 是 String 且生产实现带 15s
 //! 总超时，载不动安装包，也不为此扩展 M2 冻结的 trait API 面。
-//!
-//! 时区说明：每日定时判定需要"本地日期/时刻"，std 无本地时区 API，
-//! 故引入 chrono（仅 clock 能力）；时间戳入参一律 epoch 毫秒，纯函数
-//! 可离线测试。
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use chrono::{Datelike, TimeZone, Timelike};
 use serde::Deserialize;
 
 use crate::http::{HttpClient, HttpError, HttpRequest};
@@ -581,7 +576,7 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
-// ---- 自动检测节流 / 每日定时（纯函数，epoch ms 入参） ---------------------
+// ---- 自动检测节流（纯函数，epoch ms 入参） ---------------------------------
 
 /// 周期检测判定（CLI 启动钩子与 GUI 首启共用）：开关开启且距上次检测
 /// ≥24h（从未检测视为应检）。
@@ -599,43 +594,6 @@ pub fn should_check_within(
     interval_ms: u64,
 ) -> bool {
     enabled && last_check_ms.is_none_or(|t| now_ms.saturating_sub(t) >= interval_ms)
-}
-
-/// "HH:MM" 解析（24 小时制含边界）；非法 → None。
-pub fn parse_hhmm(s: &str) -> Option<(u8, u8)> {
-    let (h, m) = s.trim().split_once(':')?;
-    let h: u8 = h.trim().parse().ok()?;
-    let m: u8 = m.trim().parse().ok()?;
-    (h < 24 && m < 60).then_some((h, m))
-}
-
-/// 每日到点判定（GUI 常驻调度用）：今天还没检测过（last_check 不落在
-/// 今天本地日期）且本地时刻已过 `hhmm`。`hhmm` 非法视为永不到点
-/// （设置层 sanitize 已兜底，此处防御）。
-pub fn due_daily(last_check_ms: Option<u64>, hhmm: &str, now_ms: u64) -> bool {
-    let Some((target_h, target_m)) = parse_hhmm(hhmm) else {
-        return false;
-    };
-    let now = local_datetime(now_ms);
-    let last_today = last_check_ms
-        .is_some_and(|t| local_datetime(t).num_days_from_ce() == now.num_days_from_ce());
-    !last_today && (now.hour(), now.minute()) >= (target_h as u32, target_m as u32)
-}
-
-/// 端侧调度统一判定：首启/距上次 ≥24h（`should_check`）或每天到点未检
-/// （`due_daily`）——后者覆盖"每天一次"语义（即使距上次不足 24h，
-/// 跨天到点也应检，如昨晚 23:50 检过、今晨 09:00 到点）。
-pub fn due_check(enabled: bool, last_check_ms: Option<u64>, hhmm: &str, now_ms: u64) -> bool {
-    should_check(enabled, last_check_ms, now_ms)
-        || (enabled && due_daily(last_check_ms, hhmm, now_ms))
-}
-
-/// epoch 毫秒 → 本地时间（超出 chrono 有效范围按当前时间兜底，不 panic）。
-fn local_datetime(epoch_ms: u64) -> chrono::DateTime<chrono::Local> {
-    chrono::Local
-        .timestamp_millis_opt(epoch_ms as i64)
-        .single()
-        .unwrap_or_else(chrono::Local::now)
 }
 
 // ---- 测试 -----------------------------------------------------------------
@@ -1200,7 +1158,7 @@ mod tests {
         );
     }
 
-    // ---- 节流 / 每日定时 ----
+    // ---- 节流 ----
 
     #[test]
     fn should_check_gating() {
@@ -1262,72 +1220,6 @@ mod tests {
     #[test]
     fn poll_interval_is_five_minutes() {
         assert_eq!(POLL_INTERVAL_MS, 5 * 60 * 1000);
-    }
-
-    #[test]
-    fn parse_hhmm_bounds() {
-        assert_eq!(parse_hhmm("09:00"), Some((9, 0)));
-        assert_eq!(parse_hhmm("23:59"), Some((23, 59)));
-        assert_eq!(parse_hhmm("0:00"), Some((0, 0)));
-        assert_eq!(parse_hhmm("24:00"), None);
-        assert_eq!(parse_hhmm("09:60"), None);
-        assert_eq!(parse_hhmm("9"), None);
-        assert_eq!(parse_hhmm("ab:cd"), None);
-        assert_eq!(parse_hhmm(" 09:00 "), Some((9, 0)), "容忍空白");
-    }
-
-    /// due_daily 依赖本地时区，用"相对构造"测语义：同一 now 下，
-    /// last_check 分别取"同一天较早时刻"与"昨天同一时刻"。
-    #[test]
-    fn due_daily_semantics() {
-        use chrono::{Datelike, Timelike};
-        let now = chrono::Local::now();
-        let now_ms = now.timestamp_millis() as u64;
-        let hhmm = format!("{:02}:{:02}", now.hour(), now.minute());
-        // 恒过点语义下：同日已检 → false；未检（昨天检的）→ true
-        let earlier_today = now - chrono::TimeDelta::seconds(60);
-        assert!(
-            !due_daily(Some(earlier_today.timestamp_millis() as u64), &hhmm, now_ms),
-            "今天已检过 → 不到点"
-        );
-        let yesterday = now - chrono::TimeDelta::seconds(20 * 3600);
-        assert!(
-            due_daily(Some(yesterday.timestamp_millis() as u64), &hhmm, now_ms)
-                || yesterday.num_days_from_ce() == now.num_days_from_ce(),
-            "跨天未检且已过点 → 应检（构造仍落在同一天时跳过）"
-        );
-        assert!(due_daily(None, &hhmm, now_ms), "从未检且已过点 → 应检");
-        // 设定时刻尚未到达：目标 = 下一小时同分（不跨天时构造有效）
-        let later = format!("{:02}:{:02}", (now.hour() + 1) % 24, now.minute());
-        if now.hour() < 23 {
-            assert!(!due_daily(None, &later, now_ms), "未到设定时刻 → 不检");
-        }
-        // 非法 hhmm 永不到点
-        assert!(!due_daily(None, "9时", now_ms));
-        assert!(!due_daily(None, "99:00", now_ms));
-    }
-
-    #[test]
-    fn due_check_combines_throttle_and_daily() {
-        use chrono::{Datelike, Timelike};
-        let now = chrono::Local::now();
-        let now_ms = now.timestamp_millis() as u64;
-        let hhmm = format!("{:02}:{:02}", now.hour(), now.minute());
-        // 距上次不足 24h 但跨天到点 → due_daily 兜住
-        let hours_ago_20 = now - chrono::TimeDelta::seconds(20 * 3600);
-        if hours_ago_20.num_days_from_ce() < now.num_days_from_ce() {
-            assert!(
-                due_check(
-                    true,
-                    Some(hours_ago_20.timestamp_millis() as u64),
-                    &hhmm,
-                    now_ms
-                ),
-                "跨天到点即使不足 24h 也应检"
-            );
-        }
-        // 开关关闭全兜底
-        assert!(!due_check(false, None, &hhmm, now_ms));
     }
 
     // ---- 落盘 ----

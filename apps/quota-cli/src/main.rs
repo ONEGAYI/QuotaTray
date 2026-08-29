@@ -628,20 +628,15 @@ async fn run(cli: Cli) -> i32 {
     code
 }
 
-/// 启动时后台更新提示：与 GUI 同语义的 `due_check` 判定（24h 节流 +
-/// 每日到点），5s 超时静默失败，仅 stderr 一行。检测过（含失败）即写回
-/// `update_last_check`——否则断网期间每条命令都要白等 5 秒。
+/// 启动时后台更新提示：与 GUI 轮询同源的节流判定（CLI 为一次性进程，
+/// 维持 24h 间隔），5s 超时静默失败，仅 stderr 一行。检测过（含失败）即
+/// 写回 `update_last_check`——否则断网期间每条命令都要白等 5 秒。
 async fn auto_update_hint(ctx: &Ctx) {
     use quota_core::update::{self, VERSION};
 
     let prefs = settings_io::load_prefs(&ctx.config_path);
     let now = settings_io::now_ms();
-    if !update::due_check(
-        prefs.update_check_enabled,
-        prefs.update_last_check,
-        &prefs.update_check_time,
-        now,
-    ) {
+    if !update::should_check(prefs.update_check_enabled, prefs.update_last_check, now) {
         return;
     }
     // 与 `quota update` 子命令同口径：代理端口读 settings.json（GUI

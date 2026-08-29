@@ -505,28 +505,29 @@ pub fn post_check(app: &AppHandle, state: &AppState) {
     });
 }
 
-/// 常驻调度：每分钟 wake 一次读设置，`due_check`（首启 ≥24h 节流或每日
-/// 到点）为真则检测并重建托盘。设置变更（开关/时刻/手动检测过的节流
-/// 时间戳）在下个 wake 自然生效——无需重启任务。
+/// 常驻调度：每分钟 wake 一次读设置，距上次检测 ≥ 轮询间隔
+/// （`POLL_INTERVAL_MS`，5 分钟）即检测并重建托盘——应用运行期间持续
+/// 轮询新版本（wake 粒度 1 分钟，实际间隔 5~6 分钟）。手动「立即检查」
+/// 与失败检测同样落盘节流时间戳，设置变更在下个 wake 自然生效——无需
+/// 重启任务。
 pub fn spawn_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             {
                 let state = app.state::<AppState>();
-                let (enabled, last, time) = {
+                let (enabled, last) = {
                     let s = state.settings.read().unwrap();
-                    (
-                        s.update_check_enabled,
-                        s.update_last_check,
-                        s.update_check_time.clone(),
-                    )
+                    (s.update_check_enabled, s.update_last_check)
                 };
-                if quota_core::update::due_check(enabled, last, &time, now_ms())
-                    && let Ok(http) = ReqwestHttpClient::new_with_proxy(
-                        Duration::from_secs(10),
-                        proxy_url(&state).as_deref(),
-                    )
-                {
+                if quota_core::update::should_check_within(
+                    enabled,
+                    last,
+                    now_ms(),
+                    quota_core::update::POLL_INTERVAL_MS,
+                ) && let Ok(http) = ReqwestHttpClient::new_with_proxy(
+                    Duration::from_secs(10),
+                    proxy_url(&state).as_deref(),
+                ) {
                     let inner = run_check(&state, &http).await;
                     let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
                     tray::rebuild(&app, &state);

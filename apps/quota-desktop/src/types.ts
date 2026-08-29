@@ -174,10 +174,8 @@ export interface Settings {
   ring_units_per_circle: number;
   /** 托盘图标显示的条目 id（null = 第一个启用条目） */
   tray_icon_entry_id: string | null;
-  /** 自动检测更新（启动 + 每日定时，CLI 共用） */
+  /** 自动检查更新（应用运行期间轮询；CLI 启动钩子共用） */
   update_check_enabled: boolean;
-  /** 每日定时检测时刻（"HH:MM"） */
-  update_check_time: string;
   /** 上次自动检测时间（epoch 毫秒，null = 从未） */
   update_last_check: number | null;
   /** 更新通道代理端口（本机 HTTP 代理；null = 直连，CLI 共用） */
@@ -199,7 +197,6 @@ export interface SettingsPatch {
   ring_units_per_circle?: number;
   tray_icon_entry_id?: string | null;
   update_check_enabled?: boolean;
-  update_check_time?: string;
   update_proxy_port?: number | null;
   update_auto_download?: boolean;
 }

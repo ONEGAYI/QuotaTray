@@ -31,13 +31,11 @@ pub struct Settings {
     /// 托盘图标显示的条目 id（None = 第一个 enabled 条目；失效 id 回退同左）。
     #[serde(default)]
     pub tray_icon_entry_id: Option<String>,
-    /// 自动检测更新（启动时 + 每日定时；CLI 启动钩子共用该开关）。
+    /// 自动检查更新（应用运行期间常驻轮询；CLI 启动钩子共用该开关）。
     #[serde(default = "default_update_enabled")]
     pub update_check_enabled: bool,
-    /// 每日定时检测时刻（"HH:MM" 24 小时制，GUI 常驻调度用）。
-    #[serde(default = "default_update_time")]
-    pub update_check_time: String,
-    /// 上次自动检测时间（epoch 毫秒；CLI 与 GUI 共写做 24h 节流）。
+    /// 上次自动检测时间（epoch 毫秒；CLI 与 GUI 共写做节流——GUI 轮询
+    /// 5 分钟、CLI 启动 24h）。
     #[serde(default)]
     pub update_last_check: Option<u64>,
     /// 更新通道代理端口（本机 HTTP 代理，如 Clash；None = 直连/环境变量）。
@@ -75,10 +73,6 @@ fn default_update_enabled() -> bool {
     true
 }
 
-fn default_update_time() -> String {
-    "09:00".into()
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -90,7 +84,6 @@ impl Default for Settings {
             ring_units_per_circle: default_ring_units(),
             tray_icon_entry_id: None,
             update_check_enabled: default_update_enabled(),
-            update_check_time: default_update_time(),
             update_last_check: None,
             update_proxy_port: None,
             update_auto_download: false,
@@ -114,10 +107,6 @@ impl Settings {
             self.ring_units_per_circle = default_ring_units();
         }
         self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
-        // 每日检测时刻：非法 HH:MM 回默认（core::update::parse_hhmm 为判据）
-        if quota_core::update::parse_hhmm(&self.update_check_time).is_none() {
-            self.update_check_time = default_update_time();
-        }
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
     }
@@ -205,7 +194,6 @@ mod tests {
             ring_units_per_circle: 500.0,
             tray_icon_entry_id: Some("AB2C3D".into()),
             update_check_enabled: false,
-            update_check_time: "12:30".into(),
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
             update_auto_download: true,
@@ -228,7 +216,6 @@ mod tests {
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
         assert!(s.update_check_enabled, "自动检测默认开启");
-        assert_eq!(s.update_check_time, "09:00");
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
         assert!(!s.update_auto_download, "自动下载默认关闭");
@@ -283,7 +270,6 @@ mod tests {
             ring_units_per_circle: 0.5,
             tray_icon_entry_id: Some("X".into()),
             update_check_enabled: true,
-            update_check_time: "09:00".into(),
             update_last_check: None,
             update_proxy_port: Some(7897),
             update_auto_download: false,
@@ -305,16 +291,6 @@ mod tests {
         );
         // id 是自由字符串（失效 id 的回退语义由托盘侧处理），sanitize 不动它
         assert_eq!(s.tray_icon_entry_id, Some("X".into()));
-        // 更新检测时刻：非法 HH:MM 回默认（update_check_enabled 是 bool 无需收口）
-        s.update_check_time = "9时".into();
-        s.sanitize();
-        assert_eq!(s.update_check_time, "09:00");
-        s.update_check_time = "24:99".into();
-        s.sanitize();
-        assert_eq!(s.update_check_time, "09:00");
-        s.update_check_time = "23:59".into();
-        s.sanitize();
-        assert_eq!(s.update_check_time, "23:59", "合法时刻应保留");
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         s.update_proxy_port = Some(0);
         s.sanitize();

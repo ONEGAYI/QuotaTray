@@ -34,8 +34,6 @@ pub fn now_ms() -> u64 {
 pub struct UpdatePrefs {
     #[serde(default = "default_enabled")]
     pub update_check_enabled: bool,
-    #[serde(default = "default_time")]
-    pub update_check_time: String,
     #[serde(default)]
     pub update_last_check: Option<u64>,
     /// 更新通道代理端口（GUI 设置页写入；None = 直连/环境变量）。
@@ -47,15 +45,10 @@ fn default_enabled() -> bool {
     true
 }
 
-fn default_time() -> String {
-    "09:00".into()
-}
-
 impl Default for UpdatePrefs {
     fn default() -> Self {
         Self {
             update_check_enabled: true,
-            update_check_time: "09:00".into(),
             update_last_check: None,
             update_proxy_port: None,
         }
@@ -156,13 +149,8 @@ mod tests {
         .unwrap();
         let p = load_prefs(&cfg);
         assert!(!p.update_check_enabled, "已存字段正常读取");
-        assert_eq!(p.update_check_time, "09:00", "缺字段回默认");
         assert_eq!(p.update_last_check, None);
         assert_eq!(p.update_proxy_port, Some(7897), "GUI 写入的代理端口可读");
-        assert_eq!(
-            p.update_check_time,
-            UpdatePrefs::default().update_check_time
-        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -188,16 +188,18 @@ fn weekday_minutes(now_ms: u64, tz: Option<i32>) -> (chrono::Weekday, u32) {
         .unwrap_or((chrono::Weekday::Thu, 0))
 }
 
-/// "HH:MM" 解析（复用 `update::parse_hhmm`，24 小时制含边界）；非法 → None。
-/// 峰谷特例：接受 `"24:00"`（仅作 end 的全天上界——classify 按 `[start, end)`
-/// 分钟比较，1440 与「当日任何分钟」天然兼容；start 处 24:00 会被
+/// "HH:MM" 解析（24 小时制含边界）；非法 → None。峰谷特例：接受
+/// `"24:00"`（仅作 end 的全天上界——classify 按 `[start, end)` 分钟
+/// 比较，1440 与「当日任何分钟」天然兼容；start 处 24:00 会被
 /// validate 的 start<end 检查拒绝）。
 fn parse_hhmm(s: &str) -> Option<(u8, u8)> {
     if s.trim() == "24:00" {
-        Some((24, 0))
-    } else {
-        crate::update::parse_hhmm(s)
+        return Some((24, 0));
     }
+    let (h, m) = s.trim().split_once(':')?;
+    let h: u8 = h.trim().parse().ok()?;
+    let m: u8 = m.trim().parse().ok()?;
+    (h < 24 && m < 60).then_some((h, m))
 }
 
 // ---- 格式化 ----------------------------------------------------------------
@@ -2021,6 +2023,21 @@ mod tests {
         // 价格/时段仍回退预置
         assert_eq!(r.windows.len(), 2);
         assert_eq!(r.peak, Some(PriceTier::full(0.10, 3.0, 9.0)));
+    }
+
+    /// 契约：HH:MM 解析基础边界（实现自 update.rs 迁入后由本模块锁定）。
+    #[test]
+    fn parse_hhmm_bounds() {
+        assert_eq!(parse_hhmm("09:00"), Some((9, 0)));
+        assert_eq!(parse_hhmm("23:59"), Some((23, 59)));
+        assert_eq!(parse_hhmm("0:00"), Some((0, 0)));
+        assert_eq!(parse_hhmm("24:00"), Some((24, 0)), "峰谷特例：end 全天上界");
+        assert_eq!(parse_hhmm("25:00"), None);
+        assert_eq!(parse_hhmm("09:60"), None);
+        assert_eq!(parse_hhmm("9"), None);
+        assert_eq!(parse_hhmm("ab:cd"), None);
+        assert_eq!(parse_hhmm(" 09:00 "), Some((9, 0)), "容忍空白");
+        assert_eq!(parse_hhmm(" 24:00 "), Some((24, 0)), "特例容忍空白");
     }
 
     /// 契约：end="24:00" 表达全天窗口——validate 接受、classify 全天命中、
