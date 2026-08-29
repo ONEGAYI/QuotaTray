@@ -8,8 +8,10 @@ Android 端首期按 **Preview** 发布。它复用 QuotaTray 的 Rust core、�
 
 当前实现已在 API 36 的 Pixel 8 `x86_64` 模拟器上通过 ARM64 转译运行验收，包括冷启动、
 底部导航、全屏设置与返回键、平台选择、卡片点击展开及 Android Keystore 重启持久化。
-模拟器不能替代厂商 WebView、系统文件选择器和真实设备 Keystore 的兼容性验收；完成真实
-Android 设备的完整运行验收前，不得宣称稳定支持。
+所有者已于 Android 16 真机完成功能验证（2026-08-29）：签名 APK 安装、Provider 查询
+与控制台直达跳转正常。模拟器与单台真机不能替代多厂商 WebView、系统文件选择器的
+兼容性验收，完整运行验收清单（见下文「构建与验收」）仍未逐项执行；完成前不得宣称
+稳定支持。
 
 ## 首期能力
 
@@ -78,7 +80,8 @@ Keyring JNI 初始化桥。生成目录不作为手写源码维护；CI 每次�
 
 获取渠道：正式 Release 附带 `android-release.yml`（发布 tag 触发）自动构建的签名
 APK `QuotaTray_<版本>_android-arm64.apk`，由长期密钥签名，同签名版本可覆盖升级
-（已在模拟器验证，真机验收进行中）；`android-preview` job（push main 与 PR 均
+（已在模拟器验证；真机首装运行已验证于 Android 16，跨版本覆盖升级验收待下个
+版本发布）；`android-preview` job（push main 与 PR 均
 触发）仍上传 `QuotaTray-android-arm64-preview-debug`
 artifact 供快速验证。本地构建签名 Release APK：`pnpm android:init` 后在
 `src-tauri/gen/android/` 放置 `keystore.properties`（`storeFile`/`storePassword`/

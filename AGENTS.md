@@ -55,7 +55,8 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   `build.gradle.kts`（读 `gen/android/` 下 `keystore.properties`，UTF-8 Reader
   读取以兼容中文路径；缺文件时退化为未签名构建，本地无密钥开发不受影响），
   契约测试锁定注入幂等、锚点漂移拒绝与编码写法。keystore 不入库，CI 侧只经
-  GitHub Secrets 注入。仍未完成：真实设备跨版本覆盖安装验收、Google Play
+  GitHub Secrets 注入。签名 APK 已在所有者 Android 16 真机完成首装与运行验证
+  （2026-08-29）；仍未完成：跨版本覆盖安装验收（待下个版本发布）、Google Play
   上架链（归「分发通道分流」条目）。
 - **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
   版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
@@ -75,11 +76,14 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   2026-08-29 启用：`consoleLink` 翻位；移动形态经所有者二次定案为 route 行
   trailing 文字按钮——可见文本「控制台」/"Console"（`card.consoleShort`）+
   ↗ 图标（44px 命中区，mobile-style 契约锁定）。模拟器（API 36 x86_64，ARM 转译）已验证渲染、opener 拉起 Chrome 加载
-  `platform.deepseek.com`、BACK 返回应用。真机验收（厂商浏览器差异、返回栈实机
-  行为、trailing 布局观感）未完前不得宣称移动支持。
-- **真实设备验收**：目前仅完成 API 36 模拟器冒烟；safe-area 实效、宽视口、选择器
-  外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、通知、下载、
-  跨版本升级、不同厂商系统及实体 ARM64 设备仍待完整验收。另有 #61 既有债务
+  `platform.deepseek.com`、BACK 返回应用；所有者已于 Android 16 真机验证查询与
+  控制台跳转正常（2026-08-29）。多厂商浏览器差异与返回栈行为仍属真机验收余项，
+  完整验收前保持 Preview 口径。
+- **真实设备验收**：API 36 模拟器冒烟之外，所有者已于 Android 16 真机完成功能
+  验证（2026-08-29）：签名 APK 安装、Provider 查询、控制台直达跳转正常（实体
+  ARM64 设备已覆盖一台）。完整验收清单仍未逐项执行：safe-area 实效、宽视口、
+  选择器外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、
+  通知、下载、跨版本升级、多厂商系统仍待验收。另有 #61 既有债务
   （审查轮 2026-08-29 登记）：卡片模型选择器 `.qt-provider-model-select` 移动端
   命中区 29px 未达 T-010 的 44px，待触摸合规统一整改。
 
@@ -503,6 +507,7 @@ QuotaTray/
 │       ├── 2026-08-25 预置Provider缺口预研.md # 预置缺口预研
 │       ├── 2026-08-27 WoA与便携版预研报告.md    # WoA 与便携版预研
 │       ├── 2026-08-28 自动更新预研报告.md       # 自动更新静默与双目录预研
+│       ├── 2026-08-29 安卓更新与下载预研报告.md    # 安卓更新下载预研
 │       └── 2026-08-29 安卓缺口调研报告.md       # 安卓缺口八项现状盘点（移动端计划底稿）
 ├── examples/               # 可运行示例
 │   ├── scripts/   # 脚本查询示例
