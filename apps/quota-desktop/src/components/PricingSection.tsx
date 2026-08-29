@@ -186,7 +186,7 @@ export function PricingSection(props: Props) {
               }
               patch(next);
             }}
-            className={compactFieldCls}
+            className={`${compactFieldCls} qt-select`}
           >
             {!modelIsKnown && draft.model.trim() && (
               <option value={`model:${draft.model.trim()}`}>{draft.model.trim()}</option>
@@ -227,7 +227,7 @@ export function PricingSection(props: Props) {
           {props.preset && (
             <div className="qt-inherit-banner">
               <span>{t("pricing.inheritNote")}</span>
-              <button type="button" onClick={clearOverrides} className="font-medium hover:underline">
+              <button type="button" onClick={clearOverrides} className="qt-touch-inline font-medium hover:underline">
                 {t("pricing.clearOverrides")}
               </button>
             </div>
@@ -317,7 +317,7 @@ export function PricingSection(props: Props) {
                       },
                     ])
                   }
-                  className="py-1 text-xs font-medium text-[var(--qt-accent-strong)] hover:underline"
+                  className="qt-touch-inline py-1 text-xs font-medium text-[var(--qt-accent-strong)] hover:underline"
                 >
                   {t("pricing.addWindow")}
                 </button>
@@ -495,7 +495,7 @@ function WindowEditor(props: {
         <button
           type="button"
           onClick={props.onRemove}
-          className="text-xs text-[var(--qt-text-soft)] hover:text-[var(--qt-danger)]"
+          className="qt-touch-inline text-xs text-[var(--qt-text-soft)] hover:text-[var(--qt-danger)]"
         >
           {t("pricing.removeWindow")}
         </button>
@@ -510,7 +510,7 @@ function WindowEditor(props: {
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleDay(day)}
-                className={`rounded-[var(--qt-radius-xs)] border px-2 py-1.5 text-xs ${
+                className={`qt-pricing-day-chip rounded-[var(--qt-radius-xs)] border px-2 py-1.5 text-xs ${
                   active
                     ? "border-[var(--qt-accent)] bg-[var(--qt-accent-soft)] font-medium text-[var(--qt-accent-strong)]"
                     : "border-[var(--qt-border)] bg-[var(--qt-surface)] text-[var(--qt-text-soft)] hover:border-[var(--qt-border-strong)]"
@@ -582,7 +582,7 @@ function PriceTierEditor(props: {
           <span className={`h-2 w-2 rounded-full ${peak ? "bg-[var(--qt-peak)]" : "bg-[var(--qt-offpeak)]"}`} />
           {peak ? t("pricing.peak") : t("pricing.offPeak")}
         </h4>
-        <button type="button" onClick={reset} className="text-xs text-[var(--qt-text-soft)] hover:underline">
+        <button type="button" onClick={reset} className="qt-touch-inline text-xs text-[var(--qt-text-soft)] hover:underline">
           {t("pricing.resetTier")}
         </button>
       </div>

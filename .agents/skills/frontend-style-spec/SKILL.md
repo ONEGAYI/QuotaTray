@@ -33,7 +33,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | ID | 模式 | 归属（references 文件） | 适用范围 | 状态 | 最后确认 |
 | --- | --- | --- | --- | --- | --- |
 | T-001 | 悬停气泡（tooltip） | [common-ui/tooltip.md](references/common-ui/tooltip.md) | 全部组件 | 生效 | 2026-08-28 |
-| T-002 | 分段控件（segmented） | [common-ui/segmented.md](references/common-ui/segmented.md) | 全部组件 | 生效 | 2026-08-28 |
+| T-002 | 分段控件（segmented） | [common-ui/segmented.md](references/common-ui/segmented.md) | 全部组件 | 生效 | 2026-08-29 |
 | T-003 | 焦点环（focus ring） | [common-ui/focus.md](references/common-ui/focus.md) | 全部可交互元素 | 生效 | 2026-08-28 |
 | T-004 | 按钮（button / icon-button） | [common-ui/button.md](references/common-ui/button.md) | 全部组件 | 生效 | 2026-08-28 |
 | T-005 | 表单字段（field / input / select） | [common-ui/field.md](references/common-ui/field.md) | 主窗与弹窗表单 | 生效 | 2026-08-28 |
@@ -41,7 +41,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | T-007 | 反馈提示块与进度条 | [common-ui/feedback-banner.md](references/common-ui/feedback-banner.md) | 全部视图 | 生效 | 2026-08-28 |
 | T-008 | 定价编辑区禁用 Tailwind 色板 | [edit-dialog/pricing-section.md](references/edit-dialog/pricing-section.md) | PricingSection | 生效 | 2026-08-28 |
 | T-009 | 消息中心（铃铛 + 红点 + 点击展开面板） | [common-ui/message-center.md](references/common-ui/message-center.md) | 标题栏 | 草案 | 2026-08-28 |
-| T-010 | 移动端触摸交互与 disclosure | [mobile/interaction.md](references/mobile/interaction.md) | Android 前端 | 生效 | 2026-08-28 |
+| T-010 | 移动端触摸交互与 disclosure | [mobile/interaction.md](references/mobile/interaction.md) | Android 前端 | 生效 | 2026-08-29 |
 | T-011 | 移动端壳层与全屏页面 | [mobile/layout.md](references/mobile/layout.md) | Android 前端 | 生效 | 2026-08-28 |
 
 ### 令牌条目（DT-）

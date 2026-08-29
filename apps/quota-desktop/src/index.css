@@ -710,7 +710,7 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-settings-manual-link { display: inline-flex; max-width: 100%; align-items: flex-start; gap: 6px; margin: 4px 0 8px; color: var(--qt-accent-strong); font-size: 12px; overflow-wrap: anywhere; }
 .qt-settings-manual-link svg { flex: none; margin-top: 1px; }
 /* Android 更新：安装弹回时的「安装未知应用」授权出路（提示 + 行内链接） */
-.qt-settings-manual-hint { margin: 4px 0 8px; color: var(--qt-text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.qt-settings-manual-hint { margin: 4px 0 8px; color: var(--qt-text-soft); font-size: 12px; overflow-wrap: anywhere; }
 .qt-inline-link { padding: 0; border: none; background: none; color: var(--qt-accent-strong); font-size: inherit; text-decoration: underline; cursor: pointer; }
 .qt-inline-link:active { opacity: 0.7; }
 
@@ -1033,3 +1033,29 @@ body.qt-mobile-runtime .qt-native-picker-group-button { min-width: 132px; min-he
 body.qt-mobile-runtime .qt-native-picker-group-button > svg { transform: rotate(90deg); }
 body.qt-mobile-runtime .qt-native-picker-submenu { padding: 6px 0 0; }
 body.qt-mobile-runtime .qt-native-picker-option { min-height: 48px; }
+
+/* 触摸目标全量整改（T-010 · 2026-08-29 所有者定案）：下拉/分段/预设/折叠等
+   次级可点控件统一补 44px 命中区；行内链接按语境分治——句中链接
+   （qt-inline-link）保持行内排版、伪元素负 inset 外扩热区（先例
+   .qt-page-tabs::before），独立成行链接（qt-settings-manual-link）直接
+   撑到 44px。桌面不受本段影响。 */
+body.qt-mobile-runtime .qt-select { min-height: 44px; }
+body.qt-mobile-runtime .qt-segmented button { min-height: 44px; }
+body.qt-mobile-runtime .qt-template-presets button { min-height: 44px; }
+body.qt-mobile-runtime .qt-template-help-toggle { min-height: 44px; }
+body.qt-mobile-runtime .qt-settings-manual-link { min-height: 44px; align-items: center; }
+body.qt-mobile-runtime .qt-inline-link { position: relative; }
+body.qt-mobile-runtime .qt-inline-link::before { position: absolute; inset: -15px -8px; content: ""; }
+
+/* 审查轮补齐（同日）：统计页裸下拉（.qt-usage-selector select）与重置钮、
+   设置迁移区/模板试查区正文按钮、峰谷周几切换钮（挂语义类 qt-pricing-day-chip
+   直接加高）；峰谷行内文字钮（清除覆盖/添加时段/移除时段/重置档位）沿用
+   分治——qt-touch-inline 通用热区类，与 qt-inline-link 的伪元素外扩同构、
+   不带任何视觉样式，视觉继续由各自 Tailwind 类承担。 */
+body.qt-mobile-runtime .qt-usage-selector select { min-height: 44px; }
+body.qt-mobile-runtime .qt-usage-reset { min-height: 44px; }
+body.qt-mobile-runtime .qt-settings-content .qt-btn { min-height: 44px; }
+body.qt-mobile-runtime .qt-template-actions .qt-btn { min-height: 44px; }
+body.qt-mobile-runtime .qt-pricing-day-chip { min-height: 44px; }
+body.qt-mobile-runtime .qt-touch-inline { position: relative; }
+body.qt-mobile-runtime .qt-touch-inline::before { position: absolute; inset: -15px -8px; content: ""; }
