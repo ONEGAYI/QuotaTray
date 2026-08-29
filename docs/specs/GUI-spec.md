@@ -131,6 +131,10 @@ M5-a 起同一成功链路另行写入查询历史库（`~/.quotatray/history.db
   映射为资源目录 `bin/quota.exe`。运行时仅在桌面端同目录、安装包资源目录或
   PATH 中找到真实可执行文件时生成本机 Agent 提示词，否则明确报错。
 - 自动更新：接入 tauri-plugin-updater（端点待定，发布前完成签名与密钥对）。
+  - *2026-08-29 修订注记*：实际未采用 tauri-plugin-updater，落地为 core `update.rs`
+    自研链路——GitHub Releases 检测 + 按架构/形态精确选择资产 + NSIS `/S /UPDATE /R`
+    静默安装（#60）；检测调度后经 #65/#67 从「启动时 + 每日定时 + 24h 节流」升级为
+    应用运行期间 5 分钟轮询。原文保留备查。
 - CI：push 到 main 跑 fmt/clippy/test（已有）+ 前端 lint/build；release tag 触发打包。
 
 ## 7. 验收标准
