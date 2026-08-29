@@ -9,18 +9,25 @@
 //! 免任务重启）。
 
 use std::path::{Path, PathBuf};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::time::Duration;
 
-use quota_core::http::{HttpClient, ReqwestHttpClient};
+use quota_core::http::HttpClient;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use quota_core::http::ReqwestHttpClient;
+
 use quota_core::update::{
     self, AssetDownloader, DownloadProgress, DownloadProgressReporter, ReqwestAssetDownloader,
     UpdateStatus, VERSION, is_stale_installer,
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter};
 
 use crate::i18n::Lang;
 use crate::state::{AppState, now_ms};
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::tray;
 
 /// 有新版本时的展示信息（IPC 形状；`asset_url` 仅后端下载用，前端可忽略）。
@@ -123,13 +130,16 @@ fn carry_downloaded(
 /// 前端监听的安装包下载进度事件。
 pub const DOWNLOAD_PROGRESS_EVENT: &str = "update-download-progress";
 /// 自动调度完成检测后推送完整状态，已打开的设置页可立即刷新。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const UPDATE_STATE_EVENT: &str = "update-state-changed";
 /// 「更新就绪」事件：安装包落盘（自动下载完成或重启后探测恢复）且本
 /// 会话未广播过时推送，前端消息中心红点与消息卡片据此生成。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const UPDATE_READY_EVENT: &str = "update-ready";
 
 /// [`UPDATE_READY_EVENT`] 的负载：新版本号（消息卡片展示与安装确认用）。
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct UpdateReadyEvent {
     pub version: String,
 }
@@ -149,8 +159,9 @@ fn error_detail(e: &update::UpdateError) -> Option<String> {
     }
 }
 
-struct TauriProgressReporter<'a> {
-    app: &'a AppHandle,
+/// 下载进度 → 前端事件的桥（桌面落盘下载与 Android SAF 写入共用）。
+pub(crate) struct TauriProgressReporter<'a> {
+    pub(crate) app: &'a AppHandle,
 }
 
 impl DownloadProgressReporter for TauriProgressReporter<'_> {
@@ -284,14 +295,15 @@ pub async fn download_installer(
 }
 
 /// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
-/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip` 结尾
-/// （zip = 便携形态更新资产）——防恶意资产名使落盘位置逃出下载目录
-/// （运行安装侧另有 exe-only 的 validate_installer_path）。
-fn validate_asset_name(name: &str) -> bool {
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip`/`.apk`
+/// 结尾（zip = 便携/WoA 形态更新资产，apk = Android 更新资产）——防
+/// 恶意资产名使落盘位置逃出下载目录（运行安装侧另有 exe-only 的
+/// validate_installer_path）。
+pub(crate) fn validate_asset_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     !name.is_empty()
         && !name.contains(['/', '\\', ':'])
-        && (lower.ends_with(".exe") || lower.ends_with(".zip"))
+        && (lower.ends_with(".exe") || lower.ends_with(".zip") || lower.ends_with(".apk"))
 }
 
 /// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
@@ -385,6 +397,7 @@ pub fn cleanup_stale_installers() {
 
 /// 自动下载判定（纯函数，便于契约测试）：开关开启、安装版（zip 形态
 /// 维持「打开目录手动覆盖」引导）、尚未下载、当前版本可下载。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn should_auto_download(
     auto_enabled: bool,
     manual_update: bool,
@@ -400,6 +413,7 @@ pub fn should_auto_download(
 /// ARM64 Preview）不广播：其「现在安装」必然被 install_update 的形态
 /// 拒绝，消息卡片只会给出永远无效的重试引导，正确入口是设置页的
 /// 「打开下载目录」手动覆盖流程。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn should_notify_ready(manual_update: bool, inner: &UpdateCtlState) -> Option<String> {
     if manual_update {
         return None;
@@ -420,6 +434,7 @@ pub fn should_notify_ready(manual_update: bool, inner: &UpdateCtlState) -> Optio
 /// 「更新就绪」单次广播：[`should_notify_ready`] 判定通过时，先登记
 /// 广播状态（防与手动检测并发的双重系统通知）再推送事件；主窗不可见
 /// 时补发系统通知。覆盖自动下载完成与重启后探测恢复两个来源。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn notify_ready_once(app: &AppHandle, state: &AppState) {
     let manual_update =
         update::AssetSelector::for_runtime(update::arch_label(), state.mode.is_portable())
@@ -474,6 +489,7 @@ fn notify_ready_once(app: &AppHandle, state: &AppState) {
 ///
 /// 手动下载（设置页按钮）不走本函数：用户正看进度条，按钮态即反馈，
 /// 不重复打扰。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn post_check(app: &AppHandle, state: &AppState) {
     notify_ready_once(app, state);
     let manual_update =
@@ -510,6 +526,7 @@ pub fn post_check(app: &AppHandle, state: &AppState) {
 /// 轮询新版本（wake 粒度 1 分钟，实际间隔 5~6 分钟）。手动「立即检查」
 /// 与失败检测同样落盘节流时间戳，设置变更在下个 wake 自然生效——无需
 /// 重启任务。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn spawn_scheduler(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -542,7 +559,7 @@ pub fn spawn_scheduler(app: AppHandle) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod tests {
     use super::*;
     use crate::settings::Settings;
@@ -869,6 +886,11 @@ mod tests {
             validate_asset_name("QuotaTray_0.7.0_x64-portable.zip"),
             "zip = 便携更新资产放行"
         );
+        assert!(
+            validate_asset_name("QuotaTray_0.8.1_android-arm64.apk"),
+            "apk = Android 更新资产放行"
+        );
+        assert!(!validate_asset_name("a/b.apk"), "apk 路径分隔符同样拒绝");
         assert!(!validate_asset_name(""));
         assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
         assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");

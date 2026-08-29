@@ -31,6 +31,7 @@ import {
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
   runtimeLabel,
+  savedApkIsCurrent,
 } from "./settingsView";
 import {
   defaultTransferFileName,
@@ -59,6 +60,16 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
+  /** Android：SAF 保存的 APK 位置（content:// URI，会话内存——后端状态表
+   * 不记录，离开页面丢失后重下即可）。附带下载时的可用版本快照：
+   * 版本不一致（重检测后发现新版本）时自动失效，同版本重复检测不清空，
+   * 避免 18MB 白重下（2026-08-29 审查修复）。 */
+  const [savedApk, setSavedApk] = useState<{ uri: string; version: string | null } | null>(null);
+  /** Android：open_downloaded_apk 返回 false（系统无安装器）后的降级引导。 */
+  const [installFallback, setInstallFallback] = useState(false);
+  /** Android：授权页入口反馈——"unsupported" = API 26 以下无该设置页；
+   * "error" = 桥故障（JNI/类加载失败等），两者的用户出路一致。 */
+  const [consentFeedback, setConsentFeedback] = useState<"unsupported" | "error" | null>(null);
 
   const portableRun = updateState.data?.portable ?? false;
   const manualUpdateRun = updateState.data?.manual_update ?? portableRun;
@@ -74,10 +85,6 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   useEffect(() => {
     if (open) void qc.invalidateQueries({ queryKey: ["update-state"] });
   }, [open, qc]);
-
-  useEffect(() => {
-    if (mobile && tab === "update") setTab("general");
-  }, [mobile, tab]);
 
   useEffect(() => {
     const unlisten = listen<DownloadProgress>("update-download-progress", (event) => {
@@ -99,13 +106,35 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
 
   const checkNow = useMutation({
     mutationFn: api.checkUpdateNow,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
+    onSuccess: () => {
+      // 已保存 APK 的失效由版本快照对比自动处理（见 savedApk 注释），
+      // 无条件清空会在同版本重检测时误伤 18MB 已下载产物
+      setInstallFallback(false);
+      void qc.invalidateQueries({ queryKey: ["update-state"] });
+    },
   });
 
   const download = useMutation({
     mutationFn: api.downloadUpdate,
     // 已下载路径由后端状态表记录，失效缓存即刷新出「立即安装」入口
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["update-state"] }),
+  });
+
+  /** Android：下载 APK 写入 SAF 位置（先经 saveDialog 拿 content:// URI）。 */
+  const downloadToUri = useMutation({
+    mutationFn: api.downloadUpdateToUri,
+    onSuccess: (_data, path) => {
+      setSavedApk({ uri: path, version: updateState.data?.available?.version ?? null });
+      setInstallFallback(false);
+    },
+  });
+
+  /** Android：以系统安装器打开已保存的 APK；false = 无安装器降级引导。 */
+  const openApk = useMutation({
+    mutationFn: api.openDownloadedApk,
+    onSuccess: (dispatched) => {
+      if (!dispatched) setInstallFallback(true);
+    },
   });
 
   const install = useMutation({
@@ -196,14 +225,56 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
     if (confirmed) install.mutate();
   };
 
+  /** Android 下载入口：SAF 保存对话框拿 content:// 位置，再交给后端
+   * 下载写入（MIME 过滤与配置导出同模式；桌面不渲染此入口）。 */
+  const beginDownloadApk = async () => {
+    setInstallFallback(false);
+    const uri = await saveDialog({
+      title: t("settings.apkDialogTitle"),
+      defaultPath: available?.asset_name ?? undefined,
+      filters: [{
+        name: t("settings.apkDialogFilter"),
+        extensions: ["application/vnd.android.package-archive"],
+      }],
+    });
+    if (uri) downloadToUri.mutate(uri);
+  };
+
+  // 手动检测口径的「进页自动检一次」：进入更新页且距上次检测超过
+  // 5 分钟（core POLL_INTERVAL_MS 同款节流）时触发。仅移动端：移动端
+  // 无调度器，这是更新信息的唯一自动刷新来源；桌面有轮询调度器，
+  // 用户关闭「自动检测」开关的意图不能被进页检测违背（2026-08-29
+  // 审查修复：此前无平台守卫，桌面关开关后 last_check 停更导致每次
+  // 进页仍联网检测）
+  useEffect(() => {
+    if (!mobile || tab !== "update" || checkNow.isPending || downloadToUri.isPending) return;
+    const last = updateState.data?.last_check ?? null;
+    const elapsed = last ? Date.now() - last : Number.POSITIVE_INFINITY;
+    if (elapsed >= 5 * 60 * 1000) checkNow.mutate();
+    // updateState.data 变化会重触发；节流窗口内 last_check 已更新即停
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, updateState.data?.last_check]);
+
   if (!open || !draft) return null;
   const update = updateState.data;
   const available = update?.available ?? null;
+  // 版本快照一致的已保存 APK 才可用（重检测出新版本自动失效）
+  const savedApkUri = savedApkIsCurrent(savedApk, available?.version ?? null)
+    ? savedApk.uri
+    : null;
   const downloadedPath = update?.downloaded_path ?? null;
   const operationError = resolveUpdateError({
     checkError: checkNow.isError ? checkNow.error : null,
-    downloadError: download.isError ? download.error : null,
-    installError: install.isError ? install.error : null,
+    downloadError: download.isError
+      ? download.error
+      : downloadToUri.isError
+        ? downloadToUri.error
+        : null,
+    installError: install.isError
+      ? install.error
+      : openApk.isError
+        ? openApk.error
+        : null,
     backendError: update?.last_error,
     hasAvailable: Boolean(available),
   });
@@ -218,11 +289,13 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
     error: operationError,
   });
   const canDownload = Boolean(available?.downloadable);
+  const downloading = download.isPending || downloadToUri.isPending;
   const updateAction = resolveUpdateAction({
-    downloading: download.isPending,
+    downloading,
     canDownload,
     hasDownloaded: downloadedPath != null,
     manualUpdate: manualUpdateRun,
+    mobileSaved: mobile && savedApkUri != null,
   });
   const percent = downloadProgress ? downloadPercent(downloadProgress) : null;
 
@@ -257,14 +330,14 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
             <SlidersHorizontal size={16} aria-hidden="true" />
             {t("settings.tabGeneral")}
           </button>
-          {!mobile && <button
+          <button
             type="button"
             aria-selected={tab === "update"}
             onClick={() => setTab("update")}
           >
             <PackageCheck size={16} aria-hidden="true" />
             {t("settings.tabUpdate")}
-          </button>}
+          </button>
           <button
             type="button"
             aria-selected={tab === "data"}
@@ -420,9 +493,18 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   </p>
                 </div>
                 <Button
-                  variant={updateAction === "install" || updateAction === "download" ? "primary" : undefined}
-                  disabled={checkNow.isPending || download.isPending || install.isPending}
+                  variant={updateAction === "install" || updateAction === "install-mobile" || updateAction === "download" ? "primary" : undefined}
+                  disabled={checkNow.isPending || downloading || install.isPending || openApk.isPending}
                   onClick={() => {
+                    if (updateAction === "install-mobile") {
+                      // Android：content URI 留存前端会话，拉起系统安装器
+                      // 由用户确认（Ok(false) 时降级手动引导）。清其余槽位
+                      // 错误，避免旧失败残留误导本次操作
+                      checkNow.reset();
+                      downloadToUri.reset();
+                      if (savedApkUri) openApk.mutate(savedApkUri);
+                      return;
+                    }
                     if (updateAction === "open-dir") {
                       // 便携 v1 手动更新引导：打开下载目录，由用户退出
                       // 应用后解压覆盖（zip 不是安装包，不自动运行）
@@ -449,10 +531,19 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                     if (updateAction === "download") {
                       checkNow.reset();
                       install.reset();
-                      download.mutate();
+                      // 移动端三槽位（桌面槽位以外的 Android 变体）同批清理
+                      downloadToUri.reset();
+                      openApk.reset();
+                      if (mobile) {
+                        void beginDownloadApk();
+                      } else {
+                        download.mutate();
+                      }
                     } else {
                       download.reset();
                       install.reset();
+                      downloadToUri.reset();
+                      openApk.reset();
                       checkNow.mutate();
                     }
                   }}
@@ -461,16 +552,18 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                     ? t("settings.downloading")
                     : updateAction === "install"
                       ? t("settings.install")
-                      : updateAction === "open-dir"
-                        ? t("settings.openDownloadDir")
-                        : updateAction === "download"
-                          ? manualUpdateRun
-                            ? t("settings.downloadPackage")
-                            : t("settings.download")
-                          : t("settings.checkNow")}
+                      : updateAction === "install-mobile"
+                        ? t("settings.installApk")
+                        : updateAction === "open-dir"
+                          ? t("settings.openDownloadDir")
+                          : updateAction === "download"
+                            ? manualUpdateRun
+                              ? t("settings.downloadPackage")
+                              : t("settings.download")
+                            : t("settings.checkNow")}
                 </Button>
               </div>
-              {download.isPending && downloadProgress && (
+              {downloading && downloadProgress && (
                 <div className="qt-update-download-progress">
                   <div
                     className={`qt-update-progress-track ${percent == null ? "is-indeterminate" : ""}`}
@@ -485,23 +578,29 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   <p>{formatDownloadProgress(downloadProgress)}</p>
                 </div>
               )}
-              <SettingRow title={t("settings.updateEnabledTitle")} description={t("settings.updateEnabledHint")}>
-                <Switch
-                  label={t("settings.updateEnabledTitle")}
-                  checked={draft.update_check_enabled}
-                  onChange={(update_check_enabled) => setDraft({ ...draft, update_check_enabled })}
-                />
-              </SettingRow>
-              <SettingRow
-                title={t("settings.updateAutoDownloadTitle")}
-                description={t("settings.updateAutoDownloadHint")}
-              >
-                <Switch
-                  label={t("settings.updateAutoDownloadTitle")}
-                  checked={draft.update_auto_download}
-                  onChange={(update_auto_download) => setDraft({ ...draft, update_auto_download })}
-                />
-              </SettingRow>
+              {/* 自动检测/自动下载为桌面调度语义（轮询调度器与自动下载
+                  联动不移植移动端）；移动端隐藏，代理端口保留通用 */}
+              {!mobile && (
+                <SettingRow title={t("settings.updateEnabledTitle")} description={t("settings.updateEnabledHint")}>
+                  <Switch
+                    label={t("settings.updateEnabledTitle")}
+                    checked={draft.update_check_enabled}
+                    onChange={(update_check_enabled) => setDraft({ ...draft, update_check_enabled })}
+                  />
+                </SettingRow>
+              )}
+              {!mobile && (
+                <SettingRow
+                  title={t("settings.updateAutoDownloadTitle")}
+                  description={t("settings.updateAutoDownloadHint")}
+                >
+                  <Switch
+                    label={t("settings.updateAutoDownloadTitle")}
+                    checked={draft.update_auto_download}
+                    onChange={(update_auto_download) => setDraft({ ...draft, update_auto_download })}
+                  />
+                </SettingRow>
+              )}
               <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
                 <input
                   className="qt-input"
@@ -533,6 +632,44 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   <ExternalLink size={14} aria-hidden="true" />
                   {t("settings.manualUrl", { url: available.html_url })}
                 </a>
+              )}
+              {mobile && savedApkUri && (
+                <p className="qt-settings-success">
+                  {t("settings.downloadedApk", { name: available?.asset_name ?? "APK" })}
+                </p>
+              )}
+              {mobile && savedApkUri && (
+                <p className="qt-settings-manual-hint">
+                  {t("settings.installConsentHint")}{" "}
+                  <button
+                    type="button"
+                    className="qt-inline-link"
+                    onClick={() => {
+                      setConsentFeedback(null);
+                      // false = API 26 以下无该设置页（Kotlin 侧版本门）
+                      void api
+                        .openInstallConsent()
+                        .then((dispatched) => {
+                          if (!dispatched) setConsentFeedback("unsupported");
+                        })
+                        .catch((e) => {
+                          console.error("打开安装授权页失败", e);
+                          setConsentFeedback("error");
+                        });
+                    }}
+                  >
+                    {t("settings.installConsentOpen")}
+                  </button>
+                </p>
+              )}
+              {mobile && consentFeedback === "unsupported" && (
+                <p className="qt-inline-error">{t("settings.installConsentUnsupported")}</p>
+              )}
+              {mobile && consentFeedback === "error" && (
+                <p className="qt-inline-error">{t("settings.installConsentFailed")}</p>
+              )}
+              {installFallback && (
+                <p className="qt-inline-error">{t("settings.noInstaller")}</p>
               )}
               {downloadedPath && (
                 <p className="qt-settings-success">

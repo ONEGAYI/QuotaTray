@@ -339,6 +339,20 @@ export const en: Record<TextKey, string> = {
   "msgCenter.autoRestartHint": "QuotaTray will briefly quit and restart automatically",
   "msgCenter.installFailed": "Failed to start the installer; retry in Settings · Update",
   "settings.manualUrl": "No installer for this version; release page: {url}",
+  // ---- Android updates (SAF save + system installer flow) ----
+  "settings.apkDialogTitle": "Save update package",
+  "settings.apkDialogFilter": "Android package",
+  "settings.downloadedApk": "Update package saved ({name}). Tap \"Install\" to hand it to the system installer",
+  "settings.installApk": "Install",
+  "settings.noInstaller":
+    "No system installer available. Open the saved APK from your file manager to install it manually",
+  "settings.installConsentHint":
+    "No install confirmation shown? Open the saved APK from your file manager to install it, or first allow this app to install unknown apps on some systems",
+  "settings.installConsentOpen": "Open system setting",
+  "settings.installConsentUnsupported":
+    "This system does not provide that settings page (version too old); install from your file manager instead",
+  "settings.installConsentFailed":
+    "Failed to open the system settings page; install from your file manager instead",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "Peak/off-peak pricing",
   "pricing.unit": "All prices are per 1M tokens",

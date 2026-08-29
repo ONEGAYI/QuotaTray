@@ -78,8 +78,16 @@ export function resolveUpdateStatus({
 
 /** 设置页更新主按钮的动作分派（决定文案与点击行为）。
  * zip 更新形态：已下载动作是「打开下载目录」引导手动覆盖，
- * 不提供运行安装包入口。 */
-export type UpdateAction = "downloading" | "install" | "open-dir" | "download" | "check";
+ * 不提供运行安装包入口。
+ * Android：APK 已保存到 SAF 位置（会话内存，不经后端状态表）时动作
+ * 是「安装」——拉起系统安装器，不出现桌面目录语义。 */
+export type UpdateAction =
+  | "downloading"
+  | "install"
+  | "install-mobile"
+  | "open-dir"
+  | "download"
+  | "check";
 
 /** 更新页版本行的运行形态标签：架构 +（便携形态时）便携标记。
  * 后端未返回 platform（异常/旧后端）时返回空串，调用方拼接时跳过该段。 */
@@ -97,18 +105,36 @@ export function resolveUpdateAction({
   canDownload,
   hasDownloaded,
   manualUpdate = false,
+  mobileSaved = false,
 }: {
   downloading: boolean;
   canDownload: boolean;
   hasDownloaded: boolean;
   /** zip 更新形态（ARM64 Preview / Portable），走手动覆盖引导。 */
   manualUpdate?: boolean;
+  /** Android：APK 已保存到 SAF 位置（content URI 留存前端会话）。
+   * 优先于桌面 install/open-dir 分流——移动端 downloaded_path 恒空，
+   * 「已下载」只能由前端本地状态表达。 */
+  mobileSaved?: boolean;
 }): UpdateAction {
   if (downloading) return "downloading";
   // 安装态要求仍有可下载的新版本：换版本/检测失败时后端已清记录
+  // （移动端 savedApkUri 由重检测一并失效，同语义）
   if (canDownload) {
+    if (mobileSaved) return "install-mobile";
     if (hasDownloaded) return manualUpdate ? "open-dir" : "install";
     return "download";
   }
   return "check";
+}
+
+/** Android 已保存 APK（SAF content URI）的有效性判定：下载时记录的
+ * 可用版本快照与当前可用版本一致才可用——重检测发现新版本时自动
+ * 失效（旧包不该再装），同版本重复检测不清空（18MB 产物不白费）。
+ * available 为 null（无可用更新/检测失败）时只有 null 快照匹配。 */
+export function savedApkIsCurrent(
+  saved: { uri: string; version: string | null } | null,
+  availableVersion: string | null,
+): saved is { uri: string; version: string | null } {
+  return saved != null && saved.version === availableVersion;
 }

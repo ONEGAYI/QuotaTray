@@ -8,6 +8,7 @@ import {
   resolveUpdateErrorDetail,
   resolveUpdateStatus,
   runtimeLabel,
+  savedApkIsCurrent,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -118,6 +119,47 @@ describe("更新设置视图", () => {
     ).toBe("install");
   });
 
+  it("Android：APK 已保存到 SAF 位置时动作是移动安装，优先于桌面分流", () => {
+    // 移动端 downloaded_path 恒空（content URI 不入后端状态表），「已下载」
+    // 由 mobileSaved 表达；manualUpdate=true（APK 形态推导）不再走 open-dir
+    expect(
+      resolveUpdateAction({
+        downloading: false,
+        canDownload: true,
+        hasDownloaded: false,
+        manualUpdate: true,
+        mobileSaved: true,
+      }),
+    ).toBe("install-mobile");
+    // 未保存时仍是下载；下载中拦截一切
+    expect(
+      resolveUpdateAction({
+        downloading: false,
+        canDownload: true,
+        hasDownloaded: false,
+        manualUpdate: true,
+        mobileSaved: false,
+      }),
+    ).toBe("download");
+    expect(
+      resolveUpdateAction({
+        downloading: true,
+        canDownload: true,
+        hasDownloaded: false,
+        mobileSaved: true,
+      }),
+    ).toBe("downloading");
+    // 换版本/检测失败后 savedApkUri 已由重检测失效：无可下载版本回到检查
+    expect(
+      resolveUpdateAction({
+        downloading: false,
+        canDownload: false,
+        hasDownloaded: false,
+        mobileSaved: true,
+      }),
+    ).toBe("check");
+  });
+
   it("格式化已知总量的下载进度与速率", () => {
     const progress = {
       downloaded_bytes: 5 * 1024 * 1024,
@@ -148,5 +190,27 @@ describe("更新设置视图", () => {
     expect(runtimeLabel(null, false, "便携版")).toBe("");
     expect(runtimeLabel("  ", false, "便携版")).toBe("");
     expect(runtimeLabel(null, true, "便携版")).toBe("便携版");
+  });
+});
+
+describe("savedApkIsCurrent：Android 已保存 APK 的版本快照有效性", () => {
+  it("未保存（null）恒不可用", () => {
+    expect(savedApkIsCurrent(null, "0.8.1")).toBe(false);
+    expect(savedApkIsCurrent(null, null)).toBe(false);
+  });
+
+  it("快照与当前可用版本一致时可用（同版本重检不清空 18MB 产物）", () => {
+    const saved = { uri: "content://downloads/42", version: "0.8.1" };
+    expect(savedApkIsCurrent(saved, "0.8.1")).toBe(true);
+  });
+
+  it("重检测出新版本时自动失效（旧包不该再装）", () => {
+    const saved = { uri: "content://downloads/42", version: "0.8.1" };
+    expect(savedApkIsCurrent(saved, "0.9.0")).toBe(false);
+  });
+
+  it("available 为 null 时仅 null 快照匹配（版本未知不装旧包）", () => {
+    expect(savedApkIsCurrent({ uri: "content://1", version: null }, null)).toBe(true);
+    expect(savedApkIsCurrent({ uri: "content://1", version: "0.8.1" }, null)).toBe(false);
   });
 });

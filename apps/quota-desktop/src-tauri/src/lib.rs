@@ -5,6 +5,8 @@
 //! - 初始化 [`AppState`]（保险库 / 引擎 / 设置 / 快照恢复）；
 //! - 窗口关闭 = 隐藏收托盘，退出只走托盘菜单（退出时清理托盘图标）。
 
+#[cfg(target_os = "android")]
+mod apk_install;
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod hover_panel;
@@ -28,6 +30,7 @@ use quota_core::{RuntimeMode, SecretStore};
 use tauri::Manager;
 
 /// 数据目录调试参数：`--data-dir <path>` 覆盖 `~/.quotatray`（烟测隔离用）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn parse_data_dir() -> Option<std::path::PathBuf> {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -40,6 +43,7 @@ fn parse_data_dir() -> Option<std::path::PathBuf> {
 
 /// 便携显式参数：`--portable` 选择 exe 旁 `Data/`（与 `--data-dir` 同现
 /// 时后者赢——烟测沙箱保持安装态，优先级契约见 core::runtime）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn parse_portable_flag() -> bool {
     std::env::args().skip(1).any(|arg| arg == "--portable")
 }
@@ -264,6 +268,9 @@ pub fn run() {
             commands::check_update_now,
             commands::download_update,
             commands::install_update,
+            commands::download_update_to_uri,
+            commands::open_downloaded_apk,
+            commands::open_install_consent,
             hover_panel::set_hover_panel_pointer_inside,
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,

@@ -41,6 +41,11 @@ tiny-skia = "0.11" # 托盘圆环图标抗锯齿绘制
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-fs = "2.5.1"
 
+[target.'cfg(target_os = "android")'.dependencies]
+# APK 安装引导 JNI 桥（src/apk_install.rs）：版本与 keyring 生态一致（锁文件已有）
+jni = "0.21"
+ndk-context = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging", # 悬停面板 show 后重插 topmost 组顶（压过隐藏托盘 flyout）

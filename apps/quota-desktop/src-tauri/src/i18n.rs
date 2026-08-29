@@ -14,7 +14,9 @@ pub enum Lang {
     En,
 }
 
-/// 静态文案表（无参数部分）。
+/// 静态文案表（无参数部分）。托盘专用——移动目标（android/ios）无托盘，
+/// 消费方仅桌面 tray.rs。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct Texts {
     /// 托盘：暂无启用的供应商
     pub no_enabled_providers: &'static str,
@@ -43,6 +45,7 @@ pub struct Texts {
     /// 数据既无百分比也无余额时的兜底行
     pub fetched: &'static str,
 }
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const ZH: Texts = Texts {
     no_enabled_providers: "暂无启用的供应商",
     refresh_now: "立即刷新",
@@ -59,6 +62,7 @@ const ZH: Texts = Texts {
     fetched: "已获取",
 };
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 const EN: Texts = Texts {
     no_enabled_providers: "No enabled providers",
     refresh_now: "Refresh now",
@@ -94,6 +98,7 @@ impl Lang {
         }
     }
 
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn texts(&self) -> &'static Texts {
         match self {
             Self::Zh => &ZH,
@@ -103,6 +108,8 @@ impl Lang {
 
     /// 相对时间文案：`刚刚` / `N 秒前` / `N 分钟前` / `N 小时前` / `N 天前`。
     /// 与前端 `src/display.ts` 的 `relativeTime` 语义成对（分档边界一致）。
+    /// 托盘悬停面板专用（移动目标无托盘）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn relative_time(&self, secs: u64) -> String {
         match secs {
             0..=9 => match self {
@@ -129,6 +136,7 @@ impl Lang {
     }
 
     /// 多窗口行缺省窗口名：`窗口2` / `Window 2`。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn window_name(&self, n: usize) -> String {
         match self {
             Self::Zh => format!("窗口{n}"),
@@ -137,6 +145,7 @@ impl Lang {
     }
 
     /// 剩余余额文案：`剩余 62.97 CNY` / `Left 62.97 CNY`。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn remaining_text(&self, amount: &str, unit: Option<&str>) -> String {
         let core = match unit {
             Some(u) => format!("{amount} {u}"),
@@ -149,6 +158,7 @@ impl Lang {
     }
 
     /// 已用百分比文案：`已用 42%` / `Used 42%`。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn used_text(&self, percent: &str) -> String {
         match self {
             Self::Zh => format!("已用 {percent}"),
@@ -275,14 +285,46 @@ impl Lang {
         }
     }
 
-    /// Android/iOS 尚未接入平台原生更新资产与安装流程，后端硬门禁。
+    /// 桌面专属安装命令（NSIS 静默安装 / 打开下载目录）在移动端的拒绝
+    /// 文案——移动端更新链已接入（检测/SAF 下载/系统安装器），但桌面
+    /// 安装器流程不适用 Android。
     pub fn err_mobile_update_unsupported(&self) -> String {
         match self {
-            Self::Zh => "移动端尚未接入平台专属更新与下载流程".to_string(),
+            Self::Zh => "此安装命令为桌面版更新流程，移动端请使用更新页的下载与安装引导".to_string(),
             Self::En => {
-                "Platform-specific update and download flows are not available on mobile yet"
+                "This installer command belongs to the desktop update flow; use the download and install guide on the Update page instead"
                     .to_string()
             }
+        }
+    }
+
+    /// Android 更新命令收到非 content:// 的保存/安装位置（防御分支）。
+    #[cfg(target_os = "android")]
+    pub fn err_update_uri_invalid(&self) -> String {
+        match self {
+            Self::Zh => "保存位置无效：需要系统文档选择器返回的 content:// 地址".to_string(),
+            Self::En => {
+                "Invalid save location: a content:// URI from the system document picker is required"
+                    .to_string()
+            }
+        }
+    }
+
+    /// Android SAF 文档打开/写入失败。
+    #[cfg(target_os = "android")]
+    pub fn err_update_write_uri(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("写入 APK 保存位置失败：{e}"),
+            Self::En => format!("Failed to write the APK to the selected location: {e}"),
+        }
+    }
+
+    /// 桌面编译目标收到 Android 专属更新命令（前端不应渲染该入口的防御）。
+    #[cfg(not(target_os = "android"))]
+    pub fn err_android_only_update_download(&self) -> String {
+        match self {
+            Self::Zh => "此更新下载方式仅 Android 端提供".to_string(),
+            Self::En => "This update download flow is only available on Android".to_string(),
         }
     }
 
@@ -294,6 +336,7 @@ impl Lang {
         }
     }
 
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn err_autostart_toggle(&self, enable: bool, e: &dyn std::fmt::Display) -> String {
         match (self, enable) {
             (Self::Zh, true) => format!("开启开机自启失败：{e}"),
@@ -307,6 +350,7 @@ impl Lang {
 
     /// 托盘峰谷行 1：类型 + 模型标签（`⚡ 高峰 · V4 Flash`）。
     /// 入参保持 i18n 层纯净（不引 core 类型）：is_peak + 已格式化标签。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn peak_status_line(&self, is_peak: bool, model_label: Option<&str>) -> String {
         let kind = match (self, is_peak) {
             (Self::Zh, true) => "⚡ 高峰",
@@ -320,6 +364,7 @@ impl Lang {
         }
     }
 
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn subscription_pricing_line(&self) -> &'static str {
         match self {
             Self::Zh => "订阅积分制",
@@ -329,6 +374,7 @@ impl Lang {
 
     /// 托盘峰谷行 2：当前档三价 `命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok`。
     /// 缺价字段由调用方过滤后传 None；全 None 由调用方决定不显示本行。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn peak_prices_line(
         &self,
         hit: Option<&str>,
@@ -368,6 +414,7 @@ impl Lang {
     // ---- 更新检测（M4-b） ----------------------------------------------------
 
     /// 托盘菜单「新版本可用」信息行（disabled 项，⟳ 前缀）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn update_available(&self, version: &str) -> String {
         match self {
             Self::Zh => format!("⟳ 新版本 v{version} 可用（设置 · 更新）"),
@@ -376,6 +423,7 @@ impl Lang {
     }
 
     /// 「更新就绪」系统通知标题（主窗不可见、自动下载完成后发送）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn update_ready_title(&self) -> String {
         match self {
             Self::Zh => "QuotaTray 更新就绪".into(),
@@ -385,6 +433,7 @@ impl Lang {
 
     /// 「更新就绪」系统通知正文：引导打开主窗（通知点击唤主窗在部分
     /// 平台不可用，正文自带引导路径兜底）。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn update_ready_body(&self, version: &str) -> String {
         match self {
             Self::Zh => format!("新版本 v{version} 已下载完成，点击托盘图标打开主窗安装"),
@@ -478,7 +527,7 @@ please download again"
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(any(target_os = "android", target_os = "ios"))))]
 mod tests {
     use super::*;
 

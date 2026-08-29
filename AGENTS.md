@@ -20,6 +20,7 @@
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
 | 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
 | Android Preview（2026-08-28，所有者确认） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一使用 keyring-core 1 与四个平台原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
+| Android 更新链（2026-08-29，所有者确认） | 手动检测（进页+按钮；常驻轮询记为缺口）+ SAF 保存下载 + 自研薄 JNI 桥拉起系统安装器；不声明自安装权限，content URI 会话内存 | 引第三方 intent 插件（查证 0.1.0/400 下载/停更多年）；纯文案手动安装引导；自动下载 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -41,11 +42,27 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 以下事项尚未纳入 Android Preview 的稳定能力；后续实现时不得直接复用桌面语义，需按
 Android 分发、生命周期与触摸交互分别设计，并在真实设备完成验收后更新本节：
 
-- **更新与下载**：当前移动端隐藏更新页，core 的资产选择仍只覆盖 Windows
-  `.exe` / `.zip`。APK 资产命名已定为 `QuotaTray_<版本>_android-arm64.apk`
-  （签名链产物），core 资产选择器接入该命名、前台更新检测、系统文档选择器下载
-  及进度反馈仍待做；不得把 WoA ARM64 zip 误判为 Android 资产。桌面端 #60 的
-  NSIS 静默安装与自动下载不符合 Android 分发惯例，不移植到移动端。
+- **更新与下载（2026-08-29 链路就绪，模拟器全链已验）**：core 资产选择器已接入
+  `Flavor::AndroidApk`（`QuotaTray_<版本>_android-arm64.apk`；`flavor_for`
+  纯函数编译期分流，WoA zip 误匹配风险已修复并有契约测试锁定）。GUI 更新页已两端
+  渲染：手动检测（进页自动检一次 + 手动按钮）→ SAF 保存对话框
+  （`content://` URI，MIME 过滤）→ 后端下载写入（进度复用
+  `update-download-progress`）→ 自研薄 JNI 桥（`apk_install.rs` +
+  post-init 注入 `ApkInstallHelper.kt`，ACTION_VIEW 交系统安装器，不声明
+  自安装权限）拉起安装；系统无安装器时前端降级手动引导文案。content URI
+  会话内存、不入后端状态表。桌面 #60 的 NSIS 静默安装、自动下载与常驻
+  调度不移植；`install_update`/`open_update_dir` 在移动端仍确定性拒绝。
+  模拟器（API 36）全链实证：检测/SAF 保存（sha256 与 release digest 逐字
+  节一致）/JNI 拉起安装器（logcat InstallStart result=0）均通过；
+  「安装未知应用」闸口同轮实证——**未声明自安装权限时 API 36 一律弹回
+  （AppOps allow 亦无效、授权页开关置灰）**，提示行以文件管理器为主
+  出路、`open_install_consent` 授权页为旧版（8~15）次出路，Android 7
+  无闸口直接弹确认页。剩余：真机全链验收、跨版本覆盖升级验收（随下个
+  版本发布）。
+- **前台常驻轮询（2026-08-29 登记）**：Android 更新检测现为手动口径（进页
+  + 按钮），常驻前台轮询未实现——所有者定案首期不做、留缺口；实现时需
+  重新定义「前台」边界（退后台进程存活期的检测节流与流量口径）并与消息
+  中心联动设计合并评估。
 - **签名与发布链（2026-08-29 部分就绪）**：`android-release.yml` 在 `v*` tag 上
   自动构建固定密钥签名的 Release APK 并附加到 Release 草稿；构建后强制断言产物
   非 `-unsigned` 变体、APK 签名证书 SHA-256 指纹与 keystore 一致、v2 签名方案
@@ -85,7 +102,10 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   选择器外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、
   通知、下载、跨版本升级、多厂商系统仍待验收。另有 #61 既有债务
   （审查轮 2026-08-29 登记）：卡片模型选择器 `.qt-provider-model-select` 移动端
-  命中区 29px 未达 T-010 的 44px，待触摸合规统一整改。
+  命中区 29px 未达 T-010 的 44px，待触摸合规统一整改；同批登记（审查修复轮
+  2026-08-29）：更新页提示行内链接 `.qt-inline-link` 与既有 `.qt-settings-manual-link`
+  命中区约 17px——行内文字链接不在 T-010 枚举内，与 44px 冲突时破坏行内排版，
+  暂缓整改待统一定夺（撑开行高方案 vs 外扩热区）。
 
 ## 工程规范
 
@@ -94,6 +114,13 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **最低 Rust 版本**：workspace MSRV 为 1.88；CLI、桌面、WoA 与 Android 工作树需同步
   使用满足该版本的 stable 工具链，依赖升级不得使实际要求高于 workspace 声明。
 - **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
+  交叉 lint（2026-08-29 审查轮闭环）：host clippy 不编译 android/
+  桌面 cfg 分叉的另一半，CI android-preview job 已加
+  `cargo clippy -p quota-desktop --all-targets --target
+  aarch64-linux-android -- -D warnings`（NDK CC/AR/sysroot env 就地配置，
+  build.rs 的 C 依赖所需）。桌面/移动分叉的代码（cfg 门禁的方法、
+  模块替身）改动时两半都要过；本地复跑可用同命令 + NDK env（参数
+  见 ci.yml），无 NDK 环境时以 CI 为准。
 - **Git hooks 本地门禁（两层）**：仓库内 `.githooks/` 提供按检查代价分层的钩子——
   `pre-commit`（秒级：`cargo fmt --all --check` + 前端 `pnpm lint`，按暂存文件按需触发）与
   `pre-push`（分钟级：`cargo clippy --workspace --all-targets -- -D warnings` + 前端
@@ -421,6 +448,7 @@ QuotaTray/
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
 │       │   ├── icons/                  # 应用图标集
 │       │   ├── src/                    # 后端源码
+│       │   │   ├── apk_install.rs        # APK安装JNI桥
 │       │   │   ├── commands.rs           # 跨端IPC命令集
 │       │   │   ├── hover_panel.rs        # 悬停窗口状态机
 │       │   │   ├── hover_panel_mobile.rs # 移动悬停面板空实现
