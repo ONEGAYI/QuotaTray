@@ -42,12 +42,34 @@ pub enum Flavor {
     StandaloneZip,
     /// 便携 zip（x64 与 ARM64 均发布）。
     PortableZip,
+    /// Android 签名 APK（`android-release.yml` 产物，仅 Android 编译
+    /// 目标选中；段名固定 `android-arm64`，与 WoA 的 `arm64-preview`
+    /// zip 天然消歧）。
+    AndroidApk,
 }
 
 impl Flavor {
-    /// zip 资产需退出应用后手动覆盖，不能按安装包直接运行。
+    /// zip 资产需退出应用后手动覆盖、APK 由系统安装器经用户确认接管，
+    /// 都不能像 NSIS 安装包那样直接运行。
     pub fn requires_manual_update(self) -> bool {
         !matches!(self, Self::SetupExe)
+    }
+}
+
+/// 运行形态 → 分发形态的分流判定（纯函数）。Android 恒 APK——移动端
+/// 无安装/便携之分（`RuntimeMode` 恒 `Installed`），arch/portable 参数
+/// 在该分支无效；其余目标按便携优先、arm64 安装态 WoA zip、x64 安装态
+/// NSIS 分流。抽为纯函数是为了让 CI 在任意宿主架构上都能锁定 Android
+/// 分流行为（`for_runtime` 的 cfg 分支在非 Android 宿主编译为 false）。
+pub fn flavor_for(arch: &str, portable: bool, is_android: bool) -> Flavor {
+    if is_android {
+        Flavor::AndroidApk
+    } else if portable {
+        Flavor::PortableZip
+    } else if arch.eq_ignore_ascii_case("arm64") {
+        Flavor::StandaloneZip
+    } else {
+        Flavor::SetupExe
     }
 }
 
@@ -59,17 +81,14 @@ pub struct AssetSelector {
 }
 
 impl AssetSelector {
-    /// 按运行架构与数据形态构造选择器。x64 安装态使用 NSIS；ARM64
-    /// Preview 安装态使用普通 zip；两种架构的便携态均使用 portable zip。
+    /// 按运行架构与数据形态构造选择器。Android 编译目标恒 APK（见
+    /// [`flavor_for`]）；x64 安装态使用 NSIS；ARM64 Preview 安装态使用
+    /// 普通 zip；两种架构的便携态均使用 portable zip。
     pub fn for_runtime(arch: &'static str, portable: bool) -> Self {
-        let flavor = if portable {
-            Flavor::PortableZip
-        } else if arch.eq_ignore_ascii_case("arm64") {
-            Flavor::StandaloneZip
-        } else {
-            Flavor::SetupExe
-        };
-        Self { arch, flavor }
+        Self {
+            arch,
+            flavor: flavor_for(arch, portable, cfg!(target_os = "android")),
+        }
     }
 
     /// 当前构建安装态的选择器。
@@ -90,8 +109,14 @@ impl AssetSelector {
 
 /// 期望资产名（发布命名契约，见预研报告 §五）：
 /// `QuotaTray_{version}_{arch}[-preview]-{suffix}`——ARM64 在完成真实
-/// WoA 验收前统一带 `preview` 段。
+/// WoA 验收前统一带 `preview` 段；Android APK 例外，段名固定
+/// `android-arm64`、后缀 `.apk`（`android-release.yml` 命名逐字一致）。
 pub fn expected_asset_name(version: &str, arch: &str, flavor: Flavor) -> String {
+    // APK 段名不由 arch 参数拼装：arch_label() 在 Android 返回 "ARM64"
+    // （展示层标签），参与拼装会得到 arm64.apk 误撞 WoA 命名空间。
+    if flavor == Flavor::AndroidApk {
+        return format!("QuotaTray_{version}_android-arm64.apk");
+    }
     let arch_lower = arch.to_ascii_lowercase();
     let arch_tag = match arch_lower.as_str() {
         "arm64" => "arm64-preview",
@@ -102,20 +127,26 @@ pub fn expected_asset_name(version: &str, arch: &str, flavor: Flavor) -> String 
         Flavor::SetupExe => format!("{base}-setup.exe"),
         Flavor::StandaloneZip => format!("{base}.zip"),
         Flavor::PortableZip => format!("{base}-portable.zip"),
+        // 函数开头的提前返回已拦截，此处不可达；显式穷举防未来误删
+        Flavor::AndroidApk => unreachable!("AndroidApk 已在函数开头提前返回"),
     }
 }
 
 /// [`expected_asset_name`] 的反向解析：下载目录惰性清理用。
 ///
 /// 只认命名契约内的形态——前缀 `QuotaTray_`、合法 arch 段（`x64` /
-/// `arm64-preview`）、三种 flavor 后缀之一；arch 与大小写均精确匹配
-/// （与 pick_asset 的「大小写变体不命中」同精神）。版本段不校验可比较性
-/// （形态合法即返回，版本语义交给 [`is_stale_installer`] 的比较判定）。
+/// `arm64-preview` / `android-arm64`）且与 flavor 后缀配对合法
+/// （段 × 后缀交叉混配不命中）、四种 flavor 后缀之一；arch 与大小写
+/// 均精确匹配（与 pick_asset 的「大小写变体不命中」同精神）。
+/// 版本段不校验可比较性（形态合法即返回，版本语义交给
+/// [`is_stale_installer`] 的比较判定）。
 pub fn parse_asset_filename(name: &str) -> Option<(String, Flavor)> {
     let (flavor, stripped) = if let Some(base) = name.strip_suffix("-setup.exe") {
         (Flavor::SetupExe, base)
     } else if let Some(base) = name.strip_suffix("-portable.zip") {
         (Flavor::PortableZip, base)
+    } else if let Some(base) = name.strip_suffix(".apk") {
+        (Flavor::AndroidApk, base)
     } else {
         // 判序在后的裸 `.zip`：`-portable.zip` 已被上一分支截住
         let base = name.strip_suffix(".zip")?;
@@ -125,7 +156,16 @@ pub fn parse_asset_filename(name: &str) -> Option<(String, Flavor)> {
     // `QuotaTray_{version}_{arch_tag}`：arch 段在尾部，按下划线自右拆分，
     // 版本段为三段数字不含下划线，rSplit 一次即得两段。
     let (version, arch_tag) = rest.rsplit_once('_')?;
-    if !matches!(arch_tag, "x64" | "arm64-preview") {
+    // arch 段 × flavor 的合法配对矩阵（与发布矩阵一致）：段与后缀不得
+    // 交叉混配——如 `android-arm64.zip`、`arm64-preview-setup.exe` 这类
+    // 从未发布的组合一律不命中（清理只作用于真实命名空间）。
+    let valid_pair = match arch_tag {
+        "x64" => !matches!(flavor, Flavor::AndroidApk),
+        "arm64-preview" => matches!(flavor, Flavor::StandaloneZip | Flavor::PortableZip),
+        "android-arm64" => flavor == Flavor::AndroidApk,
+        _ => false,
+    };
+    if !valid_pair {
         return None;
     }
     Some((version.to_string(), flavor))
@@ -695,6 +735,74 @@ mod tests {
         arch: "ARM64",
         flavor: Flavor::StandaloneZip,
     };
+    /// Android APK 选择器（arch 与 arch_label() 在 Android 目标的返回一致）。
+    const ANDROID_APK: AssetSelector = AssetSelector {
+        arch: "ARM64",
+        flavor: Flavor::AndroidApk,
+    };
+
+    /// 契约：WoA 误匹配修复——同一 release 并存 WoA zip 与 Android APK
+    /// 时，Android 选择器只命中 APK、WoA 安装态选择器只命中 WoA zip，
+    /// 互不串扰（缺口调研 §3.1「放开即暴露」风险的锁定测试）。
+    #[tokio::test]
+    async fn android_selector_picks_apk_not_woa_zip() {
+        let body = r#"{
+            "tag_name": "v0.8.1",
+            "html_url": "u",
+            "assets": [
+                {"name": "QuotaTray_0.8.1_arm64-preview.zip", "browser_download_url": "https://x/woa", "size": 1},
+                {"name": "QuotaTray_0.8.1_arm64-preview-portable.zip", "browser_download_url": "https://x/woap", "size": 2},
+                {"name": "QuotaTray_0.8.1_android-arm64.apk", "browser_download_url": "https://x/apk", "size": 3}
+            ]
+        }"#;
+        let http = MockHttp::ok(body);
+        match check_update(&http, "0.8.0", ANDROID_APK).await.unwrap() {
+            UpdateStatus::Available { asset, .. } => assert_eq!(
+                asset.expect("Android 应选中 APK").name,
+                "QuotaTray_0.8.1_android-arm64.apk"
+            ),
+            other => panic!("应为 Available：{other:?}"),
+        }
+        // 反向对照：WoA 安装态同一 release 仍只认 WoA zip
+        let http = MockHttp::ok(body);
+        match check_update(&http, "0.8.0", ARM64_STANDALONE)
+            .await
+            .unwrap()
+        {
+            UpdateStatus::Available { asset, .. } => assert_eq!(
+                asset.expect("WoA 安装态应选中 WoA zip").name,
+                "QuotaTray_0.8.1_arm64-preview.zip"
+            ),
+            other => panic!("应为 Available：{other:?}"),
+        }
+    }
+
+    /// 契约：分流判定纯函数——is_android 恒 APK（Android 无安装/便携
+    /// 之分，arch/portable 均不影响）；非 Android 保持既有三段分流。
+    /// for_runtime 以 cfg 包装本函数，CI 在任意宿主架构都能锁定行为。
+    #[test]
+    fn flavor_for_routes_android_independently() {
+        for arch in ["ARM64", "x64", "unknown"] {
+            for portable in [true, false] {
+                assert_eq!(
+                    flavor_for(arch, portable, true),
+                    Flavor::AndroidApk,
+                    "Android 不分架构与形态（arch={arch} portable={portable}）"
+                );
+            }
+        }
+        assert_eq!(flavor_for("x64", false, false), Flavor::SetupExe);
+        assert_eq!(flavor_for("x64", true, false), Flavor::PortableZip);
+        assert_eq!(flavor_for("ARM64", false, false), Flavor::StandaloneZip);
+        assert_eq!(
+            flavor_for("arm64", false, false),
+            Flavor::StandaloneZip,
+            "大小写归一与 for_runtime 一致"
+        );
+        assert_eq!(flavor_for("ARM64", true, false), Flavor::PortableZip);
+        // APK 与 zip 同为手动更新语义（系统安装器/手动覆盖接管）
+        assert!(Flavor::AndroidApk.requires_manual_update());
+    }
 
     #[tokio::test]
     async fn check_update_finds_new_release_and_picks_setup_asset() {
@@ -990,6 +1098,13 @@ mod tests {
             expected_asset_name("0.7.0", "unknown", Flavor::SetupExe),
             "QuotaTray_0.7.0_unknown-setup.exe"
         );
+        // Android APK：段名固定 android-arm64、无 preview 段，与
+        // android-release.yml 命名逐字一致；arch 参数不参与拼装
+        // （Android 的 arch_label() 返回 "ARM64"，参与拼装会误撞 WoA）
+        assert_eq!(
+            expected_asset_name("0.8.1", "ARM64", Flavor::AndroidApk),
+            "QuotaTray_0.8.1_android-arm64.apk"
+        );
     }
 
     /// 契约：文件名反向解析——三 flavor × 双 arch 段命中，与正向拼装
@@ -1004,6 +1119,7 @@ mod tests {
             ("0.8.0", "x64", Flavor::PortableZip),
             ("0.8.0", "ARM64", Flavor::StandaloneZip),
             ("0.8.0", "ARM64", Flavor::PortableZip),
+            ("0.8.1", "ARM64", Flavor::AndroidApk),
         ] {
             let name = expected_asset_name(version, arch, flavor);
             assert_eq!(
@@ -1022,6 +1138,11 @@ mod tests {
             "QUOTATRAY_0.8.0_X64-SETUP.EXE",     // 整体大小写变体
             "QuotaTray_0.8.0_x64-setup.exe.bak", // 后缀不完整
             "QuotaTray_0.8.0_x64.rar",           // 非发布后缀
+            // android-arm64 段只配 .apk：zip/exe 后缀配该段不合契约
+            "QuotaTray_0.8.0_android-arm64.zip",
+            "QuotaTray_0.8.0_android-arm64-setup.exe",
+            // arm64-preview 段只配 zip 系（ARM64 从不发布 NSIS）
+            "QuotaTray_0.8.0_arm64-preview-setup.exe",
             "notes.txt",
             "dir/QuotaTray_0.8.0_x64-setup.exe", // 含路径分隔符
             "..\\QuotaTray_0.8.0_x64-setup.exe",
@@ -1050,6 +1171,14 @@ mod tests {
         assert!(
             !is_stale_installer("QuotaTray_0.8.0_arm64-preview-portable.zip", cur),
             "新版本便携包同样保留"
+        );
+        assert!(
+            !is_stale_installer("QuotaTray_0.8.1_android-arm64.apk", cur),
+            "新版本 APK 同样保留（命名契约内参与版本比较）"
+        );
+        assert!(
+            is_stale_installer("QuotaTray_0.6.9_android-arm64.apk", cur),
+            "旧版本 APK → 删"
         );
         // 形态契约内但版本不可比较：无法证明更新 → 视为陈旧
         // （不可能来自真实下载流——release tag 不可比较时不会产生 available）
