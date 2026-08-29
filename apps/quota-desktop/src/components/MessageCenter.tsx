@@ -1,24 +1,29 @@
-// 标题栏消息中心：铃铛 + 未读红点 + 点击展开面板（样式契约见
-// frontend-style-spec T-009）。「现在安装」直调后端静默安装——卡片文案
-// 已明示「退出并自动重启」后果，点击即确认，不叠加系统 confirm。
+// 消息中心（桌面标题栏 / 移动顶部应用栏共用）：铃铛 + 未读红点 +
+// 点击展开面板（样式契约见 frontend-style-spec T-009）。卡片按消息
+// kind 分支：update-ready 仅桌面产生（「现在安装」直调后端静默安装，
+// 卡片文案已明示「退出并自动重启」后果，点击即确认，不叠加系统
+// confirm）；update-available 仅移动端产生（无自动下载，引导到设置·
+// 更新页）；low-balance 两端共用（纯展示）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
-import type { CenterMessage } from "./messageCenterView";
-import { hasUnread } from "./messageCenterView";
+import { hasUnread, messageId, type CenterMessage } from "./messageCenterView";
 import { DropdownMenu, IconButton, Button } from "./ui";
 
 export function MessageCenter({
   messages,
   seen,
   onSeenAll,
+  onViewUpdates,
 }: {
   messages: CenterMessage[];
   seen: ReadonlySet<string>;
   /** 打开面板时回调（红点全量清除）。 */
   onSeenAll: () => void;
+  /** 「查看更新」回调（移动端 update-available 卡片：打开设置·更新页）。 */
+  onViewUpdates?: () => void;
 }) {
   const { t } = useLang();
   const qc = useQueryClient();
@@ -44,6 +49,11 @@ export function MessageCenter({
     setOpen(true);
   };
 
+  const viewUpdates = () => {
+    setOpen(false);
+    onViewUpdates?.();
+  };
+
   return (
     <div className="qt-titlebar-menu-anchor">
       <IconButton
@@ -58,7 +68,7 @@ export function MessageCenter({
           <p className="qt-msg-empty">{t("msgCenter.empty")}</p>
         ) : (
           messages.map((message) => (
-            <div key={`${message.kind}:${message.version}`} className="qt-msg-card">
+            <div key={messageId(message)} className="qt-msg-card">
               {message.kind === "update-ready" && (
                 <>
                   <p className="qt-msg-card-title">{t("msgCenter.updateReadyTitle")}</p>
@@ -75,6 +85,33 @@ export function MessageCenter({
                   </Button>
                   <p className="qt-msg-card-hint">
                     {installFailed ? t("msgCenter.installFailed") : t("msgCenter.autoRestartHint")}
+                  </p>
+                </>
+              )}
+              {message.kind === "update-available" && (
+                <>
+                  <p className="qt-msg-card-title">{t("msgCenter.updateAvailableTitle")}</p>
+                  <p className="qt-msg-card-body">
+                    {t("msgCenter.updateAvailableBody", { version: `v${message.version}` })}
+                  </p>
+                  <Button
+                    variant="secondary"
+                    className="qt-msg-view-update"
+                    onClick={viewUpdates}
+                  >
+                    {t("msgCenter.viewUpdate")}
+                  </Button>
+                  <p className="qt-msg-card-hint">{t("msgCenter.updateGoToHint")}</p>
+                </>
+              )}
+              {message.kind === "low-balance" && (
+                <>
+                  <p className="qt-msg-card-title">{t("msgCenter.lowBalanceTitle")}</p>
+                  <p className="qt-msg-card-body">
+                    {t("msgCenter.lowBalanceBody", {
+                      name: message.name,
+                      percent: `${Math.round(message.percent)}`,
+                    })}
                   </p>
                 </>
               )}

@@ -970,6 +970,12 @@ body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover {
 }
 body.qt-mobile-runtime .qt-provider-card.is-warning:not(.is-expanded):hover { border-color: color-mix(in srgb, var(--qt-warning) 52%, var(--qt-border)); }
 body.qt-mobile-runtime .qt-provider-card.has-balance-alert:not(.is-expanded):hover { border-color: color-mix(in srgb, var(--qt-danger) 58%, var(--qt-border)); }
+/* 消息中心移动形态（T-009/T-011）：铃铛入口的 44px 命中区由上方
+ * .qt-mobile-topbar .qt-icon-btn 规则覆盖；下拉面板贴 44px 按钮下缘、
+ * 小屏宽度收窄防溢出、面板内按钮触摸目标 44px（T-010）。 */
+body.qt-mobile-runtime .qt-mobile-topbar .qt-titlebar-menu-anchor .qt-dropdown { top: 48px; }
+body.qt-mobile-runtime .qt-msg-panel { width: min(280px, calc(100vw - 24px)); }
+body.qt-mobile-runtime .qt-msg-panel .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-details-toggle { display: inline-flex; min-height: 44px; padding: 8px 0; }
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover .qt-provider-secondary,
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-secondary {

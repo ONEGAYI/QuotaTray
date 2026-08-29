@@ -143,3 +143,26 @@ test("Android 峰谷编辑触摸目标补齐（T-010 审查轮补齐）", () => 
     /body\.qt-mobile-runtime \.qt-touch-inline::before\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*-15px -8px;/s,
   );
 });
+
+test("Android 消息中心入口与面板满足触摸规范（T-009/T-010/T-011）", () => {
+  // 铃铛入口在 MobileTopBar 内：qt-icon-btn 44px 规则覆盖全部图标钮
+  assert.match(
+    css,
+    /\.qt-mobile-topbar \.qt-icon-btn\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s,
+  );
+  // 下拉面板贴 44px 按钮下缘（桌面 38px 是 34px 按钮的锚定值）
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-mobile-topbar \.qt-titlebar-menu-anchor \.qt-dropdown\s*\{[^}]*top:\s*48px;/s,
+  );
+  // 小屏宽度收窄防溢出
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-msg-panel\s*\{[^}]*width:\s*min\(280px,\s*calc\(100vw - 24px\)\);/s,
+  );
+  // 面板内按钮（现在安装/查看更新）触摸目标 44px
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-msg-panel \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
+  );
+});

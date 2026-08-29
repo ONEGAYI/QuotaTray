@@ -45,17 +45,23 @@ interface Props {
   open: boolean;
   onClose: () => void;
   mobile?: boolean;
+  /** 打开时定位到的页签（消息卡片「查看更新」直达更新页）；默认 general，
+   * 每次打开消费一次。 */
+  initialTab?: Tab;
 }
 
 type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
-export function SettingsDialog({ open, onClose, mobile = false }: Props) {
+export function SettingsDialog({ open, onClose, mobile = false, initialTab = "general" }: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const settings = useSettings();
   const updateState = useUpdateState();
   const [tab, setTab] = useState<Tab>("general");
+  useEffect(() => {
+    if (open) setTab(initialTab);
+  }, [open, initialTab]);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);

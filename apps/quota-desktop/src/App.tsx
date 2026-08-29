@@ -57,18 +57,42 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       void unlisten.then((fn) => fn());
     };
   }, []);
-  // 消息中心：后端「更新就绪」广播（自动下载完成 / 重启后探测恢复）入列，
-  // 铃铛红点由未读判定驱动；会话级内存态，重启后由后端重新广播恢复
+  // 消息中心：后端广播入列，铃铛红点由未读判定驱动；会话级内存态，
+  // 重启后由后端重新广播恢复。三类消息按平台分流产生：
+  // - update-ready（桌面）：自动下载完成 / 重启后探测恢复；
+  // - update-available（移动）：手动检测发现新版本且本会话未广播过；
+  // - low-balance（两端）：成功查询后任一窗口已用百分比达阈值。
   const [messages, setMessages] = useState<CenterMessage[]>([]);
   const [messageSeen, setMessageSeen] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
-    const unlisten = listen<{ version: string }>("update-ready", (event) => {
+    const ready = listen<{ version: string }>("update-ready", (event) => {
       setMessages((prev) =>
         mergeMessage(prev, { kind: "update-ready", version: event.payload.version }),
       );
     });
+    const available = listen<{ version: string }>("update-available", (event) => {
+      setMessages((prev) =>
+        mergeMessage(prev, { kind: "update-available", version: event.payload.version }),
+      );
+    });
+    const lowBalance = listen<{
+      provider_id: string;
+      name: string;
+      percent: number;
+    }>("low-balance", (event) => {
+      setMessages((prev) =>
+        mergeMessage(prev, {
+          kind: "low-balance",
+          providerId: event.payload.provider_id,
+          name: event.payload.name,
+          percent: event.payload.percent,
+        }),
+      );
+    });
     return () => {
-      void unlisten.then((fn) => fn());
+      for (const unlisten of [ready, available, lowBalance]) {
+        void unlisten.then((fn) => fn());
+      }
     };
   }, []);
   const onMessagesSeen = useCallback(() => {
@@ -90,6 +114,13 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   // （含 key 输入框——残留会导致"只想改名"的保存把放弃的 key 一并写入）
   const [dialogSeq, setDialogSeq] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 设置页初始页签：消息卡片「查看更新」等入口需要直达特定页，
+  // 每次打开消费一次（关闭后重置回默认 general）
+  const [settingsTab, setSettingsTab] = useState<"general" | "update" | "data">("general");
+  const openSettingsAt = (tab: "general" | "update" | "data") => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  };
   const [mainPanel, dispatchMainPanel] = useReducer(
     reduceMainPanelTransition,
     initialMainPanelState,
@@ -175,7 +206,11 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
           addLabel={t("app.addAccount")}
           settingsLabel={t("app.settings")}
           onAdd={openAdd}
-          onSettings={() => setSettingsOpen(true)}
+          onSettings={() => openSettingsAt("general")}
+          messages={messages}
+          messageSeen={messageSeen}
+          onMessagesSeen={onMessagesSeen}
+          onViewUpdates={() => openSettingsAt("update")}
         />
       )}
 
@@ -312,6 +347,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
         open={settingsOpen}
         mobile={runtime.mobile}
         onClose={() => setSettingsOpen(false)}
+        initialTab={settingsTab}
       />
     </div>
   );

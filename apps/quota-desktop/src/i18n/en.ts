@@ -338,6 +338,12 @@ export const en: Record<TextKey, string> = {
   "msgCenter.installNow": "Install now",
   "msgCenter.autoRestartHint": "QuotaTray will briefly quit and restart automatically",
   "msgCenter.installFailed": "Failed to start the installer; retry in Settings · Update",
+  "msgCenter.updateAvailableTitle": "Update available",
+  "msgCenter.updateAvailableBody": "QuotaTray {version} is available",
+  "msgCenter.viewUpdate": "View update",
+  "msgCenter.updateGoToHint": "Download and install in Settings · Update",
+  "msgCenter.lowBalanceTitle": "Low balance",
+  "msgCenter.lowBalanceBody": "{name} is {percent}% used",
   "settings.manualUrl": "No installer for this version; release page: {url}",
   // ---- Android updates (SAF save + system installer flow) ----
   "settings.apkDialogTitle": "Save update package",
