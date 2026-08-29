@@ -1739,6 +1739,21 @@
                         "薄壳（release 隐藏控制台）"
                       ]
                     },
+                    "notification_android.rs": {
+                      "kind": "file",
+                      "desc": "通知设置页JNI桥",
+                      "detail": [
+                        "Android 系统通知设置页跳转桥（消息中心二阶）：Rust 经 JNI 反射调用 android-post-init.mjs 注入的 NotificationHelper.kt（ACTION_APP_NOTIFICATION_SETTINGS），Android 13+ 拒绝过运行时权限后跳系统设置页的唯一出路；桥骨架复用 apk_install.rs 的 with_helper_class_named。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/scripts/android-post-init.mjs",
+                        "apps/quota-desktop/src-tauri/src/apk_install.rs",
+                        "apps/quota-desktop/src-tauri/src/commands.rs"
+                      ],
+                      "tags": [
+                        "security"
+                      ]
+                    },
                     "ring.rs": {
                       "kind": "file",
                       "desc": "托盘圆环渲染",

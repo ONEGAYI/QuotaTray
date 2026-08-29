@@ -29,7 +29,7 @@ const HELPER_CLASS: &str = "com.quotatray.android.ApkInstallHelper";
 /// 授权页开关置灰），前端提示行以文件管理器为主出路，并以
 /// [`open_install_consent`] 作为旧版系统的授权页次出路。
 pub fn open_apk(uri: &str) -> Result<bool, String> {
-    with_helper_class(|env, context, helper| {
+    with_helper_class_named(HELPER_CLASS, |env, context, helper| {
         let j_uri = env
             .new_string(uri)
             .map_err(|e| format!("构造 URI 字符串失败：{e}"))?;
@@ -51,7 +51,7 @@ pub fn open_apk(uri: &str) -> Result<bool, String> {
 /// - `Ok(false)`：API 26 以下系统无此页面，调用方降级为纯文案引导；
 /// - `Err`：桥本身故障，确定性错误。
 pub fn open_install_consent() -> Result<bool, String> {
-    with_helper_class(|env, context, helper| {
+    with_helper_class_named(HELPER_CLASS, |env, context, helper| {
         env.call_static_method(
             helper,
             "openInstallConsent",
@@ -64,9 +64,10 @@ pub fn open_install_consent() -> Result<bool, String> {
     })
 }
 
-/// 公共桥：ndk-context 取 VM/Context → attach 线程 → 经应用 ClassLoader
-/// 加载 helper 类 → 以 `(env, context, helper)` 执行回调。
-fn with_helper_class<F, T>(f: F) -> Result<T, String>
+/// 公共桥（跨 helper 共用，notification_android 同款用法）：
+/// ndk-context 取 VM/Context → attach 线程 → 经应用 ClassLoader 加载
+/// helper 类 → 以 `(env, context, helper)` 执行回调。
+pub(crate) fn with_helper_class_named<F, T>(helper_class: &str, f: F) -> Result<T, String>
 where
     F: FnOnce(&mut JNIEnv, &JObject, &JClass) -> Result<T, String>,
 {
@@ -98,7 +99,7 @@ where
             .and_then(|v| v.l())
             .map_err(|e| format!("获取应用 ClassLoader 失败：{e}"))?;
         let class_name = env
-            .new_string(HELPER_CLASS)
+            .new_string(helper_class)
             .map_err(|e| format!("构造类名失败：{e}"))?;
         let helper_obj = env
             .call_method(
@@ -108,7 +109,7 @@ where
                 &[JValue::Object(&class_name)],
             )
             .and_then(|v| v.l())
-            .map_err(|e| format!("加载 {HELPER_CLASS} 失败：{e}"))?;
+            .map_err(|e| format!("加载 {helper_class} 失败：{e}"))?;
         // loadClass 返回的 java.lang.Class 实例即静态调用的类对象；
         // into_raw 移交 JObject 所有权（jni 0.21 的 JObject/JClass 无 Drop，
         // 局部引用靠 AttachGuard detach 时随线程引用表整体释放，每次调用

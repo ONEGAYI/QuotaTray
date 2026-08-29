@@ -826,6 +826,30 @@ fn low_balance_breach(data: &[quota_core::UsageData], threshold_percent: u8) -> 
         .fold(None::<f64>, |acc, p| Some(acc.map_or(p, |m| m.max(p))))
 }
 
+/// 低余额提醒的边沿触发判定（纯函数）：「已用 ≥ 阈值」是持续状态而非
+/// 事件，直接广播会随轮询周期重复打扰（应用后台时即重复系统通知）。
+/// 四态见枚举成员；回落与数据不足（breach=None）同途清除登记——数据
+/// 恢复且仍达标会重新提醒一次，可接受。与 update-available/ready 的
+/// 会话防重同口径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LowBalanceEdge {
+    /// 首次达标：广播事件并按平台补发系统通知，随后登记条目 id。
+    Notify,
+    /// 持续达标（已登记）或未达标且无登记：不打扰。
+    Silent,
+    /// 曾达标现回落/数据不足：清除登记（下次达标重新提醒），不广播。
+    Reset,
+}
+
+fn low_balance_edge(previously_notified: bool, breach: Option<f64>) -> LowBalanceEdge {
+    match (previously_notified, breach) {
+        (false, Some(_)) => LowBalanceEdge::Notify,
+        (true, Some(_)) => LowBalanceEdge::Silent,
+        (true, None) => LowBalanceEdge::Reset,
+        (false, None) => LowBalanceEdge::Silent,
+    }
+}
+
 /// 查询单条目并落入共享结果表：成功更新结果与快照并重建托盘；失败按
 /// 双轨分类透出，结果表保留最后一次成功数据（keep-last-good 数据源）。
 /// 完成后广播 provider-state-changed（悬停面板等只读视图回流）。
@@ -926,23 +950,47 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
     {
         eprintln!("历史记录写入失败：{e}");
     }
-    // 低余额提醒：成功查询后按设置阈值判定（两端共用），达标即广播
-    // low-balance；前端消息中心按条目 id 去重入列，重复广播不叠加
+    // 低余额提醒（两端共用）：成功查询后按设置阈值边沿触发——首次达标
+    // 广播 low-balance 并按平台补发系统通知（Android 后台走
+    // notify_background，桌面主窗不可见走 notify_desktop）；持续达标静默，
+    // 回落/数据不足清除登记（下次达标重新提醒）。前端消息中心另按条目
+    // id 去重入列，重复广播不叠加。
     if outcome.ok
         && let Some(data) = outcome.data.as_ref()
-        && let Some(percent) = low_balance_breach(
-            data,
-            state.settings.read().unwrap().low_balance_threshold_percent,
-        )
     {
-        let _ = app.emit(
-            "low-balance",
-            LowBalanceEvent {
-                provider_id: &id,
-                name: &entry.name,
-                percent,
-            },
-        );
+        let threshold = state.settings.read().unwrap().low_balance_threshold_percent;
+        let breach = low_balance_breach(data, threshold);
+        let notify = {
+            let mut notified = state.low_balance_notified.lock().unwrap();
+            match low_balance_edge(notified.contains(&id), breach) {
+                LowBalanceEdge::Notify => {
+                    notified.insert(id.clone());
+                    true
+                }
+                LowBalanceEdge::Reset => {
+                    notified.remove(&id);
+                    false
+                }
+                LowBalanceEdge::Silent => false,
+            }
+        };
+        if notify && let Some(percent) = breach {
+            let _ = app.emit(
+                "low-balance",
+                LowBalanceEvent {
+                    provider_id: &id,
+                    name: &entry.name,
+                    percent,
+                },
+            );
+            let lang = lang_of(&state);
+            let title = lang.low_balance_notify_title();
+            let body = lang.low_balance_notify_body(&entry.name, percent.round() as u32);
+            #[cfg(target_os = "android")]
+            crate::update_ctl::notify_background(app, &state, &title, &body);
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            crate::update_ctl::notify_desktop(app, &state, &title, &body);
+        }
     }
     after_state_change(app, &state);
     let _ = app.emit("provider-state-changed", &id);
@@ -1022,6 +1070,7 @@ pub struct SettingsPatch {
     #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
     pub update_auto_download: Option<bool>,
+    pub notifications_enabled: Option<bool>,
 }
 
 /// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
@@ -1068,6 +1117,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.update_auto_download {
         base.update_auto_download = v;
+    }
+    if let Some(v) = patch.notifications_enabled {
+        base.notifications_enabled = v;
     }
 }
 
@@ -1481,8 +1533,9 @@ pub async fn check_update_now(
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     crate::update_ctl::post_check(&app, &state);
     // 移动端联动：发现新版本且本会话未广播过时推送 update-available
-    // （前端消息中心红点/卡片）；同版本重复检测由后端登记短路
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    // （前端消息中心红点/卡片）；同版本重复检测由后端登记短路。
+    // iOS 无通知链（notify_available_once 为 android-only）
+    #[cfg(target_os = "android")]
     crate::update_ctl::notify_available_once(&app, &state);
     Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
@@ -1653,6 +1706,79 @@ fn write_apk_to_uri(app: &AppHandle, uri: &str, bytes: &[u8], lang: &Lang) -> Re
         .map_err(|e| lang.err_update_write_uri(&e))
 }
 
+// ---- 系统通知（消息中心二阶：权限 / 前后台 / 渠道） -------------------------
+
+/// 通知权限状态查询：Android 13+ 的 POST_NOTIFICATIONS 运行时权限
+/// （serde 小写串 "granted"/"denied"/"prompt"）；桌面无运行时权限概念恒 granted。
+#[tauri::command]
+pub fn get_notification_permission(app: AppHandle) -> String {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        app.notification()
+            .permission_state()
+            .map(|s| s.to_string())
+            // 桥故障按未授权处理（保守：通知不发，设置页仍可引导授权）
+            .unwrap_or_else(|e| {
+                eprintln!("通知权限状态查询失败：{e}");
+                "denied".into()
+            })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        "granted".into()
+    }
+}
+
+/// 请求通知运行时权限（Android 13+ 弹系统对话框；用户曾拒绝后系统不再
+/// 弹、直接返回 denied——前端据此改为引导跳系统设置页）。桌面恒 granted。
+#[tauri::command]
+pub fn request_notification_permission(app: AppHandle) -> String {
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        app.notification()
+            .request_permission()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|e| {
+                eprintln!("通知权限请求失败：{e}");
+                "denied".into()
+            })
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        "granted".into()
+    }
+}
+
+/// 跳系统「应用通知设置」页（Android 13+ 拒绝过权限后的唯一出路）。
+/// `Ok(true)` = 已发起跳转；桌面确定性拒绝。
+#[tauri::command]
+pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &state;
+        crate::notification_android::open_notification_settings()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let lang = lang_of(&state);
+        Err(lang.err_android_only_notification())
+    }
+}
+
+/// 前后台状态同步（Android 消息通知的发射条件）：前端 visibilitychange
+/// 驱动写入；通知发射点读它决定「入列红点」还是「补发系统通知」。
+/// 桌面调用无害（不消费）。Relaxed 足够：布尔提示，无跨字段不变式。
+#[tauri::command]
+pub fn set_app_foreground(foreground: bool, state: State<'_, AppState>) {
+    state
+        .app_foreground
+        .store(foreground, std::sync::atomic::Ordering::Relaxed);
+}
+
 // ---- 契约测试 -------------------------------------------------------------
 
 #[cfg(test)]
@@ -1705,6 +1831,37 @@ mod tests {
         assert_eq!(low_balance_breach(&balance_only, 80), None);
         // 空数据不触发
         assert_eq!(low_balance_breach(&[], 80), None);
+    }
+
+    /// 契约：低余额边沿触发——首次达标通知、持续达标（含百分比上升）
+    /// 静默、回落/数据不足清除登记、未达标无登记不动；回落后再达标
+    /// 重新通知（防后台轮询每周期重复系统通知）。
+    #[test]
+    fn low_balance_edge_contract() {
+        use LowBalanceEdge::{Notify, Reset, Silent};
+        assert_eq!(
+            low_balance_edge(false, Some(85.0)),
+            Notify,
+            "首次达标 → 通知"
+        );
+        assert_eq!(
+            low_balance_edge(true, Some(85.0)),
+            Silent,
+            "持续达标不重复打扰"
+        );
+        assert_eq!(
+            low_balance_edge(true, Some(91.0)),
+            Silent,
+            "持续达标（百分比上升）同样静默——前端卡片另随查询刷新"
+        );
+        assert_eq!(
+            low_balance_edge(true, None),
+            Reset,
+            "回落/数据不足 → 清除登记"
+        );
+        assert_eq!(low_balance_edge(false, None), Silent, "未达标无登记不动");
+        // 回落后再达标：登记已清除 → 重新通知
+        assert_eq!(low_balance_edge(false, Some(80.0)), Notify);
     }
 
     #[test]
@@ -2384,6 +2541,25 @@ mod tests {
             serde_json::from_str::<SettingsPatch>(r#"{"update_proxy_port": "abc"}"#).is_err(),
             "类型错误透出而非静默清空"
         );
+    }
+
+    /// 契约：notifications_enabled 可经 patch 提交（与前端 SettingsPatch
+    /// 类型字段集镜像，缺省字段静默丢弃的回归防线）。
+    #[test]
+    fn settings_patch_notifications_enabled() {
+        let mut base = Settings::default();
+        assert!(base.notifications_enabled, "默认开启");
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                notifications_enabled: Some(false),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(!base.notifications_enabled, "提交 false → 关闭");
+
+        let p: SettingsPatch = serde_json::from_str(r#"{"notifications_enabled": true}"#).unwrap();
+        assert_eq!(p.notifications_enabled, Some(true));
     }
 }
 /// 将用户预览过的无凭据 AI 诊断包原子写入保存对话框选定路径。

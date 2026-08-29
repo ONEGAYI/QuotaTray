@@ -443,6 +443,65 @@ impl Lang {
         }
     }
 
+    // ---- 系统通知（消息中心二阶，Android） ------------------------------------
+
+    /// 系统通知渠道名（用户在系统设置里可见；仅 Android 渠道创建消费）。
+    #[cfg(target_os = "android")]
+    pub fn notification_channel_name(&self) -> String {
+        match self {
+            Self::Zh => "应用消息".into(),
+            Self::En => "App messages".into(),
+        }
+    }
+
+    /// 「发现新版本」系统通知标题（移动端后台时发送）。
+    #[cfg(target_os = "android")]
+    pub fn update_available_notify_title(&self) -> String {
+        match self {
+            Self::Zh => "QuotaTray 发现新版本".into(),
+            Self::En => "QuotaTray update available".into(),
+        }
+    }
+
+    /// 「发现新版本」系统通知正文：引导打开应用查看（移动端无托盘，
+    /// 措辞不复用桌面「点击托盘图标」）。
+    #[cfg(target_os = "android")]
+    pub fn update_available_notify_body(&self, version: &str) -> String {
+        match self {
+            Self::Zh => format!("新版本 v{version} 可更新，打开 QuotaTray 查看详情"),
+            Self::En => {
+                format!("New version v{version} is available. Open QuotaTray to view details")
+            }
+        }
+    }
+
+    /// 「低余额提醒」系统通知标题（后台时发送，两端共用文案与消费方：
+    /// Android 走 notify_background、桌面走 notify_desktop）。
+    pub fn low_balance_notify_title(&self) -> String {
+        match self {
+            Self::Zh => "余额提醒".into(),
+            Self::En => "Low balance".into(),
+        }
+    }
+
+    /// 「低余额提醒」系统通知正文（percent 已取整；消费方同上，两端）。
+    pub fn low_balance_notify_body(&self, name: &str, percent: u32) -> String {
+        match self {
+            Self::Zh => format!("{name} 已用 {percent}%"),
+            Self::En => format!("{name} is {percent}% used"),
+        }
+    }
+
+    /// 「跳系统通知设置页」命令在非 Android 平台的确定性拒绝文案
+    /// （仅桌面命令分支消费，Android 侧不编译调用方）。
+    #[cfg_attr(target_os = "android", allow(dead_code))]
+    pub fn err_android_only_notification(&self) -> String {
+        match self {
+            Self::Zh => "此操作仅支持 Android".into(),
+            Self::En => "This action is only supported on Android".into(),
+        }
+    }
+
     pub fn err_update_client(&self, e: &dyn std::fmt::Display) -> String {
         match self {
             Self::Zh => format!("HTTP 客户端初始化失败：{e}"),

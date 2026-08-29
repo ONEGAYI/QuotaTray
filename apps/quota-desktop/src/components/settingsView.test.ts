@@ -3,6 +3,8 @@ import {
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
+  resolveNotificationPermissionAction,
+  resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
@@ -212,5 +214,52 @@ describe("savedApkIsCurrent：Android 已保存 APK 的版本快照有效性", (
   it("available 为 null 时仅 null 快照匹配（版本未知不装旧包）", () => {
     expect(savedApkIsCurrent({ uri: "content://1", version: null }, null)).toBe(true);
     expect(savedApkIsCurrent({ uri: "content://1", version: "0.8.1" }, null)).toBe(false);
+  });
+});
+
+describe("通知权限行动作", () => {
+  const base = { mobile: true, notificationsEnabled: true, permission: "prompt" };
+
+  it("桌面与开关关闭时无权限行（桌面无运行时权限概念）", () => {
+    expect(resolveNotificationPermissionAction({ ...base, mobile: false })).toBe("none");
+    expect(
+      resolveNotificationPermissionAction({ ...base, notificationsEnabled: false }),
+    ).toBe("none");
+  });
+
+  it("未请求过（prompt 系）显示请求按钮——点按弹系统对话框", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "prompt" })).toBe(
+      "request",
+    );
+    expect(
+      resolveNotificationPermissionAction({ ...base, permission: "prompt-with-rationale" }),
+    ).toBe("request");
+  });
+
+  it("拒绝过（denied）改为引导跳系统设置——Android 13+ 不再弹对话框", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "denied" })).toBe(
+      "open-settings",
+    );
+  });
+
+  it("已授权与未加载不显示动作（加载完成后 granted 即终态）", () => {
+    expect(resolveNotificationPermissionAction({ ...base, permission: "granted" })).toBe(
+      "none",
+    );
+    expect(resolveNotificationPermissionAction({ ...base, permission: null })).toBe("none");
+  });
+});
+
+describe("设置页签消费时序", () => {
+  it("打开时消费 initialTab（覆盖当前页签，支持消息卡片直达）", () => {
+    expect(resolveTabOnOpen(true, "update", "general")).toBe("update");
+  });
+
+  it("开着期间直达入口变化同样消费（设置页已开时再次触发直达）", () => {
+    expect(resolveTabOnOpen(true, "data", "update")).toBe("data");
+  });
+
+  it("关闭/未打开不消费——页签状态保持（重置由 onClose 负责）", () => {
+    expect(resolveTabOnOpen(false, "update", "general")).toBe("general");
   });
 });

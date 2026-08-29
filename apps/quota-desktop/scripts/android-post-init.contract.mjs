@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   androidApkInstallHelperSource,
   androidKeyringBridgeSource,
+  androidNotificationHelperSource,
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
   injectAndroidReleaseSigning,
@@ -210,6 +211,40 @@ test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰�
 test("R8 keep 规则保住仅由 Rust 反射加载的 helper（release minify 收缩防线）", () => {
   const source = proguardKeepRulesSource();
   assert.match(source, /-keep class com\.quotatray\.android\.ApkInstallHelper \{ \*; \}/);
+  assert.match(source, /-keep class com\.quotatray\.android\.NotificationHelper \{ \*; \}/);
   // keep 规则自身不得越界放行其他类（最小化面）
-  assert.equal(source.match(/-keep/g)?.length, 1);
+  assert.equal(source.match(/-keep/g)?.length, 2);
+});
+
+test("通知设置页 helper 跳系统授权页且不触碰通知权限声明", () => {
+  const source = androidNotificationHelperSource();
+  assert.match(source, /package com\.quotatray\.android/);
+  // Rust 侧经 JNI 调用静态方法，必须 @JvmStatic 暴露稳定入口
+  assert.match(source, /@JvmStatic/);
+  assert.match(
+    source,
+    /fun openNotificationSettings\(context: Context\): Boolean/,
+  );
+  // 公开的系统设置页 action + 包名 extra（用户开关授权，非权限声明）
+  assert.match(source, /ACTION_APP_NOTIFICATION_SETTINGS/);
+  assert.match(source, /EXTRA_APP_PACKAGE/);
+  assert.match(source, /context\.packageName/);
+  // 独立任务栈
+  assert.match(source, /FLAG_ACTIVITY_NEW_TASK/);
+  // startActivity 需主线程：Rust 命令线程发起，必须经主线程 Handler 派发
+  assert.match(source, /Looper\.getMainLooper\(\)/);
+  assert.match(source, /ActivityNotFoundException/);
+  // ACTION_APP_NOTIFICATION_SETTINGS 为 API 26 引入，低版本返回 false
+  // 由前端降级为纯文案引导（本应用 minSdk 24）
+  assert.match(source, /Build\.VERSION\.SDK_INT < 26/);
+  // 插值必须精确匹配（产出 \${...} 时 Kotlin 得到字面量不插值，
+  // 运行时日志错误但编译通过）
+  assert.match(source, /缺失：\$\{e\.message\}/);
+  assert.doesNotMatch(source, /\\\$\{/);
+  // 红线锁定：不出现通知权限声明/绕过（POST_NOTIFICATIONS 由
+  // tauri-plugin-notification 的 AAR manifest 经 gradle merger 自动带入，
+  // helper 只负责引导用户到系统页手动授权）
+  assert.doesNotMatch(source, /POST_NOTIFICATIONS/);
+  assert.doesNotMatch(source, /requestPermissions\(/);
+  assert.doesNotMatch(source, /NotificationChannel|NotificationCompat/);
 });

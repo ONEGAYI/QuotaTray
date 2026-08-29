@@ -102,7 +102,22 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       return next;
     });
   }, [messages]);
+  // 前后台状态同步（Android 消息通知发射条件：后台才补发系统通知）。
+  // 两端统一挂载：桌面调用无害（后端不消费）；Android 退后台 WebView
+  // 定时器冻结前 visibilitychange 先行触发（时机属真机验收项）。
+  // 回前台时顺带失效通知权限缓存——「去系统设置」手动改权限后返回，
+  // 设置页权限行必须能取到新值（否则恒显未授权）。
   const qc = useQueryClient();
+  useEffect(() => {
+    const sync = () => {
+      const visible = document.visibilityState === "visible";
+      void api.setAppForeground(visible);
+      if (visible) void qc.invalidateQueries({ queryKey: ["notification-permission"] });
+    };
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, [qc]);
   const providers = useProviders();
   const settings = useSettings();
   const snapshots = useSnapshots();
@@ -346,7 +361,12 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       <SettingsDialog
         open={settingsOpen}
         mobile={runtime.mobile}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          // 关闭即重置页签：下次任何入口打开都从默认「通用」开始，
+          // 不继承消息卡片「查看更新」的直达残留
+          setSettingsTab("general");
+        }}
         initialTab={settingsTab}
       />
     </div>

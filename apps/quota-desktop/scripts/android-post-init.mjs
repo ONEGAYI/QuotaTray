@@ -18,6 +18,10 @@ const apkInstallHelperUrl = new URL(
   "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/ApkInstallHelper.kt",
   import.meta.url,
 );
+const notificationHelperUrl = new URL(
+  "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/NotificationHelper.kt",
+  import.meta.url,
+);
 const proguardKeepRulesUrl = new URL(
   "../src-tauri/gen/android/app/proguard-quotatray.pro",
   import.meta.url,
@@ -137,14 +141,61 @@ object ApkInstallHelper {
 `;
 }
 
+export function androidNotificationHelperSource() {
+  return `package com.quotatray.android
+
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+
 /**
- * R8 keep 规则：ApkInstallHelper 仅被 Rust 侧反射加载（无 Java 引用），
- * release 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust
- * loadClass 抛 ClassNotFoundException、安装链恒失败。build.gradle.kts 的
+ * 系统通知设置页跳转桥：Rust 侧（src-tauri/src/notification_android.rs）
+ * 经 JNI 调用，打开本应用的「应用通知设置」页——Android 13+ 用户拒绝过
+ * 通知运行时权限后系统对话框不再弹出，跳系统设置是唯一授权出路
+ * （用户开关授权，不做任何通知权限绕过）。
+ *
+ * 本类仅被 Rust 反射加载（loadClass），keep 规则见
+ * proguard-quotatray.pro。startActivity 必须经主线程 Handler 派发
+ * （Rust 命令线程发起，非 UI 线程）。
+ *
+ * ACTION_APP_NOTIFICATION_SETTINGS 为 API 26 引入；本应用 minSdk 24，
+ * 更低版本返回 false 由前端降级为纯文案引导。
+ */
+object NotificationHelper {
+    @JvmStatic
+    fun openNotificationSettings(context: Context): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 26) return false
+        val settings = Intent(
+            android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS,
+        ).apply {
+            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return Handler(Looper.getMainLooper()).post {
+            try {
+                context.startActivity(settings)
+            } catch (e: ActivityNotFoundException) {
+                Log.w("QuotaTrayNotification", "通知设置页缺失：\${e.message}")
+            }
+        }
+    }
+}
+`;
+}
+
+/**
+ * R8 keep 规则：ApkInstallHelper（APK 安装链）与 NotificationHelper
+ * （系统通知设置页跳转）仅被 Rust 侧反射加载（无 Java 引用），release
+ * 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust loadClass 抛
+ * ClassNotFoundException、对应链路恒失败。build.gradle.kts 的
  * proguardFiles 已以 fileTree 收编 app 目录全部 .pro，落文件即生效。
  */
 export function proguardKeepRulesSource() {
   return `-keep class com.quotatray.android.ApkInstallHelper { *; }
+-keep class com.quotatray.android.NotificationHelper { *; }
 `;
 }
 
@@ -245,6 +296,10 @@ export async function main() {
   await writeIfChanged(
     fileURLToPath(apkInstallHelperUrl),
     androidApkInstallHelperSource(),
+  );
+  await writeIfChanged(
+    fileURLToPath(notificationHelperUrl),
+    androidNotificationHelperSource(),
   );
   await writeIfChanged(
     fileURLToPath(proguardKeepRulesUrl),

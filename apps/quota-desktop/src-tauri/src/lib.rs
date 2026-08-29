@@ -7,6 +7,7 @@
 
 #[cfg(target_os = "android")]
 mod apk_install;
+
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod hover_panel;
@@ -14,6 +15,9 @@ mod hover_panel;
 #[path = "hover_panel_mobile.rs"]
 mod hover_panel;
 mod i18n;
+/// Android 系统通知设置页 JNI 桥（消息中心二阶）。
+#[cfg(target_os = "android")]
+mod notification_android;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod ring;
 mod settings;
@@ -100,6 +104,26 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
         tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
         // 更新检测轮询调度：spawn 后立即首次判定，「启动时检测」由首判覆盖
         update_ctl::spawn_scheduler(app.clone());
+    }
+    // Android：创建系统通知渠道（消息中心二阶）。渠道名用户可见（系统
+    // 设置里展示），按当前语言取文案；创建幂等（Android 同 id 渠道
+    // 重复创建即更新名称）。语言后续变更不改已建渠道名（重建需卸载重装，
+    // 不值得——渠道名非关键信息）。
+    #[cfg(target_os = "android")]
+    {
+        use crate::update_ctl::MESSAGES_CHANNEL_ID;
+        use tauri_plugin_notification::{Channel, Importance, NotificationExt};
+        let lang = {
+            let state = app.state::<state::AppState>();
+            crate::i18n::Lang::parse(&state.settings.read().unwrap().language)
+        };
+        let channel = Channel::builder(MESSAGES_CHANNEL_ID, lang.notification_channel_name())
+            .importance(Importance::Default)
+            .build();
+        if let Err(e) = app.notification().create_channel(channel) {
+            // 非关键：渠道创建失败仅表现为通知走默认渠道或缺声光效果
+            eprintln!("通知渠道创建失败：{e}");
+        }
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let _ = app;
@@ -271,6 +295,10 @@ pub fn run() {
             commands::download_update_to_uri,
             commands::open_downloaded_apk,
             commands::open_install_consent,
+            commands::get_notification_permission,
+            commands::request_notification_permission,
+            commands::open_notification_settings,
+            commands::set_app_foreground,
             hover_panel::set_hover_panel_pointer_inside,
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,

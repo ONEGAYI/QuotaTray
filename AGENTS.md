@@ -78,17 +78,34 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
   版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
   或把商店外 APK 安装逻辑带入 Play 构建。
-- **消息中心与通知（同步自桌面 #60；入口与模型 2026-08-29 就绪）**：移动端顶部
-  应用栏已提供消息常显入口（铃铛 + 未读红点 + 触屏适配下拉面板，T-009 移动
-  形态）；消息模型已扩为三类——`update-ready`（桌面）、`update-available`
-  （移动手动检测发现新版本，卡片「查看更新」直达设置·更新页）、`low-balance`
-  （两端共用，后端查询成功后按 `low_balance_threshold_percent` 阈值判定，
-  core `used_percent` 与前端卡片高亮同语义）。剩余：系统通知（Android 通知
-  渠道 + `POST_NOTIFICATIONS` 运行时权限流 + 设置开关）、前后台生命周期联动
-  （退后台补发通知），以及通知点击行为、面板外点关闭（WebView 触摸合成
-  mousedown）等模拟器与真机实证项；不得依赖托盘、悬停或桌面静默更新事件。
+- **消息中心与通知（同步自桌面 #60；链路 2026-08-30 就绪，待真机验收）**：移动端
+  顶部应用栏已提供消息常显入口（铃铛 + 未读红点 + 触屏适配下拉面板，T-009 移动
+  形态）；消息模型三类——`update-ready`（桌面）、`update-available`（移动手动
+  检测发现新版本，卡片「查看更新」直达设置·更新页）、`low-balance`（两端共用，
+  后端查询成功后按 `low_balance_threshold_percent` 阈值判定，core
+  `used_percent` 与前端卡片高亮同语义；**边沿触发防重**——首次达标才广播/
+  通知，持续达标静默，回落清除登记下次达标重提，防后台轮询每周期重复打扰）。
+  系统通知二阶已就绪：Android 通知渠道 `quotatray-messages`（setup 幂等创建）、
+  `POST_NOTIFICATIONS` 运行时权限流（权限由插件 AAR manifest 自动带入；设置页
+  开关 + 请求/跳系统设置引导，`NotificationHelper.kt` JNI 桥三件套）、前后台
+  生命周期（前端 visibilitychange → `set_app_foreground` 状态表）、平台各自
+  的发射收口——Android `notify_background`（开关 + 后台两条件，未授权由系统
+  静默丢弃，失败仅日志红点仍在）、桌面 `notify_desktop`（开关 + 主窗不可见
+  两条件）；`notifications_enabled` 两端设置开关真实生效（默认 true 桌面现状
+  不变，显式关闭后两端更新就绪与低余额通知均拦截）。模拟器已验：面板外点
+  关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块渲染 → 系统对话
+  框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
+  **后台通知当前触发窗口仅「请求在途时退后台」**——两个发射点
+  （update-available/low-balance）均由前端命令驱动，Android 后台 WebView
+  冻结后无查询/检测发生；常态化「退后台收通知」依赖 WorkManager 后台刷新
+  产生消息源（届时直接复用 `app_foreground` 状态表与 `notify_background`
+  发射收口，见「后台刷新」条目）。余项：在途窗口的后台通知实际送达、
+  visibilitychange 冻结时机、通知点击行为拉起应用等真机验收；不得依赖托盘、
+  悬停或桌面静默更新事件。
 - **后台刷新**：当前只承诺应用前台轮询。后台周期任务、网络/省电约束和恢复后的补查
-  尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。
+  尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。通知联动
+  落点已随消息中心二阶就绪（2026-08-30）：后台查询产生的消息直接走既有入列与
+  `notify_background` 发射路径，无需重复设计。
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
   登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
   接入移动端等价授权，必须单独评估凭据来源与安全边界。
@@ -454,20 +471,21 @@ QuotaTray/
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
 │       │   ├── icons/                  # 应用图标集
 │       │   ├── src/                    # 后端源码
-│       │   │   ├── apk_install.rs        # APK安装JNI桥
-│       │   │   ├── commands.rs           # 跨端IPC命令集
-│       │   │   ├── hover_panel.rs        # 悬停窗口状态机
-│       │   │   ├── hover_panel_mobile.rs # 移动悬停面板空实现
-│       │   │   ├── i18n.rs               # 托盘/命令双语文案
-│       │   │   ├── lib.rs                # 跨端Tauri装配
-│       │   │   ├── main.rs               # 薄壳入口
-│       │   │   ├── ring.rs               # 托盘圆环渲染
-│       │   │   ├── settings.rs           # settings.json 读写
-│       │   │   ├── snapshot.rs           # cache.json 快照
-│       │   │   ├── state.rs              # AppState
-│       │   │   ├── tray.rs               # 托盘菜单与图标
-│       │   │   ├── tray_mobile.rs        # 移动托盘空实现
-│       │   │   └── update_ctl.rs         # 更新检测控制
+│       │   │   ├── apk_install.rs          # APK安装JNI桥
+│       │   │   ├── commands.rs             # 跨端IPC命令集
+│       │   │   ├── hover_panel.rs          # 悬停窗口状态机
+│       │   │   ├── hover_panel_mobile.rs   # 移动悬停面板空实现
+│       │   │   ├── i18n.rs                 # 托盘/命令双语文案
+│       │   │   ├── lib.rs                  # 跨端Tauri装配
+│       │   │   ├── main.rs                 # 薄壳入口
+│       │   │   ├── notification_android.rs # 通知设置页JNI桥
+│       │   │   ├── ring.rs                 # 托盘圆环渲染
+│       │   │   ├── settings.rs             # settings.json 读写
+│       │   │   ├── snapshot.rs             # cache.json 快照
+│       │   │   ├── state.rs                # AppState
+│       │   │   ├── tray.rs                 # 托盘菜单与图标
+│       │   │   ├── tray_mobile.rs          # 移动托盘空实现
+│       │   │   └── update_ctl.rs           # 更新检测控制
 │       │   ├── tauri.android.conf.json # Android Tauri配置
 │       │   ├── tauri.conf.json         # Tauri配置
 │       │   ├── tauri.windows.conf.json # Windows Tauri 覆盖配置

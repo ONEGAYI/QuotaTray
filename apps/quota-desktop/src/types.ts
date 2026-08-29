@@ -182,6 +182,8 @@ export interface Settings {
   update_proxy_port: number | null;
   /** 检测到新版本后自动下载安装包（仅安装版；完成后经消息中心询问安装） */
   update_auto_download: boolean;
+  /** 系统通知总开关（两端共用；Android 侧叠加系统运行时权限层） */
+  notifications_enabled: boolean;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
@@ -199,6 +201,7 @@ export interface SettingsPatch {
   update_check_enabled?: boolean;
   update_proxy_port?: number | null;
   update_auto_download?: boolean;
+  notifications_enabled?: boolean;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */
