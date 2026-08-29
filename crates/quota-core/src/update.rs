@@ -156,9 +156,13 @@ pub fn parse_asset_filename(name: &str) -> Option<(String, Flavor)> {
     // `QuotaTray_{version}_{arch_tag}`：arch 段在尾部，按下划线自右拆分，
     // 版本段为三段数字不含下划线，rSplit 一次即得两段。
     let (version, arch_tag) = rest.rsplit_once('_')?;
-    // arch 段 × flavor 的合法配对矩阵（与发布矩阵一致）：段与后缀不得
-    // 交叉混配——如 `android-arm64.zip`、`arm64-preview-setup.exe` 这类
-    // 从未发布的组合一律不命中（清理只作用于真实命名空间）。
+    // arch 段 × flavor 的合法配对矩阵：段与后缀不得交叉混配——如
+    // `android-arm64.zip`、`arm64-preview-setup.exe` 这类从未发布的组合
+    // 一律不命中（清理只作用于真实命名空间）。x64 臂为已知的历史宽松：
+    // x64 裸 zip（StandaloneZip）实际从未随 Release 发布（x64 只发
+    // setup.exe/portable.zip），本轮只收紧 android/arm64-preview 两段，
+    // x64 宽松仅影响 is_stale_installer 对残留旧文件的清理面，无选择
+    // 风险，维持现状不扩大本轮契约变更面。
     let valid_pair = match arch_tag {
         "x64" => !matches!(flavor, Flavor::AndroidApk),
         "arm64-preview" => matches!(flavor, Flavor::StandaloneZip | Flavor::PortableZip),

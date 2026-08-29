@@ -18,6 +18,10 @@ const apkInstallHelperUrl = new URL(
   "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/ApkInstallHelper.kt",
   import.meta.url,
 );
+const proguardKeepRulesUrl = new URL(
+  "../src-tauri/gen/android/app/proguard-quotatray.pro",
+  import.meta.url,
+);
 const buildGradleUrl = new URL(
   "../src-tauri/gen/android/app/build.gradle.kts",
   import.meta.url,
@@ -66,11 +70,17 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 
 /**
  * APK 安装引导桥：Rust 侧（src-tauri/src/apk_install.rs）经 JNI 调用，
  * 以 ACTION_VIEW 把 SAF 保存的 APK 交给系统安装器；不走应用自安装
  * 通道（Play 审核高危项），由系统安装器经用户确认接管，无分发红线。
+ *
+ * 本类仅被 Rust 反射加载（loadClass），无任何 Java/Kotlin 静态引用——
+ * release 构建的 R8 会将其视作无引用代码收缩改名，keep 规则见
+ * proguard-quotatray.pro（同样由本脚本注入）。两个入口都必须经主线程
+ * Handler 派发 startActivity（Rust 命令线程发起，非 UI 线程）。
  *
  * 「安装未知应用」闸口（Android 8+）：其许可状态**程序化不可知**——
  * PackageManager 与 AppOpsManager 的查询 API 均要求调用方先声明自安装
@@ -80,7 +90,8 @@ import android.os.Looper
  * （API 36 实证：AppOps allow 亦被弹回，授权页开关置灰）一律 toast 弹
  * 回，前端提示行以「文件管理器打开已保存 APK」为主出路，并提供
  * openInstallConsent 的授权页入口作为旧版系统的次出路（公开 Settings
- * action，同样不触碰权限声明）。
+ * action，同样不触碰权限声明；该 action 为 API 26 引入，更低版本返回
+ * false 由前端降级）。
  */
 object ApkInstallHelper {
     @JvmStatic
@@ -94,23 +105,46 @@ object ApkInstallHelper {
         Handler(Looper.getMainLooper()).post {
             try {
                 context.startActivity(intent)
-            } catch (_: ActivityNotFoundException) {
-                // resolveActivity 与启动之间的竞态兜底：安装器被禁用则放弃
+            } catch (e: ActivityNotFoundException) {
+                // resolveActivity 与启动之间的竞态兜底：安装器被禁用则放弃；
+                // 留应用侧日志便于「点了没反应」类报告取证（不依赖系统 logcat）
+                Log.w("QuotaTrayApkInstall", "系统安装器竞态缺失：\${e.message}")
             }
         }
         return true
     }
 
-    /** 打开本应用的「允许安装未知应用」系统授权页（用户开关，非权限声明）。 */
+    /**
+     * 打开本应用的「允许安装未知应用」系统授权页（用户开关，非权限声明）。
+     * API 26 以下系统无此 Settings action，返回 false 交由调用方降级。
+     */
     @JvmStatic
-    fun openInstallConsent(context: Context) {
+    fun openInstallConsent(context: Context): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 26) return false
         val consent = Intent(
             android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
             Uri.parse("package:\${context.packageName}"),
         ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-        context.startActivity(consent)
+        return Handler(Looper.getMainLooper()).post {
+            try {
+                context.startActivity(consent)
+            } catch (e: ActivityNotFoundException) {
+                Log.w("QuotaTrayApkInstall", "授权设置页缺失：\${e.message}")
+            }
+        }
     }
 }
+`;
+}
+
+/**
+ * R8 keep 规则：ApkInstallHelper 仅被 Rust 侧反射加载（无 Java 引用），
+ * release 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust
+ * loadClass 抛 ClassNotFoundException、安装链恒失败。build.gradle.kts 的
+ * proguardFiles 已以 fileTree 收编 app 目录全部 .pro，落文件即生效。
+ */
+export function proguardKeepRulesSource() {
+  return `-keep class com.quotatray.android.ApkInstallHelper { *; }
 `;
 }
 
@@ -211,6 +245,10 @@ export async function main() {
   await writeIfChanged(
     fileURLToPath(apkInstallHelperUrl),
     androidApkInstallHelperSource(),
+  );
+  await writeIfChanged(
+    fileURLToPath(proguardKeepRulesUrl),
+    proguardKeepRulesSource(),
   );
 
   const buildGradlePath = fileURLToPath(buildGradleUrl);

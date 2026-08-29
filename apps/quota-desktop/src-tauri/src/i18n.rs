@@ -275,12 +275,14 @@ impl Lang {
         }
     }
 
-    /// Android/iOS 尚未接入平台原生更新资产与安装流程，后端硬门禁。
+    /// 桌面专属安装命令（NSIS 静默安装 / 打开下载目录）在移动端的拒绝
+    /// 文案——移动端更新链已接入（检测/SAF 下载/系统安装器），但桌面
+    /// 安装器流程不适用 Android。
     pub fn err_mobile_update_unsupported(&self) -> String {
         match self {
-            Self::Zh => "移动端尚未接入平台专属更新与下载流程".to_string(),
+            Self::Zh => "此安装命令为桌面版更新流程，移动端请使用更新页的下载与安装引导".to_string(),
             Self::En => {
-                "Platform-specific update and download flows are not available on mobile yet"
+                "This installer command belongs to the desktop update flow; use the download and install guide on the Update page instead"
                     .to_string()
             }
         }

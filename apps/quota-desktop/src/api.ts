@@ -105,8 +105,8 @@ export const api = {
   /** Android：以系统安装器打开已保存的 APK；false = 系统无安装器。 */
   openDownloadedApk: (path: string): Promise<boolean> =>
     invoke("open_downloaded_apk", { path }),
-  /** Android：打开「允许安装未知应用」授权页（安装弹回时的出路）。 */
-  openInstallConsent: (): Promise<void> => invoke("open_install_consent"),
+  /** Android：打开「允许安装未知应用」授权页；false = 系统无该页面（API<26）。 */
+  openInstallConsent: (): Promise<boolean> => invoke("open_install_consent"),
   /** 运行已下载的安装包（应用随后自动退出，NSIS 向导接管）。 */
   installUpdate: (): Promise<void> => invoke("install_update"),
   setHoverPanelPointerInside: (inside: boolean): Promise<void> =>

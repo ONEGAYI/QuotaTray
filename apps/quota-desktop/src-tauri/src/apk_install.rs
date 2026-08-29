@@ -46,16 +46,21 @@ pub fn open_apk(uri: &str) -> Result<bool, String> {
 }
 
 /// 打开本应用的「允许安装未知应用」系统授权页（用户开关，非权限声明）。
-pub fn open_install_consent() -> Result<(), String> {
+///
+/// - `Ok(true)`：授权页已派发（API 26+ 均有该 Settings action）；
+/// - `Ok(false)`：API 26 以下系统无此页面，调用方降级为纯文案引导；
+/// - `Err`：桥本身故障，确定性错误。
+pub fn open_install_consent() -> Result<bool, String> {
     with_helper_class(|env, context, helper| {
         env.call_static_method(
             helper,
             "openInstallConsent",
-            "(Landroid/content/Context;)V",
+            "(Landroid/content/Context;)Z",
             &[JValue::Object(context)],
         )
-        .map(|_| ())
-        .map_err(|e| format!("调用 ApkInstallHelper.openInstallConsent 失败：{e}"))
+        .map_err(|e| format!("调用 ApkInstallHelper.openInstallConsent 失败：{e}"))?
+        .z()
+        .map_err(|e| format!("读取授权页调用结果失败：{e}"))
     })
 }
 
@@ -75,7 +80,7 @@ where
         .map_err(|e| format!("JNI 线程附加失败：{e}"))?;
 
     // context() 指向 ndk-context 持有的 GlobalRef，进程内稳定（keyring 同款用法）
-    // SAFETY: 见上；本调用栈内持有局部引用，期间不被 GC 回收
+    // SAFETY: 见上；raw 指针即该 GlobalRef 的底层引用，非线程局部引用
     let j_context = unsafe { JObject::from_raw(ctx.context() as jni::sys::jobject) };
 
     // 经应用 ClassLoader 加载 helper 类（见模块注释）
@@ -101,10 +106,19 @@ where
         .and_then(|v| v.l())
         .map_err(|e| format!("加载 {HELPER_CLASS} 失败：{e}"))?;
     // loadClass 返回的 java.lang.Class 实例即静态调用的类对象；
-    // into_raw 移交所有权避免局部引用被重复删除
+    // into_raw 移交 JObject 所有权（jni 0.21 的 JObject/JClass 无 Drop，
+    // 局部引用靠 AttachGuard detach 时随线程引用表整体释放，每次调用
+    // 量级 <16 个，无泄漏）。
     // SAFETY: raw 指针来自同一线程的有效局部引用
     let helper = unsafe { JClass::from_raw(helper_obj.into_raw()) };
-    f(&mut env, &j_context, &helper)
+    let result = f(&mut env, &j_context, &helper);
+    // jni crate 的 call_* 出错不清理 pending exception（官方文档明示由
+    // 调用方负责）；带着未清异常 detach 违反 JNI 规范，CheckJNI 下可
+    // abort——骨架层统一收口：回调失败即清理。
+    if result.is_err() {
+        let _ = env.exception_clear();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -114,6 +128,6 @@ mod tests {
     #[test]
     fn bridge_signatures_are_command_friendly() {
         let _open: fn(&str) -> Result<bool, String> = super::open_apk;
-        let _consent: fn() -> Result<(), String> = super::open_install_consent;
+        let _consent: fn() -> Result<bool, String> = super::open_install_consent;
     }
 }

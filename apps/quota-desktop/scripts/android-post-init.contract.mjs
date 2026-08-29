@@ -7,6 +7,7 @@ import {
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
   injectAndroidReleaseSigning,
+  proguardKeepRulesSource,
 } from "./android-post-init.mjs";
 
 test("Android manifest 关闭系统备份且重复执行幂等", () => {
@@ -178,20 +179,37 @@ test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰�
   // SAF 授予安装器临时读权 + 独立任务栈
   assert.match(source, /FLAG_GRANT_READ_URI_PERMISSION/);
   assert.match(source, /FLAG_ACTIVITY_NEW_TASK/);
-  // startActivity 需主线程：Rust 命令线程发起，必须经主线程 Handler 派发
-  assert.match(source, /Looper\.getMainLooper\(\)/);
+  // startActivity 需主线程：Rust 命令线程发起，必须经主线程 Handler 派发。
+  // 两个入口都要锁定（openInstallConsent 曾裸调绕过，审查 2026-08-29 抓出）
+  const openApkBlock = source.slice(source.indexOf("fun openApk"), source.indexOf("fun openInstallConsent"));
+  const consentBlock = source.slice(source.indexOf("fun openInstallConsent"));
+  assert.match(openApkBlock, /Looper\.getMainLooper\(\)/);
+  assert.match(consentBlock, /Looper\.getMainLooper\(\)/);
+  assert.match(consentBlock, /ActivityNotFoundException/);
   // 系统无安装器时返回 false（前端降级手动引导），不得静默成功
   assert.match(source, /resolveActivity/);
   // 「安装未知应用」闸口：许可状态程序化不可知（PackageManager/AppOps
   // 查询均需先声明自安装权限，API 36 实证 SecurityException），不做预判
-  // ——openApk 直接发安装请求，openInstallConsent 提供授权页显式出路
-  //（公开 Settings action，用户开关而非权限声明）。
-  assert.match(source, /fun openInstallConsent\(context: Context\)/);
+  // ——openApk 直接发安装请求，openInstallConsent 提供授权页次出路
+  //（公开 Settings action，用户开关而非权限声明；API 26 引入，更低版本
+  // 返回 false 交前端降级）。
+  assert.match(source, /fun openInstallConsent\(context: Context\): Boolean/);
   assert.match(source, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
-  assert.match(source, /package:\\?\$\{context\.packageName\}/);
+  assert.match(source, /Build\.VERSION\.SDK_INT < 26/);
+  // 插值必须精确匹配（可选反斜杠会放行 JS 转义回归：产出 \${...} 时
+  // Kotlin 得到字面量不插值、运行时 URI 错误但编译通过）
+  assert.match(source, /package:\$\{context\.packageName\}/);
+  assert.doesNotMatch(source, /\\\$\{/);
   // 红线锁定：不出现应用自安装通道 API 与权限声明（Play 审核高危项）；
   // 负向后瞻放行 AppOps 常量形态（如历史方案回流可被捕获）
   assert.doesNotMatch(source, /installPackage\(|PackageInstaller/);
   assert.doesNotMatch(source, /(?<!OPSTR_)REQUEST_INSTALL/);
   assert.doesNotMatch(source, /canRequestPackageInstalls/);
+});
+
+test("R8 keep 规则保住仅由 Rust 反射加载的 helper（release minify 收缩防线）", () => {
+  const source = proguardKeepRulesSource();
+  assert.match(source, /-keep class com\.quotatray\.android\.ApkInstallHelper \{ \*; \}/);
+  // keep 规则自身不得越界放行其他类（最小化面）
+  assert.equal(source.match(/-keep/g)?.length, 1);
 });

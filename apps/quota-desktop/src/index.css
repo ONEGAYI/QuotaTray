@@ -1011,6 +1011,9 @@ body.qt-mobile-runtime .qt-dialog-header .qt-icon-btn { width: 44px; height: 44p
 body.qt-mobile-runtime .qt-dialog-body { padding: 16px 14px; }
 body.qt-mobile-runtime .qt-dialog-footer { min-height: calc(60px + env(safe-area-inset-bottom)); align-items: center; padding-bottom: env(safe-area-inset-bottom); }
 body.qt-mobile-runtime .qt-dialog-footer .qt-btn { min-height: 44px; }
+/* 更新页主行动（检测/下载/安装）移动端首次可达（2026-08-29 更新链），
+   命中区按 T-010 补 44px（对话框内除 footer 外唯一主按钮） */
+body.qt-mobile-runtime .qt-update-status .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-dialog-settings { height: 100dvh; }
 body.qt-mobile-runtime .qt-dialog-edit { height: 100dvh; }
 body.qt-mobile-runtime .qt-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }

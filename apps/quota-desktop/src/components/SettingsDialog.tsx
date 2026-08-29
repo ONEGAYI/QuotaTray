@@ -60,10 +60,14 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   /** Android：SAF 保存的 APK 位置（content:// URI，会话内存——后端状态表
-   * 不记录，离开页面丢失后重下即可）。重检测时失效（版本可能已换）。 */
-  const [savedApkUri, setSavedApkUri] = useState<string | null>(null);
+   * 不记录，离开页面丢失后重下即可）。附带下载时的可用版本快照：
+   * 版本不一致（重检测后发现新版本）时自动失效，同版本重复检测不清空，
+   * 避免 18MB 白重下（2026-08-29 审查修复）。 */
+  const [savedApk, setSavedApk] = useState<{ uri: string; version: string | null } | null>(null);
   /** Android：open_downloaded_apk 返回 false（系统无安装器）后的降级引导。 */
   const [installFallback, setInstallFallback] = useState(false);
+  /** Android：open_install_consent 返回 false（API 26 以下无该设置页）。 */
+  const [consentUnavailable, setConsentUnavailable] = useState(false);
 
   const portableRun = updateState.data?.portable ?? false;
   const manualUpdateRun = updateState.data?.manual_update ?? portableRun;
@@ -101,8 +105,8 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const checkNow = useMutation({
     mutationFn: api.checkUpdateNow,
     onSuccess: () => {
-      // 重检测后旧版本的已保存 APK 失效（版本可能已换），降级引导一并清除
-      setSavedApkUri(null);
+      // 已保存 APK 的失效由版本快照对比自动处理（见 savedApk 注释），
+      // 无条件清空会在同版本重检测时误伤 18MB 已下载产物
       setInstallFallback(false);
       void qc.invalidateQueries({ queryKey: ["update-state"] });
     },
@@ -118,7 +122,7 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   const downloadToUri = useMutation({
     mutationFn: api.downloadUpdateToUri,
     onSuccess: (_data, path) => {
-      setSavedApkUri(path);
+      setSavedApk({ uri: path, version: updateState.data?.available?.version ?? null });
       setInstallFallback(false);
     },
   });
@@ -235,10 +239,13 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   };
 
   // 手动检测口径的「进页自动检一次」：进入更新页且距上次检测超过
-  // 5 分钟（core POLL_INTERVAL_MS 同款节流）时触发；移动端无调度器，
-  // 这是更新信息的唯一自动刷新来源
+  // 5 分钟（core POLL_INTERVAL_MS 同款节流）时触发。仅移动端：移动端
+  // 无调度器，这是更新信息的唯一自动刷新来源；桌面有轮询调度器，
+  // 用户关闭「自动检测」开关的意图不能被进页检测违背（2026-08-29
+  // 审查修复：此前无平台守卫，桌面关开关后 last_check 停更导致每次
+  // 进页仍联网检测）
   useEffect(() => {
-    if (tab !== "update" || checkNow.isPending || downloadToUri.isPending) return;
+    if (!mobile || tab !== "update" || checkNow.isPending || downloadToUri.isPending) return;
     const last = updateState.data?.last_check ?? null;
     const elapsed = last ? Date.now() - last : Number.POSITIVE_INFINITY;
     if (elapsed >= 5 * 60 * 1000) checkNow.mutate();
@@ -249,6 +256,9 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
   if (!open || !draft) return null;
   const update = updateState.data;
   const available = update?.available ?? null;
+  // 版本快照一致的已保存 APK 才可用（重检测出新版本自动失效）
+  const savedApkUri =
+    savedApk && savedApk.version === (available?.version ?? null) ? savedApk.uri : null;
   const downloadedPath = update?.downloaded_path ?? null;
   const operationError = resolveUpdateError({
     checkError: checkNow.isError ? checkNow.error : null,
@@ -485,7 +495,10 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   onClick={() => {
                     if (updateAction === "install-mobile") {
                       // Android：content URI 留存前端会话，拉起系统安装器
-                      // 由用户确认（Ok(false) 时降级手动引导）
+                      // 由用户确认（Ok(false) 时降级手动引导）。清其余槽位
+                      // 错误，避免旧失败残留误导本次操作
+                      checkNow.reset();
+                      downloadToUri.reset();
                       if (savedApkUri) openApk.mutate(savedApkUri);
                       return;
                     }
@@ -515,6 +528,9 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                     if (updateAction === "download") {
                       checkNow.reset();
                       install.reset();
+                      // 移动端三槽位（桌面槽位以外的 Android 变体）同批清理
+                      downloadToUri.reset();
+                      openApk.reset();
                       if (mobile) {
                         void beginDownloadApk();
                       } else {
@@ -523,6 +539,8 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                     } else {
                       download.reset();
                       install.reset();
+                      downloadToUri.reset();
+                      openApk.reset();
                       checkNow.mutate();
                     }
                   }}
@@ -623,15 +641,26 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   <button
                     type="button"
                     className="qt-inline-link"
-                    onClick={() =>
-                      void api.openInstallConsent().catch((e) => {
-                        console.error("打开安装授权页失败", e);
-                      })
-                    }
+                    onClick={() => {
+                      setConsentUnavailable(false);
+                      // false = API 26 以下无该设置页（Kotlin 侧版本门）
+                      void api
+                        .openInstallConsent()
+                        .then((dispatched) => {
+                          if (!dispatched) setConsentUnavailable(true);
+                        })
+                        .catch((e) => {
+                          console.error("打开安装授权页失败", e);
+                          setConsentUnavailable(true);
+                        });
+                    }}
                   >
                     {t("settings.installConsentOpen")}
                   </button>
                 </p>
+              )}
+              {mobile && consentUnavailable && (
+                <p className="qt-inline-error">{t("settings.installConsentUnavailable")}</p>
               )}
               {installFallback && (
                 <p className="qt-inline-error">{t("settings.noInstaller")}</p>

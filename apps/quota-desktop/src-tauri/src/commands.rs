@@ -1494,8 +1494,9 @@ pub async fn download_update_to_uri(
     #[cfg(not(target_os = "android"))]
     {
         // 桌面编译目标无 SAF 写入；该入口仅移动端前端渲染，防御性拒绝
-        let _ = (app, state, path);
-        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+        let lang = lang_of(&state);
+        let _ = (app, path);
+        Err(lang.err_android_only_update_download())
     }
 }
 
@@ -1511,8 +1512,9 @@ pub fn open_downloaded_apk(path: String, state: State<'_, AppState>) -> Result<b
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (state, path);
-        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+        let lang = lang_of(&state);
+        let _ = path;
+        Err(lang.err_android_only_update_download())
     }
 }
 
@@ -1530,8 +1532,9 @@ fn open_apk_impl(uri: &str, lang: &Lang) -> Result<bool, String> {
 /// Android：打开本应用的「允许安装未知应用」系统授权页（更新页提示行
 /// 的次出路——Android 8~15 上授权放行安装；API 36 实证未声明自安装权限
 /// 时该页开关置灰，主出路为文件管理器打开已保存 APK）。
+/// `Ok(false)` = API 26 以下系统无此页面，前端降级为纯文案引导。
 #[tauri::command]
-pub fn open_install_consent(state: State<'_, AppState>) -> Result<(), String> {
+pub fn open_install_consent(state: State<'_, AppState>) -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
         let _ = &state;
@@ -1539,8 +1542,9 @@ pub fn open_install_consent(state: State<'_, AppState>) -> Result<(), String> {
     }
     #[cfg(not(target_os = "android"))]
     {
+        let lang = lang_of(&state);
         let _ = state;
-        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+        Err(lang.err_android_only_update_download())
     }
 }
 
