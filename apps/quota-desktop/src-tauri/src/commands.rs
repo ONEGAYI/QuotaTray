@@ -1187,8 +1187,23 @@ fn desktop_update_commands_supported(target_os: &str) -> bool {
     !matches!(target_os, "android" | "ios")
 }
 
+/// 更新「检测」命令的支持面：桌面全家 + Android（2026-08-29 手动检测
+/// 口径——进更新页自动检一次 + 手动按钮，无调度器）。与
+/// [`desktop_update_commands_supported`]（安装/打开目录，永久桌面）分层。
+fn update_check_supported(target_os: &str) -> bool {
+    target_os != "ios"
+}
+
 fn ensure_desktop_update_commands(lang: Lang) -> Result<(), String> {
     if desktop_update_commands_supported(std::env::consts::OS) {
+        Ok(())
+    } else {
+        Err(lang.err_mobile_update_unsupported())
+    }
+}
+
+fn ensure_update_check_supported(lang: Lang) -> Result<(), String> {
+    if update_check_supported(std::env::consts::OS) {
         Ok(())
     } else {
         Err(lang.err_mobile_update_unsupported())
@@ -1405,14 +1420,16 @@ pub fn get_update_state(
 }
 
 /// 手动检测（设置页「立即检查」）：不受节流限制，检测后重建托盘菜单
-/// （新版本信息行即时出现）。
+/// （新版本信息行即时出现；移动端 no-op）。Android 放行——资产选择由
+/// core `flavor_for` 编译期分流至 APK，无 WoA 误匹配；自动下载/就绪
+/// 广播联动仅桌面（移动端手动检测口径，无调度器）。
 #[tauri::command]
 pub async fn check_update_now(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<crate::update_ctl::UpdateStateDto, String> {
     let lang = lang_of(&state);
-    ensure_desktop_update_commands(lang)?;
+    ensure_update_check_supported(lang)?;
     let proxy = crate::update_ctl::proxy_url(&state);
     let http = quota_core::http::ReqwestHttpClient::new_with_proxy(
         std::time::Duration::from_secs(10),
@@ -1421,7 +1438,9 @@ pub async fn check_update_now(
     .map_err(|e| lang.err_update_client(&e))?;
     let inner = crate::update_ctl::run_check(&state, &http).await;
     tray::rebuild(&app, &state);
-    // 检测后联动：探测恢复广播 + 自动下载（后台执行，不阻塞本命令返回）
+    // 检测后联动：探测恢复广播 + 自动下载（后台执行，不阻塞本命令返回）；
+    // 两者均为桌面语义（托盘消息、NSIS 自动安装链），移动端不编译
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     crate::update_ctl::post_check(&app, &state);
     Ok(crate::update_ctl::dto_of(&inner, state.mode.is_portable()))
 }
@@ -1454,6 +1473,121 @@ pub fn install_update(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         app.exit(0);
     });
     Ok(())
+}
+
+/// Android 下载入口：下载 APK 更新包并写入用户经系统文档选择器
+/// （SAF）选定的 `content://` 位置。语义与桌面 [`download_update`]
+/// （落盘 %TEMP% 返回路径）分流——移动端无应用外可写的固定目录，
+/// 保存位置由用户选定；进度事件复用 `update-download-progress`。
+/// content URI 不入状态表：SAF 授权随会话，离开更新页重下即可（约 18MB）。
+#[tauri::command]
+pub async fn download_update_to_uri(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    // 参数名 path 与 export_configuration 同惯例（前端统一传文档位置）
+    path: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        download_apk_to_uri(&app, &state, &path).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        // 桌面编译目标无 SAF 写入；该入口仅移动端前端渲染，防御性拒绝
+        let _ = (app, state, path);
+        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+    }
+}
+
+/// Android 安装入口：以系统安装器打开已保存的 APK（`content://` URI，
+/// 通常来自 [`download_update_to_uri`] 的前端留存）。
+/// `Ok(false)` 语义见 [`open_apk_impl`]——前端据此降级为手动安装引导。
+#[tauri::command]
+pub fn open_downloaded_apk(path: String, state: State<'_, AppState>) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    {
+        let lang = lang_of(&state);
+        open_apk_impl(&path, &lang)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (state, path);
+        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+    }
+}
+
+/// Android 拉起安装器的实现（`open_downloaded_apk` 的 cfg 内核）。
+/// `Ok(false)` = 系统无安装器可处理（裁剪 ROM），非桥故障——前端据此
+/// 降级为手动安装引导。
+#[cfg(target_os = "android")]
+fn open_apk_impl(uri: &str, lang: &Lang) -> Result<bool, String> {
+    if !is_android_document_uri(uri) {
+        return Err(lang.err_update_uri_invalid());
+    }
+    crate::apk_install::open_apk(uri)
+}
+
+/// Android SAF 下载写入的实现（`download_update_to_uri` 的 cfg 内核）。
+#[cfg(target_os = "android")]
+async fn download_apk_to_uri(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    uri: &str,
+) -> Result<(), String> {
+    // download_with_progress 是 trait 方法，android cfg 分支需显式引入
+    use quota_core::update::AssetDownloader as _;
+
+    let lang = lang_of(state);
+    if !is_android_document_uri(uri) {
+        return Err(lang.err_update_uri_invalid());
+    }
+    let info = state.update_ctl.read().unwrap().info.clone();
+    let Some(info) = info else {
+        return Err(lang.err_update_not_checked());
+    };
+    let Some(url) = info.asset_url else {
+        return Err(lang.err_update_no_asset());
+    };
+    // asset_name 与 asset_url 同源（downloadable 判定），None 属防御分支
+    let Some(name) = info.asset_name else {
+        return Err(lang.err_update_no_asset());
+    };
+    if !crate::update_ctl::validate_asset_name(&name) {
+        return Err(lang.err_update_bad_asset());
+    }
+    let reporter = crate::update_ctl::TauriProgressReporter { app };
+    let downloader = quota_core::update::ReqwestAssetDownloader::try_with_proxy(
+        crate::update_ctl::proxy_url(state).as_deref(),
+    )
+    .map_err(|e| lang.err_update_client(&e))?;
+    let bytes = downloader
+        .download_with_progress(&url, &reporter)
+        .await
+        .map_err(|e| lang.err_update_download(&e))?;
+    write_apk_to_uri(app, uri, &bytes, &lang)
+}
+
+/// APK 字节写入 SAF 文档 URI（模式同 `export_configuration_to_uri`：
+/// 字节不回传 WebView，Rust 侧直接落盘用户选定位置）。
+#[cfg(target_os = "android")]
+fn write_apk_to_uri(app: &AppHandle, uri: &str, bytes: &[u8], lang: &Lang) -> Result<(), String> {
+    use std::io::Write;
+    use tauri_plugin_fs::FsExt;
+
+    let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
+        Ok(path) => path,
+        Err(never) => match never {},
+    };
+    let mut options = tauri_plugin_fs::OpenOptions::new();
+    options.write(true).truncate(true).create(true);
+    let mut target = app
+        .fs()
+        .open(path, options)
+        .map_err(|e| lang.err_update_write_uri(&e))?;
+    target
+        .write_all(bytes)
+        .and_then(|_| target.sync_all())
+        .map_err(|e| lang.err_update_write_uri(&e))
 }
 
 // ---- 契约测试 -------------------------------------------------------------
@@ -1494,6 +1628,21 @@ mod tests {
         assert!(!desktop_update_commands_supported("ios"));
         assert!(desktop_update_commands_supported("windows"));
         assert!(desktop_update_commands_supported("linux"));
+    }
+
+    /// 契约：守卫分层——更新「检测」对 Android 放行（2026-08-29 手动检测
+    /// 口径），安装/打开目录仍永久桌面（Play 红线的代码面表达）。
+    #[test]
+    fn update_check_guard_is_looser_than_install_guard_on_android() {
+        assert!(update_check_supported("android"));
+        assert!(!update_check_supported("ios"));
+        assert!(update_check_supported("windows"));
+        assert!(update_check_supported("linux"));
+        // 分层差异本身即契约：检测放行 ≠ 安装命令放行
+        assert_ne!(
+            update_check_supported("android"),
+            desktop_update_commands_supported("android")
+        );
     }
     use quota_core::{InMemoryStore, UsageData};
 

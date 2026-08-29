@@ -149,8 +149,9 @@ fn error_detail(e: &update::UpdateError) -> Option<String> {
     }
 }
 
-struct TauriProgressReporter<'a> {
-    app: &'a AppHandle,
+/// 下载进度 → 前端事件的桥（桌面落盘下载与 Android SAF 写入共用）。
+pub(crate) struct TauriProgressReporter<'a> {
+    pub(crate) app: &'a AppHandle,
 }
 
 impl DownloadProgressReporter for TauriProgressReporter<'_> {
@@ -284,14 +285,15 @@ pub async fn download_installer(
 }
 
 /// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符
-/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip` 结尾
-/// （zip = 便携形态更新资产）——防恶意资产名使落盘位置逃出下载目录
-/// （运行安装侧另有 exe-only 的 validate_installer_path）。
-fn validate_asset_name(name: &str) -> bool {
+/// 冒号，杜绝 `..\` 上跳与 NTFS ADS 形态）且以 `.exe`/`.zip`/`.apk`
+/// 结尾（zip = 便携/WoA 形态更新资产，apk = Android 更新资产）——防
+/// 恶意资产名使落盘位置逃出下载目录（运行安装侧另有 exe-only 的
+/// validate_installer_path）。
+pub(crate) fn validate_asset_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     !name.is_empty()
         && !name.contains(['/', '\\', ':'])
-        && (lower.ends_with(".exe") || lower.ends_with(".zip"))
+        && (lower.ends_with(".exe") || lower.ends_with(".zip") || lower.ends_with(".apk"))
 }
 
 /// 安装包字节落盘到 [`installer_dir`]（原子写）并记录进状态表。
@@ -869,6 +871,11 @@ mod tests {
             validate_asset_name("QuotaTray_0.7.0_x64-portable.zip"),
             "zip = 便携更新资产放行"
         );
+        assert!(
+            validate_asset_name("QuotaTray_0.8.1_android-arm64.apk"),
+            "apk = Android 更新资产放行"
+        );
+        assert!(!validate_asset_name("a/b.apk"), "apk 路径分隔符同样拒绝");
         assert!(!validate_asset_name(""));
         assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");
         assert!(!validate_asset_name("a/b.exe"), "POSIX 分隔符");

@@ -6,6 +6,9 @@ export interface RuntimeUiPolicy {
   titleBar: boolean;
   tray: boolean;
   autostart: boolean;
+  /** 更新页能力：两端渲染——桌面为检测/下载/NSIS 安装链，Android 为
+   *  手动检测 + SAF 下载 + 系统安装器引导（2026-08-29 接入，验证状态
+   *  以 AGENTS「移动端能力缺口追踪」为活追踪）。 */
   selfUpdate: boolean;
   cliAssist: boolean;
   fullScreenDialogs: boolean;
@@ -24,7 +27,7 @@ export function runtimeUiPolicy(platform: RuntimePlatform): RuntimeUiPolicy {
     titleBar: !mobile,
     tray: !mobile,
     autostart: !mobile,
-    selfUpdate: !mobile,
+    selfUpdate: true,
     cliAssist: !mobile,
     fullScreenDialogs: mobile,
     bottomNavigation: mobile,

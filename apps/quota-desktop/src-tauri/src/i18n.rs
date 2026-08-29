@@ -286,6 +286,35 @@ impl Lang {
         }
     }
 
+    /// Android 更新命令收到非 content:// 的保存/安装位置（防御分支）。
+    #[cfg(target_os = "android")]
+    pub fn err_update_uri_invalid(&self) -> String {
+        match self {
+            Self::Zh => "保存位置无效：需要系统文档选择器返回的 content:// 地址".to_string(),
+            Self::En => {
+                "Invalid save location: a content:// URI from the system document picker is required"
+                    .to_string()
+            }
+        }
+    }
+
+    /// Android SAF 文档打开/写入失败。
+    #[cfg(target_os = "android")]
+    pub fn err_update_write_uri(&self, e: &dyn std::fmt::Display) -> String {
+        match self {
+            Self::Zh => format!("写入 APK 保存位置失败：{e}"),
+            Self::En => format!("Failed to write the APK to the selected location: {e}"),
+        }
+    }
+
+    /// 桌面编译目标收到 Android 专属更新命令（前端不应渲染该入口的防御）。
+    pub fn err_android_only_update_download(&self) -> String {
+        match self {
+            Self::Zh => "此更新下载方式仅 Android 端提供".to_string(),
+            Self::En => "This update download flow is only available on Android".to_string(),
+        }
+    }
+
     #[cfg(any(target_os = "android", target_os = "ios"))]
     pub fn err_mobile_autostart_unsupported(&self) -> String {
         match self {

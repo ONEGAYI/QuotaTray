@@ -20,6 +20,7 @@
 | WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
 | 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
 | Android Preview（2026-08-28，所有者确认） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一使用 keyring-core 1 与四个平台原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
+| Android 更新链（2026-08-29，所有者确认） | 手动检测（进页+按钮；常驻轮询记为缺口）+ SAF 保存下载 + 自研薄 JNI 桥拉起系统安装器；不声明自安装权限，content URI 会话内存 | 引第三方 intent 插件（查证 0.1.0/400 下载/停更多年）；纯文案手动安装引导；自动下载 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -41,11 +42,22 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 以下事项尚未纳入 Android Preview 的稳定能力；后续实现时不得直接复用桌面语义，需按
 Android 分发、生命周期与触摸交互分别设计，并在真实设备完成验收后更新本节：
 
-- **更新与下载**：当前移动端隐藏更新页，core 的资产选择仍只覆盖 Windows
-  `.exe` / `.zip`。APK 资产命名已定为 `QuotaTray_<版本>_android-arm64.apk`
-  （签名链产物），core 资产选择器接入该命名、前台更新检测、系统文档选择器下载
-  及进度反馈仍待做；不得把 WoA ARM64 zip 误判为 Android 资产。桌面端 #60 的
-  NSIS 静默安装与自动下载不符合 Android 分发惯例，不移植到移动端。
+- **更新与下载（2026-08-29 链路就绪，验收未完）**：core 资产选择器已接入
+  `Flavor::AndroidApk`（`QuotaTray_<版本>_android-arm64.apk`；`flavor_for`
+  纯函数编译期分流，WoA zip 误匹配由契约测试锁定修复）。GUI 更新页已两端
+  渲染：手动检测（进页自动检一次 + 手动按钮）→ SAF 保存对话框
+  （`content://` URI，MIME 过滤）→ 后端下载写入（进度复用
+  `update-download-progress`）→ 自研薄 JNI 桥（`apk_install.rs` +
+  post-init 注入 `ApkInstallHelper.kt`，ACTION_VIEW 交系统安装器，不声明
+  自安装权限）拉起安装；系统无安装器时前端降级手动引导文案。content URI
+  会话内存、不入后端状态表。桌面 #60 的 NSIS 静默安装、自动下载与常驻
+  调度不移植；`install_update`/`open_update_dir` 在移动端仍确定性拒绝。
+  剩余：模拟器与真机全链验收（含降级分支）、跨版本覆盖升级验收（随下个
+  版本发布）。
+- **前台常驻轮询（2026-08-29 登记）**：Android 更新检测现为手动口径（进页
+  + 按钮），常驻前台轮询未实现——所有者定案首期不做、留缺口；实现时需
+  重新定义「前台」边界（退后台进程存活期的检测节流与流量口径）并与消息
+  中心联动设计合并评估。
 - **签名与发布链（2026-08-29 部分就绪）**：`android-release.yml` 在 `v*` tag 上
   自动构建固定密钥签名的 Release APK 并附加到 Release 草稿；构建后强制断言产物
   非 `-unsigned` 变体、APK 签名证书 SHA-256 指纹与 keystore 一致、v2 签名方案
@@ -421,6 +433,7 @@ QuotaTray/
 │       │   │   └── smoke_setup.rs # GUI 冒烟注入器
 │       │   ├── icons/                  # 应用图标集
 │       │   ├── src/                    # 后端源码
+│       │   │   ├── apk_install.rs        # APK安装JNI桥
 │       │   │   ├── commands.rs           # 跨端IPC命令集
 │       │   │   ├── hover_panel.rs        # 悬停窗口状态机
 │       │   │   ├── hover_panel_mobile.rs # 移动悬停面板空实现

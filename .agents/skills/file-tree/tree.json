@@ -682,10 +682,11 @@
                   "kind": "file",
                   "desc": "Android工程安全初始化",
                   "detail": [
-                    "Android init 后关闭系统自动备份，在 Tauri 生命周期前注入 Keyring JNI Context，并对生成模板锚点漂移执行 fail-fast 校验。"
+                    "Android init 后关闭系统自动备份，在 Tauri 生命周期前注入 Keyring JNI Context 与 ApkInstallHelper 安装引导桥（Rust 侧 apk_install.rs 经 JNI 调用），并注入 release 签名配置；生成模板锚点漂移 fail-fast。"
                   ],
                   "rel": [
-                    "apps/quota-desktop/scripts/android-post-init.contract.mjs"
+                    "apps/quota-desktop/scripts/android-post-init.contract.mjs",
+                    "apps/quota-desktop/src-tauri/src/apk_install.rs"
                   ],
                   "tags": [
                     "security"
@@ -1671,6 +1672,19 @@
                   "kind": "dir",
                   "desc": "后端源码",
                   "children": {
+                    "apk_install.rs": {
+                      "kind": "file",
+                      "desc": "APK安装JNI桥",
+                      "detail": [
+                        "Android 更新链 JNI 桥（仅 Android 编译）：ndk-context 取 VM/Context，经应用 ClassLoader.loadClass 加载 post-init 注入的 ApkInstallHelper（native attach 线程的 find_class 只有 boot classloader），ACTION_VIEW 拉起系统安装器；Ok(false)=系统无安装器。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/scripts/android-post-init.mjs"
+                      ],
+                      "tags": [
+                        "security"
+                      ]
+                    },
                     "commands.rs": {
                       "kind": "file",
                       "desc": "跨端IPC命令集",

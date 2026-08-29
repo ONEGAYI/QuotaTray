@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import { reduceDisclosure, runtimeUiPolicy, shouldCloseDialogOnPop } from "./runtimeView";
 
 describe("runtimeUiPolicy", () => {
-  it("Android 使用触摸优先壳层并裁掉桌面专属能力", () => {
+  it("Android 使用触摸优先壳层并裁掉桌面专属能力（更新页除外）", () => {
     expect(runtimeUiPolicy("android")).toEqual({
       mobile: true,
       hover: false,
       titleBar: false,
       tray: false,
       autostart: false,
-      selfUpdate: false,
+      // 更新链 2026-08-29 接入：手动检测 + SAF 下载 + 系统安装器引导
+      selfUpdate: true,
       cliAssist: false,
       fullScreenDialogs: true,
       bottomNavigation: true,

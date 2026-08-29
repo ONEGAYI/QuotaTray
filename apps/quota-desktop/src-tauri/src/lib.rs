@@ -5,6 +5,8 @@
 //! - 初始化 [`AppState`]（保险库 / 引擎 / 设置 / 快照恢复）；
 //! - 窗口关闭 = 隐藏收托盘，退出只走托盘菜单（退出时清理托盘图标）。
 
+#[cfg(target_os = "android")]
+mod apk_install;
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod hover_panel;
@@ -264,6 +266,8 @@ pub fn run() {
             commands::check_update_now,
             commands::download_update,
             commands::install_update,
+            commands::download_update_to_uri,
+            commands::open_downloaded_apk,
             hover_panel::set_hover_panel_pointer_inside,
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,

@@ -330,6 +330,12 @@ export const zh = {
   "settings.installConfirm": "将退出 QuotaTray 并在后台静默完成安装，完成后自动重启，是否继续？",
   "settings.installConfirmButton": "退出并安装",
   "settings.manualUrl": "该版本没有安装包，发布页：{url}",
+  // ---- Android 更新（SAF 保存 + 系统安装器引导） ----
+  "settings.apkDialogTitle": "保存更新包",
+  "settings.apkDialogFilter": "Android 安装包",
+  "settings.downloadedApk": "更新包已保存（{name}），点击「安装」交给系统安装器完成升级",
+  "settings.installApk": "安装",
+  "settings.noInstaller": "系统未提供安装器，请从文件管理器点击已保存的 APK 手动安装",
   // ---- 标题栏消息中心 ----
   "titlebar.messages": "消息",
   "msgCenter.empty": "暂无消息",

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  androidApkInstallHelperSource,
   androidKeyringBridgeSource,
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
@@ -164,4 +165,23 @@ test("build.gradle.kts 锚点漂移时拒绝静默生成无签名工程", () => 
       ),
     /缺少 getByName\("release"\) 锚点/,
   );
+});
+
+test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰自安装 API", () => {
+  const source = androidApkInstallHelperSource();
+  assert.match(source, /package com\.quotatray\.android/);
+  // Rust 侧经 JNI 调用静态方法，必须 @JvmStatic 暴露稳定入口
+  assert.match(source, /@JvmStatic/);
+  assert.match(source, /fun openApk\(context: Context, uriString: String\): Boolean/);
+  assert.match(source, /Intent\.ACTION_VIEW/);
+  assert.match(source, /application\/vnd\.android\.package-archive/);
+  // SAF 授予安装器临时读权 + 独立任务栈
+  assert.match(source, /FLAG_GRANT_READ_URI_PERMISSION/);
+  assert.match(source, /FLAG_ACTIVITY_NEW_TASK/);
+  // startActivity 需主线程：Rust 命令线程发起，必须经主线程 Handler 派发
+  assert.match(source, /Looper\.getMainLooper\(\)/);
+  // 系统无安装器时返回 false（前端降级手动引导），不得静默成功
+  assert.match(source, /resolveActivity/);
+  // 红线锁定：不出现应用自安装通道 API（Play 审核高危项）
+  assert.doesNotMatch(source, /installPackage|PackageInstaller|REQUEST_INSTALL/);
 });

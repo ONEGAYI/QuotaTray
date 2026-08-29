@@ -14,6 +14,10 @@ const keyringBridgeUrl = new URL(
   "../src-tauri/gen/android/app/src/main/java/io/crates/keyring/Keyring.kt",
   import.meta.url,
 );
+const apkInstallHelperUrl = new URL(
+  "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/ApkInstallHelper.kt",
+  import.meta.url,
+);
 const buildGradleUrl = new URL(
   "../src-tauri/gen/android/app/build.gradle.kts",
   import.meta.url,
@@ -49,6 +53,44 @@ class Keyring {
 
     external fun initializeNdkContext(context: Context)
   }
+}
+`;
+}
+
+export function androidApkInstallHelperSource() {
+  return `package com.quotatray.android
+
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+
+/**
+ * APK 安装引导桥：Rust 侧（src-tauri/src/apk_install.rs）经 JNI 调用 openApk，
+ * 以 ACTION_VIEW 把 SAF 保存的 APK 交给系统安装器；不走应用自安装
+ * 通道（Play 审核高危项），ACTION_VIEW 由系统安装器经用户确认接管，
+ * 无分发红线。
+ */
+object ApkInstallHelper {
+    @JvmStatic
+    fun openApk(context: Context, uriString: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(uriString), "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (context.packageManager.resolveActivity(intent, 0) == null) return false
+        Handler(Looper.getMainLooper()).post {
+            try {
+                context.startActivity(intent)
+            } catch (_: ActivityNotFoundException) {
+                // resolveActivity 与启动之间的竞态兜底：安装器被禁用则放弃
+            }
+        }
+        return true
+    }
 }
 `;
 }
@@ -146,6 +188,10 @@ export async function main() {
   await writeIfChanged(
     fileURLToPath(keyringBridgeUrl),
     androidKeyringBridgeSource(),
+  );
+  await writeIfChanged(
+    fileURLToPath(apkInstallHelperUrl),
+    androidApkInstallHelperSource(),
   );
 
   const buildGradlePath = fileURLToPath(buildGradleUrl);
