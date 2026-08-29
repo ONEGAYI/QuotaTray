@@ -37,7 +37,7 @@ QuotaTray 把这件事压缩成一眼：常驻系统托盘，图标即余额状�
 - 复用同一 Rust core、配置格式与 Provider 能力，主密钥由 Android Keystore 保护
 - 底部导航、顶部应用栏、全屏编辑页；卡片与多级选择器使用点击状态机，不依赖悬停
 - 首期只承诺应用前台刷新，不提供托盘、自启动、后台任务、桌面更新安装或内置 CLI
-- Release 附带 tag CI 自动构建的签名 ARM64 APK；真实设备完整验收前不视为稳定支持
+- Release 附带发布 tag 的 CI 自动构建的签名 ARM64 APK；真实设备完整验收前不视为稳定支持
 
 实现、安全边界和验收清单见 [Android 端预览版说明](docs/Android端预览版说明.md)。
 
@@ -164,7 +164,7 @@ Windows x64 下载 `*-x64-portable.zip`；ARM64（预览版）下载
 
 从 [Releases](https://github.com/ONEGAYI/QuotaTray/releases) 下载签名 APK
 （`QuotaTray_<版本>_android-arm64.apk`，ARM64 设备）安装。APK 由发布 tag 的 CI
-用长期密钥签名，同签名版本可直接覆盖升级，无需卸载。
+用长期密钥签名，同签名版本可覆盖升级而无需卸载（已在模拟器验证，真机验收进行中）。
 
 > 🧪 **Android 预览版**：Android 端已在模拟器完成冒烟验收，但尚未完成真实设备的
 > 完整运行验收。该资产仅供预览和反馈，不应视为稳定支持。

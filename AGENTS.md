@@ -49,12 +49,14 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 - **签名与发布链（2026-08-29 部分就绪）**：`android-release.yml` 在 `v*` tag 上
   自动构建固定密钥签名的 Release APK 并附加到 Release 草稿；构建后强制断言产物
   非 `-unsigned` 变体、APK 签名证书 SHA-256 指纹与 keystore 一致、v2 签名方案
-  存在（minSdk 24 必须）、versionCode 等于 tag 派生值。签名配置由
-  `android-post-init.mjs` 注入生成的 `build.gradle.kts`（读 `gen/android/`
-  下 `keystore.properties`，缺文件时退化为未签名构建，本地无密钥开发不受影响），
-  契约测试锁定注入幂等与锚点漂移拒绝。keystore 不入库，CI 侧只经 GitHub Secrets
-  注入。仍未完成：真实设备跨版本覆盖安装验收、Google Play 上架链（归「分发通道
-  分流」条目）。
+  存在（minSdk 24 必须）、versionCode 等于 tag 派生值，并以 aapt2 断言包名
+  （`com.quotatray.android`，由生成工程固定）与 ABI（`arm64-v8a`，由 aarch64
+  单目标构建保证）。签名配置由 `android-post-init.mjs` 注入生成的
+  `build.gradle.kts`（读 `gen/android/` 下 `keystore.properties`，UTF-8 Reader
+  读取以兼容中文路径；缺文件时退化为未签名构建，本地无密钥开发不受影响），
+  契约测试锁定注入幂等、锚点漂移拒绝与编码写法。keystore 不入库，CI 侧只经
+  GitHub Secrets 注入。仍未完成：真实设备跨版本覆盖安装验收、Google Play
+  上架链（归「分发通道分流」条目）。
 - **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
   版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
   或把商店外 APK 安装逻辑带入 Play 构建。
@@ -129,25 +131,42 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   版本号改为目标版本，再于仓库根运行 `.\package`（内部执行 `pnpm tauri build` 并
   组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
   `target/release/dist/*-portable.zip`。
-- **Android 资产口径**（2026-08-29 更新，签名链已就绪）：推 `v*` tag 后
-  `android-release.yml` 自动构建固定密钥签名的 APK
-  （`QuotaTray_<版本>_android-arm64.apk`），Release 不存在时创建草稿并上传；
-  正式发布时人工对同一 tag 执行 `gh release edit` 补全 notes 与桌面资产（Android
-  资产由 CI 注入，桌面资产仍走本地 `.\package` 打包上传）。Release notes 与
-  README 提及 Android 端时必须注明 Preview 状态（真实设备完整验收未完成）。
-  versionCode 由版本号派生（`major*1000000 + minor*1000 + patch`，CI 按此公式
-  断言），因此 minor 与 patch 段位不得达到 1000，否则与高位版本碰撞破坏升级链。
+- **Android 资产口径**（2026-08-29 更新，签名链已就绪）：推纯三段版本 tag
+  （`vX.Y.Z`，预发布/测试后缀不触发构建）后 `android-release.yml` 自动构建固定
+  密钥签名的 APK（`QuotaTray_<版本>_android-arm64.apk`），Release 不存在时创建
+  草稿并上传；正式发布时人工对同一 tag 执行 `gh release edit` 补全 notes，桌面
+  资产经 `gh release upload` 上传（Android 资产由 CI 注入，桌面资产仍走本地
+  `.\package` 打包）。Release notes 与 README 提及 Android 端时必须注明 Preview
+  状态（真实设备完整验收未完成）。
+  versionCode 实际由 workspace `Cargo.toml` 版本派生（`android-tauri.mjs` 经
+  `--config` 注入，tauri-cli 按公式 `major*1000000 + minor*1000 + patch` 写入
+  `tauri.properties`）；CI 断言该值等于 tag 派生值，因此**推 tag 前必须先 bump
+  workspace 版本**，不一致时构建在断言步失败。段位约束：minor 与 patch 不得达到
+  1000（与高位版本碰撞），major 不得超过 2147（Android versionCode 为 int32）。
+  本项目不发 pre-release tag：tauri 派生忽略 pre 段，rc 与正式版会同
+  versionCode，覆盖升级语义无法区分。
 - 打包脚本已验证包内 GUI/CLI 的 PE 架构与资产名称一致（`scripts/package.ps1`
   逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
   不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
 
-### ARM64 Preview 声明
+### ARM64 Preview 声明（Windows on ARM）
 
-- 在真实 WoA 完整验收并经项目所有者重新确认前，所有 ARM64 资产名必须含
+- 本节条款仅约束 **WoA 资产**（`*-arm64-preview*.zip` 与 NSIS）；Android APK 资产
+  是独立维度，不触发本节声明，其 Preview 口径见「Android 资产口径」与 Android
+  Preview 声明。
+- 在真实 WoA 完整验收并经项目所有者重新确认前，所有 WoA ARM64 资产名必须含
   `preview`，README 下载项必须写作“ARM64（预览版）”。
-- 只要本次 Release 包含 ARM64 资产，Release notes 与 README 下载节都必须原样包含：
+- 只要本次 Release 包含 WoA ARM64 资产，Release notes 与 README 下载节都必须原样包含：
 
 > 🧪 **ARM64 预览版**：ARM64 构建已通过交叉编译与产物架构检查，但尚未完成真实 Windows on ARM 设备的完整运行验收。该资产仅供预览和反馈，不应视为稳定支持。
+
+### Android Preview 声明
+
+- 只要本次 Release 包含 Android APK 资产，Release notes 与 README 下载节都必须
+  原样包含下段固定文本（与 README.md 的 Android 小节声明逐字一致，README.en.md
+  对应英文版）：
+
+> 🧪 **Android 预览版**：Android 端已在模拟器完成冒烟验收，但尚未完成真实设备的完整运行验收。该资产仅供预览和反馈，不应视为稳定支持。
 
 ### Portable 固定安全提示
 
@@ -163,7 +182,8 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
 > ⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。虽然配置中的凭据仍以 AES-GCM 密文存储，但密钥与密文位于同一便携目录，因此整个 `Data/` 目录的保密级别等同明文凭据。请勿将其上传网盘、提交版本库或交给他人；若存储介质遗失或目录泄露，请立即轮换其中使用的全部 API Key。
 
 - 使用 `gh release create --notes` 时，notes 顺序为：版本 CHANGELOG 完整内容 → Portable
-  固定安全提示 → ARM64 Preview 声明（本次含 ARM64 资产时）。
+  固定安全提示 → ARM64 Preview 声明（本次含 WoA ARM64 资产时）→ Android Preview
+  声明（本次含 APK 资产时）。
 
 ## 安全红线（凭据处理）
 

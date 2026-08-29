@@ -66,6 +66,21 @@ test("workspace Cargo.toml 版本提取供 versionCode 派生注入", () => {
   assert.throws(() => cargoWorkspaceVersion(noSection), /workspace\.package/);
 });
 
+test("版本提取免疫注释伪段、行内注释与 version.workspace 写法", () => {
+  // 注释里引用段名不得被当作伪段头（否则吞掉真段 version 或静默取错值）
+  const withComment = [
+    "# 版本段见 [workspace.package]",
+    "[workspace.package]",
+    'version = "0.8.1"',
+  ].join("\n");
+  assert.equal(cargoWorkspaceVersion(withComment), "0.8.1");
+  const inlineComment = '[workspace.package] # 根版本\nversion = "1.2.3"\n';
+  assert.equal(cargoWorkspaceVersion(inlineComment), "1.2.3");
+  // ^version\s*= 不得吃到 version.workspace（点号挡住等号），此处应报缺字段而非误取
+  const memberStyle = "[workspace.package]\nversion.workspace = true\n";
+  assert.throws(() => cargoWorkspaceVersion(memberStyle), /version 字段/);
+});
+
 test("Android 构建参数注入 version 配置驱动 tauri versionCode 派生", () => {
   // tauri.conf.json 无 version 字段时 tauri-cli 不生成 tauri.properties，
   // Android versionCode 恒为 gradle fallback 1；经 --config 注入 workspace

@@ -79,7 +79,8 @@ export function initializeAndroidKeyringInMainActivity(source) {
 }
 
 export function injectAndroidReleaseSigning(source) {
-  if (source.includes("signingConfigs {")) return source;
+  // 幂等标记用注入块自有特征串，避免上游模板将来自带 signingConfigs 时被误判已注入
+  if (source.includes('rootProject.file("keystore.properties")')) return source;
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const buildTypesLine = source.match(/^[ \t]*buildTypes \{[ \t]*$/m);
   if (!buildTypesLine) {
@@ -95,7 +96,7 @@ export function injectAndroidReleaseSigning(source) {
     '        val keystorePropertiesFile = rootProject.file("keystore.properties")',
     "        val keystoreProperties = Properties()",
     "        if (keystorePropertiesFile.exists()) {",
-            "            keystorePropertiesFile.reader(Charsets.UTF_8).use { keystoreProperties.load(it) }",
+    "            keystorePropertiesFile.reader(Charsets.UTF_8).use { keystoreProperties.load(it) }",
     '            create("release") {',
     '                keyAlias = keystoreProperties["keyAlias"] as String',
     '                keyPassword = keystoreProperties["keyPassword"] as String',
@@ -106,9 +107,10 @@ export function injectAndroidReleaseSigning(source) {
     "    }",
   ].join(newline);
   const signingHook = '            signingConfigs.findByName("release")?.let { signingConfig = it }';
+  // 函数 replacement 避免 match 文本/注入内容中的 $ 序列被 String.replace 展开
   const injected = source
-    .replace(buildTypesLine[0], `${signingConfigsBlock}${newline}${buildTypesLine[0]}`)
-    .replace(releaseLine[0], `${releaseLine[0]}${newline}${signingHook}`);
+    .replace(buildTypesLine[0], () => `${signingConfigsBlock}${newline}${buildTypesLine[0]}`)
+    .replace(releaseLine[0], () => `${releaseLine[0]}${newline}${signingHook}`);
   return injected;
 }
 

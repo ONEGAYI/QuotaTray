@@ -167,7 +167,8 @@ security confirmation. The zip contains the GUI (`QuotaTray.exe`) and the CLI
 Download the signed APK (`QuotaTray_<version>_android-arm64.apk`, ARM64 devices) from
 [Releases](https://github.com/ONEGAYI/QuotaTray/releases) and install it. The APK is
 signed with a long-term key by the release-tag CI; same-signature versions upgrade
-in place without uninstalling.
+in place without uninstalling (verified on emulator; physical-device acceptance in
+progress).
 
 > 🧪 **Android Preview**: the Android build has passed emulator smoke acceptance but has
 > not completed full acceptance on physical devices. Treat the asset as preview-only,

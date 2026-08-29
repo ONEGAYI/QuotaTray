@@ -102,7 +102,10 @@ test("release 签名配置注入读取 keystore.properties 且幂等", () => {
   assert.match(injected, /if \(keystorePropertiesFile\.exists\(\)\)/);
   // Properties.load(InputStream) 按 ISO-8859-1 解码，中文 keystore 路径会乱码导致
   // 签名文件找不到；必须以 UTF-8 Reader 读取（真实故障：2026-08-29 中文路径验收）
-  assert.match(injected, /reader\(Charsets\.UTF_8\)\.use \{ keystoreProperties\.load\(it\) \}/);
+  assert.match(
+    injected,
+    /reader\(Charsets\.UTF_8\)\.use \{ keystoreProperties\.load\(it\) \}/,
+  );
   assert.match(injected, /create\("release"\)/);
   assert.match(injected, /keyAlias = keystoreProperties\["keyAlias"\] as String/);
   assert.match(injected, /keyPassword = keystoreProperties\["keyPassword"\] as String/);
@@ -118,7 +121,35 @@ test("release 签名配置注入读取 keystore.properties 且幂等", () => {
   assert.ok(
     injected.indexOf("signingConfigs {") < injected.indexOf("buildTypes {"),
   );
+  // 挂载行必须落在 release 块体内（getByName("release") 行之后），而非 debug 块
+  assert.ok(
+    injected.indexOf('findByName("release")') >
+      injected.indexOf('getByName("release")'),
+  );
   assert.equal(injectAndroidReleaseSigning(injected), injected);
+});
+
+test("CRLF 模板注入保持 CRLF 行尾且幂等", () => {
+  // 行尾正确性依赖 m 标志下 $ 视 \r 为行终止符的语义，此处以契约锁定防回退
+  const crlf = buildGradleKtsFixture().replace(/\n/g, "\r\n");
+  const injected = injectAndroidReleaseSigning(crlf);
+  const block = injected.slice(
+    injected.indexOf("    signingConfigs {"),
+    injected.indexOf("    buildTypes {"),
+  );
+  assert.ok(!block.includes(" \n") || block.includes(" \r\n"));
+  assert.match(block, /signingConfigs \{\r\n/);
+  assert.equal(injectAndroidReleaseSigning(injected), injected);
+});
+
+test("上游模板自带 signingConfigs 时不误判为已注入", () => {
+  const withForeign = buildGradleKtsFixture().replace(
+    "    buildTypes {",
+    '    signingConfigs {\n        create("debug")\n    }\n    buildTypes {',
+  );
+  // 幂等标记是 keystore.properties 特征串，模板原生 signingConfigs 不拦截注入
+  const injected = injectAndroidReleaseSigning(withForeign);
+  assert.match(injected, /rootProject\.file\("keystore\.properties"\)/);
 });
 
 test("build.gradle.kts 锚点漂移时拒绝静默生成无签名工程", () => {
