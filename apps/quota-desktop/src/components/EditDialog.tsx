@@ -458,7 +458,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                   <select
                     value={planVariant}
                     onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
-                    className={inputCls}
+                    className={`${inputCls} qt-select`}
                   >
                     <option value="auto">{t("edit.planVariantAuto")}</option>
                     <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
