@@ -100,6 +100,9 @@ test("release 签名配置注入读取 keystore.properties 且幂等", () => {
   assert.match(injected, /signingConfigs \{/);
   assert.match(injected, /rootProject\.file\("keystore\.properties"\)/);
   assert.match(injected, /if \(keystorePropertiesFile\.exists\(\)\)/);
+  // Properties.load(InputStream) 按 ISO-8859-1 解码，中文 keystore 路径会乱码导致
+  // 签名文件找不到；必须以 UTF-8 Reader 读取（真实故障：2026-08-29 中文路径验收）
+  assert.match(injected, /reader\(Charsets\.UTF_8\)\.use \{ keystoreProperties\.load\(it\) \}/);
   assert.match(injected, /create\("release"\)/);
   assert.match(injected, /keyAlias = keystoreProperties\["keyAlias"\] as String/);
   assert.match(injected, /keyPassword = keystoreProperties\["keyPassword"\] as String/);
