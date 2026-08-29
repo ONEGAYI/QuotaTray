@@ -103,6 +103,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-linux-android
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v4
         with:
