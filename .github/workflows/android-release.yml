@@ -124,9 +124,11 @@ jobs:
             echo "::error::签名指纹与 keystore 不匹配（apk=$apk_sha keystore=$ks_sha）"
             exit 1
           fi
-          # v2 方案检查：先捕获输出再 grep，避免 grep -q 提前退出在 pipefail 下误伤
+          # v2 方案检查：先捕获输出再 grep，避免 grep -q 提前退出在 pipefail 下误伤；
+          # 输出格式为 "Verified using v2 scheme (APK Signature Scheme v2): true"，
+          # 中缀括号注释各版本有道无道不一，以 [^:]* 容忍
           verify_out=$("$BT/apksigner" verify --verbose "$APK")
-          if ! grep -q 'Verified using v2 scheme: true' <<< "$verify_out"; then
+          if ! grep -Eq 'Verified using v2 scheme[^:]*: true' <<< "$verify_out"; then
             echo "::error::v2 签名方案缺失（minSdk 24 必须）"
             exit 1
           fi

@@ -2,6 +2,29 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.8.1] - 2026-08-29
+
+本版本落地 Android 端签名发布链：正式 Release 起附带固定密钥签名的 ARM64 APK，同签名版本可覆盖升级；同时修复两个影响 Android 构建的缺陷。
+
+### 新功能
+
+**Android 签名发布链（Preview）**
+
+- 发布 tag 推送后 CI 自动构建固定密钥签名的 Release APK（`QuotaTray_<版本>_android-arm64.apk`）并附加到 Release 草稿；构建后强制断言产物非未签名变体、签名证书指纹与 keystore 一致、v2 签名方案存在、versionCode 与 tag 派生值一致，并以 aapt2 校验包名与 ABI（#69）
+- 同签名版本可覆盖升级而无需卸载（已在模拟器验证 0.8.0 → 0.8.1 原地升级、应用数据保留；真机验收进行中）（#69）
+- 本地构建签名 APK：`pnpm android:init` 后放置 `keystore.properties` 即可产出签名 Release APK，无该文件时退化为未签名构建（#69）
+- 🧪 预览性质：Android 仍为 Preview（真实设备完整验收未完成），不构成稳定支持承诺（#69）
+
+### Bug 修复
+
+- Android 构建读取中文路径 keystore 时签名失败：`Properties.load` 固定按 ISO-8859-1 解码导致路径乱码，改用 UTF-8 Reader 读取（Tauri 官方模板同样受影响）（#69）
+- Android versionCode 恒为 1 致升级链无版本区分：tauri 配置无 version 字段时 tauri-cli 跳过派生，构建脚本现经 `--config` 注入 workspace 版本，恢复 `major*1000000 + minor*1000 + patch` 原生派生（#69）
+
+### 其他改进
+
+- CI：Android Release 工作流设纯三段 tag 门禁（预发布后缀不进入构建）、concurrency 防同 tag 并发互撞、超时放宽至 60 分钟（#69）
+- 文档：README 双语新增「Android（预览版）」下载小节，Android 端说明补本地签名构建指南与口令转义注意事项（#69）
+
 ## [0.8.0] - 2026-08-29
 
 本版本交付桌面端完整自动更新闭环（可选自动下载、消息中心提醒、一键静默安装）与 Android 触摸优先预览端，新增 Windows on ARM（ARM64）预览资产与双端「访问控制台」直达入口。
@@ -414,3 +437,4 @@
 [0.6.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.6.0...v0.6.1
 [0.7.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.6.1...v0.7.0
 [0.8.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.7.0...v0.8.0
+[0.8.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.0...v0.8.1
