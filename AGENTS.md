@@ -42,11 +42,19 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 Android 分发、生命周期与触摸交互分别设计，并在真实设备完成验收后更新本节：
 
 - **更新与下载**：当前移动端隐藏更新页，core 的资产选择仍只覆盖 Windows
-  `.exe` / `.zip`。需新增 Android APK 资产命名与精确选择、前台更新检测、系统文档
-  选择器下载及进度反馈；不得把 WoA ARM64 zip 误判为 Android 资产。桌面端 #60 的
+  `.exe` / `.zip`。APK 资产命名已定为 `QuotaTray_<版本>_android-arm64.apk`
+  （签名链产物），core 资产选择器接入该命名、前台更新检测、系统文档选择器下载
+  及进度反馈仍待做；不得把 WoA ARM64 zip 误判为 Android 资产。桌面端 #60 的
   NSIS 静默安装与自动下载不符合 Android 分发惯例，不移植到移动端。
-- **签名与发布链**：CI 仅产出临时签名的 Debug APK，尚无长期固定签名的 Release APK、
-  GitHub Release 上传、签名/包名/versionCode/ABI 校验，也未验证同一签名下的跨版本覆盖安装。
+- **签名与发布链（2026-08-29 部分就绪）**：`android-release.yml` 在 `v*` tag 上
+  自动构建固定密钥签名的 Release APK 并附加到 Release 草稿；构建后强制断言产物
+  非 `-unsigned` 变体、APK 签名证书 SHA-256 指纹与 keystore 一致、v2 签名方案
+  存在（minSdk 24 必须）、versionCode 等于 tag 派生值。签名配置由
+  `android-post-init.mjs` 注入生成的 `build.gradle.kts`（读 `gen/android/`
+  下 `keystore.properties`，缺文件时退化为未签名构建，本地无密钥开发不受影响），
+  契约测试锁定注入幂等与锚点漂移拒绝。keystore 不入库，CI 侧只经 GitHub Secrets
+  注入。仍未完成：真实设备跨版本覆盖安装验收、Google Play 上架链（归「分发通道
+  分流」条目）。
 - **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
   版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
   或把商店外 APK 安装逻辑带入 Play 构建。
@@ -121,10 +129,14 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   版本号改为目标版本，再于仓库根运行 `.\package`（内部执行 `pnpm tauri build` 并
   组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
   `target/release/dist/*-portable.zip`。
-- **Android 资产口径**（2026-08-29 登记）：签名发布链（缺口追踪「签名与发布链」
-  条目）就绪前，Release 不提供 APK 资产；Release notes 与 README 提及 Android
-  端时必须同步注明安装包获取状态与原因（临时签名无法原地升级、卸载丢失凭据），
-  不得宣传了功能却无下载渠道。
+- **Android 资产口径**（2026-08-29 更新，签名链已就绪）：推 `v*` tag 后
+  `android-release.yml` 自动构建固定密钥签名的 APK
+  （`QuotaTray_<版本>_android-arm64.apk`），Release 不存在时创建草稿并上传；
+  正式发布时人工对同一 tag 执行 `gh release edit` 补全 notes 与桌面资产（Android
+  资产由 CI 注入，桌面资产仍走本地 `.\package` 打包上传）。Release notes 与
+  README 提及 Android 端时必须注明 Preview 状态（真实设备完整验收未完成）。
+  versionCode 由版本号派生（`major*1000000 + minor*1000 + patch`，CI 按此公式
+  断言），因此 minor 与 patch 段位不得达到 1000，否则与高位版本碰撞破坏升级链。
 - 打包脚本已验证包内 GUI/CLI 的 PE 架构与资产名称一致（`scripts/package.ps1`
   逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
   不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
@@ -243,7 +255,8 @@ QuotaTray/
 │   └── pre-push   # 推送级重门禁（clippy+tsc）
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
-│       └── ci.yml # 桌面与Android CI
+│       ├── android-release.yml # Android签名发布链
+│       └── ci.yml              # 桌面与Android CI
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
 ├── apps/                   # 应用层（CLI 与桌面端）
