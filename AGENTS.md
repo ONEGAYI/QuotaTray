@@ -121,6 +121,10 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   版本号改为目标版本，再于仓库根运行 `.\package`（内部执行 `pnpm tauri build` 并
   组装全部资产）；上传 `target/release/bundle/nsis/*-setup.exe` 与
   `target/release/dist/*-portable.zip`。
+- **Android 资产口径**（2026-08-29 登记）：签名发布链（缺口追踪「签名与发布链」
+  条目）就绪前，Release 不提供 APK 资产；Release notes 与 README 提及 Android
+  端时必须同步注明安装包获取状态与原因（临时签名无法原地升级、卸载丢失凭据），
+  不得宣传了功能却无下载渠道。
 - 打包脚本已验证包内 GUI/CLI 的 PE 架构与资产名称一致（`scripts/package.ps1`
   逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
   不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
