@@ -66,6 +66,7 @@ export const en: Record<TextKey, string> = {
   "card.disable": "Disable",
   "card.enable": "Enable",
   "card.console": "Open console",
+  "card.consoleShort": "Console",
   "card.consoleOpenFailed": "Failed to open console",
   "card.edit": "Edit",
   "card.remove": "Remove",

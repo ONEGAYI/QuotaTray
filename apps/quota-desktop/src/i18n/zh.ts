@@ -69,6 +69,7 @@ export const zh = {
   "card.disable": "停用",
   "card.enable": "启用",
   "card.console": "访问控制台",
+  "card.consoleShort": "控制台",
   "card.consoleOpenFailed": "打开控制台失败",
   "card.edit": "编辑",
   "card.remove": "删除",

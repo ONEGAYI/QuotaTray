@@ -517,6 +517,18 @@ button:focus-visible {
   color: var(--qt-accent);
 }
 
+/* 控制台直达 · Android trailing 文字按钮（仅移动端渲染，route 行最右）：
+   视觉小（13px 字 + 16px 图标）、命中区 ≥44px（T-010）、默认无实心底，
+   点击出浅色 pressed 底——2026-08-29 所有者定案，语义优先于纯图标
+   （docs/specs/console-link-spec.md §2 移动端补充）。 */
+.qt-console-text-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 44px; padding: 0 10px; margin-left: auto;
+  border: 0; background: none; border-radius: var(--qt-radius-sm);
+  color: var(--qt-text-soft); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.qt-console-text-btn:active { background: var(--qt-surface-soft); }
+
 [data-tooltip]::after {
   content: attr(data-tooltip); position: absolute; z-index: 80; bottom: calc(100% + 7px); left: 50%;
   max-width: 360px; padding: 5px 8px; border-radius: var(--qt-radius-xs); background: var(--qt-text); color: var(--qt-surface);
@@ -975,6 +987,9 @@ body.qt-mobile-runtime .qt-provider-primary { padding-left: 35px; }
 body.qt-mobile-runtime .qt-provider-actions .qt-btn,
 body.qt-mobile-runtime .qt-provider-actions .qt-icon-btn,
 body.qt-mobile-runtime .qt-menu-item { min-height: 44px; }
+/* route 行转 flex：控制台文字按钮 trailing 靠右；label 弹性占位保持省略号 */
+body.qt-mobile-runtime .qt-provider-route { display: flex; align-items: center; }
+body.qt-mobile-runtime .qt-provider-route-label { flex: 1; min-width: 0; }
 body.qt-mobile-runtime .qt-btn:not(:disabled):active,
 body.qt-mobile-runtime .qt-icon-btn:not(:disabled):active { opacity: .72; }
 

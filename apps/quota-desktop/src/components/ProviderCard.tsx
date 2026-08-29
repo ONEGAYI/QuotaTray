@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowUpRight,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -46,9 +47,12 @@ interface Props {
   thresholdPercent: number;
   snapshot?: SnapshotEntry;
   nativeMeta?: NativeMeta;
-  /** 是否渲染「访问控制台」直达入口（App 按 runtime 策略下发：
-   *  桌面 true；Android 的 opener 行为未真机验证，默认隐藏）。 */
+  /** 是否渲染「访问控制台」直达入口（App 按 runtime 策略下发，两端
+   *  启用；验证状态与平台差异见 AGENTS「移动端能力缺口追踪」）。 */
   consoleLink?: boolean;
+  /** 移动端形态分流：Android 用 route 行 trailing 文字按钮（所有者
+   *  定案），桌面保持名称行内迷你图标钮。 */
+  mobile?: boolean;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
   /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
   dragHandleProps?: DragHandleProps;
@@ -120,6 +124,7 @@ export const ProviderCard = memo(function ProviderCard({
   snapshot,
   nativeMeta,
   consoleLink,
+  mobile,
   onEdit,
   dragHandleProps,
   dragShift,
@@ -130,6 +135,13 @@ export const ProviderCard = memo(function ProviderCard({
   // 控制台直达 URL（自定义覆盖优先回退 native 预置）；策略关闭或无
   // URL 时为 null——卡片不渲染按钮（issue #59：不出无效链接）。
   const consoleUrl = consoleLink ? resolveConsoleUrl(entry, nativeMeta) : null;
+  const openConsole = () => {
+    // 打开失败可达（config.json 手工写入非法 URL 等）——走卡片
+    // feedback 通道而非静默吞错
+    if (consoleUrl) {
+      void api.openConsoleUrl(consoleUrl).catch(() => setFeedback(t("card.consoleOpenFailed")));
+    }
+  };
   const query = useProviderQuery(entry.id, entry.enabled, intervalMinutes);
   // 峰谷标签锚点：主窗开着跨过翻转点时以翻转事件驱动重算（#15）
   const peakTick = usePeakFlipTick();
@@ -323,16 +335,10 @@ export const ProviderCard = memo(function ProviderCard({
             <div className="qt-provider-name-row">
               <h2>{entry.name}</h2>
               {statusBadge}
-              {consoleUrl && (
-                <IconButton
-                  className="qt-console-btn"
-                  label={t("card.console")}
-                  onClick={() => {
-                    // 打开失败可达（config.json 手工写入非法 URL 等）——
-                    // 走卡片 feedback 通道而非静默吞错
-                    api.openConsoleUrl(consoleUrl).catch(() => setFeedback(t("card.consoleOpenFailed")));
-                  }}
-                >
+              {/* 桌面：名称行内迷你图标钮；Android 改走 route 行 trailing
+                  文字按钮（所有者定案，语义优先于纯图标），见下 */}
+              {consoleUrl && !mobile && (
+                <IconButton className="qt-console-btn" label={t("card.console")} onClick={openConsole}>
                   <ConsoleOpenIcon />
                 </IconButton>
               )}
@@ -371,6 +377,17 @@ export const ProviderCard = memo(function ProviderCard({
                     ))}
                   </select>
                 </Tooltip>
+              )}
+              {consoleUrl && mobile && (
+                <button
+                  type="button"
+                  className="qt-console-text-btn"
+                  aria-label={t("card.console")}
+                  onClick={openConsole}
+                >
+                  {t("card.consoleShort")}
+                  <ArrowUpRight size={16} aria-hidden="true" />
+                </button>
               )}
             </div>
           </div>

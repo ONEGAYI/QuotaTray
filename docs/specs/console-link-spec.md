@@ -1,17 +1,19 @@
 # 控制台直达（Console Link）规格 · #59
 
-状态：已定案（样式经临时预览页确认，2026-08-28）。桌面端先行实现，Android 标记能力缺口。
+状态：已定案（样式经临时预览页确认，2026-08-28）。桌面端与 Android 启用均于
+2026-08-29 落地；Android 呈现形态为 route 行 trailing 文字按钮（§2 移动端补充）。剩余验证事项以
+AGENTS.md「移动端能力缺口追踪」为活追踪。
 
 ## 1. 背景与目标
 
-余额卡片上增加「控制台直达」图标按钮：点击后用系统默认浏览器打开对应平台控制台
+余额卡片上增加「控制台直达」入口（桌面为图标按钮，Android 为 route 行 trailing
+文字按钮，见 §2）：点击后用系统默认浏览器打开对应平台控制台
 （余额/充值/账单页），省去用户手动找网址。来源 issue #59。
 
 不做的事：
 
 - 不在应用内嵌网页；
-- 未解析到 URL 的条目不渲染图标（不出无效链接）；
-- Android 端本期不启用按钮（数据层与表单字段跨端就绪，渲染与打开动作待真机验证）。
+- 未解析到 URL 的条目不渲染入口（不出无效链接）。
 
 ## 2. 样式定案（2026-08-28 所有者确认）
 
@@ -26,6 +28,14 @@
 
 图标 SVG（Apache-2.0，Google Material Symbols）以 `viewBox="0 -960 960 960"` path
 内联于组件，与 TitleBar 的 GithubMark 内联先例同模式。
+
+**移动端补充（2026-08-29 所有者二次定案）**：Android 不复用名称行内图标钮，改为
+route 行（平台 · 模型行）最右的 trailing 文字按钮 `qt-console-text-btn`——可见文案
+「控制台」/ "Console" + ArrowUpRight ↗ 图标（语义优先于纯图标：额度管理工具的
+用户关心「去哪儿管理」）；13px 字 + 16px 图标、默认 `text-soft` 无实心底、
+`:active` 浅色 pressed 底、命中区 min-height 44px（「视觉小、命中大」，T-010）；
+route 行转 flex、label 保省略号。伪元素 tooltip 不渲染（T-001/T-010 分流），
+`aria-label` 用全文案「访问控制台」；hover 定案不适用于触摸端。桌面图标钮不变。
 
 ## 3. 数据模型（core）
 
@@ -54,7 +64,7 @@ URL 不是凭据，明文落 config.json，与 `base_url` 同级待遇（安全�
 
 ```rust
 /// 条目的控制台直达 URL：自定义覆盖优先；native 条目回退注册表预置值；
-/// 模板/脚本条目仅取自定义值；均无则 None（UI 不渲染图标）。
+/// 模板/脚本条目仅取自定义值；均无则 None（UI 据此不渲染直达入口）。
 pub fn resolve_console_url(entry: &ProviderEntry) -> Option<String>
 ```
 
@@ -115,26 +125,31 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String>
 ## 6. 前端（跨端组件 + 能力位）
 
 1. **types.ts**：`NativeMeta` / `ProviderEntry` 镜像加 `console_url?: string`。
-2. **runtimeView**：`RuntimeUiPolicy` 加 `consoleLink: boolean`——desktop `true`、
-   android `false`（本期标记；真机验证后开启）。
+2. **runtimeView**：`RuntimeUiPolicy` 加 `consoleLink: boolean`——desktop `true`；
+   android 初版 `false`（待验证标记），2026-08-29 翻位为两端 `true`。
 3. **providerCardView.ts** 纯逻辑加 `resolveConsoleUrl(entry, nativeMeta)`：
    `entry.console_url ?? nativeMeta?.console_url`；补单测。
-4. **ProviderCard**：名称行内 statusBadge 之后渲染图标按钮。渲染条件：
-   `runtimeUiPolicy.consoleLink && resolveConsoleUrl(...) != null`。按钮复用
-   `IconButton`（label = i18n `card.console`，自动 data-tooltip），内联 Material
-   `open_in_new` SVG；点击 `api.openConsoleUrl(url)`，失败静默（同 GitHub 链接
-   `.catch(() => {})` 先例）。
+4. **ProviderCard**（按 `mobile` prop 分流）：桌面在名称行内 statusBadge 之后渲染
+   图标按钮（复用 `IconButton`，label = i18n `card.console`，自动 data-tooltip，
+   内联 Material `open_in_new` SVG）；Android 渲染 route 行 trailing 文字按钮
+   `qt-console-text-btn`（形态与样式见 §2 移动端补充）。渲染条件：
+   `runtimeUiPolicy.consoleLink && resolveConsoleUrl(...) != null`。点击
+   `api.openConsoleUrl(url)`，失败走卡片 feedback 通道显示
+   `card.consoleOpenFailed`（初版 spec 曾误记为静默吞错，2026-08-29 修正为与
+   代码一致的可见反馈）。
 5. **EditDialog**：跨端共享编辑页加可选字段「控制台地址」（校验：空或 http/https
-   前缀；空 = 清除覆盖回退默认）。表单字段两端都渲染（纯数据编辑无平台行为），
-   Android 卡片按钮仍由能力位隐藏。
-6. **i18n**：`card.console` zh「访问控制台」/ en "Open console"；EditDialog 字段
-   标签与占位文案双语。
+   前缀；空 = 清除覆盖回退默认）。表单字段两端都渲染（纯数据编辑无平台行为）。
+6. **i18n**：`card.console` zh「访问控制台」/ en "Open console"（aria-label 用
+   全文案）与 `card.consoleShort` zh「控制台」/ en "Console"（Android 文字按钮
+   可见文本）；EditDialog 字段标签与占位文案双语。
 
-## 7. Android 能力缺口（AGENTS.md 追踪新增条目）
+## 7. Android 启用与验证状态
 
-图标按钮渲染与浏览器拉起在本期通过 `runtimeView.consoleLink=false` 整体禁用；
-待真机验证 Tauri opener 在 Android 拉起系统浏览器的行为、触摸热区（≥44px）与
-返回栈交互后开启。数据层（字段/解析/表单）已跨端就绪，届时仅翻能力位。
+2026-08-29 翻 `runtimeView.consoleLink` 为两端启用；移动端呈现形态同日经所有者
+二次定案为 route 行 trailing 文字按钮（§2 移动端补充），由 mobile-style 契约测试
+锁定。opener 拉起系统浏览器与返回栈交互的验证进度、厂商浏览器差异与真机验收
+状态，以 AGENTS.md「移动端能力缺口追踪」对应条目为活追踪；验收完成前不宣称
+移动稳定支持。
 
 ## 8. 测试计划（TDD）
 
@@ -143,7 +158,8 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String>
 | core `provider` | 注册表 20 项 console_url 全非空且为 https；`resolve_console_url`：自定义覆盖 native 默认、native 回退默认、模板条目仅自定义、均无 → None |
 | core `config` | 旧 config.json（无 console_url 字段）反序列化兼容；字段 round-trip 与 skip 序列化 |
 | src-tauri commands | `open_console_url` scheme 校验：https 通过（opener mock/不实际打开的断言方式实现时定）、`file:`/`javascript:`/无 scheme 拒绝；`NativeMetaDto` 带 console_url |
-| 前端 runtimeView | `consoleLink` 位：desktop true / android false |
+| 前端 runtimeView | `consoleLink` 位：desktop true / android true（2026-08-29 翻位） |
+| 前端移动样式 | mobile-style 契约：Android 下 trailing 文字按钮 `qt-console-text-btn` 存在（min-height 44px、margin-left auto、pressed 底、route 行 flex） |
 | 前端 providerCardView | `resolveConsoleUrl` 三态 |
 | 前端 providerCardView（供 EditDialog 消费） | URL 校验纯函数：空/合法/缺 scheme/非法 scheme/scheme 大小写 |
 

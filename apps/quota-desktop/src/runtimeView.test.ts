@@ -13,7 +13,7 @@ describe("runtimeUiPolicy", () => {
       cliAssist: false,
       fullScreenDialogs: true,
       bottomNavigation: true,
-      consoleLink: false,
+      consoleLink: true,
     });
   });
 
