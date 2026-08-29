@@ -1527,6 +1527,23 @@ fn open_apk_impl(uri: &str, lang: &Lang) -> Result<bool, String> {
     crate::apk_install::open_apk(uri)
 }
 
+/// Android：打开本应用的「允许安装未知应用」系统授权页（更新页提示行
+/// 的次出路——Android 8~15 上授权放行安装；API 36 实证未声明自安装权限
+/// 时该页开关置灰，主出路为文件管理器打开已保存 APK）。
+#[tauri::command]
+pub fn open_install_consent(state: State<'_, AppState>) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = &state;
+        crate::apk_install::open_install_consent()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err(crate::i18n::Lang::Zh.err_android_only_update_download())
+    }
+}
+
 /// Android SAF 下载写入的实现（`download_update_to_uri` 的 cfg 内核）。
 #[cfg(target_os = "android")]
 async fn download_apk_to_uri(

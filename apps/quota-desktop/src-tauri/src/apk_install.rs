@@ -1,4 +1,4 @@
-//! Android APK 安装引导 JNI 桥：Rust → `ApkInstallHelper.openApk`（Kotlin）。
+//! Android APK 安装引导 JNI 桥：Rust → `ApkInstallHelper`（Kotlin）。
 //!
 //! 职责边界：本模块只做桥接——输入校验（content:// 前缀）与错误文案
 //! 归命令层（commands.rs），Intent 构造与主线程派发归 Kotlin helper
@@ -10,7 +10,7 @@
 //! 先例只调系统类（Keystore/SharedPreferences），无此约束，不可照抄。
 
 use jni::{
-    JavaVM,
+    JNIEnv, JavaVM,
     objects::{JClass, JObject, JValue},
 };
 
@@ -22,7 +22,49 @@ const HELPER_CLASS: &str = "com.quotatray.android.ApkInstallHelper";
 /// - `Ok(true)`：已派发安装器（用户侧随后看到系统安装确认页）；
 /// - `Ok(false)`：系统无安装器可处理（裁剪 ROM），调用方降级为手动引导；
 /// - `Err`：桥本身故障（ndk-context 未初始化 / JNI 异常），确定性错误。
+///
+/// 「安装未知应用」未授权时系统以 toast 弹回（不报错）——授权状态
+/// 程序化不可知（PackageManager/AppOps 查询均需先声明自安装权限，
+/// 本项目永不声明，API 36 实证 2026-08-29：AppOps allow 亦被弹回、
+/// 授权页开关置灰），前端提示行以文件管理器为主出路，并以
+/// [`open_install_consent`] 作为旧版系统的授权页次出路。
 pub fn open_apk(uri: &str) -> Result<bool, String> {
+    with_helper_class(|env, context, helper| {
+        let j_uri = env
+            .new_string(uri)
+            .map_err(|e| format!("构造 URI 字符串失败：{e}"))?;
+        let ret = env
+            .call_static_method(
+                helper,
+                "openApk",
+                "(Landroid/content/Context;Ljava/lang/String;)Z",
+                &[JValue::Object(context), JValue::Object(&j_uri)],
+            )
+            .map_err(|e| format!("调用 ApkInstallHelper.openApk 失败：{e}"))?;
+        ret.z().map_err(|e| format!("读取安装器调用结果失败：{e}"))
+    })
+}
+
+/// 打开本应用的「允许安装未知应用」系统授权页（用户开关，非权限声明）。
+pub fn open_install_consent() -> Result<(), String> {
+    with_helper_class(|env, context, helper| {
+        env.call_static_method(
+            helper,
+            "openInstallConsent",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(context)],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("调用 ApkInstallHelper.openInstallConsent 失败：{e}"))
+    })
+}
+
+/// 公共桥：ndk-context 取 VM/Context → attach 线程 → 经应用 ClassLoader
+/// 加载 helper 类 → 以 `(env, context, helper)` 执行回调。
+fn with_helper_class<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce(&mut JNIEnv, &JObject, &JClass) -> Result<T, String>,
+{
     // ndk-context 由 MainActivity.onCreate 的 Keyring 桥初始化（启动序保证）
     let ctx = ndk_context::android_context();
     let vm = ctx.vm().cast();
@@ -62,27 +104,16 @@ pub fn open_apk(uri: &str) -> Result<bool, String> {
     // into_raw 移交所有权避免局部引用被重复删除
     // SAFETY: raw 指针来自同一线程的有效局部引用
     let helper = unsafe { JClass::from_raw(helper_obj.into_raw()) };
-
-    let j_uri = env
-        .new_string(uri)
-        .map_err(|e| format!("构造 URI 字符串失败：{e}"))?;
-    let ret = env
-        .call_static_method(
-            &helper,
-            "openApk",
-            "(Landroid/content/Context;Ljava/lang/String;)Z",
-            &[JValue::Object(&j_context), JValue::Object(&j_uri)],
-        )
-        .map_err(|e| format!("调用 ApkInstallHelper.openApk 失败：{e}"))?;
-    ret.z().map_err(|e| format!("读取安装器调用结果失败：{e}"))
+    f(&mut env, &j_context, &helper)
 }
 
 #[cfg(test)]
 mod tests {
-    /// 编译期契约：桥函数签名保持 &str → Result<bool, String>（命令层
-    /// 以此组装确定性错误与降级分支；真实 JNI 路径仅真机/模拟器可验）。
+    /// 编译期契约：桥函数签名保持命令层友好的形状（真实 JNI 路径仅
+    /// 真机/模拟器可验）。
     #[test]
-    fn open_apk_signature_is_command_friendly() {
-        let _f: fn(&str) -> Result<bool, String> = super::open_apk;
+    fn bridge_signatures_are_command_friendly() {
+        let _open: fn(&str) -> Result<bool, String> = super::open_apk;
+        let _consent: fn() -> Result<(), String> = super::open_install_consent;
     }
 }

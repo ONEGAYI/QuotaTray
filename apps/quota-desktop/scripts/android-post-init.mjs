@@ -68,10 +68,19 @@ import android.os.Handler
 import android.os.Looper
 
 /**
- * APK 安装引导桥：Rust 侧（src-tauri/src/apk_install.rs）经 JNI 调用 openApk，
+ * APK 安装引导桥：Rust 侧（src-tauri/src/apk_install.rs）经 JNI 调用，
  * 以 ACTION_VIEW 把 SAF 保存的 APK 交给系统安装器；不走应用自安装
- * 通道（Play 审核高危项），ACTION_VIEW 由系统安装器经用户确认接管，
- * 无分发红线。
+ * 通道（Play 审核高危项），由系统安装器经用户确认接管，无分发红线。
+ *
+ * 「安装未知应用」闸口（Android 8+）：其许可状态**程序化不可知**——
+ * PackageManager 与 AppOpsManager 的查询 API 均要求调用方先声明自安装
+ * 权限（本项目永不声明，调用即 SecurityException，API 36 实证
+ * 2026-08-29）。因此不做预判：openApk 直接发安装请求——Android 7 无需
+ * 闸口直接弹确认页，8~15 上授权放行时一步到位；未声明权限时新版系统
+ * （API 36 实证：AppOps allow 亦被弹回，授权页开关置灰）一律 toast 弹
+ * 回，前端提示行以「文件管理器打开已保存 APK」为主出路，并提供
+ * openInstallConsent 的授权页入口作为旧版系统的次出路（公开 Settings
+ * action，同样不触碰权限声明）。
  */
 object ApkInstallHelper {
     @JvmStatic
@@ -90,6 +99,16 @@ object ApkInstallHelper {
             }
         }
         return true
+    }
+
+    /** 打开本应用的「允许安装未知应用」系统授权页（用户开关，非权限声明）。 */
+    @JvmStatic
+    fun openInstallConsent(context: Context) {
+        val consent = Intent(
+            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:\${context.packageName}"),
+        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        context.startActivity(consent)
     }
 }
 `;

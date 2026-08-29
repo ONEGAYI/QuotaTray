@@ -709,6 +709,10 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-settings-success { color: var(--qt-success); font-size: 12px; overflow-wrap: anywhere; }
 .qt-settings-manual-link { display: inline-flex; max-width: 100%; align-items: flex-start; gap: 6px; margin: 4px 0 8px; color: var(--qt-accent-strong); font-size: 12px; overflow-wrap: anywhere; }
 .qt-settings-manual-link svg { flex: none; margin-top: 1px; }
+/* Android 更新：安装弹回时的「安装未知应用」授权出路（提示 + 行内链接） */
+.qt-settings-manual-hint { margin: 4px 0 8px; color: var(--qt-text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+.qt-inline-link { padding: 0; border: none; background: none; color: var(--qt-accent-strong); font-size: inherit; text-decoration: underline; cursor: pointer; }
+.qt-inline-link:active { opacity: 0.7; }
 
 .qt-pricing-section { overflow: hidden; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-lg); background: var(--qt-surface); }
 .qt-pricing-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 15px 14px; }

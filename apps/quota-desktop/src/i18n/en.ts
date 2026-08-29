@@ -346,6 +346,9 @@ export const en: Record<TextKey, string> = {
   "settings.installApk": "Install",
   "settings.noInstaller":
     "No system installer available. Open the saved APK from your file manager to install it manually",
+  "settings.installConsentHint":
+    "No install confirmation shown? Open the saved APK from your file manager to install it, or first allow this app to install unknown apps on some systems",
+  "settings.installConsentOpen": "Open system setting",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "Peak/off-peak pricing",
   "pricing.unit": "All prices are per 1M tokens",

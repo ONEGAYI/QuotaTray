@@ -268,6 +268,7 @@ pub fn run() {
             commands::install_update,
             commands::download_update_to_uri,
             commands::open_downloaded_apk,
+            commands::open_install_consent,
             hover_panel::set_hover_panel_pointer_inside,
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,

@@ -617,6 +617,22 @@ export function SettingsDialog({ open, onClose, mobile = false }: Props) {
                   {t("settings.downloadedApk", { name: available?.asset_name ?? "APK" })}
                 </p>
               )}
+              {mobile && savedApkUri && (
+                <p className="qt-settings-manual-hint">
+                  {t("settings.installConsentHint")}{" "}
+                  <button
+                    type="button"
+                    className="qt-inline-link"
+                    onClick={() =>
+                      void api.openInstallConsent().catch((e) => {
+                        console.error("打开安装授权页失败", e);
+                      })
+                    }
+                  >
+                    {t("settings.installConsentOpen")}
+                  </button>
+                </p>
+              )}
               {installFallback && (
                 <p className="qt-inline-error">{t("settings.noInstaller")}</p>
               )}

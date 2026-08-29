@@ -182,6 +182,16 @@ test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰�
   assert.match(source, /Looper\.getMainLooper\(\)/);
   // 系统无安装器时返回 false（前端降级手动引导），不得静默成功
   assert.match(source, /resolveActivity/);
-  // 红线锁定：不出现应用自安装通道 API（Play 审核高危项）
-  assert.doesNotMatch(source, /installPackage|PackageInstaller|REQUEST_INSTALL/);
+  // 「安装未知应用」闸口：许可状态程序化不可知（PackageManager/AppOps
+  // 查询均需先声明自安装权限，API 36 实证 SecurityException），不做预判
+  // ——openApk 直接发安装请求，openInstallConsent 提供授权页显式出路
+  //（公开 Settings action，用户开关而非权限声明）。
+  assert.match(source, /fun openInstallConsent\(context: Context\)/);
+  assert.match(source, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
+  assert.match(source, /package:\\?\$\{context\.packageName\}/);
+  // 红线锁定：不出现应用自安装通道 API 与权限声明（Play 审核高危项）；
+  // 负向后瞻放行 AppOps 常量形态（如历史方案回流可被捕获）
+  assert.doesNotMatch(source, /installPackage\(|PackageInstaller/);
+  assert.doesNotMatch(source, /(?<!OPSTR_)REQUEST_INSTALL/);
+  assert.doesNotMatch(source, /canRequestPackageInstalls/);
 });
