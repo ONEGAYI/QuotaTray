@@ -2,6 +2,27 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.8.2] - 2026-08-29
+
+本版本交付 Android 端应用内更新链：应用内即可完成新版本检测、下载保存与系统安装器拉起，GitHub 渠道升级不再需要手动对比版本号与浏览器下载；同步补齐 CI 交叉 lint 门禁与真机端测清单。
+
+### 新功能
+
+**Android 端应用内更新链（Preview）**
+
+- 应用内更新页（设置 → 更新）向 Android 开放：进入页面自动检测一次（距上次 ≥5 分钟）+ 手动「立即检查」，检测出 GitHub 新版本后可直接下载（#72、#74）
+- 下载经系统文档选择器（SAF）保存：预填官方资产名 `QuotaTray_<版本>_android-arm64.apk`，进度条复用桌面同款展示；下载完成显示「安装」按钮（#74）
+- 「安装」以系统安装器接管（ACTION_VIEW + 授权临时读权），全程不声明自安装权限 `REQUEST_INSTALL_PACKAGES`（Play 审核红线）（#74）
+- 安装引导按系统版本分层：Android 7 直接弹系统确认页；8~15 授权「安装未知应用」后一步到位；Android 16+ 未声明权限时被系统闸口弹回（实证 AppOps 授权亦无效），提示行引导从文件管理器打开已保存 APK 安装（确定性出路），并保留授权设置页入口作为旧版本次出路（#74）
+- core 资产选择器接入 Android APK 命名契约：同一 Release 含 WoA ARM64 zip 与 APK 时选择器只命中 APK（误匹配由契约测试锁定拒绝）（#72）
+- 同版本重复检测不清空已下载的 APK；检测出新版本自动失效（版本快照比对）（#74）
+- 🧪 预览性质：Android 仍为 Preview（真实设备完整验收未完成，端测清单见 `docs/测试单/`），不构成稳定支持承诺
+
+### 其他改进
+
+- CI：Android 工作流新增交叉 Clippy 门禁（aarch64-linux-android 目标，`-D warnings`），桌面/移动 cfg 分叉两侧同时受检；18 处既有分叉警告以 cfg 门禁显形边界后清零（#74）
+- 文档：Android 16 真机验证记录与「更新与下载」预研报告（含「安装未知应用」闸口 API 36 实证）、安卓端真机端测清单（#73、#75）
+
 ## [0.8.1] - 2026-08-29
 
 本版本落地 Android 端签名发布链：正式 Release 起附带固定密钥签名的 ARM64 APK，同签名版本可覆盖升级；桌面端自动更新检测改为应用运行期间定期轮询。同时修复两个影响 Android 构建的缺陷。
@@ -429,6 +450,7 @@
 - CLI 中 clap 内置的错误骨架文案（`error:` / `Usage:`）为库英文原文，无法翻译（生态限制）（#4）
 
 <!-- 变更链接 -->
+[0.8.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.1...v0.8.2
 [0.1.0]: https://github.com/ONEGAYI/QuotaTray/commits/v0.1.0
 [0.2.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.1.0...v0.2.0
 [0.3.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.2.0...v0.3.0
