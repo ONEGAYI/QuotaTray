@@ -2268,7 +2268,7 @@
                     },
                     "mod.rs": {
                       "kind": "file",
-                      "desc": "trait 与注册表（20 项）",
+                      "desc": "trait 与注册表（21 项）",
                       "detail": [
                         "NativeProvider trait（query 收套餐变体）+ 注册表（20 项）+",
                         "supports_plan_variant/uses_cli_credentials 标记（订阅",

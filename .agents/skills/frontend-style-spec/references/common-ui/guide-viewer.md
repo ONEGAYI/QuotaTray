@@ -16,11 +16,14 @@ EditDialog 平台块的「配置指引」按钮打开（仅 `guideDocs.ts` 的
 
 | 元素 | 取值 |
 | --- | --- |
-| 标题 h2/h3/h4（文档 h1/h2/h3） | 15px / 14px / 13px，600 字重，块间 gap 10px |
-| 正文 / 列表 | 13px，行高 1.65 / 1.6 |
-| 围栏代码块 | 12px，surface-soft 底 + border + radius-sm，横向滚动 |
-| 引用块 | 13px，accent 左边线 3px + surface-soft 底 + radius-xs |
-| 图片 | `max-width: 100%` + border + radius-sm；资产未命中渲染虚线框占位（text-faint，12px） |
+| 标题 h2/h3/h4（文档 h1/h2/h3） | 15px / 14px / 13px，600 字重，`margin 4px 0 0`；h4 另有 `text-soft` 色 |
+| 正文 / 列表 | 13px，行高 1.65 / 1.6；内容区块间 gap 10px，列表项 gap 6px（`padding-left: 22px`） |
+| 围栏代码块 | 12px，行高 1.55，`padding 10px 12px`，surface-soft 底 + border + radius-sm，横向滚动 |
+| 行内代码 | `qt-guide-code-inline`：0.92em 等宽（`ui-monospace, Consolas`），`padding 1px 5px`，surface 底 + border + radius-xs |
+| 引用块 | 13px，行高 1.6，`text-soft` 色，accent 左边线 3px + surface-soft 底 + radius-xs，`padding 8px 12px` |
+| 分隔线 | border-top 1px，`margin 4px 0` |
+| 图片 | `max-width: 100%` + border + radius-sm；资产未命中渲染虚线框占位（`padding 6px 10px`，text-faint，12px） |
+| 指引入口行 | `qt-edit-guide-row`（EditDialog 平台块内）：flex + `margin-top 8px`，按钮走 secondary 变体 |
 
 **交互**：行内外链为文字链接式按钮（`qt-guide-link`，accent-strong 字 +
 hover 下划线，T-004 行内链接式），点击经 `openConsoleUrl` 打开（白名单

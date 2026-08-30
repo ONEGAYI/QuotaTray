@@ -174,7 +174,7 @@ export const zh = {
   "edit.apiKey2Hint":
     "模板/脚本引用 {{apiKey2}} 时使用（如 new-api 系站点的用户 ID，填入 New-Api-User 头）；同样加密保存、不回显。",
   "edit.key2Optional": "选填（留空保持不变）",
-  "edit.key2Required": "必填（AccessKey Secret，留空保持不变）",
+  "edit.key2Required": "此平台必填 · AccessKey Secret（已配置后留空保持不变）",
   "edit.guideButton": "配置指引",
   "edit.guideImageMissing": "图片缺失：{alt}",
 

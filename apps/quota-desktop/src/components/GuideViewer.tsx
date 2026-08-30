@@ -3,7 +3,7 @@
 // Esc/移动端全屏与返回键关闭由 DialogShell 内建）。文档 h1 在弹窗语境下降级为
 // h2（弹窗标题已承担一级语境）。外链经 openConsoleUrl 打开（http/https 白名单
 // 与控制台直达同口径）；图片走 bundle 资产映射，未命中渲染占位（预留期目录为空）。
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
 import { GUIDE_DOCS, bundleImageSrc } from "./guideDocs";
@@ -18,6 +18,8 @@ export function GuideViewer({
   onClose: () => void;
 }) {
   const { t } = useLang();
+  // 行内外链打开失败提示（白名单拒绝/系统拉起失败；ProviderCard 同款语义）
+  const [linkError, setLinkError] = useState(false);
   const blocks = useMemo(() => parseGuideMd(GUIDE_DOCS[docKey] ?? ""), [docKey]);
 
   return (
@@ -31,36 +33,50 @@ export function GuideViewer({
         <Button onClick={onClose}>{t("common.close")}</Button>
       }
     >
+      {linkError && <p className="qt-inline-error">{t("card.consoleOpenFailed")}</p>}
       <div className="qt-guide-content">
         {blocks.map((block, i) => (
-          <GuideBlockView key={i} block={block} />
+          <GuideBlockView
+            key={i}
+            block={block}
+            onOpenLink={(href) => {
+              setLinkError(false);
+              api.openConsoleUrl(href).catch(() => setLinkError(true));
+            }}
+          />
         ))}
       </div>
     </DialogShell>
   );
 }
 
-function GuideBlockView({ block }: { block: GuideBlock }) {
+function GuideBlockView({
+  block,
+  onOpenLink,
+}: {
+  block: GuideBlock;
+  onOpenLink: (href: string) => void;
+}) {
   switch (block.kind) {
     case "heading": {
       // 文档内 h1/h2/h3 → 弹窗内 h2/h3/h4
       const Tag = block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4";
       return (
         <Tag className="qt-guide-h">
-          <InlineTokens tokens={block.inline} />
+          <InlineTokens tokens={block.inline} onOpenLink={onOpenLink} />
         </Tag>
       );
     }
     case "paragraph":
       return (
         <p className="qt-guide-p">
-          <InlineTokens tokens={block.inline} />
+          <InlineTokens tokens={block.inline} onOpenLink={onOpenLink} />
         </p>
       );
     case "list": {
       const items = block.items.map((item, i) => (
         <li key={i}>
-          <InlineTokens tokens={item} />
+          <InlineTokens tokens={item} onOpenLink={onOpenLink} />
         </li>
       ));
       return block.ordered ? (
@@ -78,7 +94,7 @@ function GuideBlockView({ block }: { block: GuideBlock }) {
     case "quote":
       return (
         <blockquote className="qt-guide-quote">
-          <InlineTokens tokens={block.lines} />
+          <InlineTokens tokens={block.lines} onOpenLink={onOpenLink} />
         </blockquote>
       );
     case "hr":
@@ -86,7 +102,13 @@ function GuideBlockView({ block }: { block: GuideBlock }) {
   }
 }
 
-function InlineTokens({ tokens }: { tokens: GuideInline[] }) {
+function InlineTokens({
+  tokens,
+  onOpenLink,
+}: {
+  tokens: GuideInline[];
+  onOpenLink: (href: string) => void;
+}) {
   const { t } = useLang();
   return (
     <>
@@ -95,14 +117,18 @@ function InlineTokens({ tokens }: { tokens: GuideInline[] }) {
           case "strong":
             return <strong key={i}>{token.text}</strong>;
           case "code":
-            return <code key={i}>{token.text}</code>;
+            return (
+              <code key={i} className="qt-guide-code-inline">
+                {token.text}
+              </code>
+            );
           case "link":
             return (
               <button
                 type="button"
                 key={i}
                 className="qt-guide-link"
-                onClick={() => void api.openConsoleUrl(token.href)}
+                onClick={() => onOpenLink(token.href)}
               >
                 {token.text}
               </button>

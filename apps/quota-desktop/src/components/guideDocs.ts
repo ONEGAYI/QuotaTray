@@ -1,9 +1,12 @@
 // 配置指引文档与打包图片资产的唯一收集点（vite import 管线）。
 //
 // 进包方式（预研 §六定案）：md 经 `?raw` eager glob 编译期内联为字符串；
-// 图片源放 docs/assets/bundle/（目前为空目录预留，所有者 2026-08-30 定），
+// 图片源放 docs/assets/bundle/（目录暂无图片资产，所有者 2026-08-30 定），
 // 经 `?url` glob 引用后由 vite 复制进 dist/assets 哈希命名——dev/build/
 // 桌面/Android/便携版天然一致，文档内引用名与打包名经本模块映射解耦。
+//
+// 注意：docs/guide/ 目录下所有 .md 都会被收集进应用包（UI 可见性另由
+// GUIDE_FOR_PROVIDER 显式映射控制）；草稿/说明文件勿放该目录。
 //
 // 文档内图片引用路径约定：相对仓库 docs/ 目录，如 `assets/bundle/foo.png`；
 // 查表未命中时渲染占位（guideImageSrc 返回 null）。

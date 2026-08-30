@@ -86,6 +86,7 @@ quota update --check           # check for new releases
 | StepFun | — | top-level balance, CNY |
 | Novita AI | — | availableBalance ÷ 10000 = USD |
 | MiniMax Coding Plan | CN / Global | 5h + weekly remaining percent, normalized to used |
+| Alibaba Cloud balance | — | BssOpenApi account-level available amount + currency; dual AccessKey credentials (ID + Secret, RAM least-privilege guide in the in-app setup guide) |
 | Claude subscription | — | Pro/Max multi-window usage; credentials read from the local Claude Code login |
 | Codex (ChatGPT subscription) | — | Plus/Pro dual-window usage; credentials read from the local Codex CLI login |
 | Gemini Code Assist | — | per-model-group remaining quota; credentials read from the local Gemini CLI login |

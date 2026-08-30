@@ -171,7 +171,7 @@ export const en: Record<TextKey, string> = {
   "edit.apiKey2Hint":
     "Used when the template/script references {{apiKey2}} (e.g. the user ID on new-api style sites, sent in the New-Api-User header); encrypted and never echoed back.",
   "edit.key2Optional": "Optional (leave blank to keep)",
-  "edit.key2Required": "Required (AccessKey Secret, leave blank to keep)",
+  "edit.key2Required": "Required on this platform · AccessKey Secret (leave blank to keep once configured)",
   "edit.guideButton": "Setup guide",
   "edit.guideImageMissing": "Image missing: {alt}",
 

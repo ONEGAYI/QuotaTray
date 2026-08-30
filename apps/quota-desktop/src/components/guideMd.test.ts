@@ -72,6 +72,35 @@ describe("parseGuideMd", () => {
     expect(blocks[0]).toEqual({ kind: "code", text: '{"a": "**not bold**"}' });
   });
 
+  it("契约：子集外语法按普通文本回退——单星斜体、h4+、嵌套标记不解析", () => {
+    // 单星 *斜体* 不在子集内：整行按段落处理，星号原样保留
+    expect(parseGuideMd("*斜体*")).toEqual([
+      { kind: "paragraph", inline: [{ kind: "text", text: "*斜体*" }] },
+    ]);
+    // 四级标题不在子集内：回退为段落文本
+    expect(parseGuideMd("#### 四级")).toEqual([
+      { kind: "paragraph", inline: [{ kind: "text", text: "#### 四级" }] },
+    ]);
+    // 粗体内不嵌套行内代码：反引号字面保留、不丢字
+    expect(parseGuideInline("**能用 `sk-` 吗**")).toEqual([
+      { kind: "strong", text: "能用 `sk-` 吗" },
+    ]);
+    // 图片未闭合（无括号目标）：逐字回退
+    expect(parseGuideInline("![截图 缺失")).toEqual([{ kind: "text", text: "![截图 缺失" }]);
+  });
+
+  it("契约：连字符序列 '-' 仍是列表标记，'- - -' 解析为嵌套内容的列表项", () => {
+    // '- - -'：首个 '- ' 是列表标记，内容 '- -'；不与分隔线 '---' 混淆
+    const blocks = parseGuideMd("- - -");
+    expect(blocks[0]).toMatchObject({ kind: "list", ordered: false });
+  });
+
+  it("契约：有序列表编号原样透传语义（ol 原生计数，起始号非 1 不校正）", () => {
+    const blocks = parseGuideMd("3. 第三\n4. 第四");
+    expect(blocks[0]).toMatchObject({ kind: "list", ordered: true });
+    if (blocks[0].kind === "list") expect(blocks[0].items).toHaveLength(2);
+  });
+
   it("契约：段内多行以空格合并；CRLF 兼容", () => {
     const blocks = parseGuideMd("第一行\r\n第二行\r\n\r\n下一段");
     expect(blocks[0]).toMatchObject({ kind: "paragraph" });
