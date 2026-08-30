@@ -280,18 +280,24 @@ mod android {
     /// （独立 object 的实例方法——companion 的 external fun 符号名含
     /// `$` 转义陷阱，独立 object 无此问题；类名/包名改动会
     /// UnsatisfiedLinkError，keep 规则锁定）。receiver 是 object 单例
-    /// 实例而非类对象。panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON；
-    /// Java→Rust 入口方向的 pending exception（get_string/new_string 失败
-    /// 均可能挂起）统一清理——带着未清异常返回/后续 JNI 调用违反 JNI
-    /// 规范，CheckJNI 下可 abort（与 apk_install 的 Rust→Java 方向收口
-    /// 对称）。new_string 兜底再失败（OOM 级）返回 null，Kotlin 侧
-    /// doWork 的 catch Throwable 兜底。
+    /// 实例而非类对象。
+    ///
+    /// **env 必须按值接收**（`mut env: JNIEnv`，jni 0.21 起 JNIEnv 为
+    /// Copy，官方 ABI 模式）：`&mut JNIEnv` 会多一层指针间接，JVM 传入
+    /// 的 `JNIEnv*` 被错解为 `JNIEnv**`，解引用读到 null——模拟器实证
+    /// （2026-08-30）表现为所有 JNI 调用报 NullDeref("*JNIEnv")。
+    ///
+    /// panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON；Java→Rust 入口
+    /// 方向的 pending exception（get_string/new_string 失败均可能挂起）
+    /// 统一清理——带着未清异常返回/后续 JNI 调用违反 JNI 规范，CheckJNI
+    /// 下可 abort（与 apk_install 的 Rust→Java 方向收口对称）。new_string
+    /// 兜底再失败（OOM 级）返回 null，Kotlin 侧 doWork 的判空兜底。
     /// edition 2024 中 `no_mangle` 属 unsafe 属性，显式标注。
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_com_quotatray_android_Native_backgroundRefresh(
-        env: &mut jni::JNIEnv,
-        _receiver: jni::objects::JObject,
-        data_dir: jni::objects::JString,
+        mut env: jni::JNIEnv<'_>,
+        _receiver: jni::objects::JObject<'_>,
+        data_dir: jni::objects::JString<'_>,
     ) -> jni::sys::jstring {
         use std::panic::AssertUnwindSafe;
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
