@@ -1155,6 +1155,12 @@ fn persist_settings(
         .save(&state.paths.settings())
         .map_err(|e| lang.err_settings_save(&e))?;
     *state.settings.write().unwrap() = settings.clone();
+    // Android：后台刷新调度随设置落盘即时同步（开关/周期变更生效，
+    // UPDATE 策略见 background.rs；失败仅日志，不影响保存结果）。
+    // 置于 autostart 分支之前——其失败路径 return Err 提前退出，后置
+    // 会让已落盘的后台刷新开关等下次保存/冷启动才同步调度
+    #[cfg(target_os = "android")]
+    crate::background::schedule_background_work(state);
     tray::rebuild(app, state); // 阈值/语言/主题/每圈单位变化即时反映
     // 网络代理端口变更即时生效：热重建查询引擎（读锁内查询继续用旧
     // 客户端跑完，写锁仅在换新实例的瞬间持有）
@@ -1783,9 +1789,12 @@ pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, St
 /// 前后台状态同步（Android 消息通知的发射条件）：前端 visibilitychange
 /// 驱动写入；通知发射点读它决定「入列红点」还是「补发系统通知」。
 /// 桌面调用无害（不消费）。Relaxed 足够：布尔提示，无跨字段不变式。
+/// 首次调用同时置校准位——WorkManager 冷启动（无前端）据此把未校准
+/// 的乐观初值视为后台，否则冷启动通知恒不发。
 #[tauri::command]
 pub fn set_app_foreground(foreground: bool, _state: State<'_, AppState>) {
     crate::state::APP_FOREGROUND.store(foreground, std::sync::atomic::Ordering::Relaxed);
+    crate::state::APP_FOREGROUND_CALIBRATED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ---- 契约测试 -------------------------------------------------------------

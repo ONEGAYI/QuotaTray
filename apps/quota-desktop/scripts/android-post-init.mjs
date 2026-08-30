@@ -22,6 +22,10 @@ const notificationHelperUrl = new URL(
   "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/NotificationHelper.kt",
   import.meta.url,
 );
+const backgroundWorkerUrl = new URL(
+  "../src-tauri/gen/android/app/src/main/java/com/quotatray/android/BackgroundWorker.kt",
+  import.meta.url,
+);
 const proguardKeepRulesUrl = new URL(
   "../src-tauri/gen/android/app/proguard-quotatray.pro",
   import.meta.url,
@@ -187,16 +191,206 @@ object NotificationHelper {
 }
 
 /**
- * R8 keep 规则：ApkInstallHelper（APK 安装链）与 NotificationHelper
- * （系统通知设置页跳转）仅被 Rust 侧反射加载（无 Java 引用），release
- * 构建（isMinifyEnabled=true）会将其收缩改名，导致 Rust loadClass 抛
- * ClassNotFoundException、对应链路恒失败。build.gradle.kts 的
+ * R8 keep 规则：ApkInstallHelper（APK 安装链）、NotificationHelper
+ * （系统通知设置页跳转）仅被 Rust 侧反射加载（无 Java 引用）；
+ * BackgroundWorker（WorkManager 反射实例化 + external fun 符号绑定）、
+ * Native（external fun 符号绑定）、BackgroundScheduler（Rust 反射调用）
+ * 同样无常规 Java 引用路径。release 构建（isMinifyEnabled=true）会将其
+ * 收缩改名，导致 Rust loadClass 抛 ClassNotFoundException / JNI 符号
+ * UnsatisfiedLinkError、对应链路恒失败。build.gradle.kts 的
  * proguardFiles 已以 fileTree 收编 app 目录全部 .pro，落文件即生效。
  */
 export function proguardKeepRulesSource() {
   return `-keep class com.quotatray.android.ApkInstallHelper { *; }
 -keep class com.quotatray.android.NotificationHelper { *; }
+-keep class com.quotatray.android.Native { *; }
+-keep class com.quotatray.android.BackgroundWorker { *; }
+-keep class com.quotatray.android.BackgroundScheduler { *; }
 `;
+}
+
+/**
+ * 后台刷新三件套（C 项）：Native（external fun 桥）、BackgroundWorker
+ * （WorkManager 周期任务）、BackgroundScheduler（Rust 反射调用的调度
+ * 入口）。文件由脚本整体生成（writeIfChanged 幂等），行为由契约测试
+ * 锁定；Rust 侧对应实现在 src-tauri/src/background.rs。
+ */
+export function androidBackgroundWorkerSource() {
+  return `package com.quotatray.android
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
+import android.util.Log
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+import androidx.core.app.NotificationManagerCompat
+import io.crates.keyring.Keyring
+import java.util.concurrent.TimeUnit
+import org.json.JSONObject
+
+/**
+ * JNI 桥：Rust 侧（src-tauri/src/background.rs）导出的后台刷新入口。
+ * 独立 object 而非 companion——companion 的 external fun 符号名含 \$ 转义
+ * 陷阱。loadLibrary 与 tauri 运行时加载同一 so，重复调用幂等。
+ */
+object Native {
+    init {
+        System.loadLibrary("quota_desktop_lib")
+    }
+
+    /** 返回 JSON：{channel:{id,name}, notifications:[{title,body}]}（Rust 组装）。 */
+    external fun backgroundRefresh(dataDir: String): String
+}
+
+/**
+ * 后台刷新 Worker（C 项）：WorkManager 周期调度（最小 15 分钟，系统
+ * 硬限），经 JNI 调 Rust 编排核完成「查询 → 写历史库 → 低余额边沿
+ * 判定」，通知由 Kotlin 直发（渠道元数据随返回 JSON 携带，Rust 单一
+ * 数据源）。查询失败 Rust 侧已静默（桌面调度器同口径），Worker 永不
+ * retry——下个周期自然重试。
+ *
+ * 冷启动（WorkManager 拉起已死进程）：MainActivity 与 tauri 运行时均
+ * 不在，Keyring.initializeNdkContext 补调（幂等）保证 Rust 侧 Keystore
+ * 凭据链可用——这是 doWork 的第一步。
+ */
+class BackgroundWorker(appContext: Context, params: WorkerParameters) :
+    Worker(appContext, params) {
+
+    override fun doWork(): Result {
+        return try {
+            // 冷启动补调（幂等）：Rust 侧 vault 经 ndk-context 取 Context
+            Keyring.initializeNdkContext(applicationContext)
+            // dataDir（Context.getDataDir，API 24+）：与 tauri 前台的
+            // app_data_dir 同源（PathPlugin 经 activity.dataDir 解析）。
+            // 不得用 filesDir（其下再拼 files/ 与前台目录错位，Worker
+            // 读不到 settings.json，后台刷新整体失效——审查 M1）
+            val dataDir = applicationContext.dataDir.absolutePath
+            val json = try {
+                Native.backgroundRefresh(dataDir)
+            } catch (e: Throwable) {
+                Log.w(TAG, "JNI 调用异常：\${e.message}")
+                null
+            }
+            if (json == null) {
+                // Rust 侧 new_string 兜底仍失败（OOM 级）才会返回 null；
+                // 无通知可发，静默成功等下个周期
+                Log.w(TAG, "backgroundRefresh 返回 null")
+                return Result.success()
+            }
+            Log.i(TAG, "刷新完成：\$json")
+            dispatchNotifications(json)
+            Result.success()
+        } catch (e: Throwable) {
+            // 解析/通知异常兜底：静默成功（不 retry），下个周期重试
+            Log.w(TAG, "后台刷新失败：\${e.message}")
+            Result.success()
+        }
+    }
+
+    /** 按返回 JSON 直发系统通知：先幂等建渠道（API 26+），未授权整体
+     *  跳过（areNotificationsEnabled 覆盖 Android 13+ 运行时权限与更早
+     *  系统级开关）。通知 id 基址 + 序号，多条不互相覆盖。 */
+    private fun dispatchNotifications(json: String) {
+        val result = JSONObject(json)
+        val channel = result.getJSONObject("channel")
+        val channelId = channel.getString("id")
+        val channelName = channel.optString("name", "").ifEmpty { "QuotaTray" }
+        val manager =
+            applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            manager.createNotificationChannel(
+                NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_DEFAULT),
+            )
+        }
+        val notifications = result.optJSONArray("notifications") ?: return
+        val compat = NotificationManagerCompat.from(applicationContext)
+        if (!compat.areNotificationsEnabled()) return
+        for (i in 0 until notifications.length()) {
+            val item = notifications.getJSONObject(i)
+            val builder = if (Build.VERSION.SDK_INT >= 26) {
+                Notification.Builder(applicationContext, channelId)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(applicationContext)
+            }
+            compat.notify(
+                NOTIFY_ID_BASE + i,
+                builder
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle(item.getString("title"))
+                    .setContentText(item.getString("body"))
+                    .setAutoCancel(true)
+                    .build(),
+            )
+        }
+    }
+
+    companion object {
+        private const val TAG = "QuotaTrayBackground"
+        private const val NOTIFY_ID_BASE = 20_001
+    }
+}
+
+/**
+ * 调度入口：Rust 侧（persist_settings 落盘后与应用启动 setup）经 JNI
+ * 反射调用 schedule(Context, Boolean, Long)。UPDATE 策略——spec 变化
+ * （间隔变更）即时生效且保留周期对齐，spec 不变则 no-op；开关关则
+ * cancelUniqueWork。间隔下限 15 分钟双保险（Rust sanitize 已收口，
+ * 此处再 coerce 防手动改 settings.json 的越界值）。
+ */
+object BackgroundScheduler {
+    private const val UNIQUE_WORK = "quotatray-background-refresh"
+
+    @JvmStatic
+    fun schedule(context: Context, enabled: Boolean, intervalMinutes: Long): Boolean {
+        val manager = WorkManager.getInstance(context)
+        if (!enabled) {
+            manager.cancelUniqueWork(UNIQUE_WORK)
+            return true
+        }
+        val interval = intervalMinutes.coerceAtLeast(15)
+        val request = PeriodicWorkRequestBuilder<BackgroundWorker>(
+            interval,
+            TimeUnit.MINUTES,
+        )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build(),
+            )
+            .build()
+        manager.enqueueUniquePeriodicWork(UNIQUE_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
+        return true
+    }
+}
+`;
+}
+
+/**
+ * build.gradle.kts 注入 androidx.work 依赖（WorkManager）。锚点漂移
+ * （上游模板重构 dependencies 块）即抛错，与签名注入同防线；幂等
+ * 标记用依赖坐标本身（上游将来原生携带该依赖时不重复注入）。
+ */
+export function injectAndroidWorkManagerDependency(source) {
+  const marker = "androidx.work:work-runtime-ktx";
+  if (source.includes(marker)) return source;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const anchor = source.match(/^dependencies \{$/m);
+  if (!anchor) {
+    throw new Error("build.gradle.kts 缺少 dependencies 锚点");
+  }
+  return source.replace(
+    anchor[0],
+    () => `dependencies {${newline}    implementation("${marker}:2.9.1")`,
+  );
 }
 
 export function initializeAndroidKeyringInMainActivity(source) {
@@ -302,6 +496,10 @@ export async function main() {
     androidNotificationHelperSource(),
   );
   await writeIfChanged(
+    fileURLToPath(backgroundWorkerUrl),
+    androidBackgroundWorkerSource(),
+  );
+  await writeIfChanged(
     fileURLToPath(proguardKeepRulesUrl),
     proguardKeepRulesSource(),
   );
@@ -316,7 +514,13 @@ export async function main() {
       `build.gradle.kts 缺少 fileTree("**/*.pro") 收编锚点，keep 规则将失效：${buildGradlePath}`,
     );
   }
-  const injectedGradle = injectAndroidReleaseSigning(buildGradle);
+  const workGradle = injectAndroidWorkManagerDependency(buildGradle);
+  // 后验与注入幂等标记同源（坐标前缀，不含版本）——上游将来原生携带
+  // 其他版本时注入按设计放行原文，硬编码版本的断言会误伤 fail-fast
+  if (!workGradle.includes("androidx.work:work-runtime-ktx")) {
+    throw new Error(`build.gradle.kts 未能注入 WorkManager 依赖：${buildGradlePath}`);
+  }
+  const injectedGradle = injectAndroidReleaseSigning(workGradle);
   if (!injectedGradle.includes('signingConfigs.findByName("release")')) {
     throw new Error(`build.gradle.kts 未能注入 release 签名配置：${buildGradlePath}`);
   }

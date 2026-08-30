@@ -38,19 +38,22 @@ pub struct NotificationItem {
     pub body: String,
 }
 
-/// 后台刷新单轮决策（纯函数，host 单测）：
+/// 后台刷新单轮决策（纯函数，host 单测；生产消费方在 android 模块，
+/// host 侧仅测试使用故 allow(dead_code)，先例同 MESSAGES_CHANNEL_ID）：
 /// - `refresh`：`background_refresh_enabled` 关闭时整体跳过（用户关
 ///   后台刷新的核心诉求是别偷跑流量，查询本身也不做）；
-/// - `notify`：通知发送条件 = 系统通知开 && 应用后台。Worker 可能在
-///   应用前台时被调度（15 分钟周期到了而用户正开着 app）——查询照做
-///   写历史（无打扰），通知不发：前端轮询会查到同样的达标态并走
-///   自己的红点/入列路径。
+/// - `notify`：通知路径成立条件 = 系统通知开 && 应用后台（调用侧已把
+///   「未校准」坍缩为后台）。Worker 可能在应用前台时被调度（15 分钟
+///   周期到了而用户正开着 app）——查询照做写历史（无打扰），通知与
+///   低余额边沿判定都留给前端轮询路径（红点归前台，否则 Worker 抢先
+///   登记全局会吞掉前台的首次达标提醒）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BackgroundDecision {
     pub refresh: bool,
     pub notify: bool,
 }
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub fn decide_background_refresh(
     background_refresh_enabled: bool,
     notifications_enabled: bool,
@@ -62,8 +65,10 @@ pub fn decide_background_refresh(
     }
 }
 
-/// 组装 Worker 返回 JSON 的数据部分（纯函数，host 单测）：`notify`
-/// 关闭时丢弃通知项仅保留渠道元数据（渠道恒建，见 [`ChannelInfo`]）。
+/// 组装 Worker 返回 JSON 的数据部分（纯函数，host 单测，allow 口径同
+/// 上）：`notify` 关闭时丢弃通知项仅保留渠道元数据（渠道恒建，见
+/// [`ChannelInfo`]）。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub fn build_result(
     channel: ChannelInfo,
     notify: bool,
@@ -76,6 +81,9 @@ pub fn build_result(
 }
 
 // ---- Android IO 编排与 JNI 导出（host 不编译，模拟器/CI 验收） ----------
+
+#[cfg(target_os = "android")]
+pub(crate) use android::schedule_background_work;
 
 #[cfg(target_os = "android")]
 mod android {
@@ -107,10 +115,17 @@ mod android {
         let settings = Settings::load(&paths.settings());
         let lang = Lang::parse(&settings.language);
         let bail = || empty(lang.notification_channel_name());
+        // 前台态三态坍缩：未校准（WorkManager 冷启动，前端从未跑过）视为
+        // 后台——乐观初值 true 的语义只对「前端会跑起来」成立，冷启动
+        // 恰是本功能主场景，不坍缩则通知恒不发
+        let calibrated =
+            crate::state::APP_FOREGROUND_CALIBRATED.load(std::sync::atomic::Ordering::Relaxed);
+        let app_foreground =
+            calibrated && crate::state::APP_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed);
         let decision = decide_background_refresh(
             settings.background_refresh_enabled,
             settings.notifications_enabled,
-            crate::state::APP_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed),
+            app_foreground,
         );
         if !decision.refresh {
             return bail();
@@ -148,14 +163,19 @@ mod android {
                     if let Err(e) = history.record(&entry.id, &data, at) {
                         eprintln!("后台刷新：历史写入失败（{}）：{e}", entry.id);
                     }
-                    collect_low_balance(
-                        &lang,
-                        &entry.id,
-                        &entry.name,
-                        &data,
-                        settings.low_balance_threshold_percent,
-                        &mut fresh,
-                    );
+                    // 边沿判定仅在通知路径成立时做：前台时跳过——否则
+                    // Worker 抢先登记全局会吞掉前台命令路径的首次达标
+                    // （refetch_and_store 变 Silent，红点与通知都不产生）
+                    if decision.notify {
+                        collect_low_balance(
+                            &lang,
+                            &entry.id,
+                            &entry.name,
+                            &data,
+                            settings.low_balance_threshold_percent,
+                            &mut fresh,
+                        );
+                    }
                 }
                 Err(e) => eprintln!("后台刷新：查询失败（{}）：{e}", entry.id),
             }
@@ -219,15 +239,65 @@ mod android {
         serde_json::to_string(&fallback_result()).expect("兜底 JSON 可序列化")
     }
 
-    /// JNI 导出：`BackgroundWorker.refreshAll(dataDir: String): String`。
-    /// 签名由 Kotlin `external fun` 绑定（类名/包名改动会 UnsatisfiedLinkError，
-    /// keep 规则锁定）；panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON。
+    /// 调度接线：把 settings 的后台刷新开关/周期同步到 WorkManager
+    /// （经 JNI 调 `BackgroundScheduler.schedule(Context, boolean, long)`，
+    /// UPDATE 策略——间隔变更即时生效且保留周期对齐；开关关则
+    /// cancelUniqueWork）。设置保存路径（persist_settings）与应用启动
+    /// （setup Android 段）各调一次；失败仅日志——调度缺失仅表现为
+    /// 后台不刷新，设置页开关状态不受影响。
+    pub(crate) fn schedule_background_work(state: &crate::state::AppState) {
+        let (enabled, interval) = {
+            let s = state.settings.read().unwrap();
+            (
+                s.background_refresh_enabled,
+                i64::from(s.background_refresh_interval_minutes),
+            )
+        };
+        let scheduled = crate::apk_install::with_helper_class_named(
+            "com.quotatray.android.BackgroundScheduler",
+            |env, context, helper| {
+                let ret = env
+                    .call_static_method(
+                        helper,
+                        "schedule",
+                        "(Landroid/content/Context;ZJ)Z",
+                        &[
+                            jni::objects::JValue::Object(context),
+                            jni::objects::JValue::Bool(u8::from(enabled)),
+                            jni::objects::JValue::Long(interval),
+                        ],
+                    )
+                    .map_err(|e| format!("调用 BackgroundScheduler.schedule 失败：{e}"))?;
+                ret.z().map_err(|e| format!("读取调度结果失败：{e}"))
+            },
+        );
+        if let Err(e) = scheduled {
+            eprintln!("后台刷新调度同步失败：{e}");
+        }
+    }
+
+    /// JNI 导出：`Native.backgroundRefresh(dataDir: String): String`
+    /// （独立 object 的实例方法——companion 的 external fun 符号名含
+    /// `$` 转义陷阱，独立 object 无此问题；类名/包名改动会
+    /// UnsatisfiedLinkError，keep 规则锁定）。receiver 是 object 单例
+    /// 实例而非类对象。
+    ///
+    /// **env 必须按值接收**（`mut env: JNIEnv`，jni 0.21 起 JNIEnv 为
+    /// Copy，官方 ABI 模式）：`&mut JNIEnv` 会多一层指针间接，JVM 传入
+    /// 的 `JNIEnv*` 被错解为 `JNIEnv**`，解引用读到 null——模拟器实证
+    /// （2026-08-30）表现为所有 JNI 调用报 NullDeref("*JNIEnv")。
+    ///
+    /// panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON；Java→Rust 入口
+    /// 方向的 pending exception（get_string/new_string 失败均可能挂起）
+    /// 统一清理——带着未清异常返回/后续 JNI 调用违反 JNI 规范，CheckJNI
+    /// 下可 abort（与 apk_install 的 Rust→Java 方向收口对称）。new_string
+    /// 兜底再失败（OOM 级）返回 null，Kotlin 侧 doWork 的判空兜底。
     /// edition 2024 中 `no_mangle` 属 unsafe 属性，显式标注。
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_com_quotatray_android_BackgroundWorker_refreshAll(
-        env: &mut jni::JNIEnv,
-        _class: jni::objects::JClass,
-        data_dir: jni::objects::JString,
+    pub extern "system" fn Java_com_quotatray_android_Native_backgroundRefresh(
+        mut env: jni::JNIEnv<'_>,
+        _receiver: jni::objects::JObject<'_>,
+        data_dir: jni::objects::JString<'_>,
     ) -> jni::sys::jstring {
         use std::panic::AssertUnwindSafe;
         let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -236,6 +306,10 @@ mod android {
                 .map_err(|e| e.to_string())
                 .map(String::from)
                 .map(|dir| background_refresh_once(Path::new(&dir)));
+            if dir.is_err() {
+                // get_string 失败会挂 pending exception，进 JNI 必清
+                let _ = env.exception_clear();
+            }
             match dir {
                 Ok(result) => serde_json::to_string(&result).unwrap_or_else(|_| fallback_json()),
                 Err(e) => {
@@ -248,9 +322,16 @@ mod android {
             eprintln!("后台刷新：Rust 侧 panic 已捕获");
             fallback_json()
         });
-        env.new_string(outcome)
-            .expect("JNI new_string 失败（OOM 级，无恢复路径）")
-            .into_raw()
+        match env.new_string(outcome) {
+            Ok(s) => s.into_raw(),
+            Err(e) => {
+                eprintln!("后台刷新：返回 JSON 构造失败：{e}");
+                let _ = env.exception_clear();
+                env.new_string(fallback_json())
+                    .map(|s| s.into_raw())
+                    .unwrap_or(std::ptr::null_mut())
+            }
+        }
     }
 }
 

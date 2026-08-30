@@ -8,7 +8,9 @@
 #[cfg(target_os = "android")]
 mod apk_install;
 /// Android 后台刷新编排核（WorkManager Worker 经 JNI 调入；C 项）。
-#[cfg(target_os = "android")]
+/// 无条件编译：决策/组装纯函数全平台参与 host 单测（内部 android mod
+/// 才是 cfg android——lib 级门禁会让测试门（not android）与模块门
+/// （android）交集为空，纯函数测试变死代码，审查 M2）。
 mod background;
 
 mod commands;
@@ -127,6 +129,10 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
             // 非关键：渠道创建失败仅表现为通知走默认渠道或缺声光效果
             eprintln!("通知渠道创建失败：{e}");
         }
+        // 后台刷新调度同步（C 项）：应用启动时按当前设置注册/取消
+        // WorkManager 周期任务——安装后开开关即生效、升级后注册不丢；
+        // 设置变更路径由 persist_settings 同步。失败仅日志。
+        crate::background::schedule_background_work(&app.state::<state::AppState>());
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let _ = app;

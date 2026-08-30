@@ -3,11 +3,13 @@ import test from "node:test";
 
 import {
   androidApkInstallHelperSource,
+  androidBackgroundWorkerSource,
   androidKeyringBridgeSource,
   androidNotificationHelperSource,
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
   injectAndroidReleaseSigning,
+  injectAndroidWorkManagerDependency,
   proguardKeepRulesSource,
 } from "./android-post-init.mjs";
 
@@ -94,6 +96,10 @@ android {
             )
         }
     }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
 }
 `;
 }
@@ -212,8 +218,101 @@ test("R8 keep 规则保住仅由 Rust 反射加载的 helper（release minify �
   const source = proguardKeepRulesSource();
   assert.match(source, /-keep class com\.quotatray\.android\.ApkInstallHelper \{ \*; \}/);
   assert.match(source, /-keep class com\.quotatray\.android\.NotificationHelper \{ \*; \}/);
+  assert.match(source, /-keep class com\.quotatray\.android\.Native \{ \*; \}/);
+  assert.match(source, /-keep class com\.quotatray\.android\.BackgroundWorker \{ \*; \}/);
+  assert.match(source, /-keep class com\.quotatray\.android\.BackgroundScheduler \{ \*; \}/);
   // keep 规则自身不得越界放行其他类（最小化面）
-  assert.equal(source.match(/-keep/g)?.length, 2);
+  assert.equal(source.match(/-keep/g)?.length, 5);
+});
+
+test("后台刷新三件套：冷启动补调 ndk-context、渠道幂等建、通知直发不越权", () => {
+  const source = androidBackgroundWorkerSource();
+  assert.match(source, /package com\.quotatray\.android/);
+  // Native 桥：独立 object（companion external fun 符号名有 $ 转义陷阱）
+  // + loadLibrary 与 tauri 运行时加载同一 so
+  assert.match(source, /object Native \{/);
+  assert.match(source, /System\.loadLibrary\("quota_desktop_lib"\)/);
+  assert.match(source, /external fun backgroundRefresh\(dataDir: String\): String/);
+  // 冷启动（WorkManager 拉起已死进程）必须先补调 initializeNdkContext
+  // （幂等），且先于 JNI 刷新调用——Rust 侧 vault 经 ndk-context 取 Context
+  const doWork = source.slice(source.indexOf("override fun doWork"), source.indexOf("private fun dispatchNotifications"));
+  // 存在性先于顺序：删掉 initializeNdkContext 后 indexOf 得 -1，
+  // -1 < 正数使顺序断言弱通过
+  assert.match(doWork, /Keyring\.initializeNdkContext/);
+  assert.ok(
+    doWork.indexOf("Keyring.initializeNdkContext") <
+      doWork.indexOf("Native.backgroundRefresh"),
+    "initializeNdkContext 必须先于 backgroundRefresh",
+  );
+  // Rust 侧 new_string 兜底仍失败会返回 null：Kotlin 必须显式判空，
+  // 不得把 null 直接喂 JSONObject（NPE 兜底吞掉诊断线索——模拟器
+  // 验收 2026-08-30 抓出后补防御与日志）
+  assert.match(doWork, /json == null/);
+  assert.match(doWork, /JNI 调用异常/);
+  // dataDir 与 tauri app_data_dir 同源（PathPlugin 经 activity.dataDir
+  // 解析）；filesDir 会错位一级目录，Worker 读不到 settings.json——
+  // 负向断言防回归（审查 M1；注释中提及 filesDir 的说明文字不算）
+  assert.match(source, /applicationContext\.dataDir\.absolutePath/);
+  assert.doesNotMatch(source, /applicationContext\.filesDir/);
+  // Worker 永不 retry：失败也 success（下个周期自然重试，Rust 侧已静默）
+  assert.doesNotMatch(source, /Result\.retry/);
+  // 通知直发：渠道幂等创建（API 26+ 守卫）+ 未授权整体跳过
+  // （areNotificationsEnabled 覆盖 Android 13+ 运行时权限与更早系统开关）
+  assert.match(source, /createNotificationChannel/);
+  assert.match(source, /Build\.VERSION\.SDK_INT >= 26/);
+  assert.match(source, /areNotificationsEnabled\(\)/);
+  // 插值必须精确匹配（产出 \${...} 时 Kotlin 得到字面量不插值，
+  // 运行时日志错误但编译通过）
+  assert.match(source, /失败：\$\{e\.message\}/);
+  assert.doesNotMatch(source, /\\\$\{/);
+});
+
+test("后台调度入口：UPDATE 策略、网络约束、15 分钟双保险与关停路径", () => {
+  const source = androidBackgroundWorkerSource();
+  const scheduler = source.slice(source.indexOf("object BackgroundScheduler"));
+  // Rust 反射调用静态方法，必须 @JvmStatic 暴露稳定入口（签名
+  // (Context, Boolean, Long) 与 background.rs 的 JNI 调用一致）
+  assert.match(scheduler, /@JvmStatic/);
+  assert.match(
+    scheduler,
+    /fun schedule\(context: Context, enabled: Boolean, intervalMinutes: Long\): Boolean/,
+  );
+  // 开关关 → 取消注册（后台任务不残留）
+  assert.match(scheduler, /cancelUniqueWork/);
+  // UPDATE 策略：间隔变更即时生效且保留周期对齐；spec 不变 no-op
+  assert.match(scheduler, /ExistingPeriodicWorkPolicy\.UPDATE/);
+  // 网络约束（余额查询需联网；不加 batteryNotLow——流量极小）
+  assert.match(scheduler, /NetworkType\.CONNECTED/);
+  // 15 分钟系统硬限双保险（Rust sanitize 已收口，此处防手改 settings.json）
+  assert.match(scheduler, /coerceAtLeast\(15\)/);
+  // 红线：不出现前台服务/精确闹钟/电池优化豁免（所有者定案与权限克制）
+  assert.doesNotMatch(source, /FOREGROUND_SERVICE|setExact|SCHEDULE_EXACT_ALARM|REQUEST_IGNORE_BATTERY/);
+});
+
+test("WorkManager 依赖注入幂等且锚点漂移拒绝", () => {
+  const fixture = buildGradleKtsFixture();
+  const injected = injectAndroidWorkManagerDependency(fixture);
+  assert.match(
+    injected,
+    /dependencies \{\n    implementation\("androidx\.work:work-runtime-ktx:2\.9\.1"\)/,
+  );
+  assert.equal(injectAndroidWorkManagerDependency(injected), injected, "已注入幂等");
+  // 上游模板自带该依赖（坐标任意版本）时不重复注入
+  const withForeign = fixture.replace(
+    "dependencies {",
+    'dependencies {\n    implementation("androidx.work:work-runtime-ktx:2.10.0")',
+  );
+  assert.equal(injectAndroidWorkManagerDependency(withForeign), withForeign);
+  // 锚点漂移即抛错（dependencies 块被上游重构时不得静默跳过）
+  assert.throws(
+    () => injectAndroidWorkManagerDependency("android {\n}\n"),
+    /缺少 dependencies 锚点/,
+  );
+  // CRLF 模板保持行尾一致
+  const crlf = injectAndroidWorkManagerDependency(
+    fixture.replace(/\n/g, "\r\n"),
+  );
+  assert.match(crlf, /dependencies \{\r\n    implementation/);
 });
 
 test("通知设置页 helper 跳系统授权页且不触碰通知权限声明", () => {

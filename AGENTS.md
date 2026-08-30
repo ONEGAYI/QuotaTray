@@ -95,17 +95,43 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   不变，显式关闭后两端更新就绪与低余额通知均拦截）。模拟器已验：面板外点
   关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块渲染 → 系统对话
   框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
-  **后台通知当前触发窗口仅「请求在途时退后台」**——两个发射点
-  （update-available/low-balance）均由前端命令驱动，Android 后台 WebView
-  冻结后无查询/检测发生；常态化「退后台收通知」依赖 WorkManager 后台刷新
-  产生消息源（届时直接复用 `app_foreground` 状态表与 `notify_background`
-  发射收口，见「后台刷新」条目）。余项：在途窗口的后台通知实际送达、
-  visibilitychange 冻结时机、通知点击行为拉起应用等真机验收；不得依赖托盘、
-  悬停或桌面静默更新事件。
-- **后台刷新**：当前只承诺应用前台轮询。后台周期任务、网络/省电约束和恢复后的补查
-  尚未通过 WorkManager 等 Android 原生调度实现，不得宣称分钟级后台刷新。通知联动
-  落点已随消息中心二阶就绪（2026-08-30）：后台查询产生的消息直接走既有入列与
-  `notify_background` 发射路径，无需重复设计。
+  **后台通知的消息源分两条路径**：`update-available` 仍由前端命令驱动
+  （进更新页/按钮），其后台通知窗口仅「请求在途时退后台」；
+  `low-balance` 自 C 项起有 WorkManager 后台刷新作为常态化消息源
+  （Worker Kotlin 直发，见「后台刷新」条目——实际实现不经
+  `notify_background`，冷热启动统一走 JNI JSON 返回直发，两路共享
+  开关/`APP_FOREGROUND`/边沿防重判定）。余项：在途窗口的后台通知
+  实际送达、visibilitychange 冻结时机、通知点击行为拉起应用等真机
+  验收；不得依赖托盘、悬停或桌面静默更新事件。
+- **后台刷新（C 项，2026-08-30 链路就绪，模拟器验收余项）**：WorkManager
+  周期查询已实现——默认关（Preview 谨慎口径，后台流量用户显式开启），
+  周期 15–360 分钟默认 30（系统硬限 15 分钟，Doze/省电下可能延后，
+  文档口径「后台约 15 分钟级」，不得宣称分钟级）。架构：gen 工程注入
+  `BackgroundWorker`（doWork 先 `initializeNdkContext` 幂等补调——冷启动
+  WorkManager 拉起已死进程时 MainActivity/tauri runtime 均不在；经独立
+  object `Native` 的 external fun 调 Rust 编排核 `background.rs`——无
+  AppHandle，按传入 dataDir 现开 vault/engine/history）；结果**只落
+  history.db**，不碰内存 results 与 cache.json（避免与前台双写竞态，卡片
+  数值回前台由既有轮询/聚焦刷新追上）；低余额边沿判定与前台共享全局
+  静态 `LOW_BALANCE_NOTIFIED`（前台命令路径与 Worker 同一防重，否则
+  双份通知）；通知以 JSON 返回由 Kotlin 直发（渠道元数据随返回值携带、
+  幂等建渠道，Rust 单一数据源；`areNotificationsEnabled` 整体检查）。
+  调度接线：`persist_settings` 落盘后与 setup 启动时经
+  `BackgroundScheduler.schedule` 同步（UPDATE 策略间隔变更即时生效，
+  开关关 `cancelUniqueWork`；`androidx.work:work-runtime-ktx:2.9.1` 经
+  build.gradle.kts 依赖注入锚点，契约测试锁定）。查询失败静默仅日志
+  （桌面调度器同口径）。**模拟器（API 36）全链已验（2026-08-30）**：
+  设置 UI 区块（默认关/开启态周期下拉）、开关保存即 job 注册
+  （dumpsys）、am kill 冷启动 JobScheduler 拉起进程 + WorkManager
+  默认初始化、Worker 全链（mock 查询 95% → 边沿判定 → JSON 返回
+  `Low balance: Mock is 95% used`）、系统通知送达（通知 id 20001/
+  渠道正确/通知栏视觉核验）、开关关停 job 即取消。验收中抓出并修复
+  两个真问题：dataDir 错位（filesDir vs activity.dataDir，审查 M1）
+  与 JNI 导出 env 参数 ABI 错位（jni 0.21 须按值 `mut env:
+  JNIEnv`，`&mut JNIEnv` 多一层间接读到 null env——本仓库首个
+  Java→Rust 入口方向的实证契约）。余项：真机多厂商 Doze 行为、
+  R8 release 构建实际运行验证（keep 五条已过 minify 构建）、
+  历史落库的图表连续性目检（机制上 WAL 并发安全已设计）。
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
   登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
   接入移动端等价授权，必须单独评估凭据来源与安全边界。
@@ -472,6 +498,7 @@ QuotaTray/
 │       │   ├── icons/                  # 应用图标集
 │       │   ├── src/                    # 后端源码
 │       │   │   ├── apk_install.rs          # APK安装JNI桥
+│       │   │   ├── background.rs           # Android 后台刷新编排核
 │       │   │   ├── commands.rs             # 跨端IPC命令集
 │       │   │   ├── hover_panel.rs          # 悬停窗口状态机
 │       │   │   ├── hover_panel_mobile.rs   # 移动悬停面板空实现

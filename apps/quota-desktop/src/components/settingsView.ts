@@ -172,3 +172,21 @@ export function resolveNotificationPermissionAction({
 export function resolveTabOnOpen<T extends string>(open: boolean, initialTab: T, current: T): T {
   return open ? initialTab : current;
 }
+
+/** 后台刷新周期的可选档位（分钟）：与后端 sanitize 收口区间（15..=360）
+ * 一致；小于 60 分钟的档位以分钟文案呈现，更长档位以小时呈现（调用方
+ * 按 kind 选 i18n 键插值）。 */
+export type BackgroundIntervalOption = {
+  minutes: number;
+  kind: "minutes" | "hours";
+  /** hours 档位的插值参数（minutes 档位直接用 minutes 值）。 */
+  unit: number;
+};
+
+export function backgroundIntervalOptions(): BackgroundIntervalOption[] {
+  return [15, 30, 60, 120, 360].map((minutes) =>
+    minutes < 60
+      ? { minutes, kind: "minutes" as const, unit: minutes }
+      : { minutes, kind: "hours" as const, unit: minutes / 60 },
+  );
+}

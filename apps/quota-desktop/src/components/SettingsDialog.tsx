@@ -24,6 +24,7 @@ import { useLang } from "../i18n";
 import { useSettings, useUpdateState } from "../queries";
 import type { DownloadProgress, Settings } from "../types";
 import {
+  backgroundIntervalOptions,
   downloadPercent,
   formatDownloadProgress,
   resolveNotificationPermissionAction,
@@ -528,6 +529,56 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                       {t("settings.notificationOpenSettings")}
                     </Button>
                   )}
+                </SettingRow>
+              )}
+              {mobile && (
+                <SettingRow
+                  title={t("settings.backgroundRefreshTitle")}
+                  description={t("settings.backgroundRefreshHint")}
+                >
+                  <div className="qt-number-control">
+                    <Switch
+                      label={t("settings.backgroundRefreshTitle")}
+                      checked={draft.background_refresh_enabled}
+                      onChange={(background_refresh_enabled) =>
+                        setDraft({ ...draft, background_refresh_enabled })
+                      }
+                    />
+                    {draft.background_refresh_enabled && (
+                      <select
+                        className="qt-select"
+                        aria-label={t("settings.backgroundIntervalTitle")}
+                        value={draft.background_refresh_interval_minutes}
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            background_refresh_interval_minutes: Number(event.target.value),
+                          })
+                        }
+                      >
+                        {backgroundIntervalOptions().map((option) => (
+                          <option key={option.minutes} value={option.minutes}>
+                            {option.kind === "minutes"
+                              ? t("settings.minutes", { minutes: String(option.unit) })
+                              : t("settings.backgroundIntervalHours", {
+                                  hours: String(option.unit),
+                                })}
+                          </option>
+                        ))}
+                        {/* 手改 settings.json 落进区间内非档位值（sanitize 只
+                            clamp 不吸附档位）时补显当前值，受控 select 不空白 */}
+                        {!backgroundIntervalOptions().some(
+                          (option) => option.minutes === draft.background_refresh_interval_minutes,
+                        ) && (
+                          <option value={draft.background_refresh_interval_minutes}>
+                            {t("settings.minutes", {
+                              minutes: String(draft.background_refresh_interval_minutes),
+                            })}
+                          </option>
+                        )}
+                      </select>
+                    )}
+                  </div>
                 </SettingRow>
               )}
               {!mobile && <SettingRow title={t("settings.ringUnits")} description={t("settings.ringUnitsHint")}>
