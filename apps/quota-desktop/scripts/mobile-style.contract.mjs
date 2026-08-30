@@ -124,6 +124,12 @@ test("Android 统计页与正文主按钮满足 44px 命中区（T-010 审查轮
     css,
     /body\.qt-mobile-runtime \.qt-template-actions \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
   );
+  // 范围切换容器是纯布局钩子（T-002）：分段视觉一律走全局 qt-segmented，
+  // 移动端 44px 命中区由 .qt-segmented button 单条规则覆盖
+  assert.match(
+    css,
+    /\.qt-usage-range-switch\s*\{\s*flex:\s*none;\s*\}/,
+  );
 });
 
 test("Android 峰谷编辑触摸目标补齐（T-010 审查轮补齐）", () => {

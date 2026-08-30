@@ -40,6 +40,23 @@ export interface HistorySeries {
 
 export type UsageDomain = [number, number];
 
+export type UsageRange = "24h" | "7d";
+
+export interface UsageRangeConfig {
+  spanMs: number;
+  bucketMs: number;
+}
+
+/**
+ * 使用统计视图范围档位：桶粒度对齐 CLI history 的范围口径
+ * （docs/specs/history-spec.md §7：24h=15 分钟桶 / 7d=1 小时桶），
+ * 桶内取最后一点。历史拉取始终取各档最大 span，前端再按所选范围裁剪。
+ */
+export const USAGE_RANGES: Record<UsageRange, UsageRangeConfig> = {
+  "24h": { spanMs: 24 * 60 * 60 * 1_000, bucketMs: 15 * 60 * 1_000 },
+  "7d": { spanMs: 7 * 24 * 60 * 60 * 1_000, bucketMs: 60 * 60 * 1_000 },
+};
+
 /** 点位提示卡片与数据点的视觉间隙（SVG 纵向单位）。 */
 export const USAGE_TOOLTIP_GAP = 14;
 
