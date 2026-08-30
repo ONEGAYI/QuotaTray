@@ -105,6 +105,34 @@ test("Android 更新页行内链接按语境分治满足 44px 命中区（T-010�
   );
 });
 
+test("Android 更新错误详情图标为可点 disclosure 且满足 44px 命中区（T-010）", () => {
+  // 悬停气泡被移动端全局禁用（body.qt-mobile-runtime [data-tooltip]::after
+  // display:none），错误详情（如 403 的 GitHub message）唯一通路是点击
+  // 展开收起——图标按钮化 + 触摸目标 44px + 按压反馈；桌面仍走悬停气泡
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-error-detail-toggle\s*\{[^}]*min-height:\s*44px;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-error-detail-toggle\s*\{[^}]*min-width:\s*44px;/s,
+  );
+  assert.match(
+    css,
+    /\.qt-error-detail-toggle:active\s*\{[^}]*background:/s,
+  );
+  // 展开态的视觉确认：收起态压暗与桌面悬停图标同口径，展开时全亮
+  assert.match(
+    css,
+    /\.qt-error-detail-toggle\[aria-expanded="true"\]\s*\{[^}]*opacity:\s*1;/s,
+  );
+  // 展开的详情正文：块级次级小字，长 message 任意断行不撑破错误卡片
+  assert.match(
+    css,
+    /\.qt-error-detail-body\s*\{[^}]*display:\s*block;[^}]*overflow-wrap:\s*anywhere;/s,
+  );
+});
+
 test("Android 统计页与正文主按钮满足 44px 命中区（T-010 审查轮补齐）", () => {
   // 2026-08-29 审查轮发现：统计页裸下拉（无 qt-select 类，38px）与重置钮
   // 29px、设置迁移区/模板试查区正文按钮（qt-btn 基类 36px，无移动覆盖）

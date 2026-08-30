@@ -59,6 +59,14 @@ export function resolveUpdateErrorDetail({
   return operationError === backendError ? backendErrorDetail ?? null : null;
 }
 
+/** 移动端错误详情 disclosure（T-010）的展开态归约：detail 在场时透传
+ * 点击态；detail 消失（错误清空/换源后无详情）时强制收起——旧展开态
+ * 不得残留到下一次渲染。detail 非空期间切换错误源保持展开，正文即时
+ * 跟随新 detail。 */
+export function resolveErrorDetailExpanded(clicked: boolean, detail: string | null): boolean {
+  return detail != null && clicked;
+}
+
 export function resolveUpdateStatus({
   checking,
   hasAvailable,

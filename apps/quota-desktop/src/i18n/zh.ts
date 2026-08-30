@@ -362,6 +362,8 @@ export const zh = {
   "settings.installConsentOpen": "去系统设置",
   "settings.installConsentUnsupported": "当前系统未提供该设置页（版本过低），请直接从文件管理器安装",
   "settings.installConsentFailed": "打开系统设置页失败，请直接从文件管理器安装",
+  // Android 错误详情 disclosure 图标按钮的可达名（悬停气泡在触摸端禁用）
+  "settings.errorDetail": "错误详情",
   // ---- 标题栏消息中心 ----
   "titlebar.messages": "消息",
   "msgCenter.empty": "暂无消息",

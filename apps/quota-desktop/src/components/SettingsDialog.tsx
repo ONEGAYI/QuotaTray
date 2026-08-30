@@ -17,7 +17,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
@@ -32,6 +32,7 @@ import {
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
+  resolveErrorDetailExpanded,
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
@@ -79,6 +80,13 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   /** Android：授权页入口反馈——"unsupported" = API 26 以下无该设置页；
    * "error" = 桥故障（JNI/类加载失败等），两者的用户出路一致。 */
   const [consentFeedback, setConsentFeedback] = useState<"unsupported" | "error" | null>(null);
+  /** Android：更新错误详情 disclosure（T-010）——悬停气泡在触摸端被全局
+   * 禁用，详情经图标点击展开/收起；对话框关闭时回收获落态。 */
+  const [errorDetailClicked, setErrorDetailClicked] = useState(false);
+  const errorDetailBodyId = useId();
+  useEffect(() => {
+    if (!open) setErrorDetailClicked(false);
+  }, [open]);
 
   const portableRun = updateState.data?.portable ?? false;
   const manualUpdateRun = updateState.data?.manual_update ?? portableRun;
@@ -316,6 +324,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
     backendError: update?.last_error,
     backendErrorDetail: update?.last_error_detail,
   });
+  const errorDetailOpen = resolveErrorDetailExpanded(errorDetailClicked, operationErrorDetail);
   const updateStatus = resolveUpdateStatus({
     checking: checkNow.isPending,
     hasAvailable: Boolean(available),
@@ -859,7 +868,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               {operationError && (
                 <p className="qt-inline-error">
                   {operationError}
-                  {operationErrorDetail && (
+                  {operationErrorDetail && !mobile && (
                     <span
                       className="qt-error-detail-icon is-multiline"
                       data-tooltip={operationErrorDetail}
@@ -867,6 +876,25 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     >
                       <AlertCircle size={13} aria-hidden="true" />
                     </span>
+                  )}
+                  {operationErrorDetail && mobile && (
+                    <>
+                      <button
+                        type="button"
+                        className="qt-error-detail-toggle"
+                        aria-expanded={errorDetailOpen}
+                        aria-controls={errorDetailBodyId}
+                        aria-label={t("settings.errorDetail")}
+                        onClick={() => setErrorDetailClicked((v) => !v)}
+                      >
+                        <AlertCircle size={13} aria-hidden="true" />
+                      </button>
+                      {errorDetailOpen && (
+                        <span id={errorDetailBodyId} className="qt-error-detail-body">
+                          {operationErrorDetail}
+                        </span>
+                      )}
+                    </>
                   )}
                 </p>
               )}
