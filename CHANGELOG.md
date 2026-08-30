@@ -2,6 +2,30 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.8.4] - 2026-08-30
+
+本版本新增阿里云余额监控（百炼按量计费共享的账户级余额）：双凭据预置平台接入 BssOpenApi，编辑页内提供中英双语配置指引渲染器；Android 端已同批完成模拟器全链实证。
+
+### 新功能
+
+**阿里云余额监控（预置平台）**
+
+- 新增预置平台「阿里云余额」：经阿里云 BssOpenApi `QueryAccountBalance` 查询账户级可用额度（百炼按量计费的扣费来源），支持负余额（欠费）如实展示（#84）
+- 本平台为预置平台中首个双凭据形态：凭据一填 AccessKey ID、第二凭据填 AccessKey Secret，两者均 AES-GCM 加密落盘、编辑时留空即保持不变（#84、#85）
+- 错误分类对齐双轨语义：RAM 未授权（引导授予 `AliyunBSSReadOnlyAccess` 只读策略）、AccessKey 有误等确定性错误即时透出；限流与服务端 5xx 归瞬时失败走保留旧值重试（#84）
+- 卡片「访问控制台」直达阿里云费用与成本中心（usercenter2.aliyun.com）（#84、#86）
+
+**配置指引渲染器（GUI，桌面与 Android）**
+
+- 添加/编辑页内可打开平台配置指引：轻量 Markdown 渲染（标题/列表/粗体/行内代码/链接/引用块）以嵌套弹窗呈现，外链经系统浏览器打开（#85）
+- 指引文档按语言分目录（`docs/guide/{zh,en}/`）随应用打包：跟随界面语言自动选档，缺失时回退另一语言；图片资产打包管线预留（`docs/assets/bundle/`）（#85、#86）
+- 首批指引：阿里云余额监控配置指引（中英双语）——RAM 专用子账号创建、费用只读授权、AccessKey 保存与安全须知、常见问题（#85、#86）
+
+### 其他改进
+
+- 文档：百炼余额查询预研落档（Qwen OAuth 停摆与模型 key 无余额端点的探证、BssOpenApi 实测打通）（#84）
+- Android 端（模拟器 API 36）全链实证回写移动端能力缺口追踪：真凭据查询、双语指引弹窗、嵌套返回键、外链拉起均通过，多厂商设备差异面留真机验收（#86）
+
 ## [0.8.3] - 2026-08-30
 
 本版本补齐 Android 端消息与后台能力：消息中心移动入口、系统通知（运行时权限 + 前后台生命周期）与 WorkManager 后台周期刷新（低余额提醒常态化，默认关闭）；移动端触摸目标同步全量整改至 44px。
@@ -477,6 +501,7 @@
 - CLI 中 clap 内置的错误骨架文案（`error:` / `Usage:`）为库英文原文，无法翻译（生态限制）（#4）
 
 <!-- 变更链接 -->
+[0.8.4]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.1...v0.8.2
 [0.1.0]: https://github.com/ONEGAYI/QuotaTray/commits/v0.1.0
