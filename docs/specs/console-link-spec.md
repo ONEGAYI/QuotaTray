@@ -2,7 +2,7 @@
 
 状态：已定案（样式经临时预览页确认，2026-08-28）。桌面端与 Android 启用均于
 2026-08-29 落地；Android 呈现形态为 route 行 trailing 文字按钮（§2 移动端补充）。剩余验证事项以
-AGENTS.md「移动端能力缺口追踪」为活追踪。
+docs/移动端能力缺口追踪.md（原 AGENTS.md 同名章节，2026-08-30 拆出）为活追踪。
 
 ## 1. 背景与目标
 
@@ -148,7 +148,7 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String>
 2026-08-29 翻 `runtimeView.consoleLink` 为两端启用；移动端呈现形态同日经所有者
 二次定案为 route 行 trailing 文字按钮（§2 移动端补充），由 mobile-style 契约测试
 锁定。opener 拉起系统浏览器与返回栈交互的验证进度、厂商浏览器差异与真机验收
-状态，以 AGENTS.md「移动端能力缺口追踪」对应条目为活追踪；验收完成前不宣称
+状态，以 docs/移动端能力缺口追踪.md 对应条目为活追踪；验收完成前不宣称
 移动稳定支持。
 
 ## 8. 测试计划（TDD）

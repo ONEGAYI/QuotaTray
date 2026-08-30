@@ -33,128 +33,11 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ## 移动端能力缺口追踪（Android Preview）
 
-> **维护义务**（2026-08-29 登记）：本节与
-> [docs/预研文档/2026-08-29 安卓缺口调研报告.md](<docs/预研文档/2026-08-29 安卓缺口调研报告.md>)
-> 对应——报告是现状底稿（一次成文），本节是活追踪。下列条目全部闭环之前，凡合入
-> 影响任一条目的移动端变更，必须同 PR 更新本节（能力部分就绪即改写口径，彻底闭环
-> 即移出条目）；全部补齐后，本节连同本提醒一并删除。
+活追踪独立建档：[docs/移动端能力缺口追踪.md](<docs/移动端能力缺口追踪.md>)——
+凡合入影响任一条目的移动端变更必须同 PR 更新该文档（能力部分就绪即改写口径，
+彻底闭环即移出条目；全部补齐后该文档删除）。现状底稿见
+[2026-08-29 安卓缺口调研报告.md](<docs/预研文档/2026-08-29 安卓缺口调研报告.md>)。
 
-以下事项尚未纳入 Android Preview 的稳定能力；后续实现时不得直接复用桌面语义，需按
-Android 分发、生命周期与触摸交互分别设计，并在真实设备完成验收后更新本节：
-
-- **更新与下载（2026-08-29 链路就绪，模拟器全链已验）**：core 资产选择器已接入
-  `Flavor::AndroidApk`（`QuotaTray_<版本>_android-arm64.apk`；`flavor_for`
-  纯函数编译期分流，WoA zip 误匹配风险已修复并有契约测试锁定）。GUI 更新页已两端
-  渲染：手动检测（进页自动检一次 + 手动按钮）→ SAF 保存对话框
-  （`content://` URI，MIME 过滤）→ 后端下载写入（进度复用
-  `update-download-progress`）→ 自研薄 JNI 桥（`apk_install.rs` +
-  post-init 注入 `ApkInstallHelper.kt`，ACTION_VIEW 交系统安装器，不声明
-  自安装权限）拉起安装；系统无安装器时前端降级手动引导文案。content URI
-  会话内存、不入后端状态表。桌面 #60 的 NSIS 静默安装、自动下载与常驻
-  调度不移植；`install_update`/`open_update_dir` 在移动端仍确定性拒绝。
-  模拟器（API 36）全链实证：检测/SAF 保存（sha256 与 release digest 逐字
-  节一致）/JNI 拉起安装器（logcat InstallStart result=0）均通过；
-  「安装未知应用」闸口同轮实证——**未声明自安装权限时 API 36 一律弹回
-  （AppOps allow 亦无效、授权页开关置灰）**，提示行以文件管理器为主
-  出路、`open_install_consent` 授权页为旧版（8~15）次出路，Android 7
-  无闸口直接弹确认页。剩余：真机全链验收、跨版本覆盖升级验收（随下个
-  版本发布）。
-- **前台常驻轮询（2026-08-29 登记）**：Android 更新检测现为手动口径（进页
-  + 按钮），常驻前台轮询未实现——所有者定案首期不做、留缺口；实现时需
-  重新定义「前台」边界（退后台进程存活期的检测节流与流量口径）并与消息
-  中心联动设计合并评估。
-- **签名与发布链（2026-08-29 部分就绪）**：`android-release.yml` 在 `v*` tag 上
-  自动构建固定密钥签名的 Release APK 并附加到 Release 草稿；构建后强制断言产物
-  非 `-unsigned` 变体、APK 签名证书 SHA-256 指纹与 keystore 一致、v2 签名方案
-  存在（minSdk 24 必须）、versionCode 等于 tag 派生值，并以 aapt2 断言包名
-  （`com.quotatray.android`，由生成工程固定）与 ABI（`arm64-v8a`，由 aarch64
-  单目标构建保证）。签名配置由 `android-post-init.mjs` 注入生成的
-  `build.gradle.kts`（读 `gen/android/` 下 `keystore.properties`，UTF-8 Reader
-  读取以兼容中文路径；缺文件时退化为未签名构建，本地无密钥开发不受影响），
-  契约测试锁定注入幂等、锚点漂移拒绝与编码写法。keystore 不入库，CI 侧只经
-  GitHub Secrets 注入。签名 APK 已在所有者 Android 16 真机完成首装与运行验证
-  （2026-08-29）；仍未完成：跨版本覆盖安装验收（待下个版本发布）、Google Play
-  上架链（归「分发通道分流」条目）。
-- **分发通道分流**：GitHub Preview 可提供 APK 检测与用户主动下载；未来 Google Play
-  版本必须改走 Play Core 更新流程。不得为普通自更新声明 `REQUEST_INSTALL_PACKAGES`
-  或把商店外 APK 安装逻辑带入 Play 构建。
-- **消息中心与通知（同步自桌面 #60；链路 2026-08-30 就绪，待真机验收）**：移动端
-  顶部应用栏已提供消息常显入口（铃铛 + 未读红点 + 触屏适配下拉面板，T-009 移动
-  形态）；消息模型三类——`update-ready`（桌面）、`update-available`（移动手动
-  检测发现新版本，卡片「查看更新」直达设置·更新页）、`low-balance`（两端共用，
-  后端查询成功后按 `low_balance_threshold_percent` 阈值判定，core
-  `used_percent` 与前端卡片高亮同语义；**边沿触发防重**——首次达标才广播/
-  通知，持续达标静默，回落清除登记下次达标重提，防后台轮询每周期重复打扰）。
-  系统通知二阶已就绪：Android 通知渠道 `quotatray-messages`（setup 幂等创建）、
-  `POST_NOTIFICATIONS` 运行时权限流（权限由插件 AAR manifest 自动带入；设置页
-  开关 + 请求/跳系统设置引导，`NotificationHelper.kt` JNI 桥三件套）、前后台
-  生命周期（前端 visibilitychange → `set_app_foreground` 状态表）、平台各自
-  的发射收口——Android `notify_background`（开关 + 后台两条件，未授权由系统
-  静默丢弃，失败仅日志红点仍在）、桌面 `notify_desktop`（开关 + 主窗不可见
-  两条件）；`notifications_enabled` 两端设置开关真实生效（默认 true 桌面现状
-  不变，显式关闭后两端更新就绪与低余额通知均拦截）。模拟器已验：面板外点
-  关闭（WebView 触摸合成 mousedown）、权限链路（设置页两区块渲染 → 系统对话
-  框弹出 → Allow → 系统侧授权 → UI 变 Granted）通过。
-  **后台通知的消息源分两条路径**：`update-available` 仍由前端命令驱动
-  （进更新页/按钮），其后台通知窗口仅「请求在途时退后台」；
-  `low-balance` 自 C 项起有 WorkManager 后台刷新作为常态化消息源
-  （Worker Kotlin 直发，见「后台刷新」条目——实际实现不经
-  `notify_background`，冷热启动统一走 JNI JSON 返回直发，两路共享
-  开关/`APP_FOREGROUND`/边沿防重判定）。余项：在途窗口的后台通知
-  实际送达、visibilitychange 冻结时机、通知点击行为拉起应用等真机
-  验收；不得依赖托盘、悬停或桌面静默更新事件。
-- **后台刷新（C 项，2026-08-30 链路就绪，模拟器验收余项）**：WorkManager
-  周期查询已实现——默认关（Preview 谨慎口径，后台流量用户显式开启），
-  周期 15–360 分钟默认 30（系统硬限 15 分钟，Doze/省电下可能延后，
-  文档口径「后台约 15 分钟级」，不得宣称分钟级）。架构：gen 工程注入
-  `BackgroundWorker`（doWork 先 `initializeNdkContext` 幂等补调——冷启动
-  WorkManager 拉起已死进程时 MainActivity/tauri runtime 均不在；经独立
-  object `Native` 的 external fun 调 Rust 编排核 `background.rs`——无
-  AppHandle，按传入 dataDir 现开 vault/engine/history）；结果**只落
-  history.db**，不碰内存 results 与 cache.json（避免与前台双写竞态，卡片
-  数值回前台由既有轮询/聚焦刷新追上）；低余额边沿判定与前台共享全局
-  静态 `LOW_BALANCE_NOTIFIED`（前台命令路径与 Worker 同一防重，否则
-  双份通知）；通知以 JSON 返回由 Kotlin 直发（渠道元数据随返回值携带、
-  幂等建渠道，Rust 单一数据源；`areNotificationsEnabled` 整体检查）。
-  调度接线：`persist_settings` 落盘后与 setup 启动时经
-  `BackgroundScheduler.schedule` 同步（UPDATE 策略间隔变更即时生效，
-  开关关 `cancelUniqueWork`；`androidx.work:work-runtime-ktx:2.9.1` 经
-  build.gradle.kts 依赖注入锚点，契约测试锁定）。查询失败静默仅日志
-  （桌面调度器同口径）。**模拟器（API 36）全链已验（2026-08-30）**：
-  设置 UI 区块（默认关/开启态周期下拉）、开关保存即 job 注册
-  （dumpsys）、am kill 冷启动 JobScheduler 拉起进程 + WorkManager
-  默认初始化、Worker 全链（mock 查询 95% → 边沿判定 → JSON 返回
-  `Low balance: Mock is 95% used`）、系统通知送达（通知 id 20001/
-  渠道正确/通知栏视觉核验）、开关关停 job 即取消。验收中抓出并修复
-  两个真问题：dataDir 错位（filesDir vs activity.dataDir，审查 M1）
-  与 JNI 导出 env 参数 ABI 错位（jni 0.21 须按值 `mut env:
-  JNIEnv`，`&mut JNIEnv` 多一层间接读到 null env——本仓库首个
-  Java→Rust 入口方向的实证契约）。余项：真机多厂商 Doze 行为、
-  R8 release 构建实际运行验证（keep 五条已过 minify 构建）、
-  历史落库的图表连续性目检（机制上 WAL 并发安全已设计）。
-- **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
-  登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
-  接入移动端等价授权，必须单独评估凭据来源与安全边界。
-- **控制台直达（同步自桌面 #59）**：桌面已在余额卡片加「访问控制台」图标（core
-  注册表 20 项预置 URL + 条目级 `console_url` 覆盖 + Rust 侧 http/https 白名单的
-  `open_console_url` command，规格见 docs/specs/console-link-spec.md）。Android 端
-  2026-08-29 启用：`consoleLink` 翻位；移动形态经所有者二次定案为 route 行
-  trailing 文字按钮——可见文本「控制台」/"Console"（`card.consoleShort`）+
-  ↗ 图标（44px 命中区，mobile-style 契约锁定）。模拟器（API 36 x86_64，ARM 转译）已验证渲染、opener 拉起 Chrome 加载
-  `platform.deepseek.com`、BACK 返回应用；所有者已于 Android 16 真机验证查询与
-  控制台跳转正常（2026-08-29）。多厂商浏览器差异与返回栈行为仍属真机验收余项，
-  完整验收前保持 Preview 口径。
-- **真实设备验收**：API 36 模拟器冒烟之外，所有者已于 Android 16 真机完成功能
-  验证（2026-08-29）：签名 APK 安装、Provider 查询、控制台直达跳转正常（实体
-  ARM64 设备已覆盖一台）。完整验收清单仍未逐项执行：safe-area 实效、宽视口、
-  选择器外点关闭、返回键 history 栈、前后台切换、系统回收、文档 URI 迁移、
-  通知、下载、跨版本升级、多厂商系统仍待验收。触摸合规 44px 已全量整改合入
-  （2026-08-29，首轮 + 审查轮补齐）：#61 模型选择器与行内链接按「句中外扩
-  热区、独立行撑高」分治定案，连同设置页下拉、分段控件（4 处实例）、模板
-  预设钮、帮助折叠钮、统计页下拉与重置钮、设置迁移/模板试查正文按钮、峰谷
-  周几钮与行内文字钮统一补齐（mobile-style 契约测试 10 项锁定）。残留一项
-  待定夺：编辑页 allowInsecure 原生 checkbox（约 13px）的移动形态（label
-  撑热区 vs 保持原生），触摸实效随上述真机验收确认。
 
 ## 工程规范
 
@@ -582,6 +465,7 @@ QuotaTray/
 │   │   └── history-spec.md      # 历史存储规格（M5）
 │   ├── 测试单/             # 真机端测执行清单目录
 │   │   └── 2026-08-29 安卓端端测清单.md # 安卓真机端测清单（更新链/升级/通用）
+│   ├── 移动端能力缺口追踪.md     # Android 能力缺口活追踪
 │   └── 预研文档/            # 立项前调研与预研报告
 │       ├── 2026-08-22 项目方案预研.md         # 项目方案预研
 │       ├── 2026-08-23 CC-Switch调研报告.md  # cc-switch 调研
