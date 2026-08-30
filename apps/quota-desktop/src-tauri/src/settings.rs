@@ -146,9 +146,14 @@ impl Settings {
         // 失败进而挡住冷启动（settings 是非关键数据，不该有此破坏力）。
         // 收口规则：trim + 大小写归一（主机名大小写不敏感）→ 剥
         // http(s):// 前缀（粘贴完整 URL 的常见形态）→ 剥误带的数字
-        // 端口尾巴（端口由独立字段承担）→ 剩余仍含 `:`（裸/带括号
-        // IPv6、非 http scheme）或含空白的视为未配置（None → core
-        // 拼接回退 127.0.0.1，直连可用的安全值）。
+        // 端口尾巴（端口由独立字段承担）→ 尾部过滤：含 `:`（裸/带括号
+        // IPv6）、控制/空白字符、`@ / ? # %`（URL 变义字符：`a@b` 把
+        // `a` 变 userinfo 劫持 host 语义，`/ ? #` 吞端口，`%` 百分号
+        // 编码无正当用例）一律视为未配置，最后对
+        // `http://{host}:1` 做 URL 解析预检一次性拦下剩余非法形态
+        //（全角冒号等 Unicode 标点，探针实证可使 reqwest 构造失败）；
+        // 预检天然放行 IDN/全角数字主机。None → core 拼接回退
+        // 127.0.0.1（直连可用的安全值）。
         self.update_proxy_host = self
             .update_proxy_host
             .take()
@@ -171,7 +176,13 @@ impl Settings {
                 };
                 host.to_owned()
             })
-            .filter(|h| !h.is_empty() && !h.contains(':') && !h.contains(' '));
+            .filter(|h| {
+                !h.is_empty()
+                    && !h.contains(':')
+                    && !h.contains(['@', '/', '?', '#', '%'])
+                    && !h.chars().any(|c| c.is_control() || c.is_whitespace())
+                    && url::Url::parse(&format!("http://{h}:1")).is_ok()
+            });
         // 后台刷新周期：系统硬限 15 分钟（更小值会被 WorkManager 抬到 15，
         // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
         self.background_refresh_interval_minutes =
@@ -457,6 +468,41 @@ mod tests {
             assert_eq!(
                 s.update_proxy_host, None,
                 "IPv6 字面量/非 http scheme/含空格主机不支持，视为未配置：{bad}"
+            );
+        }
+        // 第 2 轮 review 补：分支钉住 + 穿透/变义形态（url 预检收口）
+        s.update_proxy_host = Some("a:b".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "非数字尾巴不剥端口，含冒号拒收");
+        s.update_proxy_host = Some("a:8080:9090".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "多冒号剥最右一段后仍含冒号拒收");
+        s.update_proxy_host = Some("host:".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空端口尾巴不剥，含冒号拒收");
+        s.update_proxy_host = Some(":8080".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空主机含冒号拒收");
+        s.update_proxy_host = Some("https://a.b:8080".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("a.b".into()),
+            "scheme + 误带端口复合形态全收口"
+        );
+        for bad in [
+            "１９２：８０", // 全角冒号：URL 解析失败的穿透形态
+            "a b",          // 中间空白（含全角/nbsp 由 is_whitespace 覆盖）
+            "a@b",          // userinfo 变义：a 变 userinfo、host 劫持为 b
+            "a/b",          // path 变义：端口被吞进路径
+            "a#b",          // fragment 变义
+            "a%2eb",        // 百分号编码形态
+        ] {
+            s.update_proxy_host = Some(bad.into());
+            s.sanitize();
+            assert_eq!(
+                s.update_proxy_host, None,
+                "穿透/变义形态应由 URL 预检与字符过滤拦截：{bad}"
             );
         }
     }

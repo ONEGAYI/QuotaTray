@@ -396,6 +396,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// 契约：坏代理（磁盘手改绕过 sanitize、拼接出非法 URL 的 host）
+    /// 不得阻断启动——init 降级直连 + 告警（settings 是非关键数据，
+    /// 第 2 轮 review 定案：此前直接 Err 会把应用挡在启动失败弹窗，
+    /// Android 自救需清数据连带丢凭据）。
+    #[test]
+    fn app_state_init_degrades_on_invalid_proxy() {
+        let root = std::env::temp_dir().join(format!("qt-init-proxy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mode = quota_core::RuntimeMode::Portable { root: root.clone() };
+        quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+            &root,
+        )))
+        .unwrap();
+        // 全角冒号主机：保存路径的 sanitize/URL 预检可拦，但磁盘手改
+        // 绕过一切收口——init 必须兜住（拼出的 URL 使 reqwest 拒绝构造）
+        let paths = DataPaths::new(Some(root.clone())).unwrap();
+        Settings {
+            update_proxy_port: Some(7897),
+            update_proxy_host: Some("１９２：８０".into()),
+            ..Settings::default()
+        }
+        .save(&paths.settings())
+        .unwrap();
+
+        let state = AppState::init(mode).expect("坏代理应降级直连而非挡启动");
+        assert!(state.mode.is_portable());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// 契约：--data-dir 覆盖生效；缺省落到 ~/.quotatray。
     #[test]
     fn data_paths_respect_override() {
