@@ -225,6 +225,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   };
 
   const selectRange = (nextRange: UsageRange) => {
+    if (nextRange === range) return;
     dragRef.current = null;
     setIsDragging(false);
     setRange(nextRange);
