@@ -17,7 +17,7 @@
 | 元素 | 取值 |
 | --- | --- |
 | 标题 h2/h3/h4（文档 h1/h2/h3） | 15px / 14px / 13px，600 字重，`margin 4px 0 0`；h4 另有 `text-soft` 色 |
-| 正文 / 列表 | 13px，行高 1.65 / 1.6；内容区块间 gap 10px，列表项 gap 6px（`padding-left: 22px`） |
+| 正文 / 列表 | 13px，行高 1.65 / 1.6；内容区块间 gap 10px；列表为原生布局保留 ::marker（禁用 `display: grid/flex`——grid item 会把 li blockify 成 block 吞掉圆点/序号），项间距用 `li + li { margin-top: 6px }`（`padding-left: 22px`） |
 | 围栏代码块 | 12px，行高 1.55，`padding 10px 12px`，surface-soft 底 + border + radius-sm，横向滚动 |
 | 行内代码 | `qt-guide-code-inline`：0.92em 等宽（`ui-monospace, Consolas`），`padding 1px 5px`，surface 底 + border + radius-xs |
 | 引用块 | 13px，行高 1.6，`text-soft` 色，accent 左边线 3px + surface-soft 底 + radius-xs，`padding 8px 12px` |
