@@ -388,6 +388,12 @@ button:disabled { cursor: not-allowed; }
 .qt-empty-state span { display: block; margin-top: 5px; font-size: 12px; }
 .qt-inline-error { border-radius: var(--qt-radius-md); padding: 11px 13px; background: var(--qt-danger-soft); color: var(--qt-danger); }
 .qt-error-detail-icon { position: relative; display: inline-flex; align-items: center; vertical-align: -2px; padding: 4px; margin-left: 2px; cursor: help; opacity: .85; }
+/* 更新错误详情 disclosure（移动端，T-010）：悬停气泡被 body.qt-mobile-runtime
+   全局禁用，详情唯一通路是图标点击展开/收起；桌面仍走上方悬停图标 */
+.qt-error-detail-toggle { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; padding: 0; margin-left: 2px; border: 0; border-radius: var(--qt-radius-sm); background: none; color: inherit; opacity: .85; }
+.qt-error-detail-toggle:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.qt-error-detail-toggle[aria-expanded="true"] { opacity: 1; }
+.qt-error-detail-body { display: block; margin-top: 6px; font-size: 12px; opacity: .82; overflow-wrap: anywhere; }
 
 .qt-provider-card { position: relative; overflow: visible; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-lg); background: var(--qt-surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 42%, transparent); transition: border-color var(--qt-dur-3) ease, box-shadow var(--qt-dur-3) ease, transform var(--qt-dur-3) ease, opacity var(--qt-dur-3) ease; }
 .qt-provider-card:hover, .qt-provider-card:focus-within, .qt-provider-card.is-expanded { border-color: color-mix(in srgb, var(--qt-accent) 58%, var(--qt-border)); box-shadow: 0 8px 26px var(--qt-shadow); transform: translateY(-1px); }
@@ -1094,6 +1100,7 @@ body.qt-mobile-runtime .qt-segmented button { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-presets button { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-help-toggle { min-height: 44px; }
 body.qt-mobile-runtime .qt-settings-manual-link { min-height: 44px; align-items: center; }
+body.qt-mobile-runtime .qt-error-detail-toggle { min-height: 44px; min-width: 44px; }
 body.qt-mobile-runtime .qt-inline-link { position: relative; }
 body.qt-mobile-runtime .qt-inline-link::before { position: absolute; inset: -15px -8px; content: ""; }
 

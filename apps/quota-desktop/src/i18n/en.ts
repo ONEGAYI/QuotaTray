@@ -381,6 +381,8 @@ export const en: Record<TextKey, string> = {
     "This system does not provide that settings page (version too old); install from your file manager instead",
   "settings.installConsentFailed":
     "Failed to open the system settings page; install from your file manager instead",
+  // Accessible name of the error-detail disclosure icon (hover tooltip disabled on touch)
+  "settings.errorDetail": "Error details",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "Peak/off-peak pricing",
   "pricing.unit": "All prices are per 1M tokens",

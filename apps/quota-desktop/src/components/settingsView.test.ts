@@ -9,6 +9,7 @@ import {
   resolveUpdateAction,
   resolveUpdateError,
   resolveUpdateErrorDetail,
+  resolveErrorDetailExpanded,
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
@@ -93,6 +94,14 @@ describe("更新设置视图", () => {
     expect(
       resolveUpdateErrorDetail({ operationError: backendError, backendError, backendErrorDetail: null }),
     ).toBeNull();
+  });
+
+  it("移动端错误详情 disclosure：detail 在场时展开态跟随点击，消失时强制收起", () => {
+    // 悬停气泡在移动端被全局禁用，详情唯一通路是点击展开（T-010）
+    expect(resolveErrorDetailExpanded(false, "API rate limit exceeded")).toBe(false);
+    expect(resolveErrorDetailExpanded(true, "API rate limit exceeded")).toBe(true);
+    // 错误清空/换源无详情：旧展开态不得残留到下一次渲染
+    expect(resolveErrorDetailExpanded(true, null)).toBe(false);
   });
 
   it("主按钮分派：下载中 > 已下载可安装 > 可下载 > 检查", () => {
