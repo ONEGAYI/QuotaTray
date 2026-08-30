@@ -42,6 +42,11 @@ pub struct Settings {
     /// 检测与下载安装包共用；CLI 读同一 settings.json 自动生效。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
+    /// 更新通道代理主机（IP 或域名；None/空白 = 127.0.0.1 本机代理，
+    /// 桌面既有语义不变）。Android 上 127.0.0.1 指向手机自身——要经
+    /// 电脑代理时在此填其局域网 IP，且代理软件需允许局域网连接。
+    #[serde(default)]
+    pub update_proxy_host: Option<String>,
     /// 检测到新版本后自动下载安装包（默认关：代理用户流量自主权优先；
     /// 下载完成后经消息中心/系统通知询问安装）。仅安装版生效——
     /// 便携/普通 zip 更新维持「打开目录手动覆盖」引导。
@@ -110,6 +115,7 @@ impl Default for Settings {
             update_check_enabled: default_update_enabled(),
             update_last_check: None,
             update_proxy_port: None,
+            update_proxy_host: None,
             update_auto_download: false,
             notifications_enabled: default_notifications_enabled(),
             background_refresh_enabled: false,
@@ -136,6 +142,47 @@ impl Settings {
         self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
+        // 更新代理主机：坏输入不得透传——非法代理 URL 会让 build_engine
+        // 失败进而挡住冷启动（settings 是非关键数据，不该有此破坏力）。
+        // 收口规则：trim + 大小写归一（主机名大小写不敏感）→ 剥
+        // http(s):// 前缀（粘贴完整 URL 的常见形态）→ 剥误带的数字
+        // 端口尾巴（端口由独立字段承担）→ 尾部过滤：含 `:`（裸/带括号
+        // IPv6）、控制/空白字符、`@ / ? # %`（URL 变义字符：`a@b` 把
+        // `a` 变 userinfo 劫持 host 语义，`/ ? #` 吞端口，`%` 百分号
+        // 编码无正当用例）一律视为未配置，最后对
+        // `http://{host}:1` 做 URL 解析预检一次性拦下剩余非法形态
+        //（全角冒号等 Unicode 标点，探针实证可使 reqwest 构造失败）；
+        // 预检天然放行 IDN/全角数字主机。None → core 拼接回退
+        // 127.0.0.1（直连可用的安全值）。
+        self.update_proxy_host = self
+            .update_proxy_host
+            .take()
+            .map(|raw| {
+                let h = raw.trim().to_ascii_lowercase();
+                let h = h
+                    .strip_prefix("https://")
+                    .or_else(|| h.strip_prefix("http://"))
+                    .unwrap_or(&h)
+                    .trim();
+                let host = match h.rsplit_once(':') {
+                    Some((head, tail))
+                        if !head.is_empty()
+                            && !tail.is_empty()
+                            && tail.bytes().all(|b| b.is_ascii_digit()) =>
+                    {
+                        head
+                    }
+                    _ => h,
+                };
+                host.to_owned()
+            })
+            .filter(|h| {
+                !h.is_empty()
+                    && !h.contains(':')
+                    && !h.contains(['@', '/', '?', '#', '%'])
+                    && !h.chars().any(|c| c.is_control() || c.is_whitespace())
+                    && url::Url::parse(&format!("http://{h}:1")).is_ok()
+            });
         // 后台刷新周期：系统硬限 15 分钟（更小值会被 WorkManager 抬到 15，
         // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
         self.background_refresh_interval_minutes =
@@ -227,6 +274,7 @@ mod tests {
             update_check_enabled: false,
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
+            update_proxy_host: Some("192.168.1.5".into()),
             update_auto_download: true,
             notifications_enabled: false,
             background_refresh_enabled: true,
@@ -252,6 +300,10 @@ mod tests {
         assert!(s.update_check_enabled, "自动检测默认开启");
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
+        assert_eq!(
+            s.update_proxy_host, None,
+            "默认代理主机未配置（回退 127.0.0.1）"
+        );
         assert!(!s.update_auto_download, "自动下载默认关闭");
         assert!(
             s.notifications_enabled,
@@ -321,6 +373,7 @@ mod tests {
             update_check_enabled: true,
             update_last_check: None,
             update_proxy_port: Some(7897),
+            update_proxy_host: None,
             update_auto_download: false,
             notifications_enabled: true,
             background_refresh_enabled: true,
@@ -363,6 +416,95 @@ mod tests {
         s.update_proxy_port = Some(u16::MAX);
         s.sanitize();
         assert_eq!(s.update_proxy_port, Some(u16::MAX), "上界端口应保留");
+        // 更新代理主机：trim 收口、剥 http:// 前缀、空白视为未配置
+        //（None 语义 = core proxy_url_of_host 回退 127.0.0.1）
+        s.update_proxy_host = Some("  192.168.1.5  ".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "主机应 trim"
+        );
+        s.update_proxy_host = Some("http://192.168.1.5".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "http:// 前缀应剥离（拼接层统一补 scheme）"
+        );
+        s.update_proxy_host = Some("   ".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空白主机视为未配置");
+        s.update_proxy_host = None;
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "None 保持不变");
+        // review 轮收紧：粘贴完整 URL / 误带端口 / IPv6 / 非 http scheme
+        // 的坏输入不得透传——否则拼接出非法代理 URL 会让 build_engine
+        // 失败，冷启动直接被挡在启动弹窗（review 实证链条）
+        s.update_proxy_host = Some("HTTP://192.168.1.5".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "大写 scheme 同样剥离"
+        );
+        s.update_proxy_host = Some("https://Proxy.LAN".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("proxy.lan".into()),
+            "https 前缀剥离且大小写归一（主机名大小写不敏感）"
+        );
+        s.update_proxy_host = Some("192.168.1.5:8080".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "误带数字端口尾巴应剥除（端口由独立字段承担）"
+        );
+        for bad in ["::1", "[::1]", "ftp://x", "host name"] {
+            s.update_proxy_host = Some(bad.into());
+            s.sanitize();
+            assert_eq!(
+                s.update_proxy_host, None,
+                "IPv6 字面量/非 http scheme/含空格主机不支持，视为未配置：{bad}"
+            );
+        }
+        // 第 2 轮 review 补：分支钉住 + 穿透/变义形态（url 预检收口）
+        s.update_proxy_host = Some("a:b".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "非数字尾巴不剥端口，含冒号拒收");
+        s.update_proxy_host = Some("a:8080:9090".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "多冒号剥最右一段后仍含冒号拒收");
+        s.update_proxy_host = Some("host:".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空端口尾巴不剥，含冒号拒收");
+        s.update_proxy_host = Some(":8080".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空主机含冒号拒收");
+        s.update_proxy_host = Some("https://a.b:8080".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("a.b".into()),
+            "scheme + 误带端口复合形态全收口"
+        );
+        for bad in [
+            "１９２：８０", // 全角冒号：URL 解析失败的穿透形态
+            "a b",          // 中间空白（含全角/nbsp 由 is_whitespace 覆盖）
+            "a@b",          // userinfo 变义：a 变 userinfo、host 劫持为 b
+            "a/b",          // path 变义：端口被吞进路径
+            "a#b",          // fragment 变义
+            "a%2eb",        // 百分号编码形态
+        ] {
+            s.update_proxy_host = Some(bad.into());
+            s.sanitize();
+            assert_eq!(
+                s.update_proxy_host, None,
+                "穿透/变义形态应由 URL 预检与字符过滤拦截：{bad}"
+            );
+        }
     }
 
     /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。

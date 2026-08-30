@@ -3533,6 +3533,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tiny-skia",
  "tokio",
+ "url",
  "windows-sys 0.61.2",
 ]
 

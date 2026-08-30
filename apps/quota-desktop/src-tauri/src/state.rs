@@ -178,10 +178,16 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 网络代理端口变更后热重建查询引擎（save_settings 调用）。
+/// 网络代理（主机/端口）变更后热重建查询引擎（save_settings 调用）。
 pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpError> {
-    let proxy_port = state.settings.read().unwrap().update_proxy_port;
-    let engine = build_engine(proxy_port)?;
+    let (proxy_host, proxy_port) = {
+        let settings = state.settings.read().unwrap();
+        (
+            settings.update_proxy_host.clone(),
+            settings.update_proxy_port,
+        )
+    };
+    let engine = build_engine(proxy_host.as_deref(), proxy_port)?;
     *state.engine.write().unwrap() = engine;
     Ok(())
 }
@@ -231,14 +237,16 @@ pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
     true
 }
 
-/// 按代理端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
+/// 按代理主机/端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
 /// 全局网络代理端口时装配（条目 use_proxy 决定路由，未配端口而条目
-/// 开代理 → 引擎路由层确定性引导）。
+/// 开代理 → 引擎路由层确定性引导）。主机缺省回退 127.0.0.1（桌面本机
+/// 代理语义；Android 经主机字段指向电脑等远程代理）。
 pub(crate) fn build_engine(
+    proxy_host: Option<&str>,
     proxy_port: Option<u16>,
 ) -> Result<QueryEngine, quota_core::http::HttpError> {
     let direct = quota_core::http::ReqwestHttpClient::new(quota_core::DEFAULT_TIMEOUT)?;
-    let proxied = match quota_core::update::proxy_url_of(proxy_port).as_deref() {
+    let proxied = match quota_core::update::proxy_url_of_host(proxy_host, proxy_port).as_deref() {
         Some(url) => Some(quota_core::http::ReqwestHttpClient::new_with_proxy(
             quota_core::DEFAULT_TIMEOUT,
             Some(url),
@@ -281,10 +289,21 @@ impl AppState {
         }
         .map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
-        // 查询通道代理：复用设置中的网络代理端口（chatgpt.com 等被墙
-        // 站点的订阅查询必需），proxy_url_of 与更新通道同口径
-        let engine = build_engine(settings.update_proxy_port)
-            .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+        // 查询通道代理：复用设置中的网络代理主机/端口（chatgpt.com 等
+        // 被墙站点的订阅查询必需），proxy_url_of_host 与更新通道同口径。
+        // 坏代理（sanitize 未能收口的形态）不阻断启动——settings 本就是
+        // 非关键数据（损坏都回默认），降级直连 + 告警（review 轮定案：
+        // 此前直接 Err 会把应用挡在启动失败弹窗，Android 自救需清数据）
+        let engine = match build_engine(
+            settings.update_proxy_host.as_deref(),
+            settings.update_proxy_port,
+        ) {
+            Ok(engine) => engine,
+            Err(e) => {
+                eprintln!("代理客户端构造失败（{e}），降级直连启动");
+                build_engine(None, None).map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?
+            }
+        };
         // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
         let last_check = settings.update_last_check;
         let mut results = HashMap::new();
@@ -377,6 +396,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// 契约：坏代理（磁盘手改绕过 sanitize、拼接出非法 URL 的 host）
+    /// 不得阻断启动——init 降级直连 + 告警（settings 是非关键数据，
+    /// 第 2 轮 review 定案：此前直接 Err 会把应用挡在启动失败弹窗，
+    /// Android 自救需清数据连带丢凭据）。
+    #[test]
+    fn app_state_init_degrades_on_invalid_proxy() {
+        let root = std::env::temp_dir().join(format!("qt-init-proxy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mode = quota_core::RuntimeMode::Portable { root: root.clone() };
+        quota_core::Vault::open(&quota_core::FileStore::new(quota_core::portable_key_path(
+            &root,
+        )))
+        .unwrap();
+        // 全角冒号主机：保存路径的 sanitize/URL 预检可拦，但磁盘手改
+        // 绕过一切收口——init 必须兜住（拼出的 URL 使 reqwest 拒绝构造）
+        let paths = DataPaths::new(Some(root.clone())).unwrap();
+        Settings {
+            update_proxy_port: Some(7897),
+            update_proxy_host: Some("１９２：８０".into()),
+            ..Settings::default()
+        }
+        .save(&paths.settings())
+        .unwrap();
+
+        let state = AppState::init(mode).expect("坏代理应降级直连而非挡启动");
+        assert!(state.mode.is_portable());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// 契约：--data-dir 覆盖生效；缺省落到 ~/.quotatray。
     #[test]
     fn data_paths_respect_override() {
@@ -419,13 +468,15 @@ mod tests {
     }
 
     /// 契约：内存端口为空而磁盘有端口（启动加载抖动丢字段）→ 同步内存
-    /// 并重建引擎，返回 true。
+    /// 并重建引擎，返回 true。同步是 `*guard = disk` 整体替换——磁盘
+    /// host 随端口一并进内存（review 轮钉住的语义）。
     #[test]
     fn reconcile_recovers_port_from_disk() {
         let dir = temp_dir("recover");
         let state = sandbox_state(&dir);
         Settings {
             update_proxy_port: Some(7897),
+            update_proxy_host: Some("192.168.1.5".into()),
             ..Settings::default()
         }
         .save(&state.paths.settings())
@@ -436,6 +487,11 @@ mod tests {
             state.settings.read().unwrap().update_proxy_port,
             Some(7897),
             "内存端口已从磁盘同步"
+        );
+        assert_eq!(
+            state.settings.read().unwrap().update_proxy_host,
+            Some("192.168.1.5".into()),
+            "内存代理主机随整体替换一并从磁盘同步"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

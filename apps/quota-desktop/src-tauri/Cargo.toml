@@ -26,6 +26,7 @@ tauri-plugin-opener = "2" # 标题栏 GitHub 按钮：外部浏览器打开仓�
 tauri-plugin-notification = "2" # 更新就绪系统通知（主窗不可见时；Rust 侧发送）
 serde = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true } # 代理主机 sanitize 的 URL 预检（第 2 轮 review 加固）
 tokio = { workspace = true }
 dirs = { workspace = true }
 # 桌面端私有依赖（不动 workspace 根共享段）：

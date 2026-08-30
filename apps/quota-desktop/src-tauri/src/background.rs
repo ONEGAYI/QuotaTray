@@ -131,13 +131,16 @@ mod android {
             return bail();
         }
         // 自足构造查询上下文：vault（Keystore 经 ndk-context，Worker 侧
-        // Kotlin 已先补调 initializeNdkContext）、引擎（代理端口随设置）、
-        // 历史库（WAL + busy_timeout 兜底与前台并发）
+        // Kotlin 已先补调 initializeNdkContext）、引擎（代理主机/端口随
+        // 设置）、历史库（WAL + busy_timeout 兜底与前台并发）
         let Ok(vault) = quota_core::Vault::open(&quota_core::KeyringStore::new()) else {
             eprintln!("后台刷新：保险库打开失败，本轮跳过");
             return bail();
         };
-        let Ok(engine) = crate::state::build_engine(settings.update_proxy_port) else {
+        let Ok(engine) = crate::state::build_engine(
+            settings.update_proxy_host.as_deref(),
+            settings.update_proxy_port,
+        ) else {
             eprintln!("后台刷新：查询引擎构造失败，本轮跳过");
             return bail();
         };
