@@ -5,22 +5,25 @@
 // 与控制台直达同口径）；图片走 bundle 资产映射，未命中渲染占位（预留期目录为空）。
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { useLang } from "../i18n";
+import { useLang, type UiLang } from "../i18n";
 import { GUIDE_DOCS, bundleImageSrc } from "./guideDocs";
 import { parseGuideMd, type GuideBlock, type GuideInline } from "./guideMd";
 import { Button, DialogShell } from "./ui";
 
 export function GuideViewer({
+  lang,
   docKey,
   onClose,
 }: {
+  lang: UiLang;
   docKey: string;
   onClose: () => void;
 }) {
   const { t } = useLang();
   // 行内外链打开失败提示（白名单拒绝/系统拉起失败；ProviderCard 同款语义）
   const [linkError, setLinkError] = useState(false);
-  const blocks = useMemo(() => parseGuideMd(GUIDE_DOCS[docKey] ?? ""), [docKey]);
+  const content = GUIDE_DOCS[lang][docKey];
+  const blocks = useMemo(() => parseGuideMd(content ?? ""), [content]);
 
   return (
     <DialogShell
@@ -34,18 +37,22 @@ export function GuideViewer({
       }
     >
       {linkError && <p className="qt-inline-error">{t("card.consoleOpenFailed")}</p>}
-      <div className="qt-guide-content">
-        {blocks.map((block, i) => (
-          <GuideBlockView
-            key={i}
-            block={block}
-            onOpenLink={(href) => {
-              setLinkError(false);
-              api.openConsoleUrl(href).catch(() => setLinkError(true));
-            }}
-          />
-        ))}
-      </div>
+      {content ? (
+        <div className="qt-guide-content">
+          {blocks.map((block, i) => (
+            <GuideBlockView
+              key={i}
+              block={block}
+              onOpenLink={(href) => {
+                setLinkError(false);
+                api.openConsoleUrl(href).catch(() => setLinkError(true));
+              }}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="qt-inline-error">{t("edit.guideDocMissing")}</p>
+      )}
     </DialogShell>
   );
 }

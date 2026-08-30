@@ -109,15 +109,20 @@ describe("parseGuideMd", () => {
     }
   });
 
-  it("契约：真实文档冒烟——阿里云指引可全量解析且首块为 h1", () => {
-    const doc = GUIDE_DOCS["阿里云余额监控配置指引.md"];
-    expect(doc).toBeTruthy();
-    const blocks = parseGuideMd(doc);
-    expect(blocks[0]).toMatchObject({ kind: "heading", level: 1 });
-    // 子集覆盖自查：真实文档至少用到标题/列表/引用/代码行内标记
-    const kinds = new Set<string>(blocks.map((b) => b.kind));
-    for (const expected of ["heading", "list", "quote", "paragraph"]) {
-      expect(kinds.has(expected), `真实文档缺少块级 ${expected}`).toBe(true);
+  it("契约：真实文档冒烟——两语言阿里云指引可全量解析且首块为 h1", () => {
+    const docs = {
+      zh: GUIDE_DOCS.zh["aliyun-balance-setup-guide.md"],
+      en: GUIDE_DOCS.en["aliyun-balance-setup-guide.md"],
+    } as const;
+    for (const [lang, doc] of Object.entries(docs)) {
+      expect(doc, `语言 ${lang} 缺少指引文档`).toBeTruthy();
+      const blocks = parseGuideMd(doc);
+      expect(blocks[0]).toMatchObject({ kind: "heading", level: 1 });
+      // 子集覆盖自查：真实文档至少用到标题/列表/引用/代码行内标记
+      const kinds = new Set<string>(blocks.map((b) => b.kind));
+      for (const expected of ["heading", "list", "quote", "paragraph"]) {
+        expect(kinds.has(expected), `${lang} 文档缺少块级 ${expected}`).toBe(true);
+      }
     }
   });
 });

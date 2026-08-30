@@ -5,25 +5,30 @@
 
 ## T-012 配置指引渲染器（guide viewer）
 
-**形态**（2026-08-30 立）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
-定高 `min(78vh, 720px)` 与编辑弹窗同模式，长文档在 body 内滚动），从
-EditDialog 平台块的「配置指引」按钮打开（仅 `guideDocs.ts` 的
-`GUIDE_FOR_PROVIDER` 登记过的平台渲染按钮）。渲染轻量 Markdown 子集
+**形态**（2026-08-30 立，入口位置同日修订；语言组织同日追加）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
+定高 `min(78vh, 720px)` 与编辑弹窗同模式，长文档在 body 内滚动），从 EditDialog
+**第二凭据槽 hint 行**的行内「配置指引」链接打开（仅 `guideDocs.ts` 的
+`GUIDE_FOR_PROVIDER` 登记过的平台渲染）。渲染轻量 Markdown 子集
 （解析见 `guideMd.ts`，子集清单见预研文档 §六）；文档 h1 在弹窗语境降级
-为 h2（弹窗标题承担一级语境）。
+为 h2（弹窗标题承担一级语境）。文档按 `docs/guide/{zh,en}/` 语言子目录
+组织，两语言目录内**同名英文文件名**；UI 按当前语言经 `resolveGuideDoc`
+选档，请求语言文件未收录时回退另一语言（收录表存在性判定，非手写登记）。
 
-**排版取值**（间距与字号暂不令牌化，按 SKILL 约定在此登记）：
+**排版取值**（间距与字号暂不令牌化，按 SKILL 约定在此登记；`78vh` 定高为
+桌面形态——移动端随 `qt-mobile-runtime` 全弹窗统一模式呈现为第二层全屏页，
+`100dvh + safe-area`，见 index.css `body.qt-mobile-runtime .qt-dialog`，与
+编辑页/设置页同款，2026-08-30 Android 模拟器实证）：
 
 | 元素 | 取值 |
 | --- | --- |
 | 标题 h2/h3/h4（文档 h1/h2/h3） | 15px / 14px / 13px，600 字重，`margin 4px 0 0`；h4 另有 `text-soft` 色 |
-| 正文 / 列表 | 13px，行高 1.65 / 1.6；内容区块间 gap 10px，列表项 gap 6px（`padding-left: 22px`） |
+| 正文 / 列表 | 13px，行高 1.65 / 1.6；内容区块间 gap 10px；列表为原生布局保留 ::marker，两个吞 marker 的坑都必须规避：① Tailwind preflight（`@import "tailwindcss"`）自带 `ol,ul{list-style:none;margin:0;padding:0}`，ul/ol 必须显式声明 `list-style: disc/decimal` 与 `padding-left: 22px`；② ul/ol 自身禁用 `display: grid/flex`（子 li 被 blockify 成 block 吞掉圆点/序号），项间距用 `li + li { margin-top: 6px }` |
 | 围栏代码块 | 12px，行高 1.55，`padding 10px 12px`，surface-soft 底 + border + radius-sm，横向滚动 |
 | 行内代码 | `qt-guide-code-inline`：0.92em 等宽（`ui-monospace, Consolas`），`padding 1px 5px`，surface 底 + border + radius-xs |
 | 引用块 | 13px，行高 1.6，`text-soft` 色，accent 左边线 3px + surface-soft 底 + radius-xs，`padding 8px 12px` |
 | 分隔线 | border-top 1px，`margin 4px 0` |
 | 图片 | `max-width: 100%` + border + radius-sm；资产未命中渲染虚线框占位（`padding 6px 10px`，text-faint，12px） |
-| 指引入口行 | `qt-edit-guide-row`（EditDialog 平台块内）：flex + `margin-top 8px`，按钮走 secondary 变体 |
+| 指引入口 | 第二凭据槽 hint 行内的行内文字链接（`qt-guide-entry` + `qt-guide-link` 复用，`margin-top 2px`）：仅登记过指引（`GUIDE_FOR_PROVIDER`）且为 native 表单时渲染；`type="button"`（form 内防提交） |
 
 **交互**：行内外链为文字链接式按钮（`qt-guide-link`，accent-strong 字 +
 hover 下划线，T-004 行内链接式），点击经 `openConsoleUrl` 打开（白名单

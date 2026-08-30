@@ -177,6 +177,7 @@ export const zh = {
   "edit.key2Required": "此平台必填 · AccessKey Secret（已配置后留空保持不变）",
   "edit.guideButton": "配置指引",
   "edit.guideImageMissing": "图片缺失：{alt}",
+  "edit.guideDocMissing": "指引文档缺失，请更新到最新版本后再试。",
 
   // ---- 模板分支二级子页与预设 ----
   "edit.subProvider": "运营商与模型",

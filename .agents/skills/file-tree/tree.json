@@ -988,9 +988,9 @@
                     },
                     "guideDocs.test.ts": {
                       "kind": "file",
-                      "desc": "指引资产收集测试",
+                      "desc": "指引资产收集与语言选档测试",
                       "detail": [
-                        "资产收集契约：GUIDE_DOCS 收集到已登记文档、GUIDE_FOR_PROVIDER 登记项必须存在、bundleImageSrc 双形态命中与未命中占位。"
+                        "资产收集契约：两语言子目录同名文档均被收集、GUIDE_FOR_PROVIDER 登记项至少一种语言存在、resolveGuideDoc 命中/单语回退/无映射三态、bundleImageSrc 双形态命中与未命中占位。"
                       ],
                       "tags": [
                         "test"
@@ -998,9 +998,9 @@
                     },
                     "guideDocs.ts": {
                       "kind": "file",
-                      "desc": "指引文档与图片资产收集",
+                      "desc": "指引文档与图片资产收集（双语）",
                       "detail": [
-                        "vite import 管线唯一收集点：docs/guide/*.md 经 ?raw glob 内联、docs/assets/bundle/ 图片经 ?url glob 打包（当前空目录预留）；GUIDE_FOR_PROVIDER 登记 native 平台→指引映射，bundleImageSrc 解析文档内引用→产物 URL（未命中返回 null 走占位）。"
+                        "vite import 管线唯一收集点：docs/guide/{zh,en}/*.md 经 ?raw glob 按语言内联、docs/assets/bundle/ 图片经 ?url glob 打包（当前空目录预留）；GUIDE_FOR_PROVIDER 登记 native 平台→指引文件名（两语言目录内同名），resolveGuideDoc 按 UI 语言选档并回退缺失语言，bundleImageSrc 解析文档内引用→产物 URL（未命中返回 null 走占位）。"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/guideDocs.test.ts",
@@ -2489,15 +2489,35 @@
         },
         "guide": {
           "kind": "dir",
-          "desc": "用户配置指引（GUI 可渲染）",
+          "desc": "平台配置指引（zh/en 语言子目录）",
           "children": {
-            "阿里云余额监控配置指引.md": {
-              "kind": "file",
-              "desc": "阿里云余额监控用户配置指引",
-              "detail": [
-                "面向最终用户的阿里云余额监控配置全流程：RAM 专用子账号创建（仅 AccessKey 不开控制台）、AliyunBSSReadOnlyAccess 授权、AccessKey 保存、QuotaTray 填入与安全须知、FAQ。",
-                "按轻量 Markdown 子集（标题/列表/粗体/行内代码/代码块/链接）撰写，供未来 GUI 配置指引渲染器按结构渲染。"
-              ]
+            "en": {
+              "kind": "dir",
+              "desc": "英文版配置指引",
+              "children": {
+                "aliyun-balance-setup-guide.md": {
+                  "kind": "file",
+                  "desc": "阿里云余额监控配置指引（英文版）",
+                  "detail": [
+                    "中文版指引的同义英文翻译（逐节结构一致），UI 切英文时经 resolveGuideDoc 选档渲染。",
+                    "与 zh/ 目录内同名文件成对维护；链接保持中国站控制台（provider 查询端点为中国站），国际站口径在 FAQ 中声明未验证。"
+                  ]
+                }
+              }
+            },
+            "zh": {
+              "kind": "dir",
+              "desc": "中文版配置指引",
+              "children": {
+                "aliyun-balance-setup-guide.md": {
+                  "kind": "file",
+                  "desc": "阿里云余额监控配置指引（中文版）",
+                  "detail": [
+                    "面向最终用户的阿里云余额监控配置全流程：RAM 专用子账号创建（仅 AccessKey 不开控制台）、AliyunBSSReadOnlyAccess 授权、AccessKey 保存、QuotaTray 填入与安全须知、FAQ。",
+                    "按轻量 Markdown 子集（标题/列表/粗体/行内代码/代码块/链接）撰写，供 GUI 配置指引渲染器按结构渲染；与 en/ 同名英文文件成对维护。"
+                  ]
+                }
+              }
             }
           }
         },
