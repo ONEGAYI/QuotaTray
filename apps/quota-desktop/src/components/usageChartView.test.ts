@@ -7,12 +7,14 @@ import {
   niceAbsoluteScale,
   shouldZoomUsageChart,
   splitUsageSeries,
+  USAGE_RANGES,
   USAGE_TOOLTIP_GAP,
   usageTooltipPlacement,
   type UsageSample,
 } from "./usageChartView";
 
-const HOUR = 60 * 60 * 1_000;
+const MINUTE = 60 * 1_000;
+const HOUR = 60 * MINUTE;
 
 function point(hour: number, value: number): UsageSample {
   return { timestamp: hour * HOUR, value };
@@ -141,5 +143,53 @@ describe("使用统计图表纯逻辑", () => {
       remaining: 96,
       unit: "CNY",
     })).toEqual({ metric: "absolute", value: 96, unit: "CNY" });
+  });
+
+  it("视图范围档位锁定：24h 档 15 分钟桶、7d 档 1 小时桶，桶粒度整除跨度", () => {
+    expect(USAGE_RANGES["24h"]).toEqual({ spanMs: 24 * HOUR, bucketMs: 15 * MINUTE });
+    expect(USAGE_RANGES["7d"]).toEqual({ spanMs: 7 * 24 * HOUR, bucketMs: HOUR });
+    for (const config of Object.values(USAGE_RANGES)) {
+      expect(config.spanMs % config.bucketMs).toBe(0);
+    }
+  });
+
+  it("近 24 小时档按 15 分钟桶聚合：桶内保留最后一点，跨桶均保留", () => {
+    const points = [
+      { window_key: "Codex（5h）", sampled_at: 0, used: 10, remaining: 90, total: 100, unit: "%" },
+      { window_key: "Codex（5h）", sampled_at: 10 * MINUTE, used: 16, remaining: 84, total: 100, unit: "%" },
+      { window_key: "Codex（5h）", sampled_at: 15 * MINUTE, used: 24, remaining: 76, total: 100, unit: "%" },
+    ];
+
+    expect(buildHistorySeries(points, USAGE_RANGES["24h"].bucketMs)).toEqual([
+      {
+        windowKey: "Codex（5h）",
+        metric: "percent",
+        unit: "%",
+        samples: [
+          { timestamp: 10 * MINUTE, value: 84 },
+          { timestamp: 15 * MINUTE, value: 76 },
+        ],
+      },
+    ]);
+  });
+
+  it("15 分钟桶下空档阈值收紧：约一小时空档虚线桥接，超过 90 分钟完全断开", () => {
+    const series = splitUsageSeries(
+      [
+        { timestamp: 0, value: 10 },
+        { timestamp: 60 * MINUTE, value: 20 },
+        { timestamp: 160 * MINUTE, value: 30 },
+      ],
+      USAGE_RANGES["24h"].bucketMs,
+    );
+
+    expect(series.segments.map((segment) => segment.map((sample) => sample.timestamp)))
+      .toEqual([[0], [60 * MINUTE], [160 * MINUTE]]);
+    expect(series.bridges).toEqual([
+      { from: { timestamp: 0, value: 10 }, to: { timestamp: 60 * MINUTE, value: 20 }, missingBuckets: 3 },
+    ]);
+    expect(series.gaps).toEqual([
+      { from: { timestamp: 60 * MINUTE, value: 20 }, to: { timestamp: 160 * MINUTE, value: 30 }, missingBuckets: 6 },
+    ]);
   });
 });

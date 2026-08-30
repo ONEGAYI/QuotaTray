@@ -1,4 +1,4 @@
-import { Clock3, Maximize2, MousePointer2, RotateCcw } from "lucide-react";
+import { Maximize2, MousePointer2, RotateCcw } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -11,7 +11,7 @@ import {
 import { useLang } from "../i18n";
 import { useHistory } from "../queries";
 import type { ProviderEntry } from "../types";
-import { Button } from "./ui";
+import { Button, SegmentedControl } from "./ui";
 import {
   advanceUsageViewDomain,
   buildHistorySeries,
@@ -20,9 +20,11 @@ import {
   shouldZoomUsageChart,
   splitUsageSeries,
   usageTooltipPlacement,
+  USAGE_RANGES,
   type HistorySeries,
   type UsageBridge,
   type UsageMetricType,
+  type UsageRange,
   type UsageSample,
 } from "./usageChartView";
 
@@ -44,9 +46,10 @@ interface Props {
   mobile?: boolean;
 }
 
-const HOUR = 60 * 60 * 1_000;
-const HISTORY_SPAN_MS = 7 * 24 * HOUR;
-const HISTORY_BUCKET_MS = HOUR;
+// 历史拉取始终取各范围档中的最大跨度，切档复用同一份缓存（queryKey 含 spanMs）
+const HISTORY_FETCH_SPAN_MS = Math.max(
+  ...Object.values(USAGE_RANGES).map((range) => range.spanMs),
+);
 // 首系列锚定品牌强调色令牌（明暗自适应），其余为固定辅助色板（见 DT-004）
 const SERIES_COLORS = ["var(--qt-accent)", "#df6f9f", "#3d9b87", "#e49537", "#397bd8", "#a45fd4"];
 const CHART = { width: 840, height: 410, left: 74, right: 766, top: 42, bottom: 338 };
@@ -90,9 +93,11 @@ function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string 
 export function UsageStatsPage({ providers, providersLoading, providersError, mobile = false }: Props) {
   const { lang, t } = useLang();
   const [rangeNow, setRangeNow] = useState(() => Date.now());
+  const [range, setRange] = useState<UsageRange>("7d");
+  const rangeConfig = USAGE_RANGES[range];
   const totalDomain = useMemo<[number, number]>(
-    () => [rangeNow - HISTORY_SPAN_MS, rangeNow],
-    [rangeNow],
+    () => [rangeNow - rangeConfig.spanMs, rangeNow],
+    [rangeNow, rangeConfig],
   );
   const [providerId, setProviderId] = useState("");
   const [scopeId, setScopeId] = useState("");
@@ -133,7 +138,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   }, [providerId, providers, totalDomain]);
 
   const provider = providers.find((item) => item.id === providerId);
-  const history = useHistory(providerId, HISTORY_SPAN_MS);
+  const history = useHistory(providerId, HISTORY_FETCH_SPAN_MS);
   useEffect(() => {
     const newest = (history.data ?? []).reduce(
       (latest, point) => Math.max(latest, point.sampled_at),
@@ -146,14 +151,14 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       (history.data ?? []).filter((point) => (
         point.sampled_at >= totalDomain[0] && point.sampled_at <= totalDomain[1]
       )),
-      HISTORY_BUCKET_MS,
+      rangeConfig.bucketMs,
     ).map((series, index) => ({
       ...series,
       name: scopeName(series.windowKey, index, lang),
       color: SERIES_COLORS[index % SERIES_COLORS.length],
-      bucketMs: HISTORY_BUCKET_MS,
+      bucketMs: rangeConfig.bucketMs,
     })),
-    [history.data, lang, totalDomain],
+    [history.data, lang, rangeConfig, totalDomain],
   );
 
   useEffect(() => {
@@ -216,6 +221,14 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     setIsDragging(false);
     setScopeId(nextScopeId);
     setViewDomain(totalDomain);
+    setHover(null);
+  };
+
+  const selectRange = (nextRange: UsageRange) => {
+    dragRef.current = null;
+    setIsDragging(false);
+    setRange(nextRange);
+    setViewDomain([rangeNow - USAGE_RANGES[nextRange].spanMs, rangeNow]);
     setHover(null);
   };
 
@@ -371,9 +384,16 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
             </select>
           </label>
         </div>
-        <div className="qt-usage-range-badge">
-          <Clock3 size={14} aria-hidden="true" />
-          {t("usage.historyRange")}
+        <div className="qt-usage-range-switch">
+          <SegmentedControl
+            value={range}
+            onChange={selectRange}
+            compact
+            options={[
+              { value: "24h", label: t("usage.range24h") },
+              { value: "7d", label: t("usage.range7d") },
+            ]}
+          />
         </div>
       </div>
 
