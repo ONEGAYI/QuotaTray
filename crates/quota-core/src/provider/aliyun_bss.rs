@@ -57,6 +57,21 @@ impl NativeProvider for AliyunBss {
             }
             crate::http::HttpError::InvalidRequest(_) => QueryError::deterministic(e.to_string()),
         })?;
+        // 408/429/5xx 是服务器侧临时故障（网关抖动/限流），一律瞬时——
+        // 5xx 常为 HTML 网关页，必须先于 JSON 解析判定（与共用工具
+        // status_error_with_body 同口径；keep-last-good 依赖该分类保留旧值）。
+        if resp.status == 408 || resp.status == 429 || (500..600).contains(&resp.status) {
+            let err = QueryError::transient(format!("HTTP {}", resp.status));
+            return Err(if resp.body.trim().is_empty() {
+                err
+            } else {
+                err.with_detail(format!(
+                    "HTTP {} 响应体（已脱敏）：\n{}",
+                    resp.status,
+                    crate::http::redact::redact_and_truncate(&resp.body, &req)
+                ))
+            });
+        }
         let body = if resp.body.trim().is_empty() {
             Value::Null
         } else {
@@ -70,13 +85,22 @@ impl NativeProvider for AliyunBss {
                 )
             })?
         };
+        // 空 body：阿里云正常路径不会出现，防御性单独文案（避免业务码
+        // 分类里 code/message 双空的悬垂句式）
+        if body.is_null() {
+            return Err(QueryError::deterministic(format!(
+                "阿里云响应体为空（HTTP {}）",
+                resp.status
+            )));
+        }
 
-        // 阿里云把业务成败放在 body 的 Code 字段（成功恒 "200"），HTTP 状态
-        // 与之不一一对应（NotAuthorized 实测为 400），两类失败统一走分类。
-        let code = body.get("Code").and_then(Value::as_str).unwrap_or("");
+        // 阿里云把业务成败放在 body 的 Code 字段（成功恒 200；字符串为主，
+        // 数字形态按 parse_int 先例兼容），HTTP 状态与之不一一对应
+        // （NotAuthorized 实测为 400），业务失败统一走错误码分类。
+        let code = code_of(&body);
         if !resp.is_success() || code != "200" {
             let message = body.get("Message").and_then(Value::as_str).unwrap_or("");
-            let err = classify_error_code(code, message, resp.status);
+            let err = classify_error_code(&code, message, resp.status);
             let err = match body.get("RequestId").and_then(Value::as_str) {
                 Some(id) => err.with_detail(format!("RequestId：{id}")),
                 None => err,
@@ -186,6 +210,17 @@ fn random_hex(n_bytes: usize) -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// 提取 body 的 Code 字段为字符串：字符串形态原样；数字形态转字符串
+/// （各平台业务码两种形态历史上都出现过，parse_int 先例）；缺失/其他
+/// 形态返回空串（由 classify_error_code 按未知错误处理）。
+fn code_of(body: &Value) -> String {
+    match body.get("Code") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
 /// 阿里云错误码 → 错误双轨分类：
 /// 授权/身份/签名类 = 确定性（重试无意义，附中文引导）；
 /// `Throttling*` = 瞬时（可重试）；未知码透传原始 code/message（调用方
@@ -209,6 +244,8 @@ fn classify_error_code(code: &str, message: &str, status: u16) -> QueryError {
             };
             QueryError::transient(format!("触发阿里云限流：{msg}"))
         }
+        // Code 缺失/异形态：单独文案避免「错误（HTTP x）：」悬垂
+        "" => QueryError::deterministic(format!("阿里云返回未知错误（HTTP {status}）：{message}")),
         _ => {
             QueryError::deterministic(format!("阿里云返回错误 {code}（HTTP {status}）：{message}"))
         }
@@ -388,6 +425,64 @@ mod tests {
             .unwrap_err();
         assert!(!err.is_transient());
         assert!(err.message().contains("InternalError.PartialError"));
+    }
+
+    /// 契约：408/429/5xx 一律瞬时（网关抖动/限流，keep-last-good 可重试）——
+    /// 5xx 为 HTML 网关页时也须在 JSON 解析前正确分类。
+    #[tokio::test]
+    async fn server_errors_are_transient() {
+        let cases: [(u16, &str); 4] = [
+            (408, ""),
+            (429, r#"{"Code":"Throttling","Message":"too fast"}"#),
+            (502, "<html>Bad Gateway</html>"),
+            (
+                504,
+                r#"{"Code":"InternalError","Message":"upstream timeout"}"#,
+            ),
+        ];
+        for (status, body) in cases {
+            let err = query_with(MockHttp::status_body(status, body))
+                .await
+                .unwrap_err();
+            assert!(
+                err.is_transient(),
+                "HTTP {status} 应为瞬时失败：{}",
+                err.message()
+            );
+        }
+    }
+
+    /// 空 body（防御路径）：确定性失败 + 专用文案，不落入「错误 ：」悬垂句式。
+    #[tokio::test]
+    async fn empty_body_has_dedicated_message() {
+        for status in [200u16, 403] {
+            let err = query_with(MockHttp::status(status)).await.unwrap_err();
+            assert!(!err.is_transient());
+            assert!(
+                err.message().contains("响应体为空"),
+                "HTTP {status}：{}",
+                err.message()
+            );
+        }
+    }
+
+    /// Code 字段数字形态兼容（parse_int 先例）：成功 200 与错误码都接受。
+    #[tokio::test]
+    async fn numeric_code_forms_accepted() {
+        let ok = query_with(MockHttp::ok(
+            r#"{"Code":200,"Data":{"AvailableAmount":"1.00","Currency":"CNY"}}"#,
+        ))
+        .await
+        .unwrap();
+        assert_eq!(ok[0].remaining, Some(1.0));
+        let err = query_with(MockHttp::status_body(
+            400,
+            r#"{"Code":404,"Message":"not found"}"#,
+        ))
+        .await
+        .unwrap_err();
+        assert!(!err.is_transient());
+        assert!(err.message().contains("404"));
     }
 
     /// 缺少第二凭据（AccessKey Secret）→ 确定性失败并引导补配，
