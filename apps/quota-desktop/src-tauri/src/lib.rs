@@ -7,6 +7,9 @@
 
 #[cfg(target_os = "android")]
 mod apk_install;
+/// Android 后台刷新编排核（WorkManager Worker 经 JNI 调入；C 项）。
+#[cfg(target_os = "android")]
+mod background;
 
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

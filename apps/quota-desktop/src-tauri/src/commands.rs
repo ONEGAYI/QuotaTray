@@ -819,7 +819,10 @@ struct LowBalanceEvent<'a> {
 /// 低余额判定（纯函数）：任一窗口已用百分比 ≥ 阈值时返回
 /// `Some(最高达标百分比)`，否则 None。百分比语义与前端卡片高亮共用
 /// core [`quota_core::used_percent`]（`display.ts usedPercent` 的镜像）。
-fn low_balance_breach(data: &[quota_core::UsageData], threshold_percent: u8) -> Option<f64> {
+pub(crate) fn low_balance_breach(
+    data: &[quota_core::UsageData],
+    threshold_percent: u8,
+) -> Option<f64> {
     data.iter()
         .filter_map(quota_core::used_percent)
         .filter(|p| *p >= f64::from(threshold_percent))
@@ -832,7 +835,7 @@ fn low_balance_breach(data: &[quota_core::UsageData], threshold_percent: u8) -> 
 /// 恢复且仍达标会重新提醒一次，可接受。与 update-available/ready 的
 /// 会话防重同口径。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LowBalanceEdge {
+pub(crate) enum LowBalanceEdge {
     /// 首次达标：广播事件并按平台补发系统通知，随后登记条目 id。
     Notify,
     /// 持续达标（已登记）或未达标且无登记：不打扰。
@@ -841,7 +844,7 @@ enum LowBalanceEdge {
     Reset,
 }
 
-fn low_balance_edge(previously_notified: bool, breach: Option<f64>) -> LowBalanceEdge {
+pub(crate) fn low_balance_edge(previously_notified: bool, breach: Option<f64>) -> LowBalanceEdge {
     match (previously_notified, breach) {
         (false, Some(_)) => LowBalanceEdge::Notify,
         (true, Some(_)) => LowBalanceEdge::Silent,
@@ -961,7 +964,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         let threshold = state.settings.read().unwrap().low_balance_threshold_percent;
         let breach = low_balance_breach(data, threshold);
         let notify = {
-            let mut notified = state.low_balance_notified.lock().unwrap();
+            let mut notified = crate::state::LOW_BALANCE_NOTIFIED.lock().unwrap();
             match low_balance_edge(notified.contains(&id), breach) {
                 LowBalanceEdge::Notify => {
                     notified.insert(id.clone());
@@ -1071,6 +1074,8 @@ pub struct SettingsPatch {
     pub update_proxy_port: Option<Option<u16>>,
     pub update_auto_download: Option<bool>,
     pub notifications_enabled: Option<bool>,
+    pub background_refresh_enabled: Option<bool>,
+    pub background_refresh_interval_minutes: Option<u32>,
 }
 
 /// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
@@ -1120,6 +1125,12 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.notifications_enabled {
         base.notifications_enabled = v;
+    }
+    if let Some(v) = patch.background_refresh_enabled {
+        base.background_refresh_enabled = v;
+    }
+    if let Some(v) = patch.background_refresh_interval_minutes {
+        base.background_refresh_interval_minutes = v;
     }
 }
 
@@ -1269,7 +1280,7 @@ fn runtime_platform_for(target_os: &str) -> &'static str {
     }
 }
 
-fn mobile_cli_provider_blocked(target_os: &str, provider_id: &str) -> bool {
+pub(crate) fn mobile_cli_provider_blocked(target_os: &str, provider_id: &str) -> bool {
     target_os == "android" && quota_core::provider::uses_cli_credentials(provider_id)
 }
 
@@ -1773,10 +1784,8 @@ pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, St
 /// 驱动写入；通知发射点读它决定「入列红点」还是「补发系统通知」。
 /// 桌面调用无害（不消费）。Relaxed 足够：布尔提示，无跨字段不变式。
 #[tauri::command]
-pub fn set_app_foreground(foreground: bool, state: State<'_, AppState>) {
-    state
-        .app_foreground
-        .store(foreground, std::sync::atomic::Ordering::Relaxed);
+pub fn set_app_foreground(foreground: bool, _state: State<'_, AppState>) {
+    crate::state::APP_FOREGROUND.store(foreground, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ---- 契约测试 -------------------------------------------------------------
@@ -2560,6 +2569,30 @@ mod tests {
 
         let p: SettingsPatch = serde_json::from_str(r#"{"notifications_enabled": true}"#).unwrap();
         assert_eq!(p.notifications_enabled, Some(true));
+    }
+
+    /// 契约：后台刷新设置可经 patch 提交（C 项设置页保存路径）。
+    #[test]
+    fn settings_patch_background_refresh() {
+        let mut base = Settings::default();
+        assert!(!base.background_refresh_enabled, "默认关闭");
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                background_refresh_enabled: Some(true),
+                background_refresh_interval_minutes: Some(60),
+                ..SettingsPatch::default()
+            },
+        );
+        assert!(base.background_refresh_enabled);
+        assert_eq!(base.background_refresh_interval_minutes, 60);
+
+        let p: SettingsPatch = serde_json::from_str(
+            r#"{"background_refresh_enabled": true, "background_refresh_interval_minutes": 120}"#,
+        )
+        .unwrap();
+        assert_eq!(p.background_refresh_enabled, Some(true));
+        assert_eq!(p.background_refresh_interval_minutes, Some(120));
     }
 }
 /// 将用户预览过的无凭据 AI 诊断包原子写入保存对话框选定路径。

@@ -218,10 +218,7 @@ pub(crate) fn notify_background(app: &AppHandle, state: &AppState, title: &str, 
     if !state.settings.read().unwrap().notifications_enabled {
         return;
     }
-    if state
-        .app_foreground
-        .load(std::sync::atomic::Ordering::Relaxed)
-    {
+    if crate::state::APP_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed) {
         return;
     }
     use tauri_plugin_notification::NotificationExt;
@@ -706,8 +703,6 @@ mod tests {
             last_peak: std::sync::RwLock::new(HashMap::new()),
             // 更新调度测试不消费历史，内存库即可
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
-            app_foreground: std::sync::atomic::AtomicBool::new(true),
-            low_balance_notified: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
