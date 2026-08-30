@@ -30,7 +30,9 @@ impl NativeProvider for AliyunBss {
         NativeMeta {
             id: "aliyun_bss",
             name: "阿里云余额",
-            console_url: Some("https://expense.console.aliyun.com/"),
+            // 费用与成本（原 expense.console.aliyun.com 已于官方下线，
+            // 迁移至 usercenter2.aliyun.com——2026-08-30 验收实测）
+            console_url: Some("https://usercenter2.aliyun.com/"),
         }
     }
 

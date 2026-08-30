@@ -5,10 +5,10 @@
 
 ## T-012 配置指引渲染器（guide viewer）
 
-**形态**（2026-08-30 立）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
-定高 `min(78vh, 720px)` 与编辑弹窗同模式，长文档在 body 内滚动），从
-EditDialog 平台块的「配置指引」按钮打开（仅 `guideDocs.ts` 的
-`GUIDE_FOR_PROVIDER` 登记过的平台渲染按钮）。渲染轻量 Markdown 子集
+**形态**（2026-08-30 立，入口位置同日修订）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
+定高 `min(78vh, 720px)` 与编辑弹窗同模式，长文档在 body 内滚动），从 EditDialog
+**第二凭据槽 hint 行**的行内「配置指引」链接打开（仅 `guideDocs.ts` 的
+`GUIDE_FOR_PROVIDER` 登记过的平台渲染）。渲染轻量 Markdown 子集
 （解析见 `guideMd.ts`，子集清单见预研文档 §六）；文档 h1 在弹窗语境降级
 为 h2（弹窗标题承担一级语境）。
 
@@ -23,7 +23,7 @@ EditDialog 平台块的「配置指引」按钮打开（仅 `guideDocs.ts` 的
 | 引用块 | 13px，行高 1.6，`text-soft` 色，accent 左边线 3px + surface-soft 底 + radius-xs，`padding 8px 12px` |
 | 分隔线 | border-top 1px，`margin 4px 0` |
 | 图片 | `max-width: 100%` + border + radius-sm；资产未命中渲染虚线框占位（`padding 6px 10px`，text-faint，12px） |
-| 指引入口行 | `qt-edit-guide-row`（EditDialog 平台块内）：flex + `margin-top 8px`，按钮走 secondary 变体 |
+| 指引入口 | 第二凭据槽 hint 行内的行内文字链接（`qt-guide-entry` + `qt-guide-link` 复用，`margin-top 2px`）：仅登记过指引（`GUIDE_FOR_PROVIDER`）且为 native 表单时渲染；`type="button"`（form 内防提交） |
 
 **交互**：行内外链为文字链接式按钮（`qt-guide-link`，accent-strong 字 +
 hover 下划线，T-004 行内链接式），点击经 `openConsoleUrl` 打开（白名单

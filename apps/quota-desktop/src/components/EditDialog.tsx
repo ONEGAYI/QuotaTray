@@ -292,12 +292,24 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     </label>
   );
   // 第二凭据槽（{{apiKey2}}）：template/script 引用变量时选填；native 双凭据
-  // 平台（uses_api_key2，如阿里云余额的 AccessKey Secret）必填。
+  // 平台（uses_api_key2，如阿里云余额的 AccessKey Secret）必填，并在 hint 行
+  // 内提供「配置指引」行内链接（指引正是教如何配这对凭据）。
   // 与主 key 同红线——空 = 保持不变，永不回显
   const credential2Field = (
     <label className="qt-field qt-credential-field">
       <span>{t("edit.apiKey2")}</span>
       <small>{t("edit.apiKey2Hint")}</small>
+      {tab === "native" && guideDocKey && (
+        <small className="qt-guide-entry">
+          <button
+            type="button"
+            className="qt-guide-link"
+            onClick={() => setGuideOpen(true)}
+          >
+            {t("edit.guideButton")}
+          </button>
+        </small>
+      )}
       <input
         type="password"
         value={apiKey2}
@@ -462,13 +474,6 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                   />
                   {mobileCliUnsupported && (
                     <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
-                  )}
-                  {guideDocKey && (
-                    <div className="qt-edit-guide-row">
-                      <Button variant="secondary" onClick={() => setGuideOpen(true)}>
-                        {t("edit.guideButton")}
-                      </Button>
-                    </div>
                   )}
                 </div>
               )}
