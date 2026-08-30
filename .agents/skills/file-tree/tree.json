@@ -2375,6 +2375,20 @@
             }
           }
         },
+        "guide": {
+          "kind": "dir",
+          "desc": "用户配置指引（GUI 可渲染）",
+          "children": {
+            "阿里云余额监控配置指引.md": {
+              "kind": "file",
+              "desc": "阿里云余额监控用户配置指引",
+              "detail": [
+                "面向最终用户的阿里云余额监控配置全流程：RAM 专用子账号创建（仅 AccessKey 不开控制台）、AliyunBSSReadOnlyAccess 授权、AccessKey 保存、QuotaTray 填入与安全须知、FAQ。",
+                "按轻量 Markdown 子集（标题/列表/粗体/行内代码/代码块/链接）撰写，供未来 GUI 配置指引渲染器按结构渲染。"
+              ]
+            }
+          }
+        },
         "specs": {
           "kind": "dir",
           "desc": "规格文档",
@@ -2490,6 +2504,14 @@
                 "盘点 AGENTS.md 移动端能力缺口追踪八项的代码现状、根源与依赖，给出四期建议顺序，作为后续移动端计划的现状底稿。",
                 "关键定性：Android aarch64 的 arch_label() 命中 WoA zip 资产名（更新检测放开前必须先改 core 资产选择）；CLI 凭据来源已三层闭环降级为持续约束；签名链是更新链硬前置。",
                 "一次成文底稿：进度活口径由 AGENTS.md 缺口追踪节承接，不随实现进展回改。"
+              ]
+            },
+            "2026-08-30 百炼余额查询预研.md": {
+              "kind": "file",
+              "desc": "百炼余额查询预研报告",
+              "detail": [
+                "结论：百炼无 OAuth 余额通道（Qwen OAuth 已于 2026-04-15 停摆且从不覆盖余额），sk- model key 实测无余额端点；可行路径为 BssOpenApi QueryAccountBalance + AK/SK，RPC V1 签名官方向量双重验证、实测打通。",
+                "Coding Plan 配额无查询 API 搁置；含 provider 接入建议与 guide 渲染器 Markdown 子集约定。"
               ]
             }
           }
