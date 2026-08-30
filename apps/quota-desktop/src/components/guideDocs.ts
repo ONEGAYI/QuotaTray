@@ -5,15 +5,27 @@
 // 经 `?url` glob 引用后由 vite 复制进 dist/assets 哈希命名——dev/build/
 // 桌面/Android/便携版天然一致，文档内引用名与打包名经本模块映射解耦。
 //
-// 注意：docs/guide/ 目录下所有 .md 都会被收集进应用包（UI 可见性另由
-// GUIDE_FOR_PROVIDER 显式映射控制）；草稿/说明文件勿放该目录。
+// 语言组织（2026-08-30 所有者定）：指引按 docs/guide/{zh,en}/ 语言子目录
+// 存放，两语言目录内**同名文件**（英文命名，语义对齐）；UI 侧按当前语言
+// 经 GUIDE_FOR_PROVIDER 选档，请求语言文件缺失时回退另一语言
+// （resolveGuideDoc，按收录表存在性判定，不依赖手写登记）。
+//
+// 注意：语言子目录下所有 .md 都会被收集进应用包（UI 可见性另由
+// GUIDE_FOR_PROVIDER 显式映射控制）；草稿/说明文件勿放这些目录。
 //
 // 文档内图片引用路径约定：相对仓库 docs/ 目录，如 `assets/bundle/foo.png`；
 // 查表未命中时渲染占位（guideImageSrc 返回 null）。
 
 import type { GuideInline } from "./guideMd";
+import type { UiLang } from "../i18n";
 
-const docModules = import.meta.glob("../../../../docs/guide/*.md", {
+const zhDocModules = import.meta.glob("../../../../docs/guide/zh/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const enDocModules = import.meta.glob("../../../../docs/guide/en/*.md", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -24,26 +36,45 @@ const imageModules = import.meta.glob(
   { query: "?url", import: "default", eager: true },
 ) as Record<string, string>;
 
-/** 指引文档表：文件名（含扩展名）→ 原文。 */
-export const GUIDE_DOCS: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(docModules).map(([path, content]) => [fileNameOf(path), content]),
-);
+/** 指引文档表：语言 →（文件名含扩展名 → 原文）。 */
+export const GUIDE_DOCS: Readonly<Record<UiLang, Readonly<Record<string, string>>>> = {
+  zh: toMap(zhDocModules),
+  en: toMap(enDocModules),
+};
 
 /** 打包图片资产表：文件名 → vite 产物 URL。 */
-export const BUNDLE_ASSETS: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(imageModules).map(([path, url]) => [fileNameOf(path), url]),
-);
+export const BUNDLE_ASSETS: Readonly<Record<string, string>> = toMap(imageModules);
 
-/** native 平台 id → 指引文档名；新增平台指引只需在此登记。 */
+/** native 平台 id → 指引文档名（两语言目录内同名文件）；新增平台指引只需在此登记。 */
 export const GUIDE_FOR_PROVIDER: Readonly<Record<string, string>> = {
-  aliyun_bss: "阿里云余额监控配置指引.md",
+  aliyun_bss: "aliyun-balance-setup-guide.md",
 };
+
+/** 按平台与 UI 语言解析指引文档；请求语言的文件未收录时回退另一语言，
+ *  均未收录或平台无映射返回 null。收录表可注入（纯函数，测试单语回退用）。 */
+export function resolveGuideDoc(
+  providerId: string,
+  lang: UiLang,
+  docs: Readonly<Record<UiLang, Readonly<Record<string, string>>>> = GUIDE_DOCS,
+): { lang: UiLang; key: string } | null {
+  const key = GUIDE_FOR_PROVIDER[providerId];
+  if (!key) return null;
+  if (docs[lang][key]) return { lang, key };
+  const other: UiLang = lang === "zh" ? "en" : "zh";
+  return docs[other][key] ? { lang: other, key } : null;
+}
 
 /** 文档内图片引用 → 打包 URL；未命中返回 null（组件渲染占位）。
  *  接受两种引用形态：完整相对路径（assets/bundle/foo.png）与裸文件名。 */
 export function bundleImageSrc(src: string): string | null {
   const name = fileNameOf(src);
   return BUNDLE_ASSETS[name] ?? null;
+}
+
+function toMap(modules: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(modules).map(([path, content]) => [fileNameOf(path), content]),
+  );
 }
 
 function fileNameOf(path: string): string {

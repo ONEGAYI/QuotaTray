@@ -174,6 +174,7 @@ export const en: Record<TextKey, string> = {
   "edit.key2Required": "Required on this platform · AccessKey Secret (leave blank to keep once configured)",
   "edit.guideButton": "Setup guide",
   "edit.guideImageMissing": "Image missing: {alt}",
+  "edit.guideDocMissing": "Guide document is missing. Please update to the latest version and retry.",
 
   // ---- Template sub-tabs and presets ----
   "edit.subProvider": "Provider & model",

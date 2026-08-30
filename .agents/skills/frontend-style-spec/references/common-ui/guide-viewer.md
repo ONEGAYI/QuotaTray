@@ -5,12 +5,14 @@
 
 ## T-012 配置指引渲染器（guide viewer）
 
-**形态**（2026-08-30 立，入口位置同日修订）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
+**形态**（2026-08-30 立，入口位置同日修订；语言组织同日追加）：嵌套 `DialogShell size="lg"`（`qt-dialog-guide`，
 定高 `min(78vh, 720px)` 与编辑弹窗同模式，长文档在 body 内滚动），从 EditDialog
 **第二凭据槽 hint 行**的行内「配置指引」链接打开（仅 `guideDocs.ts` 的
 `GUIDE_FOR_PROVIDER` 登记过的平台渲染）。渲染轻量 Markdown 子集
 （解析见 `guideMd.ts`，子集清单见预研文档 §六）；文档 h1 在弹窗语境降级
-为 h2（弹窗标题承担一级语境）。
+为 h2（弹窗标题承担一级语境）。文档按 `docs/guide/{zh,en}/` 语言子目录
+组织，两语言目录内**同名英文文件名**；UI 按当前语言经 `resolveGuideDoc`
+选档，请求语言文件未收录时回退另一语言（收录表存在性判定，非手写登记）。
 
 **排版取值**（间距与字号暂不令牌化，按 SKILL 约定在此登记）：
 

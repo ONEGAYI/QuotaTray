@@ -25,7 +25,7 @@ import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
 import { isValidConsoleUrlInput } from "./providerCardView";
 import { resolveSaveKeys } from "./editDialogView";
-import { GUIDE_FOR_PROVIDER } from "./guideDocs";
+import { resolveGuideDoc } from "./guideDocs";
 import { GuideViewer } from "./GuideViewer";
 import { Button, DialogShell, SegmentedControl } from "./ui";
 
@@ -66,7 +66,7 @@ const labelCls = "qt-field-label";
 
 export function EditDialog({ open, initial, usageCurrency, mobile = false, onClose }: Props) {
   const qc = useQueryClient();
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const natives = useNativeMetas();
   const [tab, setTab] = useState<Tab>(
     initial?.kind.type === "template"
@@ -131,7 +131,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   const mobileCliUnsupported = mobile && Boolean(selectedNativeMeta?.uses_cli_credentials);
   // 双凭据 native 平台（如阿里云余额：api_key=AccessKey ID、api_key2=Secret）
   const nativeKey2Required = tab === "native" && Boolean(selectedNativeMeta?.uses_api_key2);
-  const guideDocKey = selectedNativeMeta ? (GUIDE_FOR_PROVIDER[selectedNativeMeta.id] ?? null) : null;
+  // 指引文档按 UI 语言解析（请求语言文件缺失时回退另一语言，guideDocs 纯函数）
+  const guideDoc = selectedNativeMeta ? resolveGuideDoc(selectedNativeMeta.id, lang) : null;
   const selectedPreset = (
     usageCurrency
       ? selectedNativeMeta?.pricing_by_currency?.[usageCurrency.trim().toUpperCase()]
@@ -299,7 +300,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     <label className="qt-field qt-credential-field">
       <span>{t("edit.apiKey2")}</span>
       <small>{t("edit.apiKey2Hint")}</small>
-      {tab === "native" && guideDocKey && (
+      {tab === "native" && guideDoc && (
         <small className="qt-guide-entry">
           <button
             type="button"
@@ -521,8 +522,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
 
         {error && <p className="qt-inline-error">{error}</p>}
       </form>
-      {guideOpen && guideDocKey && (
-        <GuideViewer docKey={guideDocKey} onClose={() => setGuideOpen(false)} />
+      {guideOpen && guideDoc && (
+        <GuideViewer lang={guideDoc.lang} docKey={guideDoc.key} onClose={() => setGuideOpen(false)} />
       )}
     </DialogShell>
   );

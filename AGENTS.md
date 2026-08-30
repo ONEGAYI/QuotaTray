@@ -314,8 +314,8 @@ QuotaTray/
 │       │   │   ├── EditDialog.tsx               # 跨端添加编辑页
 │       │   │   ├── editDialogView.test.ts       # 保存键策略测试
 │       │   │   ├── editDialogView.ts            # 编辑弹窗保存键策略纯函数
-│       │   │   ├── guideDocs.test.ts            # 指引资产收集测试
-│       │   │   ├── guideDocs.ts                 # 指引文档与图片资产收集
+│       │   │   ├── guideDocs.test.ts            # 指引资产收集与语言选档测试
+│       │   │   ├── guideDocs.ts                 # 指引文档与图片资产收集（双语）
 │       │   │   ├── guideMd.test.ts              # 指引解析器契约测试
 │       │   │   ├── guideMd.ts                   # 指引 Markdown 子集解析器
 │       │   │   ├── GuideViewer.tsx              # 配置指引渲染组件
@@ -470,8 +470,11 @@ QuotaTray/
 │   │       └── README.md # 图片资产目录说明
 │   ├── design/          # 设计文档
 │   │   └── tray-ring-demo.html # 圆环视觉规格
-│   ├── guide/           # 用户配置指引（GUI 可渲染）
-│   │   └── 阿里云余额监控配置指引.md # 阿里云余额监控用户配置指引
+│   ├── guide/           # 平台配置指引（zh/en 语言子目录）
+│   │   ├── en/ # 英文版配置指引
+│   │   │   └── aliyun-balance-setup-guide.md # 阿里云余额监控配置指引（英文版）
+│   │   └── zh/ # 中文版配置指引
+│   │       └── aliyun-balance-setup-guide.md # 阿里云余额监控配置指引（中文版）
 │   ├── specs/           # 规格文档
 │   │   ├── CLI-spec.md          # CLI 规格（M2b）
 │   │   ├── console-link-spec.md # 控制台直达规格（#59）
