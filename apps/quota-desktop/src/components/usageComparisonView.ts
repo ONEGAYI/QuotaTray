@@ -2,6 +2,11 @@ import type { UsageComparisonSeries } from "../types";
 
 export const MAX_USAGE_COMPARISONS = 4;
 
+interface UnitBearingScope {
+  metric: "percent" | "absolute";
+  unit: string;
+}
+
 export interface UsageComparisonCandidateKey {
   providerId: string;
   windowKey: string;
@@ -12,7 +17,7 @@ export type AddUsageComparisonResult =
   | { ok: false; reason: "duplicate" | "limit" };
 
 export function usageComparisonId(providerId: string, windowKey: string): string {
-  return `${providerId}\u0000${windowKey}`;
+  return JSON.stringify([providerId, windowKey]);
 }
 
 export function initialUsageComparisons(
@@ -59,6 +64,20 @@ export function usageComparisonConflict(existingUnits: string[], candidateUnit: 
   if (candidateUnit === "%") return null;
   const absoluteUnit = existingUnits.find((unit) => unit !== "%");
   return absoluteUnit && absoluteUnit !== candidateUnit ? absoluteUnit : null;
+}
+
+export function partitionCompatibleUsageScopes<T extends UnitBearingScope>(scopes: T[]): {
+  visible: T[];
+  hidden: T[];
+  absoluteUnit: string | null;
+} {
+  const absoluteUnit = scopes.find((scope) => scope.metric === "absolute")?.unit ?? null;
+  const visible = scopes.filter((scope) => scope.metric === "percent" || scope.unit === absoluteUnit);
+  return {
+    visible,
+    hidden: scopes.filter((scope) => !visible.includes(scope)),
+    absoluteUnit,
+  };
 }
 
 export function detailComparisonIds(ids: string[], focusedId: string | null): string[] {

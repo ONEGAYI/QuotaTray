@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use dialoguer::{Confirm, theme::ColorfulTheme};
 use quota_core::{
-    AppConfig, HistoryExportRow, HistoryStore, export_config_to_path, import_config_to_path,
+    AppConfig, HistoryExportRow, HistoryStore, export_config_to_path_with_usage,
+    import_config_to_path,
 };
 
 use crate::ctx::Ctx;
@@ -32,8 +33,17 @@ pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
     }
     // 历史随包携带；读失败降级为不带历史（导出主任务继续）。
     let history = read_history_rows(ctx);
-    let usage_comparison = settings_io::load_usage_comparison(&ctx.config_path);
-    match export_config_to_path(
+    let usage_comparison = match settings_io::load_usage_comparison(&ctx.config_path) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!(
+                "{}",
+                texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
+            );
+            None
+        }
+    };
+    match export_config_to_path_with_usage(
         &config,
         &vault,
         history.as_deref(),
@@ -75,7 +85,10 @@ pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool) -> i32 {
                 &ctx.config_path,
                 bundle.usage_comparison_series.as_deref(),
             ) {
-                eprintln!("{}导入使用统计比较组合失败：{e}", t(ctx.lang, T::Err));
+                eprintln!(
+                    "{}",
+                    texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
+                );
             }
             println!(
                 "{}",

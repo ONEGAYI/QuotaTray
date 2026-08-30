@@ -6,9 +6,9 @@ import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate, type UsageComparisonDialogMode } from "./UsageComparisonDialog";
-import { detailComparisonIds, initialUsageComparisons, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
+import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, SegmentedControl } from "./ui";
-import { advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, niceAbsoluteScale, shouldZoomUsageChart, splitUsageSeries, USAGE_RANGES, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, niceAbsoluteScale, shouldZoomUsageChart, splitUsageSeries, USAGE_RANGES, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
 
 interface UsageScope extends HistorySeries {
   id: string;
@@ -23,7 +23,7 @@ interface CursorState { timestamp: number; x: number; dock: "top" | "bottom"; }
 interface Props { providers: ProviderEntry[]; providersLoading: boolean; providersError?: unknown; mobile?: boolean; }
 
 const HISTORY_FETCH_SPAN_MS = Math.max(...Object.values(USAGE_RANGES).map((item) => item.spanMs));
-const SERIES_COLORS = ["var(--qt-accent)", "#df6f9f", "#3d9b87", "#e49537"];
+const SERIES_COLORS = ["var(--qt-series-1)", "var(--qt-series-2)", "var(--qt-series-3)", "var(--qt-series-4)"];
 
 function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string {
   const bracketed = windowKey.match(/（([^）]+)）|\(([^)]+)\)/)?.slice(1).find(Boolean);
@@ -118,7 +118,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     void saveSelection([{ provider_id: candidates[0].providerId, window_key: candidates[0].windowKey, color_slot: 0 }]).catch(() => { autoInitRef.current = false; });
   }, [candidates, saveSelection, settings.data?.usage_comparison_series]);
 
-  const scopes = useMemo<UsageScope[]>(() => {
+  const scopePartition = useMemo(() => {
     const builtScopes = effectiveSelection.flatMap((selection) => {
       const providerIndex = providers.findIndex((provider) => provider.id === selection.provider_id);
       if (providerIndex < 0) return [];
@@ -128,11 +128,12 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       const seriesIndex = built.findIndex((item) => item.windowKey === selection.window_key);
       if (seriesIndex < 0) return [];
       const series = built[seriesIndex];
-      return [{ ...series, id: usageComparisonId(provider.id, series.windowKey), providerId: provider.id, providerName: provider.name, name: scopeName(series.windowKey, seriesIndex, lang), colorSlot: selection.color_slot, bucketMs: rangeConfig.bucketMs }];
+      const stableName = candidates.find((candidate) => candidate.id === usageComparisonId(provider.id, series.windowKey))?.windowName;
+      return [{ ...series, id: usageComparisonId(provider.id, series.windowKey), providerId: provider.id, providerName: provider.name, name: stableName ?? scopeName(series.windowKey, seriesIndex, lang), colorSlot: selection.color_slot, bucketMs: rangeConfig.bucketMs }];
     });
-    const absoluteUnit = builtScopes.find((scope) => scope.metric === "absolute")?.unit;
-    return builtScopes.filter((scope) => scope.metric === "percent" || scope.unit === absoluteUnit);
-  }, [effectiveSelection, histories, lang, providers, rangeConfig.bucketMs, totalDomain]);
+    return partitionCompatibleUsageScopes(builtScopes);
+  }, [candidates, effectiveSelection, histories, lang, providers, rangeConfig.bucketMs, totalDomain]);
+  const scopes: UsageScope[] = scopePartition.visible;
   useEffect(() => { if (focusedId && !scopes.some((scope) => scope.id === focusedId)) setFocusedId(null); }, [focusedId, scopes]);
 
   const absoluteScale = niceAbsoluteScale(scopes.filter((scope) => scope.metric === "absolute").flatMap((scope) => scope.samples.map((sample) => sample.value)));
@@ -145,9 +146,12 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const yTicks = [0, 25, 50, 75, 100];
   const detailIds = detailComparisonIds(scopes.map((scope) => scope.id), focusedId);
   const detailScopes = scopes.filter((scope) => detailIds.includes(scope.id));
-  const focusedHasLongGap = scopes.some((scope) => (
-    shouldShowFocusedGap(focusedId, scope.id)
-    && splitUsageSeries(scope.samples, scope.bucketMs).gaps.length > 0
+  const splitScopes = useMemo(() => scopes.map((scope) => ({
+    scope,
+    split: splitUsageSeries(scope.samples, scope.bucketMs),
+  })), [scopes]);
+  const focusedHasLongGap = splitScopes.some(({ scope, split }) => (
+    shouldShowFocusedGap(focusedId, scope.id) && split.gaps.length > 0
   ));
   const dateFormatter = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const axisFormatter = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit" });
@@ -173,20 +177,21 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const endPointer = (event: ReactPointerEvent<SVGSVGElement>) => { dragRef.current = null; setIsDragging(false); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (mobile || scopes.length === 0) return; const point = svgPoint(event.clientX, event.clientY); const inside = point.x >= chart.left && point.x <= chart.right && point.y >= chart.top && point.y <= chart.bottom;
-    if (!shouldZoomUsageChart(event, inside)) return; event.preventDefault(); const totalSpan = totalDomain[1] - totalDomain[0]; const currentSpan = viewDomain[1] - viewDomain[0]; const minSpan = Math.max(rangeConfig.bucketMs * 4, totalSpan * .08); const nextSpan = Math.min(totalSpan, Math.max(minSpan, currentSpan * (event.deltaY > 0 ? 1.18 : .84))); const ratio = (point.x - chart.left) / plotWidth; const anchor = viewDomain[0] + currentSpan * ratio; const nextMin = anchor - nextSpan * ratio; setViewDomain(clampDomain(nextMin, nextMin + nextSpan, totalDomain[0], totalDomain[1]));
+    if (!shouldZoomUsageChart(event, inside)) return; event.preventDefault(); const totalSpan = totalDomain[1] - totalDomain[0]; const currentSpan = viewDomain[1] - viewDomain[0]; const minSpan = Math.max(rangeConfig.bucketMs * 4, totalSpan * .08); const nextSpan = Math.min(totalSpan, Math.max(minSpan, currentSpan * (event.deltaY > 0 ? 1.18 : .84))); const ratio = (point.x - chart.left) / plotWidth; const anchor = viewDomain[0] + currentSpan * ratio; const nextMin = anchor - nextSpan * ratio; setViewDomain(clampDomain(nextMin, nextMin + nextSpan, totalDomain[0], totalDomain[1])); setCursor(null);
   };
   const resetView = () => { setViewDomain(totalDomain); setCursor(null); };
   const selectRange = (next: UsageRange) => { setRange(next); setViewDomain([rangeNow - USAGE_RANGES[next].spanMs, rangeNow]); setCursor(null); };
-  const pageState = providersLoading || settings.isLoading ? { kind: "loading", message: t("usage.loadingProviders") } : providersError ? { kind: "error", message: t("usage.providersError", { msg: String(providersError) }) } : providers.length === 0 ? { kind: "empty", message: t("usage.noProviders") } : effectiveSelection.length === 0 ? { kind: "empty", message: t("usage.emptySelection") } : scopes.length === 0 && histories.some((query) => query.isLoading) ? { kind: "loading", message: t("usage.loadingHistory") } : scopes.length === 0 ? { kind: "empty", message: t("usage.emptyHistory") } : null;
+  const pageState = providersLoading || settings.isLoading ? { kind: "loading", message: t("usage.loadingProviders") } : providersError ? { kind: "error", message: t("usage.providersError", { msg: String(providersError) }) } : settings.isError ? { kind: "error", message: t("usage.settingsError", { msg: String(settings.error) }) } : providers.length === 0 ? { kind: "empty", message: t("usage.noProviders") } : effectiveSelection.length === 0 ? { kind: "empty", message: t("usage.emptySelection") } : scopes.length === 0 && histories.some((query) => query.isLoading) ? { kind: "loading", message: t("usage.loadingHistory") } : scopes.length === 0 ? { kind: "empty", message: t("usage.emptyHistory") } : null;
   const partialErrors = histories.filter((query) => query.isError).length;
   const cursorRows = cursor ? detailScopes.map((scope) => ({ scope, sample: nearestSample(scope, cursor.timestamp) })) : [];
 
   return <section className="qt-usage-page" aria-label={t("usage.title")}>
     <div className="qt-usage-toolbar"><div className="qt-usage-comparison-actions"><Button icon={Plus} onClick={() => setDialogMode("add")}>{t("usage.addCombination")} <span>{t("usage.combinationCount", { count: effectiveSelection.length })}</span></Button><Button icon={Settings2} variant="ghost" onClick={() => setDialogMode("manage")}>{t("usage.manageCombinations")}</Button></div><div className="qt-usage-range-switch"><SegmentedControl value={range} onChange={selectRange} compact options={[{ value: "24h", label: t("usage.range24h") }, { value: "7d", label: t("usage.range7d") }]} /></div></div>
     {partialErrors > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.historyError", { msg: String(partialErrors) })}</div>}
+    {scopePartition.hidden.length > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.unitConflictHidden", { count: scopePartition.hidden.length, unit: scopePartition.absoluteUnit ?? "—" })}</div>}
     {!mobile && scopes.length > 0 && <div className="qt-usage-series-summary">{scopes.map((scope) => { const current = scope.samples[scope.samples.length - 1]; return <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}><i /><span>{scope.providerName} · {scope.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button>; })}</div>}
     {mobile && scopes.length > 0 && <div className="qt-usage-mobile-focus">{scopes.map((scope) => <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}>{scope.providerName} · {scope.name}</button>)}</div>}
-    {pageState ? <div className={`qt-usage-state is-${pageState.kind}`}><strong>{pageState.kind === "empty" ? t("usage.emptyTitle") : t("usage.statusTitle")}</strong><span>{pageState.message}</span>{effectiveSelection.length === 0 && <Button icon={Plus} onClick={() => setDialogMode("add")}>{t("usage.addCombination")}</Button>}</div> : <article className="qt-usage-chart-card">
+    {pageState ? <div className={`qt-usage-state is-${pageState.kind}`}><strong>{pageState.kind === "empty" ? t("usage.emptyTitle") : t("usage.statusTitle")}</strong><span>{pageState.message}</span></div> : <article className="qt-usage-chart-card">
       <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></header>
       <div className={`qt-usage-chart-wrap ${isDragging ? "is-dragging" : ""}`} onWheelCapture={onWheel}>
         <svg ref={svgRef} className="qt-usage-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={t("usage.comparisonChartLabel", { count: scopes.length })} onPointerLeave={() => { if (!mobile && !isDragging) setCursor(null); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onDoubleClick={() => { if (!mobile) resetView(); }}>
@@ -206,11 +211,11 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
           <g className={`qt-usage-axis qt-usage-axis-left ${absolutePresent ? "is-active" : ""}`}>{absolutePresent && yTicks.map((tick) => { const y = chart.bottom - tick / 100 * plotHeight; return <g key={tick}><line x1={chart.left - 7} x2={chart.left} y1={y} y2={y} /><text x={chart.left - 11} y={y + 4} textAnchor="end">{formatAxisNumber(absoluteScale.max * tick / 100)}</text></g>; })}</g>
           <g className={`qt-usage-axis qt-usage-axis-right ${percentPresent ? "is-active" : ""}`}>{percentPresent && yTicks.map((tick) => { const y = chart.bottom - tick / 100 * plotHeight; return <g key={tick}><line x1={chart.right} x2={chart.right + 7} y1={y} y2={y} /><text x={chart.right + 11} y={y + 4}>{tick}%</text></g>; })}</g>
           <g className="qt-usage-axis qt-usage-axis-bottom is-active">{xTicks.map((tick, index) => <text key={tick} x={xOf(tick)} y={chart.bottom + 24} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{axisFormatter.format(tick)}</text>)}</g>
-          <g clipPath="url(#qt-usage-plot-clip)">{scopes.map((scope) => { const split = splitUsageSeries(scope.samples, scope.bucketMs); const muted = focusedId && focusedId !== scope.id; const showLongGaps = shouldShowFocusedGap(focusedId, scope.id); return <g key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} className={muted ? "is-muted" : focusedId === scope.id ? "is-focused" : ""}>{showLongGaps && split.gaps.map((gap) => { const from = xOf(gap.from.timestamp); const to = xOf(gap.to.timestamp); return <g key={`gap-${gap.from.timestamp}`}><rect className="qt-usage-gap-fill" x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-fade)" /><rect x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-pattern)" opacity=".34" /><circle className="qt-usage-gap-edge" cx={from} cy={yOf(scope, gap.from.value)} r="4.5" /><circle className="qt-usage-gap-edge" cx={to} cy={yOf(scope, gap.to.value)} r="4.5" /></g>; })}{split.bridges.map((bridge) => <line key={bridge.from.timestamp} className="qt-usage-bridge" x1={xOf(bridge.from.timestamp)} y1={yOf(scope, bridge.from.value)} x2={xOf(bridge.to.timestamp)} y2={yOf(scope, bridge.to.value)} />)}{split.segments.map((segment, index) => { const geometry = buildLineGeometry(segment, xOf, (value) => yOf(scope, value)); return geometry.path ? <path key={index} className="qt-usage-series" d={geometry.path} /> : null; })}{cursor && (() => { const sample = nearestSample(scope, cursor.timestamp); return sample && detailIds.includes(scope.id) ? <circle className="qt-usage-hover-dot" cx={cursor.x} cy={yOf(scope, sample.value)} r="4" /> : null; })()}</g>; })}{cursor && <line className="qt-usage-crosshair" x1={cursor.x} x2={cursor.x} y1={chart.top} y2={chart.bottom} />}</g>
+          <g clipPath="url(#qt-usage-plot-clip)">{splitScopes.map(({ scope, split }) => { const muted = focusedId && focusedId !== scope.id; const showLongGaps = shouldShowFocusedGap(focusedId, scope.id); return <g key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} className={muted ? "is-muted" : focusedId === scope.id ? "is-focused" : ""}>{showLongGaps && split.gaps.map((gap) => { const from = xOf(gap.from.timestamp); const to = xOf(gap.to.timestamp); return <g key={`gap-${gap.from.timestamp}`}><rect className="qt-usage-gap-fill" x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-fade)" /><rect x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-pattern)" opacity=".34" /><circle className="qt-usage-gap-edge" cx={from} cy={yOf(scope, gap.from.value)} r="4.5" /><circle className="qt-usage-gap-edge" cx={to} cy={yOf(scope, gap.to.value)} r="4.5" /></g>; })}{split.bridges.map((bridge) => <line key={bridge.from.timestamp} className="qt-usage-bridge" x1={xOf(bridge.from.timestamp)} y1={yOf(scope, bridge.from.value)} x2={xOf(bridge.to.timestamp)} y2={yOf(scope, bridge.to.value)} />)}{split.segments.map((segment, index) => { const geometry = buildLineGeometry(segment, xOf, (value) => yOf(scope, value)); return geometry.path ? <path key={index} className="qt-usage-series" d={geometry.path} /> : null; })}{isolatedUsageSamples(split).map((sample) => <circle key={`solo-${sample.timestamp}`} className="qt-usage-endpoint" cx={xOf(sample.timestamp)} cy={yOf(scope, sample.value)} r="4" />)}{cursor && (() => { const sample = nearestSample(scope, cursor.timestamp); return sample && detailIds.includes(scope.id) ? <circle className="qt-usage-hover-dot" cx={cursor.x} cy={yOf(scope, sample.value)} r="4" /> : null; })()}</g>; })}{cursor && <line className="qt-usage-crosshair" x1={cursor.x} x2={cursor.x} y1={chart.top} y2={chart.bottom} />}</g>
         </svg>
         {!mobile && cursor && <div className={`qt-usage-tooltip is-docked-${cursor.dock}`} style={{ left: `${Math.min(82, Math.max(12, cursor.x / chart.width * 100))}%` }}><span className="qt-usage-tooltip-time">{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} className="qt-usage-tooltip-row" style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
       </div>
-      {mobile && cursor && <div className="qt-usage-mobile-readout"><span>{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
+      {mobile && cursor && <div className="qt-usage-mobile-readout" aria-live="polite"><span>{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
       {!mobile && <footer className="qt-usage-chart-footer"><span><MousePointer2 size={14} aria-hidden="true" />{t("usage.dragHint")}</span><span><Maximize2 size={14} aria-hidden="true" />{t("usage.zoomHint")}</span><span>{t("usage.focusHint")}</span>{focusedHasLongGap && <span className="qt-usage-legend-gap"><i />{t("usage.gapLegend")}</span>}</footer>}
     </article>}
     {dialogMode && <UsageComparisonDialog mode={dialogMode} candidates={candidates} selected={effectiveSelection} onClose={() => setDialogMode(null)} onSave={saveSelection} />}

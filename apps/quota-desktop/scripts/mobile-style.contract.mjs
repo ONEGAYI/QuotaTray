@@ -4,6 +4,17 @@ import test from "node:test";
 
 const css = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 const ui = await readFile(new URL("../src/components/ui.tsx", import.meta.url), "utf8");
+const usageStats = await readFile(new URL("../src/components/UsageStatsPage.tsx", import.meta.url), "utf8");
+
+test("统计曲线色槽由明暗成对 CSS 令牌单一维护（DT-001/T-013）", () => {
+  const darkRoot = css.match(/:root\.dark\s*\{(?<body>[^}]*)\}/s)?.groups?.body ?? "";
+  for (let slot = 1; slot <= 4; slot += 1) {
+    assert.match(css, new RegExp(`--qt-series-${slot}:`));
+    assert.match(darkRoot, new RegExp(`--qt-series-${slot}:`));
+    assert.match(usageStats, new RegExp(`var\\(--qt-series-${slot}\\)`));
+  }
+  assert.doesNotMatch(usageStats, /#df6f9f|#3d9b87|#e49537/);
+});
 
 test("Android 宽视口仍以显式详情按钮控制卡片展开", () => {
   assert.match(
@@ -107,11 +118,11 @@ test("Android 更新页行内链接按语境分治满足 44px 命中区（T-010�
 });
 
 test("Android 统计页与正文主按钮满足 44px 命中区（T-010 审查轮补齐）", () => {
-  // 2026-08-29 审查轮发现：统计页裸下拉（无 qt-select 类，38px）与重置钮
-  // 29px、设置迁移区/模板试查区正文按钮（qt-btn 基类 36px，无移动覆盖）
+  // 统计页工具栏组合按钮与重置钮、设置迁移区/模板试查区正文按钮
+  // 均需覆盖 qt-btn 基类的 36px 高度。
   assert.match(
     css,
-    /body\.qt-mobile-runtime \.qt-usage-selector select\s*\{[^}]*min-height:\s*44px;/s,
+    /body\.qt-mobile-runtime \.qt-usage-comparison-actions \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
   );
   assert.match(
     css,

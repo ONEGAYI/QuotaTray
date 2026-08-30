@@ -4,6 +4,7 @@ import {
   buildLineGeometry,
   buildHistorySeries,
   historyPointValue,
+  isolatedUsageSamples,
   niceAbsoluteScale,
   shouldZoomUsageChart,
   splitUsageSeries,
@@ -66,6 +67,11 @@ describe("使用统计图表纯逻辑", () => {
     ]);
 
     expect(buildLineGeometry([point(3, 7)], () => 18, () => 24).path).toBe("");
+  });
+
+  it("孤立单点从断线分段中单独提取用于圆点渲染", () => {
+    const split = splitUsageSeries([point(0, 10), point(8, 20), point(9, 30)], HOUR);
+    expect(isolatedUsageSamples(split)).toEqual([point(0, 10)]);
   });
 
   it("普通滚轮和非绘图区 Ctrl+滚轮留给页面，仅绘图区 Ctrl+滚轮缩放", () => {

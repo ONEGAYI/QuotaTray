@@ -1138,11 +1138,11 @@ pub fn config_export_confirm(lang: Lang, path: &std::path::Path) -> String {
 pub fn config_import_confirm(lang: Lang, path: &std::path::Path) -> String {
     match lang {
         Lang::En => format!(
-            "Import {}? This replaces all current providers, credentials, pricing, and custom models",
+            "Import {}? This replaces all current providers, credentials, pricing, custom models, and usage comparison selections",
             path.display()
         ),
         _ => format!(
-            "导入 {}？这会整体替换当前所有供应商、凭据、定价与自定义模型",
+            "导入 {}？这会整体替换当前所有供应商、凭据、定价、自定义模型与使用统计比较组合",
             path.display()
         ),
     }
@@ -1180,6 +1180,14 @@ pub fn history_transfer_degraded(lang: Lang, reason: &str) -> String {
     match lang {
         Lang::En => format!("history data not transferred ({reason})"),
         _ => format!("历史数据未随迁移包传递（{reason}）"),
+    }
+}
+
+/// 比较组合读取/写入失败但配置主体迁移继续时的双语降级提示。
+pub fn usage_comparison_transfer_degraded(lang: Lang, reason: &str) -> String {
+    match lang {
+        Lang::En => format!("usage comparison selections not transferred ({reason})"),
+        _ => format!("使用统计比较组合未随配置迁移（{reason}）"),
     }
 }
 

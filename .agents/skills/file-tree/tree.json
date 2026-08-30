@@ -415,10 +415,9 @@
                       "kind": "file",
                       "desc": "配置导入导出",
                       "detail": [
-                        "config export/import：高敏感确认、完整配置迁移、",
-                        "目标机器 Vault 重加密与失败不覆盖契约测试；",
-                        "迁移包携带查询历史（M5）——导出全量带出、",
-                        "导入按主键幂等合并，读失败降级不带不阻断"
+                        "config export/import：高敏感确认、完整配置与使用统计比较组合迁移",
+                        "目标机器 Vault 重加密与失败不覆盖契约测试",
+                        "迁移包携带查询历史：导出全量带出、导入按主键幂等合并，读失败降级不阻断"
                       ]
                     },
                     "devsmoke.rs": {
@@ -621,11 +620,12 @@
                 },
                 "settings_io.rs": {
                   "kind": "file",
-                  "desc": "settings.json 读取",
+                  "desc": "CLI 设置读改写",
                   "detail": [
-                    "settings.json 的 update 字段读取（mini struct：开关/时刻/",
-                    "时间戳/代理端口）+ last_check 写回（Value 读改写保留",
-                    "未知字段 + 原子写）"
+                    "以 JSON Value 读改写 update 偏好与使用统计比较组合，保留未知字段并原子落盘"
+                  ],
+                  "rel": [
+                    "crates/quota-core/src/config/transfer.rs"
                   ]
                 },
                 "texts.rs": {

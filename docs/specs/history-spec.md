@@ -79,8 +79,9 @@ CLI 查看（M5-a）提供数据底座。存储使用 SQLite（rusqlite，bundle
   `quotatray-config-export:v2`，防跨版本密文重放。
 - 历史行仅含数值列（§2 的列 + `provider_id`），不进凭据转写（无敏感字段），
   但随容器整体加密，不泄漏明文。
-- 旧二进制读 v2 容器报「不支持的版本」——单向升级，先例同 script
-  ProviderKind。
+- 仅支持 v1 的旧二进制读 v2 容器报「不支持的版本」；已支持 v2、但早于
+  `usage_comparison_series` 字段的程序会忽略该未知可选字段，配置与历史仍导入成功，
+  比较组合不会随降级导入（这是保持 v2 容器兼容的已确认取舍）。
 - 导入合并：`HistoryStore::merge_rows` 按主键 `INSERT OR REPLACE`，幂等；
   两台机器各自积累的时间线自然拼接（同条目 id 在导入配置时保留原 id）。
   已知边界：两机独立消歧产生的同名 `Quota#2` 可能指向不同配额池，

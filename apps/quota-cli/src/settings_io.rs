@@ -1,12 +1,11 @@
-//! CLI 侧更新设置读写：settings.json 的 update 三字段。
+//! CLI 侧 settings.json 读改写：更新偏好与使用统计比较组合。
 //!
 //! settings.json 归桌面端拥有（完整 Settings 结构在 quota-desktop crate，
 //! CLI 不依赖它）；本模块以 mini struct 读取、以 `serde_json::Value`
 //! 读改写回写——保留 CLI 不认识的其他字段。
 //!
-//! 已知竞态：GUI `save_settings` 是全量序列化，会抹掉 CLI 旁路写入的
-//! 字段；影响仅为 `update_last_check` 节流时间戳回退（下次多检一次），
-//! 无害，接受并在此明示。
+//! GUI 写设置前会从磁盘合并 CLI 拥有的 `update_last_check` 与比较组合字段，
+//! 避免常驻 GUI 用旧内存状态覆盖 CLI 导入结果。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -64,11 +63,24 @@ pub fn load_prefs(config_path: &Path) -> UpdatePrefs {
         .unwrap_or_default()
 }
 
-/// 读取使用统计比较组合；字段缺失/文件缺失或损坏均视为旧版未初始化。
-pub fn load_usage_comparison(config_path: &Path) -> Option<Vec<quota_core::UsageComparisonSeries>> {
+/// 读取并归一化使用统计比较组合；字段/文件缺失视为旧版未初始化，
+/// 损坏内容显式返回错误，供导出命令提示降级。
+pub fn load_usage_comparison(
+    config_path: &Path,
+) -> std::io::Result<Option<Vec<quota_core::UsageComparisonSeries>>> {
     let p = settings_path(config_path);
-    let root: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
-    serde_json::from_value(root.get("usage_comparison_series")?.clone()).ok()
+    let text = match std::fs::read_to_string(p) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let root: serde_json::Value = serde_json::from_str(&text).map_err(std::io::Error::other)?;
+    let Some(value) = root.get("usage_comparison_series") else {
+        return Ok(None);
+    };
+    let items: Vec<quota_core::UsageComparisonSeries> =
+        serde_json::from_value(value.clone()).map_err(std::io::Error::other)?;
+    Ok(Some(quota_core::sanitize_usage_comparison_series(items)))
 }
 
 /// 导入迁移包后替换比较组合；None 删除字段，保留 settings.json 其他键。
@@ -88,6 +100,7 @@ pub fn write_usage_comparison(
     let object = root.as_object_mut().expect("normalized object");
     match value {
         Some(items) => {
+            let items = quota_core::sanitize_usage_comparison_series(items.to_vec());
             object.insert(
                 "usage_comparison_series".into(),
                 serde_json::to_value(items).map_err(std::io::Error::other)?,
@@ -300,7 +313,7 @@ mod tests {
         }];
 
         write_usage_comparison(&cfg, Some(&items)).unwrap();
-        assert_eq!(load_usage_comparison(&cfg), Some(items));
+        assert_eq!(load_usage_comparison(&cfg).unwrap(), Some(items));
         let saved: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap())
                 .unwrap();
@@ -312,6 +325,35 @@ mod tests {
                 .unwrap();
         assert!(saved.get("usage_comparison_series").is_none());
         assert_eq!(saved["theme"], "dark");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn usage_comparison_read_and_write_share_core_sanitize_rules() {
+        let dir = temp_dir("usage-comparison-sanitize");
+        let cfg = dir.join("config.json");
+        let invalid = vec![
+            quota_core::UsageComparisonSeries {
+                provider_id: " p1 ".into(),
+                window_key: " w1 ".into(),
+                color_slot: 9,
+            },
+            quota_core::UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            },
+        ];
+
+        write_usage_comparison(&cfg, Some(&invalid)).unwrap();
+        assert_eq!(
+            load_usage_comparison(&cfg).unwrap(),
+            Some(vec![quota_core::UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            }])
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

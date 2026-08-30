@@ -7,8 +7,10 @@
 //! 容器版本：v1 明文载荷为 `AppConfig`（历史版本，仍可导入）；v2 起为
 //! `{ config, history, usage_comparison_series? }` 信封，随配置携带历史走势数据
 //! 与可选的使用统计比较组合（均不含凭据）。
-//! 新版本只产 v2；旧二进制读到 v2 会拒绝导入（单向升级）。
+//! 新版本只产 v2；仅支持 v1 的旧二进制会拒绝 v2。已支持 v2、但早于可选比较
+//! 字段的二进制会按 serde 默认规则忽略未知字段，配置与历史仍可降级导入。
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
@@ -35,9 +37,51 @@ const ENVELOPE_AAD_V2: &str = "quotatray-config-export:v2";
 /// 使用统计中持久化的一条 Provider + 窗口组合。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct UsageComparisonSeries {
+    /// Provider 的稳定配置 id。
     pub provider_id: String,
+    /// 历史库中的模型/额度窗口键。
     pub window_key: String,
+    /// 固定颜色槽，合法范围为 `0..MAX_USAGE_COMPARISON_SERIES`。
     pub color_slot: u8,
+}
+
+/// 同屏比较的最大曲线数，也是合法色槽数量。
+pub const MAX_USAGE_COMPARISON_SERIES: usize = 4;
+
+/// 归一化跨端共享的比较组合：裁剪键、按顺序去重、限制四条，并修复色槽。
+pub fn sanitize_usage_comparison_series(
+    items: Vec<UsageComparisonSeries>,
+) -> Vec<UsageComparisonSeries> {
+    let mut normalized = Vec::with_capacity(items.len().min(MAX_USAGE_COMPARISON_SERIES));
+    let mut keys = HashSet::new();
+    let mut slots = HashSet::new();
+    for mut item in items {
+        item.provider_id = item.provider_id.trim().to_owned();
+        item.window_key = item.window_key.trim().to_owned();
+        if item.provider_id.is_empty()
+            || item.window_key.is_empty()
+            || !keys.insert((item.provider_id.clone(), item.window_key.clone()))
+        {
+            continue;
+        }
+        if usize::from(item.color_slot) >= MAX_USAGE_COMPARISON_SERIES
+            || !slots.insert(item.color_slot)
+        {
+            let Some(slot) = (0..MAX_USAGE_COMPARISON_SERIES)
+                .map(|slot| u8::try_from(slot).expect("four color slots fit u8"))
+                .find(|slot| !slots.contains(slot))
+            else {
+                break;
+            };
+            item.color_slot = slot;
+            slots.insert(slot);
+        }
+        normalized.push(item);
+        if normalized.len() == MAX_USAGE_COMPARISON_SERIES {
+            break;
+        }
+    }
+    normalized
 }
 
 /// v2 容器的明文信封；可选字段缺省表示旧包未携带。
@@ -92,9 +136,21 @@ pub enum ConfigTransferError {
 
 /// 将完整配置（可选携带历史数据）编码为携带一次性迁移密钥的私有认证容器。
 ///
+/// 保留 v2 历史迁移阶段的公开签名；需要携带统计比较组合时使用
+/// [`export_config_with_usage`]。
+pub fn export_config(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+) -> Result<Vec<u8>, ConfigTransferError> {
+    export_config_with_usage(config, source_vault, history, None)
+}
+
+/// 将完整配置、可选历史与使用统计组合编码为私有认证容器。
+///
 /// 所有已配置凭据必须能被 `source_vault` 解密，否则整次导出失败。
 /// 始终产 v2 信封容器；历史与比较组合均可选择不携带。
-pub fn export_config(
+pub fn export_config_with_usage(
     config: &AppConfig,
     source_vault: &Vault,
     history: Option<&[HistoryExportRow]>,
@@ -107,7 +163,8 @@ pub fn export_config(
     let envelope = ExportEnvelope {
         config: transferable,
         history: history.map(|rows| rows.to_vec()),
-        usage_comparison_series: usage_comparison_series.map(|rows| rows.to_vec()),
+        usage_comparison_series: usage_comparison_series
+            .map(|rows| sanitize_usage_comparison_series(rows.to_vec())),
     };
     let serialized =
         Zeroizing::new(serde_json::to_string(&envelope).map_err(ConfigTransferError::Serialize)?);
@@ -203,7 +260,9 @@ pub fn import_config(
         TransferBundle {
             config: envelope.config,
             history: envelope.history,
-            usage_comparison_series: envelope.usage_comparison_series,
+            usage_comparison_series: envelope
+                .usage_comparison_series
+                .map(sanitize_usage_comparison_series),
         }
     };
     Ok(bundle)
@@ -214,10 +273,20 @@ pub fn export_config_to_path(
     config: &AppConfig,
     source_vault: &Vault,
     history: Option<&[HistoryExportRow]>,
+    export_path: &Path,
+) -> Result<(), ConfigTransferError> {
+    export_config_to_path_with_usage(config, source_vault, history, None, export_path)
+}
+
+/// 原子写出携带可选统计比较组合的迁移包。
+pub fn export_config_to_path_with_usage(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
     usage_comparison_series: Option<&[UsageComparisonSeries]>,
     export_path: &Path,
 ) -> Result<(), ConfigTransferError> {
-    let bytes = export_config(config, source_vault, history, usage_comparison_series)?;
+    let bytes = export_config_with_usage(config, source_vault, history, usage_comparison_series)?;
     atomic_write(export_path, &bytes).map_err(ConfigTransferError::Write)
 }
 
@@ -380,7 +449,7 @@ mod tests {
         let target_key_before = target_store.get().unwrap().unwrap();
         let config = sample_config(&source_vault);
 
-        let bytes = export_config(&config, &source_vault, None, None).unwrap();
+        let bytes = export_config(&config, &source_vault, None).unwrap();
         let imported = import_config(&bytes, &target_vault).unwrap();
 
         assert_eq!(imported.config.providers.len(), 2);
@@ -424,8 +493,8 @@ mod tests {
         let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
         let config = sample_config(&source_vault);
         let history = sample_history();
-        let first = export_config(&config, &source_vault, Some(&history), None).unwrap();
-        let second = export_config(&config, &source_vault, Some(&history), None).unwrap();
+        let first = export_config(&config, &source_vault, Some(&history)).unwrap();
+        let second = export_config(&config, &source_vault, Some(&history)).unwrap();
 
         assert_ne!(first, second);
         assert_ne!(
@@ -455,7 +524,7 @@ mod tests {
     fn empty_missing_and_empty_string_credentials_roundtrip() {
         let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
         let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
-        let empty = export_config(&AppConfig::default(), &source_vault, None, None).unwrap();
+        let empty = export_config(&AppConfig::default(), &source_vault, None).unwrap();
         assert_eq!(
             import_config(&empty, &target_vault).unwrap().config,
             AppConfig::default()
@@ -465,7 +534,7 @@ mod tests {
         config.providers[0].api_key_enc = None;
         config.providers[1].set_api_key(&source_vault, "").unwrap();
         let imported = import_config(
-            &export_config(&config, &source_vault, None, None).unwrap(),
+            &export_config(&config, &source_vault, None).unwrap(),
             &target_vault,
         )
         .unwrap();
@@ -484,8 +553,7 @@ mod tests {
     fn malformed_or_tampered_packages_are_rejected() {
         let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
         let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
-        let valid =
-            export_config(&sample_config(&source_vault), &source_vault, None, None).unwrap();
+        let valid = export_config(&sample_config(&source_vault), &source_vault, None).unwrap();
 
         let mut bad_magic = valid.clone();
         bad_magic[0] ^= 1;
@@ -564,7 +632,7 @@ mod tests {
         let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
         let mut config = sample_config(&source_vault);
         config.providers[0].api_key_enc = Some("v1:AAAA".into());
-        assert!(export_config(&config, &source_vault, None, None).is_err());
+        assert!(export_config(&config, &source_vault, None).is_err());
     }
 
     #[test]
@@ -584,7 +652,7 @@ mod tests {
         assert!(import_config_to_path(&export_path, &target_vault, &config_path).is_err());
         assert_eq!(AppConfig::load(&config_path).unwrap(), original);
 
-        export_config_to_path(&source, &source_vault, None, None, &export_path).unwrap();
+        export_config_to_path(&source, &source_vault, None, &export_path).unwrap();
         let decoded = import_config_from_path(&export_path, &target_vault).unwrap();
         let saved = import_config_to_path(&export_path, &target_vault, &config_path).unwrap();
         assert_eq!(decoded.config.custom_models, saved.config.custom_models);
@@ -667,7 +735,7 @@ mod tests {
         let config = sample_config(&source_vault);
         let history = sample_history();
 
-        let bytes = export_config(&config, &source_vault, Some(&history), None).unwrap();
+        let bytes = export_config(&config, &source_vault, Some(&history)).unwrap();
         let bundle = import_config(&bytes, &target_vault).unwrap();
 
         assert_eq!(bundle.history, Some(history));
@@ -693,10 +761,59 @@ mod tests {
             color_slot: 2,
         }];
 
-        let bytes = export_config(&config, &source_vault, None, Some(&comparison)).unwrap();
+        let bytes =
+            export_config_with_usage(&config, &source_vault, None, Some(&comparison)).unwrap();
         let bundle = import_config(&bytes, &target_vault).unwrap();
 
         assert_eq!(bundle.usage_comparison_series, Some(comparison));
+    }
+
+    #[test]
+    fn usage_comparison_sanitize_trims_deduplicates_caps_and_repairs_slots() {
+        let items = vec![
+            UsageComparisonSeries {
+                provider_id: " p1 ".into(),
+                window_key: " w1 ".into(),
+                color_slot: 3,
+            },
+            UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            },
+            UsageComparisonSeries {
+                provider_id: "p2".into(),
+                window_key: "w2".into(),
+                color_slot: 3,
+            },
+            UsageComparisonSeries {
+                provider_id: "p3".into(),
+                window_key: "w3".into(),
+                color_slot: 9,
+            },
+            UsageComparisonSeries {
+                provider_id: "p4".into(),
+                window_key: "w4".into(),
+                color_slot: 1,
+            },
+            UsageComparisonSeries {
+                provider_id: "p5".into(),
+                window_key: "w5".into(),
+                color_slot: 2,
+            },
+        ];
+
+        let sanitized = sanitize_usage_comparison_series(items);
+        assert_eq!(sanitized.len(), 4);
+        assert_eq!(sanitized[0].provider_id, "p1");
+        assert_eq!(sanitized[0].window_key, "w1");
+        assert_eq!(
+            sanitized
+                .iter()
+                .map(|item| item.color_slot)
+                .collect::<Vec<_>>(),
+            vec![3, 0, 1, 2]
+        );
     }
 
     #[test]
@@ -718,6 +835,7 @@ mod tests {
         let bundle = import_config(&v1_bytes, &target_vault).unwrap();
         assert_eq!(bundle.config.providers.len(), 2);
         assert!(bundle.history.is_none());
+        assert!(bundle.usage_comparison_series.is_none());
     }
 
     #[test]
@@ -738,7 +856,7 @@ mod tests {
             })
             .collect();
         assert!(matches!(
-            export_config(&config, &source_vault, Some(&rows), None),
+            export_config(&config, &source_vault, Some(&rows)),
             Err(ConfigTransferError::TooLarge)
         ));
     }

@@ -245,7 +245,7 @@ fn export_configuration_at(
     usage_comparison_series: Option<&[quota_core::UsageComparisonSeries]>,
 ) -> Result<(), String> {
     let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
-    quota_core::export_config_to_path(
+    quota_core::export_config_to_path_with_usage(
         &config,
         vault,
         history,
@@ -511,16 +511,15 @@ pub fn remove_provider(
     if let Err(e) = state.history.lock().unwrap().clear(Some(&id)) {
         eprintln!("清除条目历史失败：{e}");
     }
-    let next_series = state
-        .settings
-        .read()
-        .unwrap()
-        .usage_comparison_series
-        .clone()
-        .map(|mut items| {
-            items.retain(|item| item.provider_id != id);
-            items
-        });
+    let next_series = prune_usage_comparisons_for_provider(
+        state
+            .settings
+            .read()
+            .unwrap()
+            .usage_comparison_series
+            .clone(),
+        &id,
+    );
     if let Err(e) = persist_usage_comparison_settings(&state, next_series) {
         eprintln!("清理已删除 Provider 的统计比较组合失败：{e}");
     }
@@ -528,6 +527,16 @@ pub fn remove_provider(
     after_state_change(&app, &state);
     emit_providers_changed(&app, &id);
     Ok(())
+}
+
+fn prune_usage_comparisons_for_provider(
+    value: Option<Vec<quota_core::UsageComparisonSeries>>,
+    provider_id: &str,
+) -> Option<Vec<quota_core::UsageComparisonSeries>> {
+    value.map(|mut items| {
+        items.retain(|item| item.provider_id != provider_id);
+        items
+    })
 }
 
 /// 清空全部用户数据：供应商条目（含凭据密文）、峰谷定价、自定义模型
@@ -1203,9 +1212,10 @@ fn persist_usage_comparison_settings(
     let mut settings = state.settings.read().unwrap().clone();
     settings.usage_comparison_series = value;
     settings.sanitize();
+    let lang = Lang::parse(&settings.language);
     settings
         .save(&state.paths.settings())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| lang.err_settings_save(&e))?;
     *state.settings.write().unwrap() = settings;
     Ok(())
 }
@@ -1269,13 +1279,22 @@ fn persist_settings(
     Ok(())
 }
 
+/// GUI 全量设置表单不编辑 CLI 可旁路写入的字段；保存前以磁盘值覆盖陈旧前端值，
+/// 避免常驻 GUI 在 CLI 导入后把比较组合或更新节流时间戳写回旧状态。
+fn merge_cli_owned_settings(incoming: &mut Settings, disk: &Settings) {
+    incoming.update_last_check = disk.update_last_check;
+    incoming.usage_comparison_series = disk.usage_comparison_series.clone();
+}
+
 /// 全量保存设置（设置对话框「保存」按钮）。
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<(), String> {
+    let disk = Settings::load(&state.paths.settings());
+    merge_cli_owned_settings(&mut settings, &disk);
     persist_settings(&app, &state, settings)
 }
 
@@ -1286,7 +1305,8 @@ pub fn patch_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<(), String> {
-    let mut current = state.settings.read().unwrap().clone();
+    // 磁盘是跨进程权威状态：CLI 可能在 GUI 常驻期间更新比较组合或节流时间戳。
+    let mut current = Settings::load(&state.paths.settings());
     apply_settings_patch(&mut current, &patch);
     persist_settings(&app, &state, current)
 }
@@ -2725,6 +2745,55 @@ mod tests {
             serde_json::from_str(r#"{"usage_comparison_series":[]}"#).unwrap();
         apply_settings_patch(&mut base, &patch);
         assert_eq!(base.usage_comparison_series, Some(Vec::new()));
+    }
+
+    #[test]
+    fn full_settings_save_preserves_cli_owned_disk_fields() {
+        let mut incoming = Settings {
+            update_last_check: Some(10),
+            usage_comparison_series: Some(Vec::new()),
+            theme: "dark".into(),
+            ..Settings::default()
+        };
+        let disk = Settings {
+            update_last_check: Some(20),
+            usage_comparison_series: Some(vec![quota_core::UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 2,
+            }]),
+            ..Settings::default()
+        };
+
+        merge_cli_owned_settings(&mut incoming, &disk);
+
+        assert_eq!(incoming.update_last_check, Some(20));
+        assert_eq!(
+            incoming.usage_comparison_series,
+            disk.usage_comparison_series
+        );
+        assert_eq!(incoming.theme, "dark", "GUI 表单拥有的字段保持提交值");
+    }
+
+    #[test]
+    fn removing_provider_prunes_only_its_usage_comparisons() {
+        let items = Some(vec![
+            quota_core::UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            },
+            quota_core::UsageComparisonSeries {
+                provider_id: "p2".into(),
+                window_key: "w2".into(),
+                color_slot: 1,
+            },
+        ]);
+
+        let pruned = prune_usage_comparisons_for_provider(items, "p1").unwrap();
+        assert_eq!(pruned.len(), 1);
+        assert_eq!(pruned[0].provider_id, "p2");
+        assert_eq!(prune_usage_comparisons_for_provider(None, "p1"), None);
     }
 
     /// 契约：后台刷新设置可经 patch 提交（C 项设置页保存路径）。

@@ -3,7 +3,6 @@
 //! 非关键数据——文件缺失或损坏时回退默认值（不阻断启动），
 //! 与 core 的 `config.json`（损坏即报 Parse 错误）策略不同。
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -193,31 +192,8 @@ impl Settings {
         self.background_refresh_interval_minutes =
             self.background_refresh_interval_minutes.clamp(15, 360);
         if let Some(items) = self.usage_comparison_series.take() {
-            let mut normalized = Vec::with_capacity(items.len().min(4));
-            let mut keys = HashSet::new();
-            let mut slots = HashSet::new();
-            for mut item in items {
-                item.provider_id = item.provider_id.trim().to_owned();
-                item.window_key = item.window_key.trim().to_owned();
-                if item.provider_id.is_empty()
-                    || item.window_key.is_empty()
-                    || !keys.insert((item.provider_id.clone(), item.window_key.clone()))
-                {
-                    continue;
-                }
-                if item.color_slot >= 4 || !slots.insert(item.color_slot) {
-                    let Some(slot) = (0_u8..4).find(|slot| !slots.contains(slot)) else {
-                        break;
-                    };
-                    item.color_slot = slot;
-                    slots.insert(slot);
-                }
-                normalized.push(item);
-                if normalized.len() == 4 {
-                    break;
-                }
-            }
-            self.usage_comparison_series = Some(normalized);
+            self.usage_comparison_series =
+                Some(quota_core::sanitize_usage_comparison_series(items));
         }
     }
 
@@ -321,7 +297,7 @@ mod tests {
             }]),
         };
         s.save(&path).unwrap();
-        assert_eq!(Settings::load(&path), s, "含后台刷新字段 roundtrip 无损");
+        assert_eq!(Settings::load(&path), s, "完整设置 roundtrip 无损");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -410,6 +386,27 @@ mod tests {
             vec![3, 0, 1, 2]
         );
         assert_eq!(series[1].provider_id, "p2");
+    }
+
+    #[test]
+    fn sanitize_usage_comparison_preserves_explicit_empty_and_drops_blank_keys() {
+        let mut empty = Settings {
+            usage_comparison_series: Some(Vec::new()),
+            ..Settings::default()
+        };
+        empty.sanitize();
+        assert_eq!(empty.usage_comparison_series, Some(Vec::new()));
+
+        let mut blank = Settings {
+            usage_comparison_series: Some(vec![quota_core::UsageComparisonSeries {
+                provider_id: "  ".into(),
+                window_key: "w0".into(),
+                color_slot: 0,
+            }]),
+            ..Settings::default()
+        };
+        blank.sanitize();
+        assert_eq!(blank.usage_comparison_series, Some(Vec::new()));
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。

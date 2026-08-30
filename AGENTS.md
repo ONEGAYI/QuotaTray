@@ -195,7 +195,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |
 | 历史库 | `~/.quotatray/history.db`（SQLite）：每次成功查询的余额/额度快照时序表，滚动保留 30 天，schema 走 user_version 版本化迁移 |
 | 窗口键（window_key） | 历史行的窗口标识：`plan_name` 非空取之，否则回退序数 `w0/w1…`；同一多窗口条目每窗口一条时间线 |
-| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history}`：随配置携带历史数值行（幂等合并进目标机历史库）；v1 旧包仍可导入，旧二进制读 v2 拒绝 |
+| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history, usage_comparison_series?}`：历史幂等合并，比较组合随配置替换；v1 旧包仍可导入；仅支持 v1 的程序拒绝 v2，早期 v2 程序会忽略新增可选字段 |
 
 ## 文件树（简版速览）
 
@@ -278,7 +278,7 @@ QuotaTray/
 │   │       ├── lang.rs        # 语言三态与检测
 │   │       ├── main.rs        # clap 定义与 dispatch
 │   │       ├── render.rs      # 表格与 JSON 渲染
-│   │       ├── settings_io.rs # settings.json 读取
+│   │       ├── settings_io.rs # CLI 设置读改写
 │   │       └── texts.rs       # 双语文案表
 │   └── quota-desktop/ # 桌面端（M3 完成）
 │       ├── eslint.config.js    # ESLint 扁平配置

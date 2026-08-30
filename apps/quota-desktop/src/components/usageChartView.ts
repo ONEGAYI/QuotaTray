@@ -218,6 +218,11 @@ export function splitUsageSeries(
   return { segments, bridges, gaps };
 }
 
+/** 单点分段无法形成 SVG path，需以真实端点圆单独渲染。 */
+export function isolatedUsageSamples(split: SplitUsageSeries): UsageSample[] {
+  return split.segments.flatMap((segment) => segment.length === 1 ? segment : []);
+}
+
 const NICE_FACTORS = [1, 2, 2.5, 5, 10];
 
 function niceStep(rawStep: number): number {

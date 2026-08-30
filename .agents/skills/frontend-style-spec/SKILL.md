@@ -35,7 +35,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | T-001 | 悬停气泡（tooltip） | [common-ui/tooltip.md](references/common-ui/tooltip.md) | 全部组件 | 生效 | 2026-08-28 |
 | T-002 | 分段控件（segmented） | [common-ui/segmented.md](references/common-ui/segmented.md) | 全部组件 | 生效 | 2026-08-29 |
 | T-003 | 焦点环（focus ring） | [common-ui/focus.md](references/common-ui/focus.md) | 全部可交互元素 | 生效 | 2026-08-28 |
-| T-004 | 按钮（button / icon-button） | [common-ui/button.md](references/common-ui/button.md) | 全部组件 | 生效 | 2026-08-28 |
+| T-004 | 按钮（button / icon-button） | [common-ui/button.md](references/common-ui/button.md) | 全部组件 | 生效 | 2026-08-31 |
 | T-005 | 表单字段（field / input / select） | [common-ui/field.md](references/common-ui/field.md) | 主窗与弹窗表单 | 生效 | 2026-08-28 |
 | T-006 | 空态与占位卡（empty-state） | [common-ui/empty-state.md](references/common-ui/empty-state.md) | 全部视图 | 生效 | 2026-08-28 |
 | T-007 | 反馈提示块与进度条 | [common-ui/feedback-banner.md](references/common-ui/feedback-banner.md) | 全部视图 | 生效 | 2026-08-28 |
@@ -44,7 +44,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | T-010 | 移动端触摸交互与 disclosure | [mobile/interaction.md](references/mobile/interaction.md) | Android 前端 | 生效 | 2026-08-29 |
 | T-011 | 移动端壳层与全屏页面 | [mobile/layout.md](references/mobile/layout.md) | Android 前端 | 生效 | 2026-08-28 |
 | T-012 | 配置指引渲染器（文档排版） | [common-ui/guide-viewer.md](references/common-ui/guide-viewer.md) | 全部组件 | 生效 | 2026-08-30 |
-| T-013 | 使用统计多曲线比较 | [usage-stats/comparison-chart.md](references/usage-stats/comparison-chart.md) | 使用统计页 | 生效 | 2026-08-30 |
+| T-013 | 使用统计多曲线比较 | [usage-stats/comparison-chart.md](references/usage-stats/comparison-chart.md) | 使用统计页 | 生效 | 2026-08-31 |
 
 ### 令牌条目（DT-）
 
