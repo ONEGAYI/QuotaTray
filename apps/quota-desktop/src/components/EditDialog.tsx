@@ -24,6 +24,9 @@ import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } 
 import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
 import { isValidConsoleUrlInput } from "./providerCardView";
+import { resolveSaveKeys } from "./editDialogView";
+import { GUIDE_FOR_PROVIDER } from "./guideDocs";
+import { GuideViewer } from "./GuideViewer";
 import { Button, DialogShell, SegmentedControl } from "./ui";
 
 interface Props {
@@ -96,6 +99,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   const [consoleUrl, setConsoleUrl] = useState(initial?.console_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [apiKey2, setApiKey2] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // id 在打开期间保持稳定（新增时生成一次）
   const id = useMemo(() => initial?.id ?? newEntryId(), [initial]);
@@ -125,6 +129,9 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     return availableNativeMetas.find((m) => m.id === nativeProvider) ?? null;
   }, [availableNativeMetas, tab, nativeProvider]);
   const mobileCliUnsupported = mobile && Boolean(selectedNativeMeta?.uses_cli_credentials);
+  // 双凭据 native 平台（如阿里云余额：api_key=AccessKey ID、api_key2=Secret）
+  const nativeKey2Required = tab === "native" && Boolean(selectedNativeMeta?.uses_api_key2);
+  const guideDocKey = selectedNativeMeta ? (GUIDE_FOR_PROVIDER[selectedNativeMeta.id] ?? null) : null;
   const selectedPreset = (
     usageCurrency
       ? selectedNativeMeta?.pricing_by_currency?.[usageCurrency.trim().toUpperCase()]
@@ -211,16 +218,15 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         //（缺失会被后端 serde 读成 false，静默重置用户开关）
         use_proxy: initial?.use_proxy,
       };
-      // CLI 凭据型平台永不写 key：残留输入（跨平台切换的 state）不落 vault
-      const saveKey =
-        tab === "native" && selectedNativeMeta?.uses_cli_credentials
-          ? null
-          : apiKey.trim()
-            ? apiKey
-            : null;
-      // 第二凭据槽同语义：native 不写；template/script 空输入 = 保持不变
-      const saveKey2 =
-        tab === "native" ? null : apiKey2.trim() ? apiKey2 : null;
+      // 保存键策略收敛于 editDialogView（契约测试锁定）：空 = 保持不变；
+      // CLI 凭据型与非双凭据 native 平台永不写 key（残留输入不落 vault）
+      const { saveKey, saveKey2 } = resolveSaveKeys({
+        tab,
+        usesCliCredentials: Boolean(selectedNativeMeta?.uses_cli_credentials),
+        usesApiKey2: nativeKey2Required,
+        apiKey,
+        apiKey2,
+      });
       await api.upsertProvider(entry, saveKey, saveKey2);
     },
     onSuccess: () => {
@@ -285,7 +291,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
       />
     </label>
   );
-  // 第二凭据槽（{{apiKey2}}）：仅 template/script 形态渲染（native 平台单 key）；
+  // 第二凭据槽（{{apiKey2}}）：template/script 引用变量时选填；native 双凭据
+  // 平台（uses_api_key2，如阿里云余额的 AccessKey Secret）必填。
   // 与主 key 同红线——空 = 保持不变，永不回显
   const credential2Field = (
     <label className="qt-field qt-credential-field">
@@ -296,7 +303,13 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         value={apiKey2}
         onChange={(event) => setApiKey2(event.target.value)}
         autoComplete="new-password"
-        placeholder={configured2 ? t("edit.keyConfigured") : t("edit.key2Optional")}
+        placeholder={
+          configured2
+            ? t("edit.keyConfigured")
+            : nativeKey2Required
+              ? t("edit.key2Required")
+              : t("edit.key2Optional")
+        }
         className={inputCls}
       />
     </label>
@@ -439,6 +452,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                       stepfun: "StepFun",
                       novita: "Novita AI",
                       minimax: "MiniMax",
+                      aliyun: t("edit.platformGroupAliyun"),
                       claude: "Claude",
                       codex: "Codex",
                       gemini: "Gemini",
@@ -448,6 +462,13 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                   />
                   {mobileCliUnsupported && (
                     <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
+                  )}
+                  {guideDocKey && (
+                    <div className="qt-edit-guide-row">
+                      <Button variant="secondary" onClick={() => setGuideOpen(true)}>
+                        {t("edit.guideButton")}
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
@@ -489,12 +510,15 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             {tab === "native" && selectedNativeMeta?.uses_cli_credentials
               ? cliCredentialField
               : credentialField}
-            {tab !== "native" && credential2Field}
+            {(tab !== "native" || nativeKey2Required) && credential2Field}
           </>
         )}
 
         {error && <p className="qt-inline-error">{error}</p>}
       </form>
+      {guideOpen && guideDocKey && (
+        <GuideViewer docKey={guideDocKey} onClose={() => setGuideOpen(false)} />
+      )}
     </DialogShell>
   );
 }

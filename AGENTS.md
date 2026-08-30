@@ -221,6 +221,7 @@ QuotaTray/
 │           │   │   ├── feedback-banner.md # 反馈块规范
 │           │   │   ├── field.md           # 表单字段规范
 │           │   │   ├── focus.md           # 焦点环规范
+│           │   │   ├── guide-viewer.md    # 指引渲染器样式规范
 │           │   │   ├── message-center.md  # 消息中心组件规范
 │           │   │   ├── segmented.md       # 分段控件规范
 │           │   │   └── tooltip.md         # 悬停气泡组件规范
@@ -311,6 +312,13 @@ QuotaTray/
 │       │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
 │       │   │   ├── dragSortView.ts              # 拖拽排序几何纯逻辑
 │       │   │   ├── EditDialog.tsx               # 跨端添加编辑页
+│       │   │   ├── editDialogView.test.ts       # 保存键策略测试
+│       │   │   ├── editDialogView.ts            # 编辑弹窗保存键策略纯函数
+│       │   │   ├── guideDocs.test.ts            # 指引资产收集测试
+│       │   │   ├── guideDocs.ts                 # 指引文档与图片资产收集
+│       │   │   ├── guideMd.test.ts              # 指引解析器契约测试
+│       │   │   ├── guideMd.ts                   # 指引 Markdown 子集解析器
+│       │   │   ├── GuideViewer.tsx              # 配置指引渲染组件
 │       │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
 │       │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
 │       │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
@@ -457,6 +465,9 @@ QuotaTray/
 │               └── store.rs  # 跨平台主密钥存储
 ├── docs/                   # 文档
 │   ├── Android端预览版说明.md # Android预览端说明
+│   ├── assets/          # 指引打包资产根目录
+│   │   └── bundle/ # 随应用打包的指引图片
+│   │       └── README.md # 图片资产目录说明
 │   ├── design/          # 设计文档
 │   │   └── tray-ring-demo.html # 圆环视觉规格
 │   ├── guide/           # 用户配置指引（GUI 可渲染）

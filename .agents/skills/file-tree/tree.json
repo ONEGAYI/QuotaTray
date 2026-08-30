@@ -151,6 +151,13 @@
                             "T-003：控件/输入两档契约、button 全局兜底无白名单、特例登记"
                           ]
                         },
+                        "guide-viewer.md": {
+                          "kind": "file",
+                          "desc": "指引渲染器样式规范",
+                          "detail": [
+                            "T-012 配置指引渲染器样式契约：嵌套 DialogShell 形态、排版取值登记表（字号/行高/间距）、行内链接与图片资产交互约定、禁止二次字符串处理。"
+                          ]
+                        },
                         "message-center.md": {
                           "kind": "file",
                           "desc": "消息中心组件规范",
@@ -818,13 +825,6 @@
                     "providers": {
                       "kind": "dir",
                       "desc": "Provider SVG 图标集",
-                      "detail": [
-                        "十四张官方 Provider SVG（六组复用品牌 + stepfun/novita/",
-                        "minimax + 订阅四家 claude/openai(codex 用)/gemini/grok；",
-                        "minimax + newapi 供模板条目启发匹配；图标容器固定浅底",
-                        "不随主题——单色深色 logo 明暗主题均可见，浅色底图形",
-                        "（StepFun 白色圆盘）走 is-light-logo 深底变体）"
-                      ],
                       "children": {}
                     }
                   }
@@ -960,6 +960,85 @@
                       "desc": "跨端添加编辑页",
                       "detail": [
                         "桌面弹窗/Android 全屏添加编辑，移动端裁剪 CLI 求助及桌面 CLI 凭据平台"
+                      ]
+                    },
+                    "editDialogView.test.ts": {
+                      "kind": "file",
+                      "desc": "保存键策略测试",
+                      "detail": [
+                        "resolveSaveKeys 契约：普通 native 不写第二槽、CLI 平台双 null、双凭据 native 与 template/script 的空=保持语义。"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "editDialogView.ts": {
+                      "kind": "file",
+                      "desc": "编辑弹窗保存键策略纯函数",
+                      "detail": [
+                        "resolveSaveKeys：空=保持不变；CLI 凭据型与非双凭据 native 平台永不写 key（残留输入不落 vault，红线 3）；native 双凭据平台（uses_api_key2）第二槽同语义写入。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/EditDialog.tsx",
+                        "apps/quota-desktop/src/components/editDialogView.test.ts"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "guideDocs.test.ts": {
+                      "kind": "file",
+                      "desc": "指引资产收集测试",
+                      "detail": [
+                        "资产收集契约：GUIDE_DOCS 收集到已登记文档、GUIDE_FOR_PROVIDER 登记项必须存在、bundleImageSrc 双形态命中与未命中占位。"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "guideDocs.ts": {
+                      "kind": "file",
+                      "desc": "指引文档与图片资产收集",
+                      "detail": [
+                        "vite import 管线唯一收集点：docs/guide/*.md 经 ?raw glob 内联、docs/assets/bundle/ 图片经 ?url glob 打包（当前空目录预留）；GUIDE_FOR_PROVIDER 登记 native 平台→指引映射，bundleImageSrc 解析文档内引用→产物 URL（未命中返回 null 走占位）。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/guideDocs.test.ts",
+                        "docs/assets/bundle/README.md"
+                      ]
+                    },
+                    "guideMd.test.ts": {
+                      "kind": "file",
+                      "desc": "指引解析器契约测试",
+                      "detail": [
+                        "guideMd 解析器契约：行内四类 token（含未闭合回退）、块级六类结构、真实阿里云指引文档冒烟（首块 h1、块级覆盖自查）。"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "guideMd.ts": {
+                      "kind": "file",
+                      "desc": "指引 Markdown 子集解析器",
+                      "detail": [
+                        "配置指引渲染器的纯逻辑解析层：块级（h1-h3/有序无序列表/围栏代码块/引用块/段落/分隔线）+ 行内（粗体/行内代码/链接/图片）；未闭合标记整段回退纯文本不丢字。子集清单见预研文档 §六。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/guideMd.test.ts",
+                        "apps/quota-desktop/src/components/GuideViewer.tsx"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "GuideViewer.tsx": {
+                      "kind": "file",
+                      "desc": "配置指引渲染组件",
+                      "detail": [
+                        "guideDocs 收集的 md 经 guideMd 解析为结构化 UI：嵌套 DialogShell（qt-dialog-guide），行内外链经 openConsoleUrl 打开，图片走 bundle 映射/占位；样式契约见 frontend-style-spec T-012。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/guideMd.ts"
                       ]
                     },
                     "HoverPanel.tsx": {
@@ -2375,6 +2454,25 @@
           "detail": [
             "记录触摸优先交互、构建环境、模拟器验证范围与预览限制。"
           ]
+        },
+        "assets": {
+          "kind": "dir",
+          "desc": "指引打包资产根目录",
+          "children": {
+            "bundle": {
+              "kind": "dir",
+              "desc": "随应用打包的指引图片",
+              "children": {
+                "README.md": {
+                  "kind": "file",
+                  "desc": "图片资产目录说明",
+                  "detail": [
+                    "引用约定（相对 docs/ 路径、支持扩展名）、vite ?url 收集机制、只放实际引用图片与脱敏要求；当前空目录预留。"
+                  ]
+                }
+              }
+            }
+          }
         },
         "design": {
           "kind": "dir",

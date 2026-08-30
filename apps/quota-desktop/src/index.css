@@ -685,6 +685,29 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 /* 编辑弹窗同模式固定高度：表单字段增减/形态切换不撑高弹窗（控制台地址
    字段曾把弹窗顶出窗口上缘），长表单在 body 内滚动。 */
 .qt-dialog-edit { height: min(78vh, 720px); }
+
+/* 配置指引渲染器（GuideViewer）：文档排版，颜色一律走令牌；同编辑弹窗
+   定高，长文档在 body 内滚动。字号取值已在 frontend-style-spec 的
+   guide-viewer 条目登记。 */
+.qt-dialog-guide { height: min(78vh, 720px); }
+.qt-guide-content { display: grid; gap: 10px; }
+.qt-guide-h { margin: 4px 0 0; font-size: 15px; font-weight: 600; color: var(--qt-text); }
+h3.qt-guide-h { font-size: 14px; }
+h4.qt-guide-h { font-size: 13px; color: var(--qt-text-soft); }
+.qt-guide-p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--qt-text); }
+.qt-guide-list { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 13px; line-height: 1.6; color: var(--qt-text); }
+.qt-guide-code { margin: 0; padding: 10px 12px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); background: var(--qt-surface-soft); overflow-x: auto; font-size: 12px; line-height: 1.55; }
+.qt-guide-quote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--qt-accent); border-radius: var(--qt-radius-xs); background: var(--qt-surface-soft); font-size: 13px; line-height: 1.6; color: var(--qt-text-soft); }
+.qt-guide-hr { margin: 4px 0; border: 0; border-top: 1px solid var(--qt-border); }
+/* 行内文字链接（T-004 行内链接式 + T-010 外扩热区） */
+.qt-guide-link { position: relative; padding: 0; border: 0; background: none; color: var(--qt-accent-strong); font: inherit; cursor: pointer; }
+.qt-guide-link:hover { text-decoration: underline; }
+.qt-guide-link::before { content: ""; position: absolute; inset: -15px -8px; }
+.qt-guide-img { max-width: 100%; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); }
+.qt-guide-img-missing { display: inline-block; padding: 6px 10px; border: 1px dashed var(--qt-border); border-radius: var(--qt-radius-sm); color: var(--qt-text-faint); font-size: 12px; }
+
+/* 平台选择器内的「配置指引」入口行（仅登记过指引的平台渲染） */
+.qt-edit-guide-row { display: flex; margin-top: 8px; }
 .qt-settings-content { min-width: 0; padding: 10px 18px; }
 .qt-transfer-intro { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; margin: 7px 0 9px; padding: 13px; border-radius: var(--qt-radius-md); background: var(--qt-warning-soft); color: var(--qt-text); }
 .qt-transfer-intro-icon { color: var(--qt-warning); }

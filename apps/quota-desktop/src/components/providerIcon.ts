@@ -1,4 +1,5 @@
 import claudeUrl from "../assets/providers/claude.svg";
+import aliyunUrl from "../assets/providers/aliyun.svg";
 import deepseekUrl from "../assets/providers/deepseek.svg";
 import geminiUrl from "../assets/providers/gemini.svg";
 import grokUrl from "../assets/providers/grok.svg";
@@ -30,6 +31,7 @@ const PROVIDER_ICON_URLS: Readonly<Record<string, string>> = {
   novita: novitaUrl,
   minimax: minimaxUrl,
   minimax_global: minimaxUrl,
+  aliyun_bss: aliyunUrl,
   claude: claudeUrl,
   codex: openaiUrl,
   gemini: geminiUrl,

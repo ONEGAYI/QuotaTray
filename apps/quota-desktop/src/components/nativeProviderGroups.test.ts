@@ -11,6 +11,7 @@ function meta(id: string, name = id): NativeMeta {
     custom_models: [],
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    uses_api_key2: false,
     console_url: null,
   };
 }
@@ -34,6 +35,7 @@ describe("添加供应商的平台聚合", () => {
       meta("kimi_code_cn"),
       meta("novita"),
       meta("minimax"),
+      meta("aliyun_bss"),
       meta("claude"),
       meta("codex"),
       meta("gemini"),
@@ -50,6 +52,7 @@ describe("添加供应商的平台聚合", () => {
       "stepfun",
       "novita",
       "minimax",
+      "aliyun",
       "claude",
       "codex",
       "gemini",

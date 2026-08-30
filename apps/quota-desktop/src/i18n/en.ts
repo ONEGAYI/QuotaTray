@@ -4,6 +4,7 @@ import type { TextKey } from "./zh";
 export const en: Record<TextKey, string> = {
   // ---- 通用 ----
   "common.cancel": "Cancel",
+  "common.close": "Close",
   "common.save": "Save",
   "common.saving": "Saving…",
 
@@ -132,6 +133,7 @@ export const en: Record<TextKey, string> = {
   "edit.nameRequired": "Name is required",
   "edit.platform": "Platform",
   "edit.platformGroupZhipu": "Zhipu",
+  "edit.platformGroupAliyun": "Alibaba Cloud",
   "edit.planVariant": "Plan variant (limit windows)",
   "edit.planVariantAuto": "Auto (infer from response)",
   "edit.planVariantNoWeekly": "No weekly · v1 (5h window only)",
@@ -169,6 +171,9 @@ export const en: Record<TextKey, string> = {
   "edit.apiKey2Hint":
     "Used when the template/script references {{apiKey2}} (e.g. the user ID on new-api style sites, sent in the New-Api-User header); encrypted and never echoed back.",
   "edit.key2Optional": "Optional (leave blank to keep)",
+  "edit.key2Required": "Required (AccessKey Secret, leave blank to keep)",
+  "edit.guideButton": "Setup guide",
+  "edit.guideImageMissing": "Image missing: {alt}",
 
   // ---- Template sub-tabs and presets ----
   "edit.subProvider": "Provider & model",
