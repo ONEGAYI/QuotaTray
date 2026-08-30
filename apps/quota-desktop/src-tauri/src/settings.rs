@@ -54,6 +54,15 @@ pub struct Settings {
     /// 系统静默丢弃（等效关闭）。
     #[serde(default = "default_notifications_enabled")]
     pub notifications_enabled: bool,
+    /// Android 后台刷新开关（WorkManager 周期查询；默认关——Preview
+    /// 谨慎口径，后台流量用户显式开启）。桌面不消费（已有常驻调度）。
+    #[serde(default)]
+    pub background_refresh_enabled: bool,
+    /// Android 后台刷新周期（分钟；默认 30）。系统硬限最小 15 分钟
+    /// （`PeriodicWorkRequest.MIN_PERIODIC_INTERVAL_MILLIS`），sanitize
+    /// 收口到 15..=360；实际执行受 Doze/省电影响可能延后。
+    #[serde(default = "default_background_interval")]
+    pub background_refresh_interval_minutes: u32,
 }
 
 fn default_interval() -> u32 {
@@ -84,6 +93,10 @@ fn default_notifications_enabled() -> bool {
     true
 }
 
+fn default_background_interval() -> u32 {
+    30
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -99,6 +112,8 @@ impl Default for Settings {
             update_proxy_port: None,
             update_auto_download: false,
             notifications_enabled: default_notifications_enabled(),
+            background_refresh_enabled: false,
+            background_refresh_interval_minutes: default_background_interval(),
         }
     }
 }
@@ -121,6 +136,10 @@ impl Settings {
         self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
+        // 后台刷新周期：系统硬限 15 分钟（更小值会被 WorkManager 抬到 15，
+        // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
+        self.background_refresh_interval_minutes =
+            self.background_refresh_interval_minutes.clamp(15, 360);
     }
 
     /// 加载设置；文件缺失或损坏返回默认值（非关键数据，容错优先）。
@@ -210,9 +229,11 @@ mod tests {
             update_proxy_port: Some(7897),
             update_auto_download: true,
             notifications_enabled: false,
+            background_refresh_enabled: true,
+            background_refresh_interval_minutes: 120,
         };
         s.save(&path).unwrap();
-        assert_eq!(Settings::load(&path), s);
+        assert_eq!(Settings::load(&path), s, "含后台刷新字段 roundtrip 无损");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -236,6 +257,11 @@ mod tests {
             s.notifications_enabled,
             "系统通知默认开启（桌面现状行为不变）"
         );
+        assert!(
+            !s.background_refresh_enabled,
+            "后台刷新默认关闭（Preview 谨慎）"
+        );
+        assert_eq!(s.background_refresh_interval_minutes, 30);
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -251,6 +277,11 @@ mod tests {
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
         assert!(s.notifications_enabled, "老版本配置缺字段回退默认开启");
+        assert!(
+            !s.background_refresh_enabled,
+            "老版本配置缺字段回退默认关闭"
+        );
+        assert_eq!(s.background_refresh_interval_minutes, 30);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -292,6 +323,8 @@ mod tests {
             update_proxy_port: Some(7897),
             update_auto_download: false,
             notifications_enabled: true,
+            background_refresh_enabled: true,
+            background_refresh_interval_minutes: 9999,
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
@@ -317,6 +350,16 @@ mod tests {
         s.update_proxy_port = Some(1);
         s.sanitize();
         assert_eq!(s.update_proxy_port, Some(1), "合法端口应保留");
+        // 后台刷新周期：系统硬限 15 分钟，落盘时收口
+        s.background_refresh_interval_minutes = 9999;
+        s.sanitize();
+        assert_eq!(s.background_refresh_interval_minutes, 360, "超上限收到 360");
+        s.background_refresh_interval_minutes = 5;
+        s.sanitize();
+        assert_eq!(
+            s.background_refresh_interval_minutes, 15,
+            "低于系统硬限收到 15"
+        );
         s.update_proxy_port = Some(u16::MAX);
         s.sanitize();
         assert_eq!(s.update_proxy_port, Some(u16::MAX), "上界端口应保留");

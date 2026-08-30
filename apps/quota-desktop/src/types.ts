@@ -184,6 +184,10 @@ export interface Settings {
   update_auto_download: boolean;
   /** 系统通知总开关（两端共用；Android 侧叠加系统运行时权限层） */
   notifications_enabled: boolean;
+  /** Android 后台刷新开关（WorkManager 周期查询；默认关，桌面不消费） */
+  background_refresh_enabled: boolean;
+  /** Android 后台刷新周期（分钟；系统硬限最小 15，收口 15–360） */
+  background_refresh_interval_minutes: number;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
@@ -202,6 +206,8 @@ export interface SettingsPatch {
   update_proxy_port?: number | null;
   update_auto_download?: boolean;
   notifications_enabled?: boolean;
+  background_refresh_enabled?: boolean;
+  background_refresh_interval_minutes?: number;
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

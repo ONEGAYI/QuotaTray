@@ -131,16 +131,24 @@ pub struct AppState {
     /// 查询历史库（M5）。非关键数据：打开失败降级内存库（eprintln 告警），
     /// 查询主链路照常，仅历史不落盘。
     pub history: Mutex<HistoryStore>,
-    /// 应用是否前台（Android 消息通知的发射条件：仅后台时补发系统通知，
-    /// 桌面不消费）。由前端 visibilitychange 经 `set_app_foreground` 命令
-    /// 同步；初始 true（乐观假设启动即前台，首个 visibility 事件即校正）。
-    pub app_foreground: std::sync::atomic::AtomicBool,
-    /// 低余额提醒的会话级登记（条目 id 集合，边沿触发防重）：「已用 ≥
-    /// 阈值」是持续状态，直接广播会随轮询周期重复打扰（后台时即重复
-    /// 系统通知）——首次达标广播一次并登记，持续达标静默，回落阈值
-    /// 以下清除登记（下次达标重新提醒）。会话内存，不持久化。
-    pub low_balance_notified: Mutex<std::collections::HashSet<String>>,
 }
+
+/// 应用是否前台（Android 消息通知的发射条件：仅后台时补发系统通知，
+/// 桌面不消费）。由前端 visibilitychange 经 `set_app_foreground` 命令
+/// 同步；初始 true（乐观假设启动即前台，首个 visibility 事件即校正）。
+/// C 项起为模块级静态——前台命令路径与 WorkManager 后台刷新核
+/// （无 AppHandle、不经 AppState）共享同一判定。
+pub static APP_FOREGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// 低余额提醒的会话级登记（条目 id 集合，边沿触发防重）：「已用 ≥
+/// 阈值」是持续状态，直接广播会随轮询周期重复打扰（后台时即重复
+/// 系统通知）——首次达标广播一次并登记，持续达标静默，回落阈值
+/// 以下清除登记（下次达标重新提醒）。会话内存，不持久化。
+/// C 项起为模块级静态——前台命令路径与后台刷新核共享同一防重
+/// （否则冷热两路各自首次达标会双份通知）。`HashSet::new` 非
+/// const，用 [`LazyLock`] 延迟构造。
+pub static LOW_BALANCE_NOTIFIED: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
 /// 启动门控：便携形态首次运行（`portable.key` 缺失）时，setup 阶段
 /// 不初始化 AppState/托盘/调度器，前端先渲染首启安全确认页；用户确认
@@ -218,7 +226,9 @@ pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
 /// 按代理端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
 /// 全局网络代理端口时装配（条目 use_proxy 决定路由，未配端口而条目
 /// 开代理 → 引擎路由层确定性引导）。
-fn build_engine(proxy_port: Option<u16>) -> Result<QueryEngine, quota_core::http::HttpError> {
+pub(crate) fn build_engine(
+    proxy_port: Option<u16>,
+) -> Result<QueryEngine, quota_core::http::HttpError> {
     let direct = quota_core::http::ReqwestHttpClient::new(quota_core::DEFAULT_TIMEOUT)?;
     let proxied = match quota_core::update::proxy_url_of(proxy_port).as_deref() {
         Some(url) => Some(quota_core::http::ReqwestHttpClient::new_with_proxy(
@@ -306,8 +316,6 @@ impl AppState {
             }),
             last_peak: RwLock::new(HashMap::new()),
             history: Mutex::new(history),
-            app_foreground: std::sync::atomic::AtomicBool::new(true),
-            low_balance_notified: Mutex::new(std::collections::HashSet::new()),
         })
     }
 }
@@ -393,8 +401,6 @@ mod tests {
             update_ctl: RwLock::new(crate::update_ctl::UpdateCtlState::default()),
             last_peak: RwLock::new(HashMap::new()),
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
-            app_foreground: std::sync::atomic::AtomicBool::new(true),
-            low_balance_notified: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
