@@ -426,6 +426,7 @@ QuotaTray/
 │           ├── model.rs   # 用量模型与错误分类
 │           ├── pricing.rs # 峰谷定价纯函数
 │           ├── provider/  # 预置平台查询
+│           │   ├── aliyun_bss.rs    # 阿里云余额查询 provider
 │           │   ├── claude.rs        # Claude 订阅查询
 │           │   ├── codex.rs         # Codex 订阅查询
 │           │   ├── deepseek.rs      # /user/balance 单站双币

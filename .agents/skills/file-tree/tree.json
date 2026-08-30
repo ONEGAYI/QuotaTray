@@ -2095,6 +2095,20 @@
                   "kind": "dir",
                   "desc": "预置平台查询",
                   "children": {
+                    "aliyun_bss.rs": {
+                      "kind": "file",
+                      "desc": "阿里云余额查询 provider",
+                      "detail": [
+                        "BssOpenApi QueryAccountBalance（GET business.aliyuncs.com，RPC V1 HMAC-SHA1 签名自实现，官方文档向量锁定）；凭据双槽 api_key=AccessKeyId、api_key2=Secret（native 首个双凭据平台，mod.rs 的 uses_api_key2 门控）；错误分类：NotAuthorized/身份/签名类确定性、Throttling 前缀瞬时；口径为阿里云账户级余额（AvailableAmount/Currency）。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/provider/mod.rs",
+                        "docs/预研文档/2026-08-30 百炼余额查询预研.md"
+                      ],
+                      "tags": [
+                        "security"
+                      ]
+                    },
                     "claude.rs": {
                       "kind": "file",
                       "desc": "Claude 订阅查询",

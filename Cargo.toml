@@ -16,6 +16,8 @@ thiserror = "2"
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "signal"] }
 aes-gcm = "0.10"
+hmac = "0.12"
+sha1 = "0.10"
 keyring-core = "1.0.0"
 base64 = "0.22"
 dirs = "6"

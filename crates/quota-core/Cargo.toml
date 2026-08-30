@@ -13,6 +13,9 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 aes-gcm = { workspace = true }
+hmac = { workspace = true }
+sha1 = { workspace = true }
+getrandom = { workspace = true }
 keyring-core = { workspace = true }
 base64 = { workspace = true }
 dirs = { workspace = true }
