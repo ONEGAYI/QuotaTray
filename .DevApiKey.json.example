@@ -15,6 +15,11 @@
   "novita": "sk-你的-novita-密钥",
   "minimax": "sk-你的-minimax-密钥（国内站 api.minimaxi.com）",
   "minimax_global": "sk-你的-minimax-密钥（国际站 api.minimax.io）",
+  "bailian": "sk-你的-百炼-Model-Studio-密钥（按量计费，dashscope.aliyuncs.com）",
+  "aliyun_ak": {
+    "id": "LTAI你的-AccessKey-ID（专用 RAM 子账号，授 AliyunBSSReadOnlyAccess，仅用于查账户余额）",
+    "secret": "你的-AccessKey-Secret（仅创建时显示一次，当场保存）"
+  },
   "claude": "cli（订阅凭据自动读本机 ~/.claude/.credentials.json，本条目仅作 dev-smoke 开关）",
   "codex": "cli（订阅凭据自动读本机 ~/.codex/auth.json，本条目仅作 dev-smoke 开关）",
   "gemini": "cli（订阅凭据自动读本机 ~/.gemini/oauth_creds.json，本条目仅作 dev-smoke 开关）",

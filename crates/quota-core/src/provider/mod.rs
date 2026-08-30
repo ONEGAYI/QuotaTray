@@ -2,6 +2,7 @@
 //!
 //! 平台实现的端点与字段映射依据 `docs/CC-Switch调研报告.md` §4.2。
 
+pub mod aliyun_bss;
 pub mod claude;
 pub mod codex;
 pub mod deepseek;
@@ -17,6 +18,7 @@ pub mod stepfun;
 pub mod zhipu;
 pub mod zhipu_metered;
 
+pub use aliyun_bss::AliyunBss;
 pub use claude::Claude;
 pub use codex::Codex;
 pub use deepseek::DeepSeek;
@@ -86,6 +88,7 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(Novita),
         Arc::new(MINIMAX_CN),
         Arc::new(MINIMAX_GLOBAL),
+        Arc::new(AliyunBss),
         Arc::new(Claude),
         Arc::new(Codex),
         Arc::new(Gemini),
@@ -115,6 +118,14 @@ pub fn supports_plan_variant(id: &str) -> bool {
 /// 解密前置，凭据文件读写与过期引导均由 provider 内部收口。
 pub fn uses_cli_credentials(id: &str) -> bool {
     matches!(id, "claude" | "codex" | "gemini" | "grok")
+}
+
+/// 该 native 平台是否使用第二凭据槽（`api_key2`）：当前仅阿里云余额
+/// （AccessKey Secret 与 AccessKey ID 成对，`api_key` 存 ID、`api_key2`
+/// 存 Secret）。UI 据此在 native 表单渲染第二凭据槽（必填语义）；
+/// 引擎已把双凭据整包传入，缺失由 provider 实现内引导补配。
+pub fn uses_api_key2(id: &str) -> bool {
+    matches!(id, "aliyun_bss")
 }
 
 /// 全部平台元信息。
@@ -512,13 +523,24 @@ mod tests {
     #[test]
     fn registry_console_urls_present_and_https() {
         let metas = metas();
-        assert_eq!(metas.len(), 20, "注册表应为 20 项");
+        assert_eq!(metas.len(), 21, "注册表应为 21 项");
         for m in metas {
             let url = m
                 .console_url
                 .unwrap_or_else(|| panic!("{} 缺 console_url", m.id));
             assert!(url.starts_with("https://"), "{} 非 https：{url}", m.id);
         }
+    }
+
+    /// 契约：uses_api_key2 仅对阿里云余额为真（native 双凭据平台清单）。
+    #[test]
+    fn uses_api_key2_only_for_aliyun() {
+        let dual: Vec<&str> = metas()
+            .iter()
+            .map(|m| m.id)
+            .filter(|id| uses_api_key2(id))
+            .collect();
+        assert_eq!(dual, vec!["aliyun_bss"]);
     }
 
     /// 契约：resolve_console_url——条目自定义覆盖优先；native 回退注册表

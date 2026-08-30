@@ -426,6 +426,7 @@ QuotaTray/
 │           ├── model.rs   # 用量模型与错误分类
 │           ├── pricing.rs # 峰谷定价纯函数
 │           ├── provider/  # 预置平台查询
+│           │   ├── aliyun_bss.rs    # 阿里云余额查询 provider
 │           │   ├── claude.rs        # Claude 订阅查询
 │           │   ├── codex.rs         # Codex 订阅查询
 │           │   ├── deepseek.rs      # /user/balance 单站双币
@@ -458,6 +459,8 @@ QuotaTray/
 │   ├── Android端预览版说明.md # Android预览端说明
 │   ├── design/          # 设计文档
 │   │   └── tray-ring-demo.html # 圆环视觉规格
+│   ├── guide/           # 用户配置指引（GUI 可渲染）
+│   │   └── 阿里云余额监控配置指引.md # 阿里云余额监控用户配置指引
 │   ├── specs/           # 规格文档
 │   │   ├── CLI-spec.md          # CLI 规格（M2b）
 │   │   ├── console-link-spec.md # 控制台直达规格（#59）
@@ -473,7 +476,8 @@ QuotaTray/
 │       ├── 2026-08-27 WoA与便携版预研报告.md    # WoA 与便携版预研
 │       ├── 2026-08-28 自动更新预研报告.md       # 自动更新静默与双目录预研
 │       ├── 2026-08-29 安卓更新与下载预研报告.md    # 安卓更新下载预研
-│       └── 2026-08-29 安卓缺口调研报告.md       # 安卓缺口八项现状盘点（移动端计划底稿）
+│       ├── 2026-08-29 安卓缺口调研报告.md       # 安卓缺口八项现状盘点（移动端计划底稿）
+│       └── 2026-08-30 百炼余额查询预研.md       # 百炼余额查询预研报告
 ├── examples/               # 可运行示例
 │   ├── scripts/   # 脚本查询示例
 │   │   ├── basic.js        # 最小闭环脚本示例
