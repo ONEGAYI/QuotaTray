@@ -1685,6 +1685,17 @@
                         "security"
                       ]
                     },
+                    "background.rs": {
+                      "kind": "file",
+                      "desc": "Android 后台刷新编排核",
+                      "detail": [
+                        "WorkManager Worker 经 JNI 调入的无 AppHandle 查询编排：按 dataDir 现开 vault/engine/history，结果只落历史库，低余额边沿判定共享全局静态，通知以 JSON 返回由 Kotlin 直发；含 BackgroundScheduler 调度接线"
+                      ],
+                      "tags": [
+                        "pure",
+                        "security"
+                      ]
+                    },
                     "commands.rs": {
                       "kind": "file",
                       "desc": "跨端IPC命令集",

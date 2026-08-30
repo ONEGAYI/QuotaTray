@@ -78,6 +78,9 @@ pub fn build_result(
 // ---- Android IO 编排与 JNI 导出（host 不编译，模拟器/CI 验收） ----------
 
 #[cfg(target_os = "android")]
+pub(crate) use android::schedule_background_work;
+
+#[cfg(target_os = "android")]
 mod android {
     use super::{
         BackgroundRefreshResult, ChannelInfo, NotificationItem, build_result,
@@ -219,14 +222,53 @@ mod android {
         serde_json::to_string(&fallback_result()).expect("兜底 JSON 可序列化")
     }
 
-    /// JNI 导出：`BackgroundWorker.refreshAll(dataDir: String): String`。
-    /// 签名由 Kotlin `external fun` 绑定（类名/包名改动会 UnsatisfiedLinkError，
-    /// keep 规则锁定）；panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON。
+    /// 调度接线：把 settings 的后台刷新开关/周期同步到 WorkManager
+    /// （经 JNI 调 `BackgroundScheduler.schedule(Context, boolean, long)`，
+    /// UPDATE 策略——间隔变更即时生效且保留周期对齐；开关关则
+    /// cancelUniqueWork）。设置保存路径（persist_settings）与应用启动
+    /// （setup Android 段）各调一次；失败仅日志——调度缺失仅表现为
+    /// 后台不刷新，设置页开关状态不受影响。
+    pub(crate) fn schedule_background_work(state: &crate::state::AppState) {
+        let (enabled, interval) = {
+            let s = state.settings.read().unwrap();
+            (
+                s.background_refresh_enabled,
+                i64::from(s.background_refresh_interval_minutes),
+            )
+        };
+        let scheduled = crate::apk_install::with_helper_class_named(
+            "com.quotatray.android.BackgroundScheduler",
+            |env, context, helper| {
+                let ret = env
+                    .call_static_method(
+                        helper,
+                        "schedule",
+                        "(Landroid/content/Context;ZJ)Z",
+                        &[
+                            jni::objects::JValue::Object(context),
+                            jni::objects::JValue::Bool(u8::from(enabled)),
+                            jni::objects::JValue::Long(interval),
+                        ],
+                    )
+                    .map_err(|e| format!("调用 BackgroundScheduler.schedule 失败：{e}"))?;
+                ret.z().map_err(|e| format!("读取调度结果失败：{e}"))
+            },
+        );
+        if let Err(e) = scheduled {
+            eprintln!("后台刷新调度同步失败：{e}");
+        }
+    }
+
+    /// JNI 导出：`Native.backgroundRefresh(dataDir: String): String`
+    /// （独立 object 的实例方法——companion 的 external fun 符号名含
+    /// `$` 转义陷阱，独立 object 无此问题；类名/包名改动会
+    /// UnsatisfiedLinkError，keep 规则锁定）。receiver 是 object 单例
+    /// 实例而非类对象。panic 跨 FFI 是 UB，兜底捕获并返回空通知 JSON。
     /// edition 2024 中 `no_mangle` 属 unsafe 属性，显式标注。
     #[unsafe(no_mangle)]
-    pub extern "system" fn Java_com_quotatray_android_BackgroundWorker_refreshAll(
+    pub extern "system" fn Java_com_quotatray_android_Native_backgroundRefresh(
         env: &mut jni::JNIEnv,
-        _class: jni::objects::JClass,
+        _receiver: jni::objects::JObject,
         data_dir: jni::objects::JString,
     ) -> jni::sys::jstring {
         use std::panic::AssertUnwindSafe;

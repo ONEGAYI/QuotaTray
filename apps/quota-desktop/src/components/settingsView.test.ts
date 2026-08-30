@@ -4,6 +4,7 @@ import {
   formatBytes,
   formatDownloadProgress,
   resolveNotificationPermissionAction,
+  backgroundIntervalOptions,
   resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
@@ -261,5 +262,21 @@ describe("设置页签消费时序", () => {
 
   it("关闭/未打开不消费——页签状态保持（重置由 onClose 负责）", () => {
     expect(resolveTabOnOpen(false, "update", "general")).toBe("general");
+  });
+});
+
+describe("后台刷新周期档位", () => {
+  it("档位与后端 sanitize 区间一致且文案按分钟/小时分流", () => {
+    const options = backgroundIntervalOptions();
+    expect(options.map((o) => o.minutes)).toEqual([15, 30, 60, 120, 360]);
+    expect(options[0]).toEqual({ minutes: 15, kind: "minutes", unit: 15 });
+    expect(options[1]).toEqual({ minutes: 30, kind: "minutes", unit: 30 });
+    expect(options[2]).toEqual({ minutes: 60, kind: "hours", unit: 1 });
+    expect(options[4]).toEqual({ minutes: 360, kind: "hours", unit: 6 });
+    // 全部档位落在后端收口区间（15..=360），不出现被 sanitize 改写的中间态
+    for (const option of options) {
+      expect(option.minutes).toBeGreaterThanOrEqual(15);
+      expect(option.minutes).toBeLessThanOrEqual(360);
+    }
   });
 });

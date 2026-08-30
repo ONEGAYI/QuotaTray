@@ -1180,6 +1180,10 @@ fn persist_settings(
             return Err(lang.err_autostart_apply(&e));
         }
     }
+    // Android：后台刷新调度随设置落盘即时同步（开关/周期变更生效，
+    // UPDATE 策略见 background.rs；失败仅日志，不影响保存结果）
+    #[cfg(target_os = "android")]
+    crate::background::schedule_background_work(state);
     Ok(())
 }
 
