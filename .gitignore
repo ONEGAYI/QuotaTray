@@ -36,3 +36,5 @@ portable.marker
 
 # Mimosa 扫描器本地状态（会话基线/报告，不入库）
 .mimosa/
+# tauri icon 生成的 iOS 图标集（本项目无 iOS 目标，防止误入库）
+apps/quota-desktop/src-tauri/icons/ios/
