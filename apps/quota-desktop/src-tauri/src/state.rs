@@ -178,10 +178,16 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// 网络代理端口变更后热重建查询引擎（save_settings 调用）。
+/// 网络代理（主机/端口）变更后热重建查询引擎（save_settings 调用）。
 pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpError> {
-    let proxy_port = state.settings.read().unwrap().update_proxy_port;
-    let engine = build_engine(proxy_port)?;
+    let (proxy_host, proxy_port) = {
+        let settings = state.settings.read().unwrap();
+        (
+            settings.update_proxy_host.clone(),
+            settings.update_proxy_port,
+        )
+    };
+    let engine = build_engine(proxy_host.as_deref(), proxy_port)?;
     *state.engine.write().unwrap() = engine;
     Ok(())
 }
@@ -231,14 +237,16 @@ pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
     true
 }
 
-/// 按代理端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
+/// 按代理主机/端口构造双通道查询引擎：直连通道恒在，代理通道仅在配了
 /// 全局网络代理端口时装配（条目 use_proxy 决定路由，未配端口而条目
-/// 开代理 → 引擎路由层确定性引导）。
+/// 开代理 → 引擎路由层确定性引导）。主机缺省回退 127.0.0.1（桌面本机
+/// 代理语义；Android 经主机字段指向电脑等远程代理）。
 pub(crate) fn build_engine(
+    proxy_host: Option<&str>,
     proxy_port: Option<u16>,
 ) -> Result<QueryEngine, quota_core::http::HttpError> {
     let direct = quota_core::http::ReqwestHttpClient::new(quota_core::DEFAULT_TIMEOUT)?;
-    let proxied = match quota_core::update::proxy_url_of(proxy_port).as_deref() {
+    let proxied = match quota_core::update::proxy_url_of_host(proxy_host, proxy_port).as_deref() {
         Some(url) => Some(quota_core::http::ReqwestHttpClient::new_with_proxy(
             quota_core::DEFAULT_TIMEOUT,
             Some(url),
@@ -281,10 +289,13 @@ impl AppState {
         }
         .map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
-        // 查询通道代理：复用设置中的网络代理端口（chatgpt.com 等被墙
-        // 站点的订阅查询必需），proxy_url_of 与更新通道同口径
-        let engine = build_engine(settings.update_proxy_port)
-            .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+        // 查询通道代理：复用设置中的网络代理主机/端口（chatgpt.com 等
+        // 被墙站点的订阅查询必需），proxy_url_of_host 与更新通道同口径
+        let engine = build_engine(
+            settings.update_proxy_host.as_deref(),
+            settings.update_proxy_port,
+        )
+        .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
         // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
         let last_check = settings.update_last_check;
         let mut results = HashMap::new();

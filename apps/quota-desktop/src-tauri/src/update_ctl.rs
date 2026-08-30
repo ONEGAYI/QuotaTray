@@ -256,10 +256,17 @@ pub(crate) fn notify_desktop(app: &AppHandle, state: &AppState, title: &str, bod
     }
 }
 
-/// 更新通道代理 URL（settings 端口 → `http://127.0.0.1:{port}`；None = 直连）。
-/// 检测与下载共用同一设置项。
+/// 更新通道代理 URL（settings 主机/端口 → `http://{host}:{port}`；主机
+/// 缺省回退 127.0.0.1，端口未配置 = 直连）。检测与下载共用同一设置项。
 pub(crate) fn proxy_url(state: &AppState) -> Option<String> {
-    quota_core::update::proxy_url_of(state.settings.read().unwrap().update_proxy_port)
+    let (host, port) = {
+        let settings = state.settings.read().unwrap();
+        (
+            settings.update_proxy_host.clone(),
+            settings.update_proxy_port,
+        )
+    };
+    quota_core::update::proxy_url_of_host(host.as_deref(), port)
 }
 
 /// 检测错误的悬停详情：仅状态类错误（[`update::UpdateError::HttpStatus`]）

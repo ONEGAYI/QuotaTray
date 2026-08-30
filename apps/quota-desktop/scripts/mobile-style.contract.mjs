@@ -158,11 +158,30 @@ test("Android 消息中心入口与面板满足触摸规范（T-009/T-010/T-011�
   // 小屏宽度收窄防溢出
   assert.match(
     css,
-    /body\.qt-mobile-runtime \.qt-msg-panel\s*\{[^}]*width:\s*min\(280px,\s*calc\(100vw - 24px\)\);/s,
+    /body\.qt-mobile-runtime \.qt-msg-panel\s*\{[^}]*width:\s*min\(280px,\s*calc\(100vw - 28px\)\);/s,
   );
   // 面板内按钮（现在安装/查看更新）触摸目标 44px
   assert.match(
     css,
     /body\.qt-mobile-runtime \.qt-msg-panel \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
+  );
+});
+
+test("Android 消息面板不被内容卡片遮挡且右缘对齐 actions 组（真机截屏回归）", () => {
+  // topbar 的 backdrop-filter 使其成为层叠上下文——不显式抬升 z-index 时，
+  // 面板的 z-index 60 被困其中，内容区 .qt-provider-card（position: relative，
+  // DOM 靠后）会绘制在 topbar 之上盖住面板（2026-08-30 真机截屏确认）。
+  // 与桌面 .qt-titlebar 同口径：position: relative + z-index: 60
+  assert.match(
+    css,
+    /\.qt-mobile-topbar\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*60;/s,
+  );
+  // 面板右缘不再对齐铃铛锚点（铃铛是 actions 组最左按钮，right:0 会把
+  // 280px 面板推出屏幕左缘）——负偏移 96px = 铃铛右侧 gap4 + 设置钮44 +
+  // gap4 + 加号钮44，使面板右缘对齐 actions 组右缘（距屏右 14px，与
+  // topbar padding 对齐）。MobileTopBar actions 按钮增减时需同步此值。
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-mobile-topbar \.qt-titlebar-menu-anchor \.qt-dropdown\s*\{[^}]*right:\s*-96px;/s,
   );
 });

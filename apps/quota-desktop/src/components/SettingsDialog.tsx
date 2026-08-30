@@ -443,6 +443,24 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 </SettingRow>
               )}
               {mobile && (
+                <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
+                  <input
+                    className="qt-input"
+                    type="text"
+                    placeholder="127.0.0.1"
+                    value={draft.update_proxy_host ?? ""}
+                    onChange={(event) => {
+                      // 空 → null（清空 = 回退本机 127.0.0.1）；
+                      // trim/scheme 剥离由后端 sanitize 收口
+                      setDraft({
+                        ...draft,
+                        update_proxy_host: event.target.value || null,
+                      });
+                    }}
+                  />
+                </SettingRow>
+              )}
+              {mobile && (
                 <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
                   <input
                     className="qt-input"
@@ -739,6 +757,22 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   />
                 </SettingRow>
               )}
+              <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
+                <input
+                  className="qt-input"
+                  type="text"
+                  placeholder="127.0.0.1"
+                  value={draft.update_proxy_host ?? ""}
+                  onChange={(event) => {
+                    // 空 → null（清空 = 回退本机 127.0.0.1）；
+                    // trim/scheme 剥离由后端 sanitize 收口
+                    setDraft({
+                      ...draft,
+                      update_proxy_host: event.target.value || null,
+                    });
+                  }}
+                />
+              </SettingRow>
               <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
                 <input
                   className="qt-input"

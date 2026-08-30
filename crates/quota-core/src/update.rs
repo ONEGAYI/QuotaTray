@@ -437,7 +437,18 @@ pub trait AssetDownloader: Send + Sync {
 /// 更新通道的代理 URL：设置层只存端口（本机 HTTP 代理，如 Clash），
 /// 此处统一拼接为 `http://127.0.0.1:{port}`，CLI 与 GUI 共用同一口径。
 pub fn proxy_url_of(port: Option<u16>) -> Option<String> {
-    port.map(|p| format!("http://127.0.0.1:{p}"))
+    proxy_url_of_host(None, port)
+}
+
+/// [`proxy_url_of`] 的主机可寻址超集：端口是代理的必要维度（None 即
+/// 直连）；主机缺省/空白回退 `127.0.0.1`——桌面「本机代理」语义不变，
+/// Android 等场景可显式传局域网主机（如指向电脑上的 Clash）。
+/// 只增不改以维持 M2 冻结的既有签名（CLI 仍用 [`proxy_url_of`]）。
+pub fn proxy_url_of_host(host: Option<&str>, port: Option<u16>) -> Option<String> {
+    port.map(|p| {
+        let host = host.map(str::trim).filter(|h| !h.is_empty());
+        format!("http://{}:{p}", host.unwrap_or("127.0.0.1"))
+    })
 }
 
 /// reqwest 实现的安装包下载器。
@@ -1273,6 +1284,35 @@ mod tests {
         assert_eq!(
             proxy_url_of(Some(u16::MAX)),
             Some(format!("http://127.0.0.1:{}", u16::MAX))
+        );
+    }
+
+    #[test]
+    fn proxy_url_of_host_maps_host_and_port() {
+        // 端口未配置 → 无论主机如何都不走代理（端口是代理的必要维度）
+        assert_eq!(proxy_url_of_host(None, None), None);
+        assert_eq!(proxy_url_of_host(Some("192.168.1.5"), None), None);
+        // 主机缺省/空白 → 回退 127.0.0.1（桌面「本机代理」既有行为不变）
+        assert_eq!(
+            proxy_url_of_host(None, Some(7897)),
+            Some("http://127.0.0.1:7897".into())
+        );
+        assert_eq!(
+            proxy_url_of_host(Some(""), Some(7897)),
+            Some("http://127.0.0.1:7897".into())
+        );
+        assert_eq!(
+            proxy_url_of_host(Some("   "), Some(7897)),
+            Some("http://127.0.0.1:7897".into())
+        );
+        // 显式主机（Android 指向电脑等远程代理场景）原样参与拼接
+        assert_eq!(
+            proxy_url_of_host(Some("192.168.1.5"), Some(7897)),
+            Some("http://192.168.1.5:7897".into())
+        );
+        assert_eq!(
+            proxy_url_of_host(Some("proxy.lan"), Some(1)),
+            Some("http://proxy.lan:1".into())
         );
     }
 

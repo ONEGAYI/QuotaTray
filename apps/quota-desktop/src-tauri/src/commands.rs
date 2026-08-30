@@ -1059,10 +1059,11 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 /// 使用——前端不再基于可能陈旧的缓存做全量提交（历史 bug：陈旧缓存
 /// 把代理端口等设置整体抹回默认值）。
 ///
-/// `tray_icon_entry_id` / `update_proxy_port` 为双层 Option：
-/// 外层 Some 内层 None = 显式清空（恢复自动/不代理）；字段缺省 = 不动。
-/// 二者标注 `double_option`——serde 对 `Option<Option<T>>` 的默认行为
-/// 会把 JSON null 也折叠为外层 None（清空与不动不可区分）。
+/// `tray_icon_entry_id` / `update_proxy_port` / `update_proxy_host` 为
+/// 双层 Option：外层 Some 内层 None = 显式清空（恢复自动/不代理）；
+/// 字段缺省 = 不动。三者标注 `double_option`——serde 对
+/// `Option<Option<T>>` 的默认行为会把 JSON null 也折叠为外层 None
+/// （清空与不动不可区分）。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct SettingsPatch {
     pub refresh_interval_minutes: Option<u32>,
@@ -1076,6 +1077,8 @@ pub struct SettingsPatch {
     pub update_check_enabled: Option<bool>,
     #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
+    #[serde(default, with = "double_option")]
+    pub update_proxy_host: Option<Option<String>>,
     pub update_auto_download: Option<bool>,
     pub notifications_enabled: Option<bool>,
     pub background_refresh_enabled: Option<bool>,
@@ -1124,6 +1127,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     if let Some(v) = patch.update_proxy_port {
         base.update_proxy_port = v;
     }
+    if let Some(v) = patch.update_proxy_host.clone() {
+        base.update_proxy_host = v;
+    }
     if let Some(v) = patch.update_auto_download {
         base.update_auto_download = v;
     }
@@ -1154,7 +1160,10 @@ fn persist_settings(
     settings.sanitize();
     let old_autostart = state.settings.read().unwrap().autostart;
 
-    let old_proxy_port = state.settings.read().unwrap().update_proxy_port;
+    let (old_proxy_port, old_proxy_host) = {
+        let s = state.settings.read().unwrap();
+        (s.update_proxy_port, s.update_proxy_host.clone())
+    };
     settings
         .save(&state.paths.settings())
         .map_err(|e| lang.err_settings_save(&e))?;
@@ -1166,9 +1175,10 @@ fn persist_settings(
     #[cfg(target_os = "android")]
     crate::background::schedule_background_work(state);
     tray::rebuild(app, state); // 阈值/语言/主题/每圈单位变化即时反映
-    // 网络代理端口变更即时生效：热重建查询引擎（读锁内查询继续用旧
-    // 客户端跑完，写锁仅在换新实例的瞬间持有）
-    if old_proxy_port != settings.update_proxy_port
+    // 网络代理（主机/端口）变更即时生效：热重建查询引擎（读锁内查询
+    // 继续用旧客户端跑完，写锁仅在换新实例的瞬间持有）
+    if (old_proxy_port != settings.update_proxy_port
+        || old_proxy_host != settings.update_proxy_host)
         && let Err(e) = crate::state::rebuild_engine(state)
     {
         eprintln!("代理变更后重建查询引擎失败：{e}");
@@ -2508,6 +2518,7 @@ mod tests {
     fn settings_patch_overrides_only_submitted_fields() {
         let mut base = Settings {
             update_proxy_port: Some(7897),
+            update_proxy_host: Some("192.168.1.5".into()),
             theme: "light".into(),
             language: "zh".into(),
             tray_icon_entry_id: Some("A1B2C3".into()),
@@ -2524,6 +2535,11 @@ mod tests {
         );
         assert_eq!(base.theme, "dark", "提交字段被覆盖");
         assert_eq!(base.update_proxy_port, Some(7897), "未提交字段保持现值");
+        assert_eq!(
+            base.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "未提交字段保持现值"
+        );
         assert_eq!(base.language, "zh");
         assert_eq!(base.tray_icon_entry_id, Some("A1B2C3".into()));
         assert_eq!(base.ring_units_per_circle, 500.0);
@@ -2534,12 +2550,24 @@ mod tests {
             &SettingsPatch {
                 tray_icon_entry_id: Some(None),
                 update_proxy_port: Some(None),
+                update_proxy_host: Some(None),
                 ..SettingsPatch::default()
             },
         );
         assert_eq!(base.tray_icon_entry_id, None, "Some(None) 显式清空");
         assert_eq!(base.update_proxy_port, None, "Some(None) 显式清空");
+        assert_eq!(base.update_proxy_host, None, "Some(None) 显式清空");
         assert_eq!(base.theme, "dark", "其余字段仍不动");
+
+        // host 覆盖提交（Android 指向电脑代理的主路径）
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                update_proxy_host: Some(Some("10.0.0.2".into())),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.update_proxy_host, Some("10.0.0.2".into()));
     }
 
     /// 契约：serde 边界上 JSON null → Some(None)（显式清空）、字段缺省 →
@@ -2548,19 +2576,33 @@ mod tests {
     /// 字段必须走 double_option。
     #[test]
     fn settings_patch_serde_boundary() {
-        let p: SettingsPatch =
-            serde_json::from_str(r#"{"update_proxy_port": 7897, "tray_icon_entry_id": null}"#)
-                .unwrap();
+        let p: SettingsPatch = serde_json::from_str(
+            r#"{"update_proxy_port": 7897, "update_proxy_host": "192.168.1.5", "tray_icon_entry_id": null}"#,
+        )
+        .unwrap();
         assert_eq!(p.update_proxy_port, Some(Some(7897)), "有值 → 覆盖");
+        assert_eq!(
+            p.update_proxy_host,
+            Some(Some("192.168.1.5".into())),
+            "有值 → 覆盖"
+        );
         assert_eq!(p.tray_icon_entry_id, Some(None), "JSON null → 显式清空");
 
         let p: SettingsPatch = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert_eq!(p.theme, Some("dark".into()));
         assert_eq!(p.tray_icon_entry_id, None, "字段缺省 → 不动");
         assert_eq!(p.update_proxy_port, None, "字段缺省 → 不动");
+        assert_eq!(p.update_proxy_host, None, "字段缺省 → 不动");
+
+        let p: SettingsPatch = serde_json::from_str(r#"{"update_proxy_host": null}"#).unwrap();
+        assert_eq!(p.update_proxy_host, Some(None), "JSON null → 显式清空");
 
         assert!(
             serde_json::from_str::<SettingsPatch>(r#"{"update_proxy_port": "abc"}"#).is_err(),
+            "类型错误透出而非静默清空"
+        );
+        assert!(
+            serde_json::from_str::<SettingsPatch>(r#"{"update_proxy_host": 123}"#).is_err(),
             "类型错误透出而非静默清空"
         );
     }

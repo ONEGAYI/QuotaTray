@@ -42,6 +42,11 @@ pub struct Settings {
     /// 检测与下载安装包共用；CLI 读同一 settings.json 自动生效。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
+    /// 更新通道代理主机（IP 或域名；None/空白 = 127.0.0.1 本机代理，
+    /// 桌面既有语义不变）。Android 上 127.0.0.1 指向手机自身——要经
+    /// 电脑代理时在此填其局域网 IP，且代理软件需允许局域网连接。
+    #[serde(default)]
+    pub update_proxy_host: Option<String>,
     /// 检测到新版本后自动下载安装包（默认关：代理用户流量自主权优先；
     /// 下载完成后经消息中心/系统通知询问安装）。仅安装版生效——
     /// 便携/普通 zip 更新维持「打开目录手动覆盖」引导。
@@ -110,6 +115,7 @@ impl Default for Settings {
             update_check_enabled: default_update_enabled(),
             update_last_check: None,
             update_proxy_port: None,
+            update_proxy_host: None,
             update_auto_download: false,
             notifications_enabled: default_notifications_enabled(),
             background_refresh_enabled: false,
@@ -136,6 +142,14 @@ impl Settings {
         self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
+        // 更新代理主机：trim + 剥 http:// 前缀（拼接层统一补 scheme）；
+        // 空白视为未配置（None → core 拼接回退 127.0.0.1）。其余字符
+        // 原样保留，非法主机由 reqwest 构造时的「代理配置无效」错误透出。
+        self.update_proxy_host = self
+            .update_proxy_host
+            .take()
+            .map(|h| h.trim().trim_start_matches("http://").trim().to_owned())
+            .filter(|h| !h.is_empty());
         // 后台刷新周期：系统硬限 15 分钟（更小值会被 WorkManager 抬到 15，
         // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
         self.background_refresh_interval_minutes =
@@ -227,6 +241,7 @@ mod tests {
             update_check_enabled: false,
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
+            update_proxy_host: Some("192.168.1.5".into()),
             update_auto_download: true,
             notifications_enabled: false,
             background_refresh_enabled: true,
@@ -252,6 +267,10 @@ mod tests {
         assert!(s.update_check_enabled, "自动检测默认开启");
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
+        assert_eq!(
+            s.update_proxy_host, None,
+            "默认代理主机未配置（回退 127.0.0.1）"
+        );
         assert!(!s.update_auto_download, "自动下载默认关闭");
         assert!(
             s.notifications_enabled,
@@ -321,6 +340,7 @@ mod tests {
             update_check_enabled: true,
             update_last_check: None,
             update_proxy_port: Some(7897),
+            update_proxy_host: None,
             update_auto_download: false,
             notifications_enabled: true,
             background_refresh_enabled: true,
@@ -363,6 +383,28 @@ mod tests {
         s.update_proxy_port = Some(u16::MAX);
         s.sanitize();
         assert_eq!(s.update_proxy_port, Some(u16::MAX), "上界端口应保留");
+        // 更新代理主机：trim 收口、剥 http:// 前缀、空白视为未配置
+        //（None 语义 = core proxy_url_of_host 回退 127.0.0.1）
+        s.update_proxy_host = Some("  192.168.1.5  ".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "主机应 trim"
+        );
+        s.update_proxy_host = Some("http://192.168.1.5".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "http:// 前缀应剥离（拼接层统一补 scheme）"
+        );
+        s.update_proxy_host = Some("   ".into());
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "空白主机视为未配置");
+        s.update_proxy_host = None;
+        s.sanitize();
+        assert_eq!(s.update_proxy_host, None, "None 保持不变");
     }
 
     /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。

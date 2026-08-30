@@ -178,8 +178,11 @@ export interface Settings {
   update_check_enabled: boolean;
   /** 上次自动检测时间（epoch 毫秒，null = 从未） */
   update_last_check: number | null;
-  /** 更新通道代理端口（本机 HTTP 代理；null = 直连，CLI 共用） */
+  /** 更新通道代理端口（HTTP 代理；null = 直连，CLI 共用） */
   update_proxy_port: number | null;
+  /** 更新通道代理主机（IP/域名；null = 127.0.0.1 本机代理，
+   * Android 经此指向电脑等远程代理，CLI 共用） */
+  update_proxy_host: string | null;
   /** 检测到新版本后自动下载安装包（仅安装版；完成后经消息中心询问安装） */
   update_auto_download: boolean;
   /** 系统通知总开关（两端共用；Android 侧叠加系统运行时权限层） */
@@ -204,6 +207,7 @@ export interface SettingsPatch {
   tray_icon_entry_id?: string | null;
   update_check_enabled?: boolean;
   update_proxy_port?: number | null;
+  update_proxy_host?: string | null;
   update_auto_download?: boolean;
   notifications_enabled?: boolean;
   background_refresh_enabled?: boolean;
