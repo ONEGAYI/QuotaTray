@@ -448,6 +448,8 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     className="qt-input"
                     type="text"
                     placeholder="127.0.0.1"
+                    autoCapitalize="none"
+                    autoCorrect="off"
                     value={draft.update_proxy_host ?? ""}
                     onChange={(event) => {
                       // 空 → null（清空 = 回退本机 127.0.0.1）；
@@ -762,6 +764,8 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   className="qt-input"
                   type="text"
                   placeholder="127.0.0.1"
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   value={draft.update_proxy_host ?? ""}
                   onChange={(event) => {
                     // 空 → null（清空 = 回退本机 127.0.0.1）；

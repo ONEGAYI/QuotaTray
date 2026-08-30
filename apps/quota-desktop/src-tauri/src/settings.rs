@@ -142,14 +142,36 @@ impl Settings {
         self.ring_units_per_circle = self.ring_units_per_circle.clamp(1.0, 1e6);
         // 更新代理端口：0 非法（u16 类型上限 65535 已由类型保证）→ 视为未配置
         self.update_proxy_port = self.update_proxy_port.filter(|p| *p != 0);
-        // 更新代理主机：trim + 剥 http:// 前缀（拼接层统一补 scheme）；
-        // 空白视为未配置（None → core 拼接回退 127.0.0.1）。其余字符
-        // 原样保留，非法主机由 reqwest 构造时的「代理配置无效」错误透出。
+        // 更新代理主机：坏输入不得透传——非法代理 URL 会让 build_engine
+        // 失败进而挡住冷启动（settings 是非关键数据，不该有此破坏力）。
+        // 收口规则：trim + 大小写归一（主机名大小写不敏感）→ 剥
+        // http(s):// 前缀（粘贴完整 URL 的常见形态）→ 剥误带的数字
+        // 端口尾巴（端口由独立字段承担）→ 剩余仍含 `:`（裸/带括号
+        // IPv6、非 http scheme）或含空白的视为未配置（None → core
+        // 拼接回退 127.0.0.1，直连可用的安全值）。
         self.update_proxy_host = self
             .update_proxy_host
             .take()
-            .map(|h| h.trim().trim_start_matches("http://").trim().to_owned())
-            .filter(|h| !h.is_empty());
+            .map(|raw| {
+                let h = raw.trim().to_ascii_lowercase();
+                let h = h
+                    .strip_prefix("https://")
+                    .or_else(|| h.strip_prefix("http://"))
+                    .unwrap_or(&h)
+                    .trim();
+                let host = match h.rsplit_once(':') {
+                    Some((head, tail))
+                        if !head.is_empty()
+                            && !tail.is_empty()
+                            && tail.bytes().all(|b| b.is_ascii_digit()) =>
+                    {
+                        head
+                    }
+                    _ => h,
+                };
+                host.to_owned()
+            })
+            .filter(|h| !h.is_empty() && !h.contains(':') && !h.contains(' '));
         // 后台刷新周期：系统硬限 15 分钟（更小值会被 WorkManager 抬到 15，
         // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
         self.background_refresh_interval_minutes =
@@ -405,6 +427,38 @@ mod tests {
         s.update_proxy_host = None;
         s.sanitize();
         assert_eq!(s.update_proxy_host, None, "None 保持不变");
+        // review 轮收紧：粘贴完整 URL / 误带端口 / IPv6 / 非 http scheme
+        // 的坏输入不得透传——否则拼接出非法代理 URL 会让 build_engine
+        // 失败，冷启动直接被挡在启动弹窗（review 实证链条）
+        s.update_proxy_host = Some("HTTP://192.168.1.5".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "大写 scheme 同样剥离"
+        );
+        s.update_proxy_host = Some("https://Proxy.LAN".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("proxy.lan".into()),
+            "https 前缀剥离且大小写归一（主机名大小写不敏感）"
+        );
+        s.update_proxy_host = Some("192.168.1.5:8080".into());
+        s.sanitize();
+        assert_eq!(
+            s.update_proxy_host,
+            Some("192.168.1.5".into()),
+            "误带数字端口尾巴应剥除（端口由独立字段承担）"
+        );
+        for bad in ["::1", "[::1]", "ftp://x", "host name"] {
+            s.update_proxy_host = Some(bad.into());
+            s.sanitize();
+            assert_eq!(
+                s.update_proxy_host, None,
+                "IPv6 字面量/非 http scheme/含空格主机不支持，视为未配置：{bad}"
+            );
+        }
     }
 
     /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。

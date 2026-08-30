@@ -290,12 +290,20 @@ impl AppState {
         .map_err(|e| format!("凭据保险库初始化失败：{e}"))?;
         let settings = Settings::load(&paths.settings());
         // 查询通道代理：复用设置中的网络代理主机/端口（chatgpt.com 等
-        // 被墙站点的订阅查询必需），proxy_url_of_host 与更新通道同口径
-        let engine = build_engine(
+        // 被墙站点的订阅查询必需），proxy_url_of_host 与更新通道同口径。
+        // 坏代理（sanitize 未能收口的形态）不阻断启动——settings 本就是
+        // 非关键数据（损坏都回默认），降级直连 + 告警（review 轮定案：
+        // 此前直接 Err 会把应用挡在启动失败弹窗，Android 自救需清数据）
+        let engine = match build_engine(
             settings.update_proxy_host.as_deref(),
             settings.update_proxy_port,
-        )
-        .map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?;
+        ) {
+            Ok(engine) => engine,
+            Err(e) => {
+                eprintln!("代理客户端构造失败（{e}），降级直连启动");
+                build_engine(None, None).map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?
+            }
+        };
         // last_check 展示镜像从磁盘恢复（info 留空：启动后调度任务会补检）
         let last_check = settings.update_last_check;
         let mut results = HashMap::new();
@@ -430,13 +438,15 @@ mod tests {
     }
 
     /// 契约：内存端口为空而磁盘有端口（启动加载抖动丢字段）→ 同步内存
-    /// 并重建引擎，返回 true。
+    /// 并重建引擎，返回 true。同步是 `*guard = disk` 整体替换——磁盘
+    /// host 随端口一并进内存（review 轮钉住的语义）。
     #[test]
     fn reconcile_recovers_port_from_disk() {
         let dir = temp_dir("recover");
         let state = sandbox_state(&dir);
         Settings {
             update_proxy_port: Some(7897),
+            update_proxy_host: Some("192.168.1.5".into()),
             ..Settings::default()
         }
         .save(&state.paths.settings())
@@ -447,6 +457,11 @@ mod tests {
             state.settings.read().unwrap().update_proxy_port,
             Some(7897),
             "内存端口已从磁盘同步"
+        );
+        assert_eq!(
+            state.settings.read().unwrap().update_proxy_host,
+            Some("192.168.1.5".into()),
+            "内存代理主机随整体替换一并从磁盘同步"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

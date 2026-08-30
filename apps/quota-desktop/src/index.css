@@ -946,7 +946,7 @@ body.qt-mobile-runtime { overflow: hidden; overscroll-behavior: none; }
 .qt-app-shell.is-mobile { height: 100dvh; }
 .qt-mobile-topbar {
   position: relative;
-  z-index: 60;
+  z-index: 40;
   display: flex;
   min-height: calc(56px + env(safe-area-inset-top));
   flex: none;
@@ -1011,9 +1011,12 @@ body.qt-mobile-runtime .qt-provider-card.has-balance-alert:not(.is-expanded):hov
  * 收窄防溢出、面板内按钮触摸目标 44px（T-010）。
  * 负偏移 96px = 铃铛右侧 gap4 + 设置钮 44 + gap4 + 加号钮 44；
  * MobileTopBar 的 actions 按钮增减时需同步此值。topbar 自身的
- * z-index 60（上方规则块）保证面板浮在内容区 position: relative 的
+ * z-index 40（上方规则块）保证面板浮在内容区 position: relative 的
  * 卡片之上——backdrop-filter 已使 topbar 成为层叠上下文，不显式抬升
- * 时面板的 z-index 60 会被困其中被卡片盖住。 */
+ * 时面板的 z-index 60 会被困其中被卡片盖住；取 40 而非桌面标题栏的
+ * 60：移动端全屏弹窗遮罩（.qt-dialog-backdrop z-50）必须盖住 topbar
+ * （弹窗 header 与 topbar 几何重叠，topbar 在上会劫持关闭按钮点击），
+ * 40 > 内容卡片/图表提示（auto/z-5）、< 遮罩 50，恰好满足两端。 */
 body.qt-mobile-runtime .qt-mobile-topbar .qt-titlebar-menu-anchor .qt-dropdown { top: 48px; right: -96px; }
 body.qt-mobile-runtime .qt-msg-panel { width: min(280px, calc(100vw - 28px)); }
 body.qt-mobile-runtime .qt-msg-panel .qt-btn { min-height: 44px; }

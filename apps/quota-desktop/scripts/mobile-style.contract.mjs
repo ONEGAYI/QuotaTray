@@ -171,10 +171,16 @@ test("Android 消息面板不被内容卡片遮挡且右缘对齐 actions 组（
   // topbar 的 backdrop-filter 使其成为层叠上下文——不显式抬升 z-index 时，
   // 面板的 z-index 60 被困其中，内容区 .qt-provider-card（position: relative，
   // DOM 靠后）会绘制在 topbar 之上盖住面板（2026-08-30 真机截屏确认）。
-  // 与桌面 .qt-titlebar 同口径：position: relative + z-index: 60
+  // 取 40：高于内容卡片与图表提示（auto/z-5），低于全屏弹窗遮罩 z-50——
+  // 移动端弹窗 header 与 topbar 几何重叠，topbar 高于遮罩会劫持弹窗关闭
+  // 按钮的点击（review 轮发现的回归）。断言按声明各自独立匹配（顺序无关）。
   assert.match(
     css,
-    /\.qt-mobile-topbar\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*60;/s,
+    /\.qt-mobile-topbar\s*\{[^}]*position:\s*relative;/s,
+  );
+  assert.match(
+    css,
+    /\.qt-mobile-topbar\s*\{[^}]*z-index:\s*40;/s,
   );
   // 面板右缘不再对齐铃铛锚点（铃铛是 actions 组最左按钮，right:0 会把
   // 280px 面板推出屏幕左缘）——负偏移 96px = 铃铛右侧 gap4 + 设置钮44 +

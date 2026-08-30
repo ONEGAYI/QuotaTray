@@ -181,7 +181,7 @@ export interface Settings {
   /** 更新通道代理端口（HTTP 代理；null = 直连，CLI 共用） */
   update_proxy_port: number | null;
   /** 更新通道代理主机（IP/域名；null = 127.0.0.1 本机代理，
-   * Android 经此指向电脑等远程代理，CLI 共用） */
+   * Android 经此指向电脑等远程代理。CLI 暂未读取该字段，后续跟进） */
   update_proxy_host: string | null;
   /** 检测到新版本后自动下载安装包（仅安装版；完成后经消息中心询问安装） */
   update_auto_download: boolean;
