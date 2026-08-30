@@ -21,6 +21,7 @@
 | 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
 | Android Preview（2026-08-28，所有者确认） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一使用 keyring-core 1 与四个平台原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
 | Android 更新链（2026-08-29，所有者确认） | 手动检测（进页+按钮；常驻轮询记为缺口）+ SAF 保存下载 + 自研薄 JNI 桥拉起系统安装器；不声明自安装权限，content URI 会话内存 | 引第三方 intent 插件（查证 0.1.0/400 下载/停更多年）；纯文案手动安装引导；自动下载 |
+| 使用统计比较（2026-08-30，所有者确认） | 最多四条 Provider+窗口组合，稳定色槽并随配置迁移；桌面聚焦多行气泡，Android 全宽图表+常驻读数；添加/管理使用居中 82dvh 模糊浮窗 | 单 Provider/Scope 下拉；移动横向滚动桌面图；添加管理全屏页 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -194,7 +195,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 | 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |
 | 历史库 | `~/.quotatray/history.db`（SQLite）：每次成功查询的余额/额度快照时序表，滚动保留 30 天，schema 走 user_version 版本化迁移 |
 | 窗口键（window_key） | 历史行的窗口标识：`plan_name` 非空取之，否则回退序数 `w0/w1…`；同一多窗口条目每窗口一条时间线 |
-| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history}`：随配置携带历史数值行（幂等合并进目标机历史库）；v1 旧包仍可导入，旧二进制读 v2 拒绝 |
+| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history, usage_comparison_series?}`：历史幂等合并，比较组合随配置替换；v1 旧包仍可导入；仅支持 v1 的程序拒绝 v2，早期 v2 程序会忽略新增可选字段 |
 
 ## 文件树（简版速览）
 
@@ -229,9 +230,11 @@ QuotaTray/
 │           │   │   └── tokens.md # 设计令牌规范
 │           │   ├── edit-dialog/   # 编辑弹窗域目录
 │           │   │   └── pricing-section.md # 定价编辑区规范
-│           │   └── mobile/        # 移动端规范域
-│           │       ├── interaction.md # 移动触摸交互规范
-│           │       └── layout.md      # 移动壳层布局规范
+│           │   ├── mobile/        # 移动端规范域
+│           │   │   ├── interaction.md # 移动触摸交互规范
+│           │   │   └── layout.md      # 移动壳层布局规范
+│           │   └── usage-stats/   # 使用统计规范域
+│           │       └── comparison-chart.md # 多曲线比较规范
 │           └── SKILL.md    # 跨端前端规范索引
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
@@ -275,7 +278,7 @@ QuotaTray/
 │   │       ├── lang.rs        # 语言三态与检测
 │   │       ├── main.rs        # clap 定义与 dispatch
 │   │       ├── render.rs      # 表格与 JSON 渲染
-│   │       ├── settings_io.rs # settings.json 读取
+│   │       ├── settings_io.rs # CLI 设置读改写
 │   │       └── texts.rs       # 双语文案表
 │   └── quota-desktop/ # 桌面端（M3 完成）
 │       ├── eslint.config.js    # ESLint 扁平配置
@@ -355,6 +358,9 @@ QuotaTray/
 │       │   │   ├── ui.tsx                       # 跨端共享基础组件
 │       │   │   ├── usageChartView.test.ts       # 统计图表逻辑测试
 │       │   │   ├── usageChartView.ts            # 统计图表纯逻辑
+│       │   │   ├── UsageComparisonDialog.tsx    # 统计组合添加管理弹窗
+│       │   │   ├── usageComparisonView.test.ts  # 统计组合逻辑测试
+│       │   │   ├── usageComparisonView.ts       # 统计组合纯逻辑
 │       │   │   └── UsageStatsPage.tsx           # 跨端使用统计页
 │       │   ├── display.test.ts         # display 文案测试
 │       │   ├── display.ts              # 时间与百分比文案
@@ -423,7 +429,7 @@ QuotaTray/
 │           ├── config/    # 配置层
 │           │   ├── mod.rs      # AppConfig 原子读写
 │           │   ├── provider.rs # 凭据与条目类型
-│           │   └── transfer.rs # 配置跨机器迁移
+│           │   └── transfer.rs # 配置迁移容器
 │           ├── history/   # 历史数据存储（M5）
 │           │   └── mod.rs # HistoryStore（SQLite）
 │           ├── http/      # HTTP 抽象

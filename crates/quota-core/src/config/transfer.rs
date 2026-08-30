@@ -5,9 +5,12 @@
 //! 迁移密钥随私有二进制容器携带，因此导出包的敏感级别等同明文凭据。
 //!
 //! 容器版本：v1 明文载荷为 `AppConfig`（历史版本，仍可导入）；v2 起为
-//! `{ config, history }` 信封，随配置携带历史走势数据（仅数值列，不含凭据）。
-//! 新版本只产 v2；旧二进制读到 v2 会拒绝导入（单向升级）。
+//! `{ config, history, usage_comparison_series? }` 信封，随配置携带历史走势数据
+//! 与可选的使用统计比较组合（均不含凭据）。
+//! 新版本只产 v2；仅支持 v1 的旧二进制会拒绝 v2。已支持 v2、但早于可选比较
+//! 字段的二进制会按 serde 默认规则忽略未知字段，配置与历史仍可降级导入。
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
@@ -31,12 +34,64 @@ const MAX_EXPORT_SIZE: usize = 16 * 1024 * 1024;
 const ENVELOPE_AAD_V1: &str = "quotatray-config-export:v1";
 const ENVELOPE_AAD_V2: &str = "quotatray-config-export:v2";
 
-/// v2 容器的明文信封；`history` 缺省视为无历史。
+/// 使用统计中持久化的一条 Provider + 窗口组合。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct UsageComparisonSeries {
+    /// Provider 的稳定配置 id。
+    pub provider_id: String,
+    /// 历史库中的模型/额度窗口键。
+    pub window_key: String,
+    /// 固定颜色槽，合法范围为 `0..MAX_USAGE_COMPARISON_SERIES`。
+    pub color_slot: u8,
+}
+
+/// 同屏比较的最大曲线数，也是合法色槽数量。
+pub const MAX_USAGE_COMPARISON_SERIES: usize = 4;
+
+/// 归一化跨端共享的比较组合：裁剪键、按顺序去重、限制四条，并修复色槽。
+pub fn sanitize_usage_comparison_series(
+    items: Vec<UsageComparisonSeries>,
+) -> Vec<UsageComparisonSeries> {
+    let mut normalized = Vec::with_capacity(items.len().min(MAX_USAGE_COMPARISON_SERIES));
+    let mut keys = HashSet::new();
+    let mut slots = HashSet::new();
+    for mut item in items {
+        item.provider_id = item.provider_id.trim().to_owned();
+        item.window_key = item.window_key.trim().to_owned();
+        if item.provider_id.is_empty()
+            || item.window_key.is_empty()
+            || !keys.insert((item.provider_id.clone(), item.window_key.clone()))
+        {
+            continue;
+        }
+        if usize::from(item.color_slot) >= MAX_USAGE_COMPARISON_SERIES
+            || !slots.insert(item.color_slot)
+        {
+            let Some(slot) = (0..MAX_USAGE_COMPARISON_SERIES)
+                .map(|slot| u8::try_from(slot).expect("four color slots fit u8"))
+                .find(|slot| !slots.contains(slot))
+            else {
+                break;
+            };
+            item.color_slot = slot;
+            slots.insert(slot);
+        }
+        normalized.push(item);
+        if normalized.len() == MAX_USAGE_COMPARISON_SERIES {
+            break;
+        }
+    }
+    normalized
+}
+
+/// v2 容器的明文信封；可选字段缺省表示旧包未携带。
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct ExportEnvelope {
     config: AppConfig,
     #[serde(default)]
     history: Option<Vec<HistoryExportRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usage_comparison_series: Option<Vec<UsageComparisonSeries>>,
 }
 
 /// 解码后的迁移包：已转写凭据的配置 + 可选的历史数据（未合并进库）。
@@ -45,6 +100,8 @@ pub struct TransferBundle {
     pub config: AppConfig,
     /// v2 容器携带的历史行；v1 容器或未携带时为 `None`。
     pub history: Option<Vec<HistoryExportRow>>,
+    /// GUI/CLI settings.json 中的使用统计比较组合；旧包未携带时为 `None`。
+    pub usage_comparison_series: Option<Vec<UsageComparisonSeries>>,
 }
 
 fn envelope_aad(version: u16) -> &'static str {
@@ -79,12 +136,25 @@ pub enum ConfigTransferError {
 
 /// 将完整配置（可选携带历史数据）编码为携带一次性迁移密钥的私有认证容器。
 ///
-/// 所有已配置凭据必须能被 `source_vault` 解密，否则整次导出失败。
-/// 始终产 v2 信封容器；`history` 为 `None` 时信封中历史为 null。
+/// 保留 v2 历史迁移阶段的公开签名；需要携带统计比较组合时使用
+/// [`export_config_with_usage`]。
 pub fn export_config(
     config: &AppConfig,
     source_vault: &Vault,
     history: Option<&[HistoryExportRow]>,
+) -> Result<Vec<u8>, ConfigTransferError> {
+    export_config_with_usage(config, source_vault, history, None)
+}
+
+/// 将完整配置、可选历史与使用统计组合编码为私有认证容器。
+///
+/// 所有已配置凭据必须能被 `source_vault` 解密，否则整次导出失败。
+/// 始终产 v2 信封容器；历史与比较组合均可选择不携带。
+pub fn export_config_with_usage(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+    usage_comparison_series: Option<&[UsageComparisonSeries]>,
 ) -> Result<Vec<u8>, ConfigTransferError> {
     let (transfer_vault, transfer_key) = Vault::transient()?;
     let mut transferable = config.clone();
@@ -93,6 +163,8 @@ pub fn export_config(
     let envelope = ExportEnvelope {
         config: transferable,
         history: history.map(|rows| rows.to_vec()),
+        usage_comparison_series: usage_comparison_series
+            .map(|rows| sanitize_usage_comparison_series(rows.to_vec())),
     };
     let serialized =
         Zeroizing::new(serde_json::to_string(&envelope).map_err(ConfigTransferError::Serialize)?);
@@ -171,7 +243,7 @@ pub fn import_config(
     })?;
     let transfer_vault = Vault::from_master_key(&transfer_key)?;
     let serialized = Zeroizing::new(transfer_vault.decrypt(payload, envelope_aad(version))?);
-    // v1 明文是裸 AppConfig，v2 起是 { config, history } 信封。
+    // v1 明文是裸 AppConfig，v2 起是带可选历史/比较组合的信封。
     let bundle = if version == FORMAT_VERSION_V1 {
         let mut config: AppConfig =
             serde_json::from_str(&serialized).map_err(ConfigTransferError::Parse)?;
@@ -179,6 +251,7 @@ pub fn import_config(
         TransferBundle {
             config,
             history: None,
+            usage_comparison_series: None,
         }
     } else {
         let mut envelope: ExportEnvelope =
@@ -187,6 +260,9 @@ pub fn import_config(
         TransferBundle {
             config: envelope.config,
             history: envelope.history,
+            usage_comparison_series: envelope
+                .usage_comparison_series
+                .map(sanitize_usage_comparison_series),
         }
     };
     Ok(bundle)
@@ -199,7 +275,18 @@ pub fn export_config_to_path(
     history: Option<&[HistoryExportRow]>,
     export_path: &Path,
 ) -> Result<(), ConfigTransferError> {
-    let bytes = export_config(config, source_vault, history)?;
+    export_config_to_path_with_usage(config, source_vault, history, None, export_path)
+}
+
+/// 原子写出携带可选统计比较组合的迁移包。
+pub fn export_config_to_path_with_usage(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+    usage_comparison_series: Option<&[UsageComparisonSeries]>,
+    export_path: &Path,
+) -> Result<(), ConfigTransferError> {
+    let bytes = export_config_with_usage(config, source_vault, history, usage_comparison_series)?;
     atomic_write(export_path, &bytes).map_err(ConfigTransferError::Write)
 }
 
@@ -370,6 +457,10 @@ mod tests {
         assert!(
             imported.history.is_none(),
             "未携带历史时 bundle.history 为 None"
+        );
+        assert!(
+            imported.usage_comparison_series.is_none(),
+            "旧 v2 形态未携带比较组合时保持 None"
         );
         assert_eq!(
             imported.config.providers[0]
@@ -660,6 +751,72 @@ mod tests {
     }
 
     #[test]
+    fn usage_comparison_roundtrips_as_optional_v2_metadata() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config = sample_config(&source_vault);
+        let comparison = vec![UsageComparisonSeries {
+            provider_id: "native-a".into(),
+            window_key: "Codex（5h）".into(),
+            color_slot: 2,
+        }];
+
+        let bytes =
+            export_config_with_usage(&config, &source_vault, None, Some(&comparison)).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+
+        assert_eq!(bundle.usage_comparison_series, Some(comparison));
+    }
+
+    #[test]
+    fn usage_comparison_sanitize_trims_deduplicates_caps_and_repairs_slots() {
+        let items = vec![
+            UsageComparisonSeries {
+                provider_id: " p1 ".into(),
+                window_key: " w1 ".into(),
+                color_slot: 3,
+            },
+            UsageComparisonSeries {
+                provider_id: "p1".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            },
+            UsageComparisonSeries {
+                provider_id: "p2".into(),
+                window_key: "w2".into(),
+                color_slot: 3,
+            },
+            UsageComparisonSeries {
+                provider_id: "p3".into(),
+                window_key: "w3".into(),
+                color_slot: 9,
+            },
+            UsageComparisonSeries {
+                provider_id: "p4".into(),
+                window_key: "w4".into(),
+                color_slot: 1,
+            },
+            UsageComparisonSeries {
+                provider_id: "p5".into(),
+                window_key: "w5".into(),
+                color_slot: 2,
+            },
+        ];
+
+        let sanitized = sanitize_usage_comparison_series(items);
+        assert_eq!(sanitized.len(), 4);
+        assert_eq!(sanitized[0].provider_id, "p1");
+        assert_eq!(sanitized[0].window_key, "w1");
+        assert_eq!(
+            sanitized
+                .iter()
+                .map(|item| item.color_slot)
+                .collect::<Vec<_>>(),
+            vec![3, 0, 1, 2]
+        );
+    }
+
+    #[test]
     fn v1_package_without_history_imports_as_none() {
         let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
         let (transfer_vault, transfer_key) = Vault::transient().unwrap();
@@ -678,6 +835,7 @@ mod tests {
         let bundle = import_config(&v1_bytes, &target_vault).unwrap();
         assert_eq!(bundle.config.providers.len(), 2);
         assert!(bundle.history.is_none());
+        assert!(bundle.usage_comparison_series.is_none());
     }
 
     #[test]

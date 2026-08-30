@@ -16,8 +16,10 @@ mod transfer;
 
 pub use provider::{Credentials, PlanVariant, ProviderKind};
 pub use transfer::{
-    CONFIG_EXPORT_EXTENSION, ConfigTransferError, TransferBundle, export_config,
-    export_config_to_path, import_config, import_config_from_path, import_config_to_path,
+    CONFIG_EXPORT_EXTENSION, ConfigTransferError, MAX_USAGE_COMPARISON_SERIES, TransferBundle,
+    UsageComparisonSeries, export_config, export_config_to_path, export_config_to_path_with_usage,
+    export_config_with_usage, import_config, import_config_from_path, import_config_to_path,
+    sanitize_usage_comparison_series,
 };
 
 /// 单个供应商条目。

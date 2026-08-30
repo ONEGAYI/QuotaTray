@@ -214,6 +214,8 @@ export function DialogShell({
   size = "md",
   closeLabel = "Close",
   className = "",
+  backdropClassName = "",
+  closeOnBackdrop = false,
 }: {
   title: string;
   description?: string;
@@ -223,6 +225,8 @@ export function DialogShell({
   size?: "sm" | "md" | "lg";
   closeLabel?: string;
   className?: string;
+  backdropClassName?: string;
+  closeOnBackdrop?: boolean;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
@@ -300,7 +304,12 @@ export function DialogShell({
   }, []);
 
   return createPortal(
-    <div className="qt-dialog-backdrop">
+    <div
+      className={`qt-dialog-backdrop ${backdropClassName}`}
+      onClick={(event) => {
+        if (closeOnBackdrop && event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         ref={dialogRef}
         className={`qt-dialog qt-dialog-${size} ${className}`}

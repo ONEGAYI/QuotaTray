@@ -24,9 +24,11 @@ pub mod update;
 pub mod vault;
 
 pub use config::{
-    AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, PlanVariant,
-    ProviderEntry, ProviderKind, TransferBundle, export_config, export_config_to_path,
-    import_config, import_config_from_path, import_config_to_path,
+    AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials,
+    MAX_USAGE_COMPARISON_SERIES, PlanVariant, ProviderEntry, ProviderKind, TransferBundle,
+    UsageComparisonSeries, export_config, export_config_to_path, export_config_to_path_with_usage,
+    export_config_with_usage, import_config, import_config_from_path, import_config_to_path,
+    sanitize_usage_comparison_series,
 };
 pub use history::{
     DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, WindowKind,

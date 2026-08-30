@@ -37,6 +37,10 @@
   --qt-chart-axis: #cbd2dc;
   --qt-chart-grid: #b7c0cc;
   --qt-chart-gap-stripe: #aab4c1;
+  --qt-series-1: var(--qt-accent);
+  --qt-series-2: #df6f9f;
+  --qt-series-3: #3d9b87;
+  --qt-series-4: #e49537;
   /* ---- 档位令牌（规范 design-tokens/，不随主题、dark 不覆盖）----
      圆角五档：xs 微元素 / sm 控件 / md 区块 / lg 卡片 / xl 弹窗；
      动效四档：1 微反馈 / 2 标准过渡 / 3 面板 / 4 大面板编排 */
@@ -88,6 +92,10 @@
   --qt-chart-axis: #a2a2a2;
   --qt-chart-grid: #55585d;
   --qt-chart-gap-stripe: #686b70;
+  --qt-series-1: var(--qt-accent);
+  --qt-series-2: #df6f9f;
+  --qt-series-3: #3d9b87;
+  --qt-series-4: #e49537;
 }
 
 /* 主题切换圆形扩散（View Transitions）：old 静止全显，new 由关键帧从主题按钮
@@ -325,14 +333,6 @@ button:disabled { cursor: not-allowed; }
 .qt-history-placeholder p { margin: 7px 0 0; color: var(--qt-text-soft); font-size: 13px; }
 .qt-usage-page { min-width: 0; }
 .qt-usage-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 11px; }
-.qt-usage-selectors { display: flex; min-width: 0; align-items: flex-end; gap: 9px; }
-.qt-usage-selector { display: grid; min-width: 168px; gap: 5px; }
-.qt-usage-selector > span { color: var(--qt-text-faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.qt-usage-selector select { min-height: 38px; border: 1px solid var(--qt-border-strong); border-radius: var(--qt-radius-sm); padding: 7px 32px 7px 11px; background: var(--qt-surface); color: var(--qt-text); font-size: 13px; font-weight: 600; }
-.qt-usage-selector select:hover { border-color: color-mix(in srgb, var(--qt-accent) 42%, var(--qt-border)); }
-.qt-usage-selector select:disabled { cursor: not-allowed; opacity: .58; }
-.qt-usage-selector select:focus-visible { border-color: var(--qt-accent); outline: 2px solid color-mix(in srgb, var(--qt-accent) 20%, transparent); outline-offset: 0; }
-.qt-usage-selector-arrow { padding-bottom: 10px; color: var(--qt-text-faint); font-size: 14px; }
 .qt-usage-range-switch { flex: none; }
 .qt-usage-state { display: grid; min-height: min(390px, calc(100vh - 250px)); align-content: center; justify-items: center; gap: 7px; border: 1px dashed var(--qt-border-strong); border-radius: var(--qt-radius-lg); padding: 40px 24px; background: color-mix(in srgb, var(--qt-surface) 78%, transparent); color: var(--qt-text-soft); text-align: center; }
 .qt-usage-state strong { color: var(--qt-text); font-size: 16px; }
@@ -341,14 +341,7 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-chart-card { overflow: hidden; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-xl); background: var(--qt-surface); box-shadow: 0 8px 26px var(--qt-shadow); }
 .qt-usage-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 17px 18px 9px; }
 .qt-usage-eyebrow { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--qt-text-soft); font-size: 12px; font-weight: 600; }
-.qt-usage-eyebrow > span { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, var(--qt-series-color) 13%, transparent); }
-.qt-usage-current { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
-.qt-usage-current strong { font-size: 28px; font-weight: 690; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
-.qt-usage-current > span { color: var(--qt-text-soft); font-size: 12px; }
 .qt-usage-updated { margin: 1px 0 0; color: var(--qt-text-faint); font-size: 11px; }
-.qt-usage-chart-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
-.qt-usage-axis-chip { display: inline-flex; align-items: center; min-height: 29px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); padding: 5px 8px; color: var(--qt-text-faint); font-size: 10px; }
-.qt-usage-axis-chip.is-active { border-color: color-mix(in srgb, var(--qt-series-color) 34%, var(--qt-border)); background: color-mix(in srgb, var(--qt-series-color) 9%, var(--qt-surface)); color: var(--qt-text); }
 .qt-usage-reset { min-height: 29px; padding: 5px 9px; font-size: 11px; }
 .qt-usage-chart-wrap { --qt-series-color: var(--qt-accent); position: relative; min-width: 0; padding: 0 9px; cursor: crosshair; overscroll-behavior: none; }
 .qt-usage-chart-wrap.is-dragging { cursor: grabbing; }
@@ -359,30 +352,58 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-axis text { fill: currentColor; font-size: 10px; font-variant-numeric: tabular-nums; }
 .qt-usage-axis .qt-usage-axis-title { font-size: 10px; font-weight: 650; letter-spacing: .035em; }
 .qt-usage-axis:not(.is-active) { opacity: .56; }
-.qt-usage-chart-wrap.is-hovered .qt-usage-axis.is-active { color: var(--qt-series-color); opacity: 1; }
-.qt-usage-chart-wrap.is-hovered .qt-usage-axis-bottom { color: var(--qt-series-color); }
 .qt-usage-gap-stripe { stroke: var(--qt-chart-gap-stripe); stroke-width: 1; }
 .qt-usage-series { fill: none; stroke: var(--qt-series-color); stroke-width: 2.65; stroke-linecap: round; stroke-linejoin: round; opacity: .88; transition: stroke-width var(--qt-dur-2) ease, opacity var(--qt-dur-2) ease, filter var(--qt-dur-2) ease; vector-effect: non-scaling-stroke; }
-.qt-usage-chart-wrap.is-hovered .qt-usage-series { stroke-width: 3.15; opacity: 1; filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--qt-series-color) 30%, transparent)); }
 .qt-usage-bridge { stroke: var(--qt-series-color); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 4 6; opacity: .48; vector-effect: non-scaling-stroke; }
 .qt-usage-gap-edge, .qt-usage-endpoint { fill: var(--qt-surface); stroke: var(--qt-series-color); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .qt-usage-crosshair { stroke: var(--qt-series-color); stroke-width: 1; stroke-dasharray: 2 4; opacity: .62; vector-effect: non-scaling-stroke; }
-.qt-usage-hover-halo { fill: color-mix(in srgb, var(--qt-series-color) 20%, transparent); }
 .qt-usage-hover-dot { fill: var(--qt-surface); stroke: var(--qt-series-color); stroke-width: 3; vector-effect: non-scaling-stroke; }
 .qt-usage-tooltip { position: absolute; z-index: 5; top: 38px; display: grid; min-width: 180px; max-width: 235px; gap: 3px; transform: translateX(-50%); border: 1px solid color-mix(in srgb, var(--qt-series-color) 30%, var(--qt-border)); border-radius: var(--qt-radius-md); padding: 10px 11px; background: color-mix(in srgb, var(--qt-surface) 94%, transparent); box-shadow: 0 12px 30px var(--qt-shadow); pointer-events: none; backdrop-filter: blur(12px); }
 .qt-usage-tooltip-time { color: var(--qt-text-faint); font-size: 10px; }
 .qt-usage-tooltip strong { color: var(--qt-text); font-size: 18px; font-variant-numeric: tabular-nums; }
-.qt-usage-tooltip > span:last-of-type { color: var(--qt-text-soft); font-size: 10px; }
-.qt-usage-tooltip em { margin-top: 3px; color: var(--qt-warning); font-size: 10px; font-style: normal; line-height: 1.4; }
-.qt-usage-tooltip.is-below { transform: translate(-50%, 0); }
-.qt-usage-tooltip.is-above { transform: translate(-50%, -100%); }
-.qt-usage-tooltip.is-gap { border-color: var(--qt-border-strong); }
-.qt-usage-tooltip.is-gap strong { font-size: 13px; }
-.qt-usage-tooltip.is-gap em { color: var(--qt-text-faint); }
 .qt-usage-chart-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; min-height: 42px; border-top: 1px solid var(--qt-border); padding: 8px 18px; background: var(--qt-surface-soft); color: var(--qt-text-faint); font-size: 10px; }
 .qt-usage-chart-footer > span { display: inline-flex; align-items: center; gap: 6px; }
 .qt-usage-legend-gap { margin-left: auto; }
 .qt-usage-legend-gap i { width: 18px; height: 8px; border: 1px solid var(--qt-border); border-radius: 3px; background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--qt-chart-gap-stripe) 55%, transparent) 3px 4px); }
+.qt-usage-comparison-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.qt-usage-comparison-actions .qt-btn > span { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-series-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-bottom: 10px; }
+.qt-usage-series-summary button { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: var(--qt-radius-sm); padding: 7px 9px; background: transparent; color: var(--qt-text-soft); text-align: left; cursor: pointer; }
+.qt-usage-series-summary button:hover, .qt-usage-series-summary button[aria-pressed="true"] { border-color: var(--qt-border); background: var(--qt-surface-soft); color: var(--qt-text); }
+.qt-usage-series-summary i, .qt-usage-tooltip-row i, .qt-usage-mobile-readout i { width: 9px; height: 9px; border-radius: 50%; background: var(--qt-series-color); }
+.qt-usage-series-summary button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-series-summary strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qt-usage-partial-warning { margin-bottom: 10px; }
+.qt-usage-chart g.is-muted .qt-usage-series, .qt-usage-chart g.is-muted .qt-usage-bridge { opacity: .16; filter: none; }
+.qt-usage-chart g.is-focused .qt-usage-series { stroke-width: 3.35; opacity: 1; }
+.qt-usage-tooltip { top: auto; min-width: 225px; max-width: 300px; transform: translateX(-50%); }
+.qt-usage-tooltip.is-docked-top { top: 24px; bottom: auto; }
+.qt-usage-tooltip.is-docked-bottom { top: auto; bottom: 30px; }
+.qt-usage-tooltip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 11px; }
+.qt-usage-tooltip-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-tooltip-row strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qt-usage-mobile-focus { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; scrollbar-width: none; }
+.qt-usage-mobile-focus::-webkit-scrollbar { display: none; }
+.qt-usage-mobile-focus button { min-height: 44px; flex: none; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); padding: 7px 10px; background: var(--qt-surface); color: var(--qt-text-soft); cursor: pointer; }
+.qt-usage-mobile-focus button[aria-pressed="true"] { border-color: var(--qt-series-color); background: color-mix(in srgb, var(--qt-series-color) 10%, var(--qt-surface)); color: var(--qt-text); }
+.qt-usage-mobile-readout { display: grid; gap: 8px; border-top: 1px solid var(--qt-border); padding: 11px 13px 13px; background: var(--qt-surface-soft); }
+.qt-usage-mobile-readout > span { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-mobile-readout > div { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 12px; }
+.qt-usage-mobile-readout strong { color: var(--qt-text); font-variant-numeric: tabular-nums; }
+.qt-usage-dialog-count { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-add-form { display: grid; gap: 13px; }
+.qt-usage-add-preview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); padding: 10px 11px; background: var(--qt-surface-soft); }
+.qt-usage-add-preview > i, .qt-usage-manage-row > i { width: 9px; height: 9px; border-radius: 50%; }
+.qt-usage-add-preview span, .qt-usage-manage-row span { min-width: 0; }
+.qt-usage-add-preview strong, .qt-usage-manage-row strong { display: block; overflow: hidden; color: var(--qt-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-add-preview small, .qt-usage-manage-row small { display: block; margin-top: 2px; color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-add-preview em { color: var(--qt-text-faint); font-size: 11px; font-style: normal; }
+.qt-usage-manage-list { display: grid; }
+.qt-usage-manage-row { display: grid; min-height: 52px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--qt-border); padding: 7px 2px; }
+.qt-usage-manage-row:last-child { border-bottom: 0; }
+.qt-usage-manage-remove { color: var(--qt-danger); }
+.qt-usage-manage-remove:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
+.qt-usage-manage-empty { padding: 36px 18px; color: var(--qt-text-soft); text-align: center; }
 .qt-loading-card, .qt-empty-state { border: 1px dashed var(--qt-border-strong); border-radius: var(--qt-radius-lg); padding: 34px; background: color-mix(in srgb, var(--qt-surface) 78%, transparent); color: var(--qt-text-soft); text-align: center; }
 .qt-empty-state p { margin: 0; color: var(--qt-text); font-weight: 600; }
 .qt-empty-state span { display: block; margin-top: 5px; font-size: 12px; }
@@ -891,15 +912,8 @@ ol.qt-guide-list { list-style: decimal; }
   .qt-edit-basics { grid-template-columns: 1fr; }
   .qt-ai-assist-fields { grid-template-columns: 1fr; }
   .qt-usage-toolbar { align-items: stretch; flex-direction: column; }
-  .qt-usage-selectors { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; }
-  .qt-usage-selector { min-width: 0; }
   .qt-usage-range-switch { align-self: flex-start; }
   .qt-usage-chart-head { flex-direction: column; }
-  .qt-usage-chart-actions { justify-content: flex-start; }
-  .qt-usage-chart-wrap { min-width: 560px; }
-  .qt-usage-chart-card { overflow-x: auto; }
-  .qt-usage-chart-footer { min-width: 560px; }
-  .qt-usage-legend-gap { margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1104,15 +1118,44 @@ body.qt-mobile-runtime .qt-error-detail-toggle { min-height: 44px; min-width: 44
 body.qt-mobile-runtime .qt-inline-link { position: relative; }
 body.qt-mobile-runtime .qt-inline-link::before { position: absolute; inset: -15px -8px; content: ""; }
 
-/* 审查轮补齐（同日）：统计页裸下拉（.qt-usage-selector select）与重置钮、
-   设置迁移区/模板试查区正文按钮、峰谷周几切换钮（挂语义类 qt-pricing-day-chip
+/* 审查轮补齐（同日）：统计页组合工具栏与重置钮、设置迁移区/模板试查区正文按钮、
+   峰谷周几切换钮（挂语义类 qt-pricing-day-chip
    直接加高）；峰谷行内文字钮（清除覆盖/添加时段/移除时段/重置档位）沿用
    分治——qt-touch-inline 通用热区类，与 qt-inline-link 的伪元素外扩同构、
    不带任何视觉样式，视觉继续由各自 Tailwind 类承担。 */
-body.qt-mobile-runtime .qt-usage-selector select { min-height: 44px; }
+body.qt-mobile-runtime .qt-usage-comparison-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-usage-reset { min-height: 44px; }
 body.qt-mobile-runtime .qt-settings-content .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-pricing-day-chip { min-height: 44px; }
 body.qt-mobile-runtime .qt-touch-inline { position: relative; }
 body.qt-mobile-runtime .qt-touch-inline::before { position: absolute; inset: -15px -8px; content: ""; }
+
+/* T-013 使用统计组合弹窗：Android 专用居中浮窗，不沿用设置/编辑页全屏形态。 */
+body.qt-mobile-runtime .qt-dialog-backdrop.qt-usage-dialog-backdrop {
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--qt-text) 28%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+@media (max-width: 860px) {
+  .qt-usage-series-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+body.qt-mobile-runtime .qt-dialog.qt-dialog-usage-comparison {
+  width: calc(100% - 20px);
+  height: min(82dvh, 680px);
+  max-height: calc(100dvh - max(24px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+  border: 1px solid var(--qt-border-strong);
+  border-radius: var(--qt-radius-xl);
+  box-shadow: 0 22px 64px var(--qt-shadow);
+}
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-header { min-height: 56px; padding-top: 0; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-body { padding: 14px; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-footer { min-height: 64px; padding-bottom: 0; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-select,
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-btn { min-height: 44px; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-usage-manage-row { min-height: 56px; }
+body.qt-mobile-runtime .qt-usage-chart-wrap { min-width: 0; padding: 0 2px; }
+body.qt-mobile-runtime .qt-usage-chart-card { overflow: hidden; }
+body.qt-mobile-runtime .qt-usage-chart-head { flex-direction: row; align-items: center; }

@@ -25,6 +25,13 @@ export interface HistoryPoint {
   unit?: string;
 }
 
+/** 使用统计中持久化的一条 Provider + 模型/额度窗口组合。 */
+export interface UsageComparisonSeries {
+  provider_id: string;
+  window_key: string;
+  color_slot: number;
+}
+
 /** 模板请求定义。 */
 export interface TemplateRequest {
   method?: "GET" | "POST";
@@ -191,6 +198,8 @@ export interface Settings {
   background_refresh_enabled: boolean;
   /** Android 后台刷新周期（分钟；系统硬限最小 15，收口 15–360） */
   background_refresh_interval_minutes: number;
+  /** null = 旧版/首次运行等待自动初始化；[] = 用户主动清空。 */
+  usage_comparison_series: UsageComparisonSeries[] | null;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
@@ -212,6 +221,7 @@ export interface SettingsPatch {
   notifications_enabled?: boolean;
   background_refresh_enabled?: boolean;
   background_refresh_interval_minutes?: number;
+  usage_comparison_series?: UsageComparisonSeries[];
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

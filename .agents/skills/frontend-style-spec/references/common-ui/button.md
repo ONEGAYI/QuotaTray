@@ -48,6 +48,10 @@ Android 仍沿用视觉图标尺寸，但触摸命中区须通过容器或平台
   44px（T-010；「视觉小、命中大」惯例）。语义优先于纯图标（2026-08-29 所有者
   定案：文字「控制台」/"Console" + ArrowUpRight 比裸 ↗ 图标信息价值高）。
   mobile-style 契约锁定（min-height/margin-left/pressed 底/route 行 flex）。
+- `qt-usage-manage-remove`（统计组合管理删除钮）：沿用 `ghost` 的透明工具行形态，
+  但默认与 hover 均使用 `danger` 字，hover 使用 `danger-soft` 底；避免列表中每行
+  出现高权重实心危险按钮。Android 命中区仍由 T-013 扩到 44px（2026-08-31
+  所有者按审查意见确认登记）。
 
 **文字链接式按钮**（行内下划线动作）：`accent-strong` 字 + hover 下划线；
 删除类动作 hover 转 `danger` 字。不得引入 Tailwind 色板（见 T-008）。

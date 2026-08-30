@@ -68,6 +68,9 @@ pub struct Settings {
     /// 收口到 15..=360；实际执行受 Doze/省电影响可能延后。
     #[serde(default = "default_background_interval")]
     pub background_refresh_interval_minutes: u32,
+    /// 使用统计比较组合；None = 尚未初始化，Some([]) = 用户主动清空。
+    #[serde(default)]
+    pub usage_comparison_series: Option<Vec<quota_core::UsageComparisonSeries>>,
 }
 
 fn default_interval() -> u32 {
@@ -120,6 +123,7 @@ impl Default for Settings {
             notifications_enabled: default_notifications_enabled(),
             background_refresh_enabled: false,
             background_refresh_interval_minutes: default_background_interval(),
+            usage_comparison_series: None,
         }
     }
 }
@@ -187,6 +191,10 @@ impl Settings {
         // 与其静默抬升不如落盘时就收口）；上限 6 小时（再长失去后台刷新意义）
         self.background_refresh_interval_minutes =
             self.background_refresh_interval_minutes.clamp(15, 360);
+        if let Some(items) = self.usage_comparison_series.take() {
+            self.usage_comparison_series =
+                Some(quota_core::sanitize_usage_comparison_series(items));
+        }
     }
 
     /// 加载设置；文件缺失或损坏返回默认值（非关键数据，容错优先）。
@@ -199,8 +207,11 @@ impl Settings {
         let Some(text) = read_with_retry(path) else {
             return Self::default();
         };
-        match serde_json::from_str(&text) {
-            Ok(s) => s,
+        match serde_json::from_str::<Self>(&text) {
+            Ok(mut s) => {
+                s.sanitize();
+                s
+            }
             Err(e) => {
                 eprintln!("settings.json 解析失败，回退默认设置：{e}");
                 Self::default()
@@ -279,9 +290,14 @@ mod tests {
             notifications_enabled: false,
             background_refresh_enabled: true,
             background_refresh_interval_minutes: 120,
+            usage_comparison_series: Some(vec![quota_core::UsageComparisonSeries {
+                provider_id: "AB2C3D".into(),
+                window_key: "w0".into(),
+                color_slot: 0,
+            }]),
         };
         s.save(&path).unwrap();
-        assert_eq!(Settings::load(&path), s, "含后台刷新字段 roundtrip 无损");
+        assert_eq!(Settings::load(&path), s, "完整设置 roundtrip 无损");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -314,6 +330,83 @@ mod tests {
             "后台刷新默认关闭（Preview 谨慎）"
         );
         assert_eq!(s.background_refresh_interval_minutes, 30);
+        assert_eq!(
+            s.usage_comparison_series, None,
+            "旧版/首次运行等待前端自动初始化"
+        );
+    }
+
+    #[test]
+    fn sanitize_usage_comparison_keeps_four_unique_series_and_repairs_color_slots() {
+        let mut s = Settings {
+            usage_comparison_series: Some(vec![
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p1".into(),
+                    window_key: "w1".into(),
+                    color_slot: 3,
+                },
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p1".into(),
+                    window_key: "w1".into(),
+                    color_slot: 0,
+                },
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p2".into(),
+                    window_key: "w2".into(),
+                    color_slot: 3,
+                },
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p3".into(),
+                    window_key: "w3".into(),
+                    color_slot: 8,
+                },
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p4".into(),
+                    window_key: "w4".into(),
+                    color_slot: 1,
+                },
+                quota_core::UsageComparisonSeries {
+                    provider_id: "p5".into(),
+                    window_key: "w5".into(),
+                    color_slot: 2,
+                },
+            ]),
+            ..Settings::default()
+        };
+
+        s.sanitize();
+
+        let series = s.usage_comparison_series.unwrap();
+        assert_eq!(series.len(), 4);
+        assert_eq!(
+            series
+                .iter()
+                .map(|item| item.color_slot)
+                .collect::<Vec<_>>(),
+            vec![3, 0, 1, 2]
+        );
+        assert_eq!(series[1].provider_id, "p2");
+    }
+
+    #[test]
+    fn sanitize_usage_comparison_preserves_explicit_empty_and_drops_blank_keys() {
+        let mut empty = Settings {
+            usage_comparison_series: Some(Vec::new()),
+            ..Settings::default()
+        };
+        empty.sanitize();
+        assert_eq!(empty.usage_comparison_series, Some(Vec::new()));
+
+        let mut blank = Settings {
+            usage_comparison_series: Some(vec![quota_core::UsageComparisonSeries {
+                provider_id: "  ".into(),
+                window_key: "w0".into(),
+                color_slot: 0,
+            }]),
+            ..Settings::default()
+        };
+        blank.sanitize();
+        assert_eq!(blank.usage_comparison_series, Some(Vec::new()));
     }
 
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
@@ -378,6 +471,7 @@ mod tests {
             notifications_enabled: true,
             background_refresh_enabled: true,
             background_refresh_interval_minutes: 9999,
+            usage_comparison_series: None,
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
