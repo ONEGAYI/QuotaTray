@@ -6,7 +6,7 @@ import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate, type UsageComparisonDialogMode } from "./UsageComparisonDialog";
-import { detailComparisonIds, initialUsageComparisons, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
+import { detailComparisonIds, initialUsageComparisons, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, SegmentedControl } from "./ui";
 import { advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, niceAbsoluteScale, shouldZoomUsageChart, splitUsageSeries, USAGE_RANGES, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
 
@@ -145,6 +145,10 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const yTicks = [0, 25, 50, 75, 100];
   const detailIds = detailComparisonIds(scopes.map((scope) => scope.id), focusedId);
   const detailScopes = scopes.filter((scope) => detailIds.includes(scope.id));
+  const focusedHasLongGap = scopes.some((scope) => (
+    shouldShowFocusedGap(focusedId, scope.id)
+    && splitUsageSeries(scope.samples, scope.bucketMs).gaps.length > 0
+  ));
   const dateFormatter = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const axisFormatter = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit" });
 
@@ -186,17 +190,28 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></header>
       <div className={`qt-usage-chart-wrap ${isDragging ? "is-dragging" : ""}`} onWheelCapture={onWheel}>
         <svg ref={svgRef} className="qt-usage-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={t("usage.comparisonChartLabel", { count: scopes.length })} onPointerLeave={() => { if (!mobile && !isDragging) setCursor(null); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onDoubleClick={() => { if (!mobile) resetView(); }}>
-          <defs><clipPath id="qt-usage-plot-clip"><rect x={chart.left} y={chart.top} width={plotWidth} height={plotHeight} rx="2" /></clipPath></defs>
+          <defs>
+            <clipPath id="qt-usage-plot-clip"><rect x={chart.left} y={chart.top} width={plotWidth} height={plotHeight} rx="2" /></clipPath>
+            <linearGradient id="qt-usage-gap-fade" x1="0" x2="1">
+              <stop offset="0" stopColor="var(--qt-surface-soft)" stopOpacity="0" />
+              <stop offset=".16" stopColor="var(--qt-surface-soft)" stopOpacity=".72" />
+              <stop offset=".84" stopColor="var(--qt-surface-soft)" stopOpacity=".72" />
+              <stop offset="1" stopColor="var(--qt-surface-soft)" stopOpacity="0" />
+            </linearGradient>
+            <pattern id="qt-usage-gap-pattern" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="8" className="qt-usage-gap-stripe" />
+            </pattern>
+          </defs>
           {yTicks.map((tick) => <line key={tick} className="qt-usage-grid-line" x1={chart.left} x2={chart.right} y1={chart.bottom - tick / 100 * plotHeight} y2={chart.bottom - tick / 100 * plotHeight} />)}{xTicks.map((tick) => <line key={tick} className="qt-usage-grid-line" x1={xOf(tick)} x2={xOf(tick)} y1={chart.top} y2={chart.bottom} />)}
           <g className={`qt-usage-axis qt-usage-axis-left ${absolutePresent ? "is-active" : ""}`}>{absolutePresent && yTicks.map((tick) => { const y = chart.bottom - tick / 100 * plotHeight; return <g key={tick}><line x1={chart.left - 7} x2={chart.left} y1={y} y2={y} /><text x={chart.left - 11} y={y + 4} textAnchor="end">{formatAxisNumber(absoluteScale.max * tick / 100)}</text></g>; })}</g>
           <g className={`qt-usage-axis qt-usage-axis-right ${percentPresent ? "is-active" : ""}`}>{percentPresent && yTicks.map((tick) => { const y = chart.bottom - tick / 100 * plotHeight; return <g key={tick}><line x1={chart.right} x2={chart.right + 7} y1={y} y2={y} /><text x={chart.right + 11} y={y + 4}>{tick}%</text></g>; })}</g>
           <g className="qt-usage-axis qt-usage-axis-bottom is-active">{xTicks.map((tick, index) => <text key={tick} x={xOf(tick)} y={chart.bottom + 24} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{axisFormatter.format(tick)}</text>)}</g>
-          <g clipPath="url(#qt-usage-plot-clip)">{scopes.map((scope) => { const split = splitUsageSeries(scope.samples, scope.bucketMs); const muted = focusedId && focusedId !== scope.id; return <g key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} className={muted ? "is-muted" : focusedId === scope.id ? "is-focused" : ""}>{split.bridges.map((bridge) => <line key={bridge.from.timestamp} className="qt-usage-bridge" x1={xOf(bridge.from.timestamp)} y1={yOf(scope, bridge.from.value)} x2={xOf(bridge.to.timestamp)} y2={yOf(scope, bridge.to.value)} />)}{split.segments.map((segment, index) => { const geometry = buildLineGeometry(segment, xOf, (value) => yOf(scope, value)); return geometry.path ? <path key={index} className="qt-usage-series" d={geometry.path} /> : null; })}{cursor && (() => { const sample = nearestSample(scope, cursor.timestamp); return sample && detailIds.includes(scope.id) ? <circle className="qt-usage-hover-dot" cx={cursor.x} cy={yOf(scope, sample.value)} r="4" /> : null; })()}</g>; })}{cursor && <line className="qt-usage-crosshair" x1={cursor.x} x2={cursor.x} y1={chart.top} y2={chart.bottom} />}</g>
+          <g clipPath="url(#qt-usage-plot-clip)">{scopes.map((scope) => { const split = splitUsageSeries(scope.samples, scope.bucketMs); const muted = focusedId && focusedId !== scope.id; const showLongGaps = shouldShowFocusedGap(focusedId, scope.id); return <g key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} className={muted ? "is-muted" : focusedId === scope.id ? "is-focused" : ""}>{showLongGaps && split.gaps.map((gap) => { const from = xOf(gap.from.timestamp); const to = xOf(gap.to.timestamp); return <g key={`gap-${gap.from.timestamp}`}><rect className="qt-usage-gap-fill" x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-fade)" /><rect x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-pattern)" opacity=".34" /><circle className="qt-usage-gap-edge" cx={from} cy={yOf(scope, gap.from.value)} r="4.5" /><circle className="qt-usage-gap-edge" cx={to} cy={yOf(scope, gap.to.value)} r="4.5" /></g>; })}{split.bridges.map((bridge) => <line key={bridge.from.timestamp} className="qt-usage-bridge" x1={xOf(bridge.from.timestamp)} y1={yOf(scope, bridge.from.value)} x2={xOf(bridge.to.timestamp)} y2={yOf(scope, bridge.to.value)} />)}{split.segments.map((segment, index) => { const geometry = buildLineGeometry(segment, xOf, (value) => yOf(scope, value)); return geometry.path ? <path key={index} className="qt-usage-series" d={geometry.path} /> : null; })}{cursor && (() => { const sample = nearestSample(scope, cursor.timestamp); return sample && detailIds.includes(scope.id) ? <circle className="qt-usage-hover-dot" cx={cursor.x} cy={yOf(scope, sample.value)} r="4" /> : null; })()}</g>; })}{cursor && <line className="qt-usage-crosshair" x1={cursor.x} x2={cursor.x} y1={chart.top} y2={chart.bottom} />}</g>
         </svg>
         {!mobile && cursor && <div className={`qt-usage-tooltip is-docked-${cursor.dock}`} style={{ left: `${Math.min(82, Math.max(12, cursor.x / chart.width * 100))}%` }}><span className="qt-usage-tooltip-time">{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} className="qt-usage-tooltip-row" style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
       </div>
       {mobile && cursor && <div className="qt-usage-mobile-readout"><span>{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
-      {!mobile && <footer className="qt-usage-chart-footer"><span><MousePointer2 size={14} aria-hidden="true" />{t("usage.dragHint")}</span><span><Maximize2 size={14} aria-hidden="true" />{t("usage.zoomHint")}</span><span>{t("usage.focusHint")}</span></footer>}
+      {!mobile && <footer className="qt-usage-chart-footer"><span><MousePointer2 size={14} aria-hidden="true" />{t("usage.dragHint")}</span><span><Maximize2 size={14} aria-hidden="true" />{t("usage.zoomHint")}</span><span>{t("usage.focusHint")}</span>{focusedHasLongGap && <span className="qt-usage-legend-gap"><i />{t("usage.gapLegend")}</span>}</footer>}
     </article>}
     {dialogMode && <UsageComparisonDialog mode={dialogMode} candidates={candidates} selected={effectiveSelection} onClose={() => setDialogMode(null)} onSave={saveSelection} />}
   </section>;

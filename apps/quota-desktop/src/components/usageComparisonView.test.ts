@@ -5,6 +5,7 @@ import {
   detailComparisonIds,
   initialUsageComparisons,
   removeUsageComparison,
+  shouldShowFocusedGap,
   usageComparisonConflict,
   usageTooltipDock,
 } from "./usageComparisonView";
@@ -48,6 +49,12 @@ describe("使用统计比较组合逻辑", () => {
   it("聚焦后详情只返回聚焦项，清除后返回全量", () => {
     expect(detailComparisonIds(["a", "b", "c"], "b")).toEqual(["b"]);
     expect(detailComparisonIds(["a", "b", "c"], null)).toEqual(["a", "b", "c"]);
+  });
+
+  it("长期缺失灰区只在单条聚焦时显示于聚焦项", () => {
+    expect(shouldShowFocusedGap(null, "a")).toBe(false);
+    expect(shouldShowFocusedGap("a", "b")).toBe(false);
+    expect(shouldShowFocusedGap("a", "a")).toBe(true);
   });
 
   it("气泡吸附到光标相反半区", () => {

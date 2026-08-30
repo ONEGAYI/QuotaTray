@@ -65,6 +65,10 @@ export function detailComparisonIds(ids: string[], focusedId: string | null): st
   return focusedId && ids.includes(focusedId) ? [focusedId] : ids;
 }
 
+export function shouldShowFocusedGap(focusedId: string | null, seriesId: string): boolean {
+  return focusedId === seriesId;
+}
+
 export function usageTooltipDock(anchorY: number, chartHeight: number): "top" | "bottom" {
   return anchorY < chartHeight / 2 ? "bottom" : "top";
 }
