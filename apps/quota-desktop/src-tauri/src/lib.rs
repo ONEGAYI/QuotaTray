@@ -8,7 +8,9 @@
 #[cfg(target_os = "android")]
 mod apk_install;
 /// Android 后台刷新编排核（WorkManager Worker 经 JNI 调入；C 项）。
-#[cfg(target_os = "android")]
+/// 无条件编译：决策/组装纯函数全平台参与 host 单测（内部 android mod
+/// 才是 cfg android——lib 级门禁会让测试门（not android）与模块门
+/// （android）交集为空，纯函数测试变死代码，审查 M2）。
 mod background;
 
 mod commands;

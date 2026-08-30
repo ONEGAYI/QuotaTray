@@ -565,6 +565,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                                 })}
                           </option>
                         ))}
+                        {/* 手改 settings.json 落进区间内非档位值（sanitize 只
+                            clamp 不吸附档位）时补显当前值，受控 select 不空白 */}
+                        {!backgroundIntervalOptions().some(
+                          (option) => option.minutes === draft.background_refresh_interval_minutes,
+                        ) && (
+                          <option value={draft.background_refresh_interval_minutes}>
+                            {t("settings.minutes", {
+                              minutes: String(draft.background_refresh_interval_minutes),
+                            })}
+                          </option>
+                        )}
                       </select>
                     )}
                   </div>

@@ -236,13 +236,24 @@ test("后台刷新三件套：冷启动补调 ndk-context、渠道幂等建、�
   // 冷启动（WorkManager 拉起已死进程）必须先补调 initializeNdkContext
   // （幂等），且先于 JNI 刷新调用——Rust 侧 vault 经 ndk-context 取 Context
   const doWork = source.slice(source.indexOf("override fun doWork"), source.indexOf("private fun dispatchNotifications"));
+  // 存在性先于顺序：删掉 initializeNdkContext 后 indexOf 得 -1，
+  // -1 < 正数使顺序断言弱通过
+  assert.match(doWork, /Keyring\.initializeNdkContext/);
   assert.ok(
     doWork.indexOf("Keyring.initializeNdkContext") <
       doWork.indexOf("Native.backgroundRefresh"),
     "initializeNdkContext 必须先于 backgroundRefresh",
   );
-  // dataDir 与 tauri app_data_dir 同源（filesDir）
-  assert.match(source, /applicationContext\.filesDir\.absolutePath/);
+  // Rust 侧 new_string 兜底仍失败会返回 null：Kotlin 必须显式判空，
+  // 不得把 null 直接喂 JSONObject（NPE 兜底吞掉诊断线索——模拟器
+  // 验收 2026-08-30 抓出后补防御与日志）
+  assert.match(doWork, /json == null/);
+  assert.match(doWork, /JNI 调用异常/);
+  // dataDir 与 tauri app_data_dir 同源（PathPlugin 经 activity.dataDir
+  // 解析）；filesDir 会错位一级目录，Worker 读不到 settings.json——
+  // 负向断言防回归（审查 M1；注释中提及 filesDir 的说明文字不算）
+  assert.match(source, /applicationContext\.dataDir\.absolutePath/);
+  assert.doesNotMatch(source, /applicationContext\.filesDir/);
   // Worker 永不 retry：失败也 success（下个周期自然重试，Rust 侧已静默）
   assert.doesNotMatch(source, /Result\.retry/);
   // 通知直发：渠道幂等创建（API 26+ 守卫）+ 未授权整体跳过

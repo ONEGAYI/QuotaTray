@@ -140,6 +140,14 @@ pub struct AppState {
 /// （无 AppHandle、不经 AppState）共享同一判定。
 pub static APP_FOREGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
+/// [`APP_FOREGROUND`] 是否已被前端校准过（set_app_foreground 首次调用置
+/// true）。WorkManager 冷启动拉起已死进程时 MainActivity 与前端均不
+/// 执行，APP_FOREGROUND 停在乐观初值 true——而后台刷新核恰以「后台
+/// 才发通知」为条件，未校准时须视为后台，否则冷启动（本功能主场景）
+/// 通知恒不发。仅后台刷新核消费，前台命令路径不读。
+pub static APP_FOREGROUND_CALIBRATED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// 低余额提醒的会话级登记（条目 id 集合，边沿触发防重）：「已用 ≥
 /// 阈值」是持续状态，直接广播会随轮询周期重复打扰（后台时即重复
 /// 系统通知）——首次达标广播一次并登记，持续达标静默，回落阈值

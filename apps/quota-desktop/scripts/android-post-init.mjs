@@ -268,13 +268,29 @@ class BackgroundWorker(appContext: Context, params: WorkerParameters) :
         return try {
             // 冷启动补调（幂等）：Rust 侧 vault 经 ndk-context 取 Context
             Keyring.initializeNdkContext(applicationContext)
-            val dataDir = applicationContext.filesDir.absolutePath
-            val json = Native.backgroundRefresh(dataDir)
+            // dataDir（Context.getDataDir，API 24+）：与 tauri 前台的
+            // app_data_dir 同源（PathPlugin 经 activity.dataDir 解析）。
+            // 不得用 filesDir（其下再拼 files/ 与前台目录错位，Worker
+            // 读不到 settings.json，后台刷新整体失效——审查 M1）
+            val dataDir = applicationContext.dataDir.absolutePath
+            val json = try {
+                Native.backgroundRefresh(dataDir)
+            } catch (e: Throwable) {
+                Log.w(TAG, "JNI 调用异常：\${e.message}")
+                null
+            }
+            if (json == null) {
+                // Rust 侧 new_string 兜底仍失败（OOM 级）才会返回 null；
+                // 无通知可发，静默成功等下个周期
+                Log.w(TAG, "backgroundRefresh 返回 null")
+                return Result.success()
+            }
+            Log.i(TAG, "刷新完成：\$json")
             dispatchNotifications(json)
             Result.success()
         } catch (e: Throwable) {
-            // JNI/解析异常兜底：静默成功（不 retry），下个周期重试
-            Log.w("QuotaTrayBackground", "后台刷新失败：\${e.message}")
+            // 解析/通知异常兜底：静默成功（不 retry），下个周期重试
+            Log.w(TAG, "后台刷新失败：\${e.message}")
             Result.success()
         }
     }
@@ -318,6 +334,7 @@ class BackgroundWorker(appContext: Context, params: WorkerParameters) :
     }
 
     companion object {
+        private const val TAG = "QuotaTrayBackground"
         private const val NOTIFY_ID_BASE = 20_001
     }
 }
@@ -498,9 +515,9 @@ export async function main() {
     );
   }
   const workGradle = injectAndroidWorkManagerDependency(buildGradle);
-  if (
-    !workGradle.includes('implementation("androidx.work:work-runtime-ktx:2.9.1")')
-  ) {
+  // 后验与注入幂等标记同源（坐标前缀，不含版本）——上游将来原生携带
+  // 其他版本时注入按设计放行原文，硬编码版本的断言会误伤 fail-fast
+  if (!workGradle.includes("androidx.work:work-runtime-ktx")) {
     throw new Error(`build.gradle.kts 未能注入 WorkManager 依赖：${buildGradlePath}`);
   }
   const injectedGradle = injectAndroidReleaseSigning(workGradle);
