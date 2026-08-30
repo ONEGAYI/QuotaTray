@@ -120,9 +120,18 @@ Android 分发、生命周期与触摸交互分别设计，并在真实设备完
   `BackgroundScheduler.schedule` 同步（UPDATE 策略间隔变更即时生效，
   开关关 `cancelUniqueWork`；`androidx.work:work-runtime-ktx:2.9.1` 经
   build.gradle.kts 依赖注入锚点，契约测试锁定）。查询失败静默仅日志
-  （桌面调度器同口径）。余项：模拟器实证（force-stop 冷启动 Worker、
-  周期触发历史落库、低余额通知送达、开关/间隔变更生效）、真机多厂商
-  Doze 行为、R8 release 构建验证（keep 五条）。
+  （桌面调度器同口径）。**模拟器（API 36）全链已验（2026-08-30）**：
+  设置 UI 区块（默认关/开启态周期下拉）、开关保存即 job 注册
+  （dumpsys）、am kill 冷启动 JobScheduler 拉起进程 + WorkManager
+  默认初始化、Worker 全链（mock 查询 95% → 边沿判定 → JSON 返回
+  `Low balance: Mock is 95% used`）、系统通知送达（通知 id 20001/
+  渠道正确/通知栏视觉核验）、开关关停 job 即取消。验收中抓出并修复
+  两个真问题：dataDir 错位（filesDir vs activity.dataDir，审查 M1）
+  与 JNI 导出 env 参数 ABI 错位（jni 0.21 须按值 `mut env:
+  JNIEnv`，`&mut JNIEnv` 多一层间接读到 null env——本仓库首个
+  Java→Rust 入口方向的实证契约）。余项：真机多厂商 Doze 行为、
+  R8 release 构建实际运行验证（keep 五条已过 minify 构建）、
+  历史落库的图表连续性目检（机制上 WAL 并发安全已设计）。
 - **桌面 CLI 凭据来源**：Claude、Codex、Gemini、Grok 四类订阅查询依赖桌面 CLI
   登录文件；Android 选择器隐藏这些入口，迁移带入的存量条目仅返回确定性错误。若未来
   接入移动端等价授权，必须单独评估凭据来源与安全边界。
