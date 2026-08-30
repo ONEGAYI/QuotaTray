@@ -7,6 +7,7 @@ export type NativeProviderGroupKey =
   | "kimi"
   | "zhipu"
   | "zai"
+  | "aliyun"
   | string;
 
 export interface NativeProviderGroup {
@@ -27,6 +28,7 @@ const KNOWN_GROUPS = [
   { key: "stepfun", ids: ["stepfun"] },
   { key: "novita", ids: ["novita"] },
   { key: "minimax", ids: ["minimax", "minimax_global"] },
+  { key: "aliyun", ids: ["aliyun_bss"] },
   { key: "claude", ids: ["claude"] },
   { key: "codex", ids: ["codex"] },
   { key: "gemini", ids: ["gemini"] },

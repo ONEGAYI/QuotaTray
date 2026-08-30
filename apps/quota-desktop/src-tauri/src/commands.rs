@@ -48,6 +48,9 @@ pub struct NativeMetaDto {
     /// CLI 凭据型平台（订阅四家）：凭据在查询时从本机官方 CLI 的
     /// 登录文件只读获取——编辑表单隐藏 key 输入框并展示提示卡。
     pub uses_cli_credentials: bool,
+    /// 双凭据 native 平台（当前仅阿里云余额）：api_key=AccessKey ID、
+    /// api_key2=AccessKey Secret——编辑表单渲染必填语义的第二凭据槽。
+    pub uses_api_key2: bool,
     /// 控制台直达预置 URL（条目自定义覆盖优先；None = 该平台无预置）。
     pub console_url: Option<String>,
     /// 配置文件中归属该 native id 的用户自定义模型库（只读透出）。
@@ -583,6 +586,7 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
                 name: m.name.into(),
                 supports_plan_variant: quota_core::provider::supports_plan_variant(m.id),
                 uses_cli_credentials: quota_core::provider::uses_cli_credentials(m.id),
+                uses_api_key2: quota_core::provider::uses_api_key2(m.id),
                 console_url: m.console_url.map(str::to_string),
                 pricing,
                 pricing_by_currency,

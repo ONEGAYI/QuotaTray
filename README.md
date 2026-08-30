@@ -86,6 +86,7 @@ quota update --check           # 检测新版本
 | StepFun | — | 顶层 balance，CNY |
 | Novita AI | — | availableBalance ÷ 10000 = USD |
 | MiniMax Coding Plan | 国内站 / 国际站 | 5h+周剩余百分比归一已用 |
+| 阿里云余额 | — | BssOpenApi 账户级可用额度+币种；AccessKey 双凭据（ID + Secret，RAM 最小权限指引见应用内配置指引） |
 | Claude 订阅 | — | Pro/Max 多窗口用量，凭据读本机 Claude Code 登录 |
 | Codex（ChatGPT 订阅） | — | Plus/Pro 双窗口用量，凭据读本机 Codex CLI 登录 |
 | Gemini Code Assist | — | 按模型组剩余配额，凭据读本机 Gemini CLI 登录 |

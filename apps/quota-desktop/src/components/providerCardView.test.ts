@@ -25,6 +25,7 @@ function nativeMeta(patch: Partial<NativeMeta> = {}): NativeMeta {
     custom_models: [],
     supports_plan_variant: false,
     uses_cli_credentials: false,
+    uses_api_key2: false,
     console_url: null,
     ...patch,
   };

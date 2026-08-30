@@ -16,7 +16,7 @@ describe("Provider 官方图标映射", () => {
     expect(providerIconUrl("minimax_global")).toBe(providerIconUrl("minimax"));
   });
 
-  it("二十个预置 Provider 都有图标，未知 native 保留回退空间", () => {
+  it("二十一个预置 Provider 都有图标，未知 native 保留回退空间", () => {
     for (const id of [
       "deepseek",
       "siliconflow",
@@ -34,6 +34,7 @@ describe("Provider 官方图标映射", () => {
       "novita",
       "minimax",
       "minimax_global",
+      "aliyun_bss",
       "claude",
       "codex",
       "gemini",

@@ -287,6 +287,9 @@ export interface NativeMeta {
   /** CLI 凭据型平台（订阅四家）：凭据查询时读本机官方 CLI 登录文件，
    *  编辑表单隐藏 key 输入框并展示提示卡。 */
   uses_cli_credentials: boolean;
+  /** 双凭据 native 平台（当前仅阿里云余额）：api_key=AccessKey ID、
+   *  api_key2=AccessKey Secret，编辑表单渲染必填语义的第二凭据槽。 */
+  uses_api_key2: boolean;
   /** 控制台直达预置 URL（条目自定义覆盖优先；null = 该平台无预置） */
   console_url: string | null;
 }

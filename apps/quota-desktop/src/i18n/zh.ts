@@ -8,6 +8,7 @@ export type UiLang = "zh" | "en";
 export const zh = {
   // ---- 通用 ----
   "common.cancel": "取消",
+  "common.close": "关闭",
   "common.save": "保存",
   "common.saving": "保存中…",
 
@@ -135,6 +136,7 @@ export const zh = {
   "edit.nameRequired": "名称不能为空",
   "edit.platform": "平台",
   "edit.platformGroupZhipu": "智谱",
+  "edit.platformGroupAliyun": "阿里云",
   "edit.planVariant": "套餐变体（限额窗口结构）",
   "edit.planVariantAuto": "自动（按响应推断）",
   "edit.planVariantNoWeekly": "无周限 · v1（仅 5 小时窗）",
@@ -172,6 +174,9 @@ export const zh = {
   "edit.apiKey2Hint":
     "模板/脚本引用 {{apiKey2}} 时使用（如 new-api 系站点的用户 ID，填入 New-Api-User 头）；同样加密保存、不回显。",
   "edit.key2Optional": "选填（留空保持不变）",
+  "edit.key2Required": "此平台必填 · AccessKey Secret（已配置后留空保持不变）",
+  "edit.guideButton": "配置指引",
+  "edit.guideImageMissing": "图片缺失：{alt}",
 
   // ---- 模板分支二级子页与预设 ----
   "edit.subProvider": "运营商与模型",
