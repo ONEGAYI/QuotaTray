@@ -46,7 +46,8 @@
                       "kind": "file",
                       "desc": "文件树唯一维护脚本",
                       "detail": [
-                        "子命令 add/add-batch/rm/rm-batch/get/query/tag-add/tag-rm/undo/redo/history/check/render",
+                        "子命令 add/add-batch/rm/rm-batch/mv/mv-batch/get/query/tag-add/tag-rm/undo/redo/history/check/render",
+                        "mv/mv-batch 条目带信息迁移（含子树）并全树重写指向旧路径的 rel 边",
                         "写操作后自动字典序规范化并重渲染产物；变更前快照入撤销栈（.git 私有区），批量命令一次变更单步历史、整批原子生效",
                         "check 校验规范形态/字段完整性/词表/rel/磁盘对照/产物一致"
                       ]

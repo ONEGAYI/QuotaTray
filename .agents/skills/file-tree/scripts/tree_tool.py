@@ -19,6 +19,8 @@ AGENTS.md 不存在则生成最小骨架。detail 完整描述只存于 tree.jso
   python tree_tool.py add <path> -d 描述 [--detail 行]... [--rel 路径]... [--tags a,b] [--dir]
                          [--collapsed|--no-collapsed] [--hidden|--no-hidden]
   python tree_tool.py rm <path>
+  python tree_tool.py mv <src> <dst>
+  python tree_tool.py mv-batch <manifest.json>
   python tree_tool.py get <path>
   python tree_tool.py query [--kw 关键词] [--tag 标签] [--rel-of 路径] [--json]
   python tree_tool.py tag-add <名> -d 说明
@@ -474,6 +476,58 @@ class TreeTool:
         self._record_undo(f"rm {path}")
         self.write_data(data)
 
+    # ---------- 移动（数据层迁移，不碰磁盘文件） ----------
+
+    def mv(self, src, dst) -> int:
+        """条目带信息迁移（含整个子树），返回重写的 rel 边数。磁盘文件移动归 git mv，check 磁盘对照兜底。"""
+        data = self.load()
+        n = self._apply_mv(data, src, dst)
+        self._record_undo(f"mv {src} -> {dst}")
+        self.write_data(data)
+        return n
+
+    def _apply_mv(self, data, src, dst) -> int:
+        """在内存 data 上应用 mv 的校验与变换（不落盘），返回重写的 rel 边数。"""
+        src_parts = split_rel_path(src)
+        dst_parts = split_rel_path(dst)
+        src_key = "/".join(src_parts)
+        dst_key = "/".join(dst_parts)
+        if dst_key == src_key:
+            raise ToolError(f"源与目标相同: {src}")
+        node = _find_node(data["tree"], src_parts)
+        if node is None:
+            raise ToolError(f"条目不存在: {src}")
+        if len(dst_parts) > len(src_parts) and dst_parts[: len(src_parts)] == src_parts:
+            raise ToolError(f"目标不得位于源子树内（先移出再入内）: {src} ⊃ {dst}")
+        if _find_node(data["tree"], dst_parts) is not None:
+            raise ToolError(f"目标条目已存在（mv 不覆盖，覆盖式更新用 add）: {dst}")
+        _, dst_parent = self._resolve_for_write(data, dst)
+        # 先挂载后摘除：同父重命名且源是父目录唯一孩子时，先摘会把共同父目录修剪后以空骨架重建、丢失其信息
+        dst_parent["children"][dst_parts[-1]] = node
+        self._remove_entry(data, src_parts, src)
+        # 不做全树 rel 兜底校验：它会让树上任何既有悬空（rm 的合法产物）阻塞无关的 mv，
+        # 而 mv 正是修复悬空的手段。重写本身是保存在性映射（旧目标在树中则新目标必在）；
+        # 唯一例外是源端父链修剪——指向被修剪祖先的边会悬空（同 rm 口径，由 check 报 E 兜底）
+        return self._rewrite_rel(data, src_key, dst_key)
+
+    def _rewrite_rel(self, data, old_key, new_key) -> int:
+        """全树把指向 old_key（含以其为前缀的子路径）的 rel 边重写为 new_key，返回重写的边数。"""
+        n = 0
+        for _path, node in walk_entries(data["tree"], []):
+            rel = node.get("rel")
+            if not rel:
+                continue
+            rewritten = []
+            for r in rel:
+                if r == old_key or r.startswith(old_key + "/"):
+                    rewritten.append(new_key + r[len(old_key):])
+                    n += 1
+                else:
+                    rewritten.append(r)
+            if rewritten != rel:
+                node["rel"] = rewritten
+        return n
+
     # ---------- 批量（一次变更 = 一步历史，整批原子生效） ----------
 
     BATCH_ENTRY_FIELDS = frozenset({"path", "desc", "detail", "rel", "tags", "dir", "collapsed", "hidden"})
@@ -563,6 +617,62 @@ class TreeTool:
         self._record_undo(f"rm-batch {len(all_parts)} 条")
         self.write_data(data)
         return len(all_parts)
+
+    MOVE_ENTRY_FIELDS = frozenset({"src", "dst"})
+
+    def _normalize_move_entry(self, idx: int, entry) -> dict:
+        """清单条目 → {src, dst}：恰含两个非空字符串字段，未知字段拒绝（同 add-batch 严格性）。"""
+        if not isinstance(entry, dict):
+            raise ToolError(f"mv-batch 第 {idx} 条不是对象: {entry!r}")
+        unknown = [k for k in entry if k not in self.MOVE_ENTRY_FIELDS]
+        if unknown:
+            raise ToolError(f"mv-batch 条目含未知字段 {unknown}: {entry.get('src')!r}")
+        src, dst = entry.get("src"), entry.get("dst")
+        for field, val in (("src", src), ("dst", dst)):
+            if not isinstance(val, str) or not val:
+                raise ToolError(f"mv-batch 第 {idx} 条 {field} 缺失或非字符串")
+        return {"src": src, "dst": dst}
+
+    def mv_batch(self, moves) -> tuple[int, int]:
+        """批量迁移：预校验批内 src/dst 双向互斥后逐条 _apply_mv，任一非法整批拒绝（原子）。
+
+        返回 (条数, 重写边数)；重写边数按重写动作累计，批内叠加改写计多次（与逐条执行合计一致）。
+        """
+        if not isinstance(moves, list) or not moves:
+            raise ToolError('mv-batch 清单须为非空 moves 数组，如 {"moves": [{"src": "a.ts", "dst": "b/a.ts"}]}')
+        specs = [self._normalize_move_entry(i + 1, e) for i, e in enumerate(moves)]
+        srcs = ["/".join(split_rel_path(s["src"])) for s in specs]
+        dsts = ["/".join(split_rel_path(s["dst"])) for s in specs]
+        if len(set(srcs)) != len(srcs):
+            raise ToolError("批内 src 重复（多条移动同一源）")
+        if len(set(dsts)) != len(dsts):
+            raise ToolError("批内 dst 重复（多条移动到同一目的地）")
+        for a in srcs:
+            for b in srcs:
+                if a != b and b.startswith(a + "/"):
+                    raise ToolError(f"批内 src 互为祖先-后代（移祖先已覆盖后代）: {a} ⊃ {b}")
+        for a in dsts:
+            for b in dsts:
+                if a != b and b.startswith(a + "/"):
+                    raise ToolError(f"批内 dst 互为祖先-后代: {a} ⊃ {b}")
+        for i, d in enumerate(dsts):
+            for j, s in enumerate(srcs):
+                if i != j and (d == s or d.startswith(s + "/")):
+                    raise ToolError(f"目的地落在批内其他移动的源路径上（不支持移动链/嵌套目的地）: {d}")
+        for i, s in enumerate(srcs):
+            for j, d in enumerate(dsts):
+                if i != j and (s == d or s.startswith(d + "/")):
+                    raise ToolError(f"源路径落在批内其他移动的目的地上（后续条会看见前序结果）: {s}")
+        # 单条四关（src==dst / src 存在 / dst 不存在 / 无自嵌套）不做静态预校验：上述双向互斥
+        # 保证校验等价——src 不因前序挂载而出现、dst 不因前序修剪/挂载而变化，应用期校验即
+        # 初始树校验；变换结果与逐条同序执行一致（dst 父链可能因前序修剪后重建为空骨架）
+        data = self.load()
+        edges = 0
+        for spec in specs:
+            edges += self._apply_mv(data, spec["src"], spec["dst"])
+        self._record_undo(f"mv-batch {len(specs)} 条")
+        self.write_data(data)
+        return len(specs), edges
 
     # ---------- 词表 ----------
 
@@ -843,6 +953,31 @@ def _cmd_rm(tool: TreeTool, args) -> None:
     print(f"已删除并重渲染: {args.path}")
 
 
+def _cmd_mv(tool: TreeTool, args) -> None:
+    n = tool.mv(args.src, args.dst)
+    tool.render()
+    suffix = f"（重写 {n} 条 rel 边）" if n else ""
+    print(f"已迁移并重渲染: {args.src} -> {args.dst}{suffix}")
+
+
+def _cmd_mv_batch(tool: TreeTool, args) -> None:
+    manifest = Path(args.manifest)
+    try:
+        raw = manifest.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"清单文件不可读: {manifest}（{exc}）")
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ToolError(f"清单 JSON 解析失败: {exc}")
+    if not isinstance(obj, dict) or not isinstance(obj.get("moves"), list):
+        raise ToolError('清单顶层须为对象且含 "moves" 数组，如 {"moves": [{"src": "a.ts", "dst": "b/a.ts"}]}')
+    n, edges = tool.mv_batch(obj["moves"])
+    tool.render()
+    parts = [f"重写 {edges} 条 rel 边", "一次变更，单步历史"] if edges else ["一次变更，单步历史"]
+    print(f"已批量迁移并重渲染: {n} 条（{'；'.join(parts)}）")
+
+
 def _cmd_add_batch(tool: TreeTool, args) -> None:
     manifest = Path(args.manifest)
     try:
@@ -1021,6 +1156,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("rm-batch", help="批量删除条目：一次变更单步历史，任一条不存在整批拒绝")
     p.add_argument("paths", nargs="+", help="仓库相对路径，可多个")
 
+    p = sub.add_parser("mv", help="条目带信息迁移（含子树），自动重写指向旧路径的 rel 边；不移动磁盘文件")
+    p.add_argument("src", help="原路径")
+    p.add_argument("dst", help="新路径（不得为已存在路径、不得位于源子树内）")
+
+    p = sub.add_parser("mv-batch", help="批量迁移（JSON 清单）：一次变更单步历史；批内 src/dst 互斥预校验，任一条非法整批拒绝")
+    p.add_argument("manifest", help='清单 JSON 路径，顶层为 {"moves": [{"src": "a.ts", "dst": "b/a.ts"}, ...]}')
+
     p = sub.add_parser("get", help="查看单个条目")
     p.add_argument("path")
 
@@ -1064,6 +1206,8 @@ def main(argv=None) -> int:
         "add-batch": _cmd_add_batch,
         "rm": _cmd_rm,
         "rm-batch": _cmd_rm_batch,
+        "mv": _cmd_mv,
+        "mv-batch": _cmd_mv_batch,
         "get": _cmd_get,
         "query": _cmd_query,
         "tag-add": _cmd_tag_add,

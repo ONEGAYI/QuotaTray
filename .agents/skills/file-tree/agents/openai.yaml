@@ -1,4 +1,4 @@
 interface:
   display_name: "文件树维护与查询"
-  short_description: "维护项目文件树单一数据源 tree.json：增删改查条目、受控标签、渲染 SKILL.md 与 AGENTS.md 树块"
+  short_description: "维护项目文件树单一数据源 tree.json：增删改移查条目、受控标签、渲染 SKILL.md 与 AGENTS.md 树块"
   default_prompt: "使用 $file-tree 维护或查询项目文件树。"
