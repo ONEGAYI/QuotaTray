@@ -8,6 +8,7 @@ use quota_core::{
 };
 
 use crate::ctx::Ctx;
+use crate::settings_io;
 use crate::texts::{self, T, t};
 
 pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
@@ -31,7 +32,14 @@ pub fn run_export(ctx: &Ctx, output: PathBuf, yes: bool) -> i32 {
     }
     // 历史随包携带；读失败降级为不带历史（导出主任务继续）。
     let history = read_history_rows(ctx);
-    match export_config_to_path(&config, &vault, history.as_deref(), &output) {
+    let usage_comparison = settings_io::load_usage_comparison(&ctx.config_path);
+    match export_config_to_path(
+        &config,
+        &vault,
+        history.as_deref(),
+        usage_comparison.as_deref(),
+        &output,
+    ) {
         Ok(()) => {
             println!("{}", texts::config_exported(ctx.lang, &output));
             0
@@ -63,6 +71,12 @@ pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool) -> i32 {
     match import_config_to_path(&input, &vault, &ctx.config_path) {
         Ok(bundle) => {
             merge_history(ctx, bundle.history.as_deref());
+            if let Err(e) = settings_io::write_usage_comparison(
+                &ctx.config_path,
+                bundle.usage_comparison_series.as_deref(),
+            ) {
+                eprintln!("{}导入使用统计比较组合失败：{e}", t(ctx.lang, T::Err));
+            }
             println!(
                 "{}",
                 texts::config_imported(ctx.lang, &input, bundle.config.providers.len())

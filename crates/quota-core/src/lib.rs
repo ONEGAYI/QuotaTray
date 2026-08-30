@@ -25,8 +25,8 @@ pub mod vault;
 
 pub use config::{
     AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, PlanVariant,
-    ProviderEntry, ProviderKind, TransferBundle, export_config, export_config_to_path,
-    import_config, import_config_from_path, import_config_to_path,
+    ProviderEntry, ProviderKind, TransferBundle, UsageComparisonSeries, export_config,
+    export_config_to_path, import_config, import_config_from_path, import_config_to_path,
 };
 pub use history::{
     DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, WindowKind,

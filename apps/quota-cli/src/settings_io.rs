@@ -64,6 +64,42 @@ pub fn load_prefs(config_path: &Path) -> UpdatePrefs {
         .unwrap_or_default()
 }
 
+/// 读取使用统计比较组合；字段缺失/文件缺失或损坏均视为旧版未初始化。
+pub fn load_usage_comparison(config_path: &Path) -> Option<Vec<quota_core::UsageComparisonSeries>> {
+    let p = settings_path(config_path);
+    let root: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    serde_json::from_value(root.get("usage_comparison_series")?.clone()).ok()
+}
+
+/// 导入迁移包后替换比较组合；None 删除字段，保留 settings.json 其他键。
+pub fn write_usage_comparison(
+    config_path: &Path,
+    value: Option<&[quota_core::UsageComparisonSeries]>,
+) -> std::io::Result<()> {
+    let p = settings_path(config_path);
+    let mut root: serde_json::Value = match std::fs::read_to_string(&p) {
+        Ok(text) => serde_json::from_str(&text).map_err(std::io::Error::other)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => return Err(e),
+    };
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let object = root.as_object_mut().expect("normalized object");
+    match value {
+        Some(items) => {
+            object.insert(
+                "usage_comparison_series".into(),
+                serde_json::to_value(items).map_err(std::io::Error::other)?,
+            );
+        }
+        None => {
+            object.remove("usage_comparison_series");
+        }
+    }
+    atomic_write(&p, &root)
+}
+
 /// 写回 `update_last_check`（Value 读改写保留未知字段 + 原子写）。
 /// 文件不存在时新建仅含该字段的对象（桌面端加载时其余字段走默认）。
 ///
@@ -250,5 +286,32 @@ mod tests {
         write_last_check(&cfg, 42).unwrap();
         assert!(blocker.is_dir(), "IO 失败时不产生覆盖写");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn usage_comparison_roundtrip_preserves_unknown_settings_and_none_removes_field() {
+        let dir = temp_dir("usage-comparison");
+        let cfg = dir.join("config.json");
+        std::fs::write(dir.join("settings.json"), r#"{"theme":"dark"}"#).unwrap();
+        let items = vec![quota_core::UsageComparisonSeries {
+            provider_id: "p1".into(),
+            window_key: "w1".into(),
+            color_slot: 2,
+        }];
+
+        write_usage_comparison(&cfg, Some(&items)).unwrap();
+        assert_eq!(load_usage_comparison(&cfg), Some(items));
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(saved["theme"], "dark");
+
+        write_usage_comparison(&cfg, None).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap())
+                .unwrap();
+        assert!(saved.get("usage_comparison_series").is_none());
+        assert_eq!(saved["theme"], "dark");
+        std::fs::remove_dir_all(dir).ok();
     }
 }

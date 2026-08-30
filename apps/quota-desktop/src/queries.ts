@@ -1,5 +1,5 @@
 // React Query hooks：轮询调度（GUI-spec §3 查询调度在前端实现）。
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
@@ -49,6 +49,7 @@ export function useProviders() {
     const unlistenImport = listen<number>("configuration-imported", () => {
       invalidateProviderCaches(qc);
       void qc.invalidateQueries({ queryKey: ["native-metas"] });
+      void qc.invalidateQueries({ queryKey: ["settings"] });
     });
     return () => {
       void Promise.all([unlistenProviders, unlistenReordered, unlistenImport]).then((unlisten) => {
@@ -125,6 +126,31 @@ export function useHistory(id: string, spanMs: number) {
     queryFn: () => api.getHistory(id, historyFromNow(spanMs)),
     enabled: id.length > 0,
     staleTime: 60_000,
+  });
+}
+
+/** 多 Provider 本地历史；返回顺序与 ids 一致，供统计比较页聚合候选与曲线。 */
+export function useHistories(ids: string[], spanMs: number) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unlisten = listen<string>("provider-state-changed", (event) => {
+      if (ids.includes(event.payload)) {
+        void qc.invalidateQueries({ queryKey: ["history", event.payload] });
+      }
+    }).catch((err) => {
+      console.error("provider-state-changed 多历史失效监听失败：", err);
+      return () => {};
+    });
+    return () => { void unlisten.then((fn) => fn()); };
+  }, [ids, qc]);
+
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ["history", id, spanMs],
+      queryFn: () => api.getHistory(id, historyFromNow(spanMs)),
+      enabled: id.length > 0,
+      staleTime: 60_000,
+    })),
   });
 }
 

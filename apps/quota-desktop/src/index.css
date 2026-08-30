@@ -37,6 +37,10 @@
   --qt-chart-axis: #cbd2dc;
   --qt-chart-grid: #b7c0cc;
   --qt-chart-gap-stripe: #aab4c1;
+  --qt-series-1: var(--qt-accent);
+  --qt-series-2: #df6f9f;
+  --qt-series-3: #3d9b87;
+  --qt-series-4: #e49537;
   /* ---- 档位令牌（规范 design-tokens/，不随主题、dark 不覆盖）----
      圆角五档：xs 微元素 / sm 控件 / md 区块 / lg 卡片 / xl 弹窗；
      动效四档：1 微反馈 / 2 标准过渡 / 3 面板 / 4 大面板编排 */
@@ -383,6 +387,45 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-chart-footer > span { display: inline-flex; align-items: center; gap: 6px; }
 .qt-usage-legend-gap { margin-left: auto; }
 .qt-usage-legend-gap i { width: 18px; height: 8px; border: 1px solid var(--qt-border); border-radius: 3px; background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--qt-chart-gap-stripe) 55%, transparent) 3px 4px); }
+.qt-usage-comparison-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.qt-usage-comparison-actions .qt-btn > span { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-series-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin-bottom: 10px; }
+.qt-usage-series-summary button { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: var(--qt-radius-sm); padding: 7px 9px; background: transparent; color: var(--qt-text-soft); text-align: left; cursor: pointer; }
+.qt-usage-series-summary button:hover, .qt-usage-series-summary button[aria-pressed="true"] { border-color: var(--qt-border); background: var(--qt-surface-soft); color: var(--qt-text); }
+.qt-usage-series-summary i, .qt-usage-tooltip-row i, .qt-usage-mobile-readout i { width: 9px; height: 9px; border-radius: 50%; background: var(--qt-series-color); }
+.qt-usage-series-summary button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-series-summary strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qt-usage-partial-warning { margin-bottom: 10px; }
+.qt-usage-chart g.is-muted .qt-usage-series, .qt-usage-chart g.is-muted .qt-usage-bridge { opacity: .16; filter: none; }
+.qt-usage-chart g.is-focused .qt-usage-series { stroke-width: 3.35; opacity: 1; }
+.qt-usage-tooltip { top: auto; min-width: 225px; max-width: 300px; transform: translateX(-50%); }
+.qt-usage-tooltip.is-docked-top { top: 24px; bottom: auto; }
+.qt-usage-tooltip.is-docked-bottom { top: auto; bottom: 30px; }
+.qt-usage-tooltip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 11px; }
+.qt-usage-tooltip-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-tooltip-row strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qt-usage-mobile-focus { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; scrollbar-width: none; }
+.qt-usage-mobile-focus::-webkit-scrollbar { display: none; }
+.qt-usage-mobile-focus button { min-height: 44px; flex: none; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); padding: 7px 10px; background: var(--qt-surface); color: var(--qt-text-soft); cursor: pointer; }
+.qt-usage-mobile-focus button[aria-pressed="true"] { border-color: var(--qt-series-color); background: color-mix(in srgb, var(--qt-series-color) 10%, var(--qt-surface)); color: var(--qt-text); }
+.qt-usage-mobile-readout { display: grid; gap: 8px; border-top: 1px solid var(--qt-border); padding: 11px 13px 13px; background: var(--qt-surface-soft); }
+.qt-usage-mobile-readout > span { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-mobile-readout > div { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 12px; }
+.qt-usage-mobile-readout strong { color: var(--qt-text); font-variant-numeric: tabular-nums; }
+.qt-usage-dialog-count { color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-add-form { display: grid; gap: 13px; }
+.qt-usage-add-preview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); padding: 10px 11px; background: var(--qt-surface-soft); }
+.qt-usage-add-preview > i, .qt-usage-manage-row > i { width: 9px; height: 9px; border-radius: 50%; }
+.qt-usage-add-preview span, .qt-usage-manage-row span { min-width: 0; }
+.qt-usage-add-preview strong, .qt-usage-manage-row strong { display: block; overflow: hidden; color: var(--qt-text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.qt-usage-add-preview small, .qt-usage-manage-row small { display: block; margin-top: 2px; color: var(--qt-text-faint); font-size: 11px; }
+.qt-usage-add-preview em { color: var(--qt-text-faint); font-size: 11px; font-style: normal; }
+.qt-usage-manage-list { display: grid; }
+.qt-usage-manage-row { display: grid; min-height: 52px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--qt-border); padding: 7px 2px; }
+.qt-usage-manage-row:last-child { border-bottom: 0; }
+.qt-usage-manage-remove { color: var(--qt-danger); }
+.qt-usage-manage-remove:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
+.qt-usage-manage-empty { padding: 36px 18px; color: var(--qt-text-soft); text-align: center; }
 .qt-loading-card, .qt-empty-state { border: 1px dashed var(--qt-border-strong); border-radius: var(--qt-radius-lg); padding: 34px; background: color-mix(in srgb, var(--qt-surface) 78%, transparent); color: var(--qt-text-soft); text-align: center; }
 .qt-empty-state p { margin: 0; color: var(--qt-text); font-weight: 600; }
 .qt-empty-state span { display: block; margin-top: 5px; font-size: 12px; }
@@ -1109,3 +1152,28 @@ body.qt-mobile-runtime .qt-template-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-pricing-day-chip { min-height: 44px; }
 body.qt-mobile-runtime .qt-touch-inline { position: relative; }
 body.qt-mobile-runtime .qt-touch-inline::before { position: absolute; inset: -15px -8px; content: ""; }
+
+/* T-013 使用统计组合弹窗：Android 专用居中浮窗，不沿用设置/编辑页全屏形态。 */
+body.qt-mobile-runtime .qt-dialog-backdrop.qt-usage-dialog-backdrop {
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--qt-text) 28%, transparent);
+  backdrop-filter: blur(10px);
+}
+body.qt-mobile-runtime .qt-dialog.qt-dialog-usage-comparison {
+  width: calc(100% - 20px);
+  height: min(82dvh, 680px);
+  max-height: calc(100dvh - max(24px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+  border: 1px solid var(--qt-border-strong);
+  border-radius: var(--qt-radius-xl);
+  box-shadow: 0 22px 64px var(--qt-shadow);
+}
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-header { min-height: 56px; padding-top: 0; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-body { padding: 14px; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-footer { min-height: 64px; padding-bottom: 0; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-select,
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-btn { min-height: 44px; }
+body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-usage-manage-row { min-height: 56px; }
+body.qt-mobile-runtime .qt-usage-chart-wrap { min-width: 0; padding: 0 2px; }
+body.qt-mobile-runtime .qt-usage-chart-card { overflow: hidden; }
+body.qt-mobile-runtime .qt-usage-chart-head { flex-direction: row; align-items: center; }

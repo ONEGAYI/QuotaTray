@@ -239,6 +239,22 @@
                           ]
                         }
                       }
+                    },
+                    "usage-stats": {
+                      "kind": "dir",
+                      "desc": "使用统计规范域",
+                      "children": {
+                        "comparison-chart.md": {
+                          "kind": "file",
+                          "desc": "多曲线比较规范",
+                          "detail": [
+                            "T-013 使用统计多曲线、添加管理、移动居中浮窗与详情交互规范"
+                          ],
+                          "rel": [
+                            "apps/quota-desktop/src/components/UsageStatsPage.tsx"
+                          ]
+                        }
+                      }
                     }
                   }
                 },
@@ -1437,13 +1453,51 @@
                         "pure"
                       ]
                     },
+                    "UsageComparisonDialog.tsx": {
+                      "kind": "file",
+                      "desc": "统计组合添加管理弹窗",
+                      "detail": [
+                        "跨端添加/管理 Provider+窗口组合，复用 DialogShell；Android 使用居中模糊浮窗"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageComparisonView.ts"
+                      ]
+                    },
+                    "usageComparisonView.test.ts": {
+                      "kind": "file",
+                      "desc": "统计组合逻辑测试",
+                      "detail": [
+                        "覆盖四条上限、去重、稳定色槽、单位冲突、聚焦过滤与气泡停靠"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/usageComparisonView.ts"
+                      ],
+                      "tags": [
+                        "test"
+                      ]
+                    },
+                    "usageComparisonView.ts": {
+                      "kind": "file",
+                      "desc": "统计组合纯逻辑",
+                      "detail": [
+                        "最多四条组合的增删、稳定色槽、单位冲突、聚焦详情与气泡停靠纯逻辑"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/UsageComparisonDialog.tsx",
+                        "apps/quota-desktop/src/components/usageComparisonView.test.ts"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
                     "UsageStatsPage.tsx": {
                       "kind": "file",
                       "desc": "跨端使用统计页",
                       "detail": [
-                        "桌面悬停与 Android 触摸保留选点的历史趋势图表页"
+                        "最多四条 Provider+窗口组合的跨端趋势比较；桌面悬浮聚焦与 Android 触摸常驻读数"
                       ],
                       "rel": [
+                        "apps/quota-desktop/src/components/usageComparisonView.ts",
                         "apps/quota-desktop/src/queries.ts"
                       ]
                     }
@@ -1563,7 +1617,7 @@
                   "kind": "file",
                   "desc": "React Query hooks",
                   "detail": [
-                    "React Query hooks：Provider 轮询、按当前时间读取滚动历史并响应成功查询事件失效、快照/更新/Provider 缓存失效与峰谷 tick"
+                    "Provider 轮询、单条/多条本地历史、设置/快照/更新缓存与事件失效 hooks"
                   ]
                 },
                 "runtimeView.test.ts": {
@@ -1860,10 +1914,7 @@
                       "kind": "file",
                       "desc": "settings.json 读写",
                       "detail": [
-                        "settings.json 读写（原子写、损坏回退；主题/语言三态、",
-                        "每圈单位、图标数据源、更新检测字段组——开关/时刻/",
-                        "时间戳/网络代理端口（更新与 use_proxy 条目查询共用，",
-                        "变更热重建引擎），CLI 共读同一文件）"
+                        "settings.json 原子读写与收口，含主题/语言、更新、后台刷新及最多四条使用统计比较组合"
                       ]
                     },
                     "snapshot.rs": {
@@ -2067,13 +2118,9 @@
                     },
                     "transfer.rs": {
                       "kind": "file",
-                      "desc": "配置跨机器迁移",
+                      "desc": "配置迁移容器",
                       "detail": [
-                        "完整配置跨机器迁移：一次性迁移密钥转写、私有认证",
-                        "二进制容器、字节 API 与原子文件导入导出；",
-                        "容器 v2（M5）信封 {config, history} 携带历史",
-                        "数据（v1 仍可导入，单向升级）、TransferBundle",
-                        "返回 config + 可选历史行"
+                        "qtray-export v1/v2 认证容器、凭据转写、历史与可选使用统计比较组合迁移"
                       ],
                       "tags": [
                         "security"

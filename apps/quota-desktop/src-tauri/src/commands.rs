@@ -242,10 +242,17 @@ fn export_configuration_at(
     export_path: &std::path::Path,
     vault: &Vault,
     history: Option<&[quota_core::HistoryExportRow]>,
+    usage_comparison_series: Option<&[quota_core::UsageComparisonSeries]>,
 ) -> Result<(), String> {
     let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
-    quota_core::export_config_to_path(&config, vault, history, export_path)
-        .map_err(|e| e.to_string())
+    quota_core::export_config_to_path(
+        &config,
+        vault,
+        history,
+        usage_comparison_series,
+        export_path,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn import_configuration_at(
@@ -281,13 +288,20 @@ fn export_configuration_to_uri(
     state: &AppState,
     uri: &str,
     history: Option<&[quota_core::HistoryExportRow]>,
+    usage_comparison_series: Option<&[quota_core::UsageComparisonSeries]>,
 ) -> Result<(), String> {
     use std::io::Write;
     use tauri_plugin_fs::FsExt;
 
     let temp = android_transfer_temp(app, "export")?;
     let result = (|| {
-        export_configuration_at(&state.paths.config(), &temp, &state.vault, history)?;
+        export_configuration_at(
+            &state.paths.config(),
+            &temp,
+            &state.vault,
+            history,
+            usage_comparison_series,
+        )?;
         let bytes = std::fs::read(&temp).map_err(|e| format!("读取迁移缓存失败：{e}"))?;
         let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
             Ok(path) => path,
@@ -355,9 +369,21 @@ pub fn export_configuration(
             None
         }
     };
+    let usage_comparison_series = state
+        .settings
+        .read()
+        .unwrap()
+        .usage_comparison_series
+        .clone();
     #[cfg(target_os = "android")]
     if is_android_document_uri(&path) {
-        return export_configuration_to_uri(&app, &state, &path, history.as_deref());
+        return export_configuration_to_uri(
+            &app,
+            &state,
+            &path,
+            history.as_deref(),
+            usage_comparison_series.as_deref(),
+        );
     }
     let _ = app;
     export_configuration_at(
@@ -365,6 +391,7 @@ pub fn export_configuration(
         std::path::Path::new(&path),
         &state.vault,
         history.as_deref(),
+        usage_comparison_series.as_deref(),
     )
 }
 
@@ -397,6 +424,11 @@ pub fn import_configuration(
         && let Err(e) = state.history.lock().unwrap().merge_rows(rows)
     {
         eprintln!("导入历史合并失败：{e}");
+    }
+    if let Err(e) =
+        persist_usage_comparison_settings(&state, bundle.usage_comparison_series.clone())
+    {
+        eprintln!("导入使用统计比较组合失败（配置已导入）：{e}");
     }
     state.results.write().unwrap().clear();
     after_state_change(&app, &state);
@@ -479,6 +511,19 @@ pub fn remove_provider(
     if let Err(e) = state.history.lock().unwrap().clear(Some(&id)) {
         eprintln!("清除条目历史失败：{e}");
     }
+    let next_series = state
+        .settings
+        .read()
+        .unwrap()
+        .usage_comparison_series
+        .clone()
+        .map(|mut items| {
+            items.retain(|item| item.provider_id != id);
+            items
+        });
+    if let Err(e) = persist_usage_comparison_settings(&state, next_series) {
+        eprintln!("清理已删除 Provider 的统计比较组合失败：{e}");
+    }
     state.results.write().unwrap().remove(&id);
     after_state_change(&app, &state);
     emit_providers_changed(&app, &id);
@@ -487,7 +532,7 @@ pub fn remove_provider(
 
 /// 清空全部用户数据：供应商条目（含凭据密文）、峰谷定价、自定义模型
 /// 库与查询历史。GUI 已在二级确认弹窗（5 秒倒数）取得显式确认；
-/// settings 应用偏好与主密钥保留（重新添加条目可继续使用）。
+/// settings 设备偏好与主密钥保留；统计比较组合随 Provider 一并清空。
 /// 与 upsert/remove 同为同步写命令，主线程串行执行，load→save 之间
 /// 无并发写命令插入（并发前提见 reorder_providers 注释）。
 #[tauri::command]
@@ -495,6 +540,9 @@ pub fn clear_all_data(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     cfg.clear_user_data();
     cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+    if let Err(e) = persist_usage_comparison_settings(&state, Some(Vec::new())) {
+        eprintln!("清空统计比较组合失败：{e}");
+    }
     // 历史是用户显式要求删除的一部分。直接对磁盘库执行而非托管的
     // 降级实例——启动打开失败时 AppState 持内存库，clear 在其上必然
     // 成功但磁盘 history.db 原样保留，旧历史会在下次成功打开后复活；
@@ -1083,6 +1131,7 @@ pub struct SettingsPatch {
     pub notifications_enabled: Option<bool>,
     pub background_refresh_enabled: Option<bool>,
     pub background_refresh_interval_minutes: Option<u32>,
+    pub usage_comparison_series: Option<Vec<quota_core::UsageComparisonSeries>>,
 }
 
 /// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
@@ -1142,6 +1191,23 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     if let Some(v) = patch.background_refresh_interval_minutes {
         base.background_refresh_interval_minutes = v;
     }
+    if let Some(v) = patch.usage_comparison_series.clone() {
+        base.usage_comparison_series = Some(v);
+    }
+}
+
+fn persist_usage_comparison_settings(
+    state: &AppState,
+    value: Option<Vec<quota_core::UsageComparisonSeries>>,
+) -> Result<(), String> {
+    let mut settings = state.settings.read().unwrap().clone();
+    settings.usage_comparison_series = value;
+    settings.sanitize();
+    settings
+        .save(&state.paths.settings())
+        .map_err(|e| e.to_string())?;
+    *state.settings.write().unwrap() = settings;
+    Ok(())
 }
 
 /// 设置落盘的共用副作用核心（save_settings / patch_settings 共用）。
@@ -2103,9 +2169,22 @@ mod tests {
         .save(&source_path)
         .unwrap();
 
-        export_configuration_at(&source_path, &bundle, &source_vault, None).unwrap();
+        let comparison = vec![quota_core::UsageComparisonSeries {
+            provider_id: "p1".into(),
+            window_key: "w0".into(),
+            color_slot: 0,
+        }];
+        export_configuration_at(
+            &source_path,
+            &bundle,
+            &source_vault,
+            None,
+            Some(&comparison),
+        )
+        .unwrap();
         let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
         assert_eq!(imported.config.providers.len(), 1);
+        assert_eq!(imported.usage_comparison_series, Some(comparison));
         assert_eq!(
             imported.config.providers[0]
                 .credentials(&target_vault)
@@ -2143,7 +2222,7 @@ mod tests {
             total: Some(100.0),
             unit: Some("%".into()),
         }];
-        export_configuration_at(&source_path, &bundle, &source_vault, Some(&rows)).unwrap();
+        export_configuration_at(&source_path, &bundle, &source_vault, Some(&rows), None).unwrap();
         let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
         assert_eq!(imported.history.as_deref(), Some(rows.as_slice()));
 
@@ -2624,6 +2703,28 @@ mod tests {
 
         let p: SettingsPatch = serde_json::from_str(r#"{"notifications_enabled": true}"#).unwrap();
         assert_eq!(p.notifications_enabled, Some(true));
+    }
+
+    #[test]
+    fn settings_patch_usage_comparison_replaces_with_explicit_empty_or_values() {
+        let mut base = Settings::default();
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                usage_comparison_series: Some(vec![quota_core::UsageComparisonSeries {
+                    provider_id: "p1".into(),
+                    window_key: "w1".into(),
+                    color_slot: 0,
+                }]),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.usage_comparison_series.as_ref().unwrap().len(), 1);
+
+        let patch: SettingsPatch =
+            serde_json::from_str(r#"{"usage_comparison_series":[]}"#).unwrap();
+        apply_settings_patch(&mut base, &patch);
+        assert_eq!(base.usage_comparison_series, Some(Vec::new()));
     }
 
     /// 契约：后台刷新设置可经 patch 提交（C 项设置页保存路径）。
