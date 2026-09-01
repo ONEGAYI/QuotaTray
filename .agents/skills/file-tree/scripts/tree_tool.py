@@ -399,8 +399,12 @@ class TreeTool:
             node = child
         return parts, node
 
-    def _apply_add(self, data, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> None:
-        """在内存 data 上应用单条 add 的校验与变换（不校验 rel、不落盘）。"""
+    def _apply_add(self, data, path, desc=None, detail=None, rel=None, tags=None, is_dir_entry=False, collapsed=None, hidden=None) -> str | None:
+        """在内存 data 上应用单条 add 的校验与变换（不校验 rel、不落盘）。
+
+        新建条目未声明目录而磁盘上是目录时自动收录为目录条目并返回提示文案；
+        已存在条目不隐式翻转类型（存量错配由 check 报）。
+        """
         vocab = set(data.get("tags", {}))
         if tags:
             unknown = [t for t in tags if t not in vocab]
@@ -408,8 +412,13 @@ class TreeTool:
                 raise ToolError(f"未知标签 {unknown}，先 tag-add 登记再使用")
         parts, parent = self._resolve_for_write(data, path)
         name = parts[-1]
+        note: str | None = None
         node = parent["children"].get(name)
         if node is None:
+            if not is_dir_entry and self.repo_root.joinpath(*parts).is_dir():
+                # 目录路径录成文件条目没有合法存续场景（git ls-files 不列目录，check 必报错）
+                is_dir_entry = True
+                note = f"提示: {path} 磁盘上是目录，已按目录条目收录（未展开 children；需展开时逐个 add 其下文件）"
             node = {"desc": "", "children": {}} if is_dir_entry else {"desc": ""}
             parent["children"][name] = node
         elif is_dir_entry and not is_dir(node):
@@ -435,6 +444,7 @@ class TreeTool:
                 node["hidden"] = True
             else:
                 node.pop("hidden", None)
+        return note
 
     def _validate_rel(self, data, path, rel) -> None:
         """rel 引用校验：不为空串、不指自身、目标必须在树中。批量在整批应用后统一调用，批内互引合法。"""
@@ -451,10 +461,12 @@ class TreeTool:
         data = self.load()
         if rel:
             self._validate_rel(data, path, rel)
-        self._apply_add(data, path, desc=desc, detail=detail, rel=rel, tags=tags,
-                        is_dir_entry=is_dir_entry, collapsed=collapsed, hidden=hidden)
+        note = self._apply_add(data, path, desc=desc, detail=detail, rel=rel, tags=tags,
+                               is_dir_entry=is_dir_entry, collapsed=collapsed, hidden=hidden)
         self._record_undo(f"add {path}")
         self.write_data(data)
+        if note:
+            print(note)
 
     def _remove_entry(self, data, parts, path=None) -> None:
         """删除 parts 指向的条目并修剪变空的父目录链（根不删），不落盘。"""
@@ -581,14 +593,20 @@ class TreeTool:
                 raise ToolError(f"批内重复路径: {spec['path']}")
             seen.add(key)
         data = self.load()
+        notes: list[str] = []
         for spec in specs:
-            self._apply_add(data, **spec)
+            note = self._apply_add(data, **spec)
+            if note:
+                notes.append(note)
         # rel 在最终树上统一校验：批内条目互引合法（check 的 rel 不变量同样在落盘前收口）
         for spec in specs:
             if spec["rel"]:
                 self._validate_rel(data, spec["path"], spec["rel"])
         self._record_undo(f"add-batch {len(specs)} 条")
         self.write_data(data)
+        # 提示只在落盘成功后打印：整批拒绝时无输出，与原子语义一致
+        for note in notes:
+            print(note)
         return len(specs)
 
     def rm_batch(self, paths) -> int:
@@ -874,7 +892,14 @@ class TreeTool:
             pass  # 非 git 环境静默跳过磁盘对照，由 CLI 层提示
         else:
             for missing in sorted(file_paths - git_files, key=sort_key):
-                errors.append(f"E: 树中条目未被 git 跟踪且磁盘不存在: {missing}")
+                disk = self.repo_root.joinpath(*split_rel_path(missing))
+                if disk.is_dir():
+                    # git ls-files 只列文件不列目录：此实况是类型错配而非路径悬空
+                    errors.append(f'E: {missing} 磁盘上是目录，树中却是文件条目（add --dir 或清单 "dir": true 修正）')
+                elif disk.exists():
+                    errors.append(f"E: 树中条目未被 git 跟踪: {missing}")
+                else:
+                    errors.append(f"E: 树中条目未被 git 跟踪且磁盘不存在: {missing}")
 
             def reported_if(f: str) -> bool:
                 """祖先整目录收录（在树中但未展开）则不报，否则报未收录。"""
@@ -1135,7 +1160,7 @@ def main(argv=None) -> int:
     p.add_argument("--detail", action="append", help="完整描述一行，可重复")
     p.add_argument("--rel", action="append", help="相关文件路径，可重复")
     p.add_argument("--tags", help="逗号分隔的受控标签")
-    p.add_argument("--dir", action="store_true", help="声明为（空）目录条目")
+    p.add_argument("--dir", action="store_true", help="收录为目录条目（粗粒度收录不展开 children；磁盘目录未声明时也会自动识别）")
     p.add_argument(
         "--collapsed",
         action=argparse.BooleanOptionalAction,

@@ -592,6 +592,29 @@ class CheckTest(SandboxTest):
         _, warnings = tool.check()
         self.assertTrue(any("vendor/__pycache__/x.cpython-314.pyc" in w for w in warnings))
 
+    def test_git_compare_reports_disk_dir_as_type_mismatch(self):
+        # 目录被录成文件条目：git ls-files 只列文件不列目录，磁盘实况是目录 →
+        # 报类型错配并给修正指引，不再误报"磁盘不存在"把人带向根定位歧途
+        tool = self.make_tool(git_files={"apps/main.tsx", "apps/util.ts", "Cargo.toml"})
+        tool.add("testdata", desc="测试数据")  # 磁盘尚无 → 文件条目
+        tool.repo_root.joinpath("testdata").mkdir()  # 磁盘后出现目录（模拟存量错配）
+        tool.render()
+        errors, _ = tool.check()
+        self.assertTrue(any("testdata" in e and "目录" in e for e in errors))
+        self.assertFalse(any("磁盘不存在" in e for e in errors))
+
+    def test_git_compare_untracked_file_wording(self):
+        # 磁盘上存在的文件未被 git 跟踪：只报 git 未跟踪，不叠加"磁盘不存在"的矛盾表述
+        tool = self.make_tool(git_files={"apps/main.tsx", "apps/util.ts", "Cargo.toml"})
+        tool.repo_root.joinpath("ignored.rs").write_text("x", encoding="utf-8")
+        tool.add("ignored.rs", desc="未跟踪")  # 磁盘是文件，不影响自动识别
+        tool.render()
+        errors, _ = tool.check()
+        self.assertEqual(
+            [e for e in errors if "ignored.rs" in e],
+            ["E: 树中条目未被 git 跟踪: ignored.rs"],
+        )
+
 
 class GitDirTest(unittest.TestCase):
     """git 私有区识别：以 <gitdir>/HEAD 为准，绝不创建 .git。"""
@@ -943,6 +966,51 @@ class AddBatchTest(SandboxTest):
         tool = self.make_tool()
         tool.add_batch([{"path": "apps/n.ts", "desc": "x", "dir": None, "collapsed": None, "hidden": None}])
         self.assertNotIn("children", tool.get("apps/n.ts"))
+
+
+class DiskDirAutoDetectTest(SandboxTest):
+    """写入防呆：磁盘上是目录的路径未声明 dir 时自动收录为目录条目。
+
+    目录路径录成文件条目没有任何合法存续场景（git ls-files 不列目录，check 必报错），
+    自动识别消除"清单漏标 dir → check 报磁盘不存在 → 误诊根定位"的整条摩擦链。
+    """
+
+    def test_add_disk_dir_auto_recorded_as_dir(self):
+        tool = self.make_tool()
+        tool.repo_root.joinpath("testdata", "input").mkdir(parents=True)
+        tool.add("testdata/input", desc="测试数据")  # 未声明 dir，磁盘是目录 → 自动识别
+        node = tool.get("testdata/input")
+        self.assertIn("children", node)  # 目录条目（children 空 = 整目录粗粒度收录）
+        self.assertEqual(node["children"], {})
+
+    def test_add_disk_file_stays_file(self):
+        tool = self.make_tool()
+        tool.repo_root.joinpath("real.rs").write_text("x", encoding="utf-8")
+        tool.add("real.rs", desc="真实文件")
+        self.assertNotIn("children", tool.get("real.rs"))
+
+    def test_declared_dir_without_disk_still_dir(self):
+        tool = self.make_tool()  # 磁盘无该路径（虚拟目录是合法特性）
+        tool.add("virtual/group", desc="聚合分类", is_dir_entry=True)
+        self.assertIn("children", tool.get("virtual/group"))
+
+    def test_add_existing_file_entry_not_flipped(self):
+        tool = self.make_tool()
+        tool.add("legacy", desc="旧条目")  # 先录文件条目（磁盘尚无）
+        tool.repo_root.joinpath("legacy").mkdir()  # 磁盘后变成目录
+        tool.add("legacy", desc="更新")  # upsert 不隐式翻转既有类型，存量错配由 check 报
+        self.assertNotIn("children", tool.get("legacy"))
+
+    def test_add_batch_disk_dir_auto(self):
+        tool = self.make_tool()
+        tool.repo_root.joinpath("assets", "icons").mkdir(parents=True)
+        n = tool.add_batch([
+            {"path": "assets/icons", "desc": "图标集"},  # 清单未标 dir，磁盘是目录
+            {"path": "docs/guide.md", "desc": "指南"},
+        ])
+        self.assertEqual(n, 2)
+        self.assertIn("children", tool.get("assets/icons"))
+        self.assertNotIn("children", tool.get("docs/guide.md"))
 
 
 class RmBatchTest(SandboxTest):

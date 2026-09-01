@@ -49,7 +49,8 @@
                         "子命令 add/add-batch/rm/rm-batch/mv/mv-batch/get/query/tag-add/tag-rm/undo/redo/history/check/render",
                         "mv/mv-batch 条目带信息迁移（含子树）并全树重写指向旧路径的 rel 边",
                         "写操作后自动字典序规范化并重渲染产物；变更前快照入撤销栈（.git 私有区），批量命令一次变更单步历史、整批原子生效",
-                        "check 校验规范形态/字段完整性/词表/rel/磁盘对照/产物一致"
+                        "check 校验规范形态/字段完整性/词表/rel/磁盘对照/产物一致",
+                        "add/add-batch 未声明 dir 而磁盘上是目录时自动收录为目录条目；check 磁盘对照按磁盘实况分流（类型错配/git 未跟踪/不存在）"
                       ]
                     },
                     "tree_tool_test.py": {
