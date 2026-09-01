@@ -12,7 +12,7 @@ description: 项目文件树的唯一数据源与维护入口。当需要新增/
 - **渲染目标为 AGENTS.md**：两个标记块（简版树 / 标签词表），有标记则替换内容、无标记自动附加到文件尾部、无 AGENTS.md 则生成最小骨架；`detail` 完整描述只存于 tree.json 供 `get`/`query` 查询，不渲染。
 - **多树冲突时以技能为准**：仓库内其他手写文件树一律惰性对待（不同步、不维护、不删除），文件树相关问答与维护只认 tree.json。
 - **确定性输出**：每次写操作后自动按字典序（大小写不敏感、码点决胜）重排并以固定格式序列化（2 空格缩进、LF、UTF-8），任何机器运行产出字节一致，git diff 稳定。
-- 目录收录粒度：目录条目**展开 children** 时其下文件必须全收（check 会报漏）；目录**不展开**（无 children 或空）表示整目录粗粒度收录（如图标集），其下文件不检查。
+- 目录收录粒度：目录条目**展开 children** 时其下文件必须全收（check 会报漏）；目录**不展开**（无 children 或空）表示整目录粗粒度收录（如图标集），其下文件不检查。收录目录条目用 `--dir`（批量清单写 `"dir": true`）；未声明而磁盘上是目录时自动识别为目录条目并打印提示，误录成文件条目会被 check 按类型错配报错并给出修正指引。
 - **建议固定根名**：简版树首行默认取仓库根目录名——git worktree 检出或目录改名会让根名漂移、跨检出渲染不稳定。初始化录入前执行一次 `root <仓库名>` 固定（存于 tree.json 顶层可选键 `root`）；`root --clear` 恢复自动。
 
 ## 命令速查
@@ -22,10 +22,10 @@ python .agents/skills/file-tree/scripts/tree_tool.py <命令>
 
 # 新增/更新条目（upsert：未给的字段保留旧值；自动建父目录，写后自动渲染）
 add <path> -d "一句话≤20字" [--detail "完整描述行"]... [--rel 相关路径]... [--tags a,b] [--dir]
-           [--collapsed|--no-collapsed] [--hidden|--no-hidden]   # 渲染控制，见条目字段
+           [--collapsed|--no-collapsed] [--hidden|--no-hidden]   # 渲染控制，见条目字段；--dir 收录目录条目，见核心约定·目录收录粒度
 
 # 批量 upsert（JSON 清单）：一份清单 = 一次数据变更 = 一步撤销历史；任一条非法整批拒绝
-add-batch <manifest.json>         # {"entries": [{"path": "a.ts", "desc": "简介"}, ...]}，条目字段同 add
+add-batch <manifest.json>         # {"entries": [{"path": "a.ts", "desc": "简介"}, {"path": "assets/icons", "desc": "图标集", "dir": true}]}，条目字段同 add
 
 rm <path>                        # 删除条目并修剪变空的父目录
 rm-batch <path>...               # 批量删除：同样一次变更一步历史；预校验全部存在，任一缺失整批拒绝
@@ -63,6 +63,7 @@ root [<名字>|--clear]            # 查看/固定/清除渲染根名；未固�
 | `collapsed` | bool，目录可选 | 简版树折叠渲染：目录行带 `…` 不展开 children；默认 false（false 不落盘）。仅目录可用，文件条目报错 |
 | `hidden` | bool，可选 | 简版树隐藏渲染：条目及整个子树不出现在 AGENTS.md；默认 false（false 不落盘）。文件与目录均可用 |
 | `children` | object | 目录子条目；有此键即目录 |
+| `dir` | bool，add/add-batch 命令标志（非落盘字段） | 收录为目录条目，落盘体现为 `children` 键；磁盘上是目录的路径未声明时自动识别为目录条目并打印提示 |
 
 **字段完整性检测**：`check` 对每个条目做全量字段校验——未知字段、字段类型错误、缺 `desc` 报为错误；`desc` 为空或超长、文件条目缺 `detail` 报为告警（`--strict` 下告警也视为失败）。`collapsed`/`hidden` 类型不是布尔、文件条目带 `collapsed` 报为错误。技能目录内自身测试产生的 `__pycache__` 豁免"未收录"告警（运行时缓存）；仓库其他位置的 `__pycache__` 照常报。
 
