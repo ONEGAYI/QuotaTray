@@ -417,6 +417,11 @@ QuotaTray/
 │       │       └── build_support.rs # CLI路径契约测试
 │       ├── tsconfig.json       # TS 编译配置
 │       └── vite.config.ts      # Vite 配置
+├── assets/                 # 仓库静态资产目录
+│   └── pics/ # README 界面截图与动图
+│       ├── 主题切换动效.webp   # 主题切换扩散动效演示
+│       ├── 使用统计多曲线比较.png # 使用统计多曲线比较截图
+│       └── 托盘悬停浮窗.png    # 托盘悬停浮窗界面截图
 ├── Cargo.lock              # 依赖锁文件
 ├── Cargo.toml              # workspace 根配置
 ├── CHANGELOG.md            # 版本变更记录

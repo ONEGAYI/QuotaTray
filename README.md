@@ -6,6 +6,22 @@
 
 ![OS](https://img.shields.io/badge/OS-Windows%20%7C%20Android%20Preview-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
+## 界面速览
+
+<p align="center">
+  <img src="assets/pics/主题切换动效.webp" alt="主题切换动效：选择明亮主题后界面以圆形扩散从深色过渡到浅色" width="720"><br>
+  <sub>明暗主题三态切换，圆形扩散动效</sub>
+</p>
+
+<p align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="assets/pics/托盘悬停浮窗.png" alt="托盘悬停浮窗" width="320"><br><sub>托盘悬停浮窗：余额、圆环与峰谷三价</sub></td>
+      <td align="center"><img src="assets/pics/使用统计多曲线比较.png" alt="使用统计多曲线比较" width="560"><br><sub>使用统计：多曲线趋势比较</sub></td>
+    </tr>
+  </table>
+</p>
+
 ## 为什么需要 QuotaTray
 
 如果你同时在 DeepSeek、Kimi、OpenRouter 等多个 AI 平台有账户，余额和配额散落在各家控制台里，查看需要逐个登录网页。
@@ -26,6 +42,7 @@ QuotaTray 把这件事压缩成一眼：常驻系统托盘，图标即余额状�
 - 托盘菜单逐条展示余额/已用百分比与更新时间，峰谷定价另起两行
 - 悬停详情面板：余额优先展示，可快速切换圆环数据源账户与计价模型
 - 主窗口卡片列表：添加/编辑条目、模板编辑器（带校验与试查）、峰谷定价结构化编辑
+- 使用统计页：余额/额度趋势图，最多四条 Provider+窗口组合多曲线比较，支持缩放平移与点击图例聚焦
 - 设置 → 数据管理：配置跨机器导出/导入（高敏感文件确认）与一键清空全部数据（5 秒倒数双重确认）
 - 明暗主题三态（浅色/深色/跟随系统）、中英双语三态、自定义标题栏
 - keep-last-good：查询失败时在时限内继续展示上次成功结果；重启后快照先行，无空窗期

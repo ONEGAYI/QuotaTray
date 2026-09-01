@@ -2038,6 +2038,57 @@
         }
       }
     },
+    "assets": {
+      "kind": "dir",
+      "desc": "仓库静态资产目录",
+      "detail": [
+        "README 等对外展示资产根目录，当前仅 pics 界面截图子目录"
+      ],
+      "children": {
+        "pics": {
+          "kind": "dir",
+          "desc": "README 界面截图与动图",
+          "detail": [
+            "README 中英文版「界面速览」节引用的截图与动图资产"
+          ],
+          "children": {
+            "主题切换动效.webp": {
+              "kind": "file",
+              "desc": "主题切换扩散动效演示",
+              "detail": [
+                "点击标题栏主题按钮弹出三态菜单，选择明亮后界面以圆形扩散动效从深色过渡到浅色；README 界面速览主视觉"
+              ],
+              "rel": [
+                "README.en.md",
+                "README.md"
+              ]
+            },
+            "使用统计多曲线比较.png": {
+              "kind": "file",
+              "desc": "使用统计多曲线比较截图",
+              "detail": [
+                "使用统计页近 7 天两条使用趋势比较曲线（智谱 Coding Plan 与 Codex 周限），斜纹区域为长时数据空缺；README 界面速览用图"
+              ],
+              "rel": [
+                "README.en.md",
+                "README.md"
+              ]
+            },
+            "托盘悬停浮窗.png": {
+              "kind": "file",
+              "desc": "托盘悬停浮窗界面截图",
+              "detail": [
+                "悬停浮窗展示 DeepSeek 账户余额、圆环读数与空闲时段峰谷三价（缓存命中/未命中/输出）；README 界面速览用图"
+              ],
+              "rel": [
+                "README.en.md",
+                "README.md"
+              ]
+            }
+          }
+        }
+      }
+    },
     "Cargo.lock": {
       "kind": "file",
       "desc": "依赖锁文件",

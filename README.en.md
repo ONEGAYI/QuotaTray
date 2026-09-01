@@ -6,6 +6,22 @@ A tray-resident multi-platform AI account balance monitor: built-in queries for 
 
 ![OS](https://img.shields.io/badge/OS-Windows%20%7C%20Android%20Preview-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/pics/主题切换动效.webp" alt="Theme switch animation: picking the light theme sweeps the UI from dark to light with a circular reveal" width="720"><br>
+  <sub>Light/dark/system theme tri-state with a circular reveal transition</sub>
+</p>
+
+<p align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="assets/pics/托盘悬停浮窗.png" alt="Tray hover panel" width="320"><br><sub>Tray hover panel: balance, ring, and off-peak prices</sub></td>
+      <td align="center"><img src="assets/pics/使用统计多曲线比较.png" alt="Usage stats multi-curve comparison" width="560"><br><sub>Usage stats: multi-curve trend comparison</sub></td>
+    </tr>
+  </table>
+</p>
+
 ## Why QuotaTray
 
 If you hold accounts across multiple AI platforms — DeepSeek, Kimi, OpenRouter and so on — balances and quotas are scattered across their web consoles, each behind its own login.
@@ -26,6 +42,7 @@ The key difference from other balance tools is **credential security**:
 - Tray menu lists balance / usage percentage and last-updated time per entry, plus two lines for off-peak pricing
 - Hover detail panel: balance-first summary with quick switching of the ring data-source account and pricing model
 - Main window with card list: add/edit entries, template editor (with validation and live test), structured off-peak pricing editor
+- Usage stats page: balance/quota trend charts with up to four provider+window comparison curves, zoom/pan and click-to-focus legends
 - Settings → Data management: cross-machine configuration export/import (with sensitive-file confirmation) and one-click clear of all user data (5-second countdown double confirmation)
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
 - Keep-last-good: on query failure the last good result keeps showing within its time window; after restart the snapshot renders first — no blank window
