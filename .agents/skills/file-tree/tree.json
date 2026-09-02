@@ -1431,7 +1431,7 @@
                       "kind": "file",
                       "desc": "统计图表逻辑测试",
                       "detail": [
-                        "覆盖历史分组/桶聚合、剩余百分比与绝对余额语义、缺失分段、拟合/标尺、滚动视窗及绘图区 Ctrl+滚轮契约"
+                        "覆盖历史分组/桶聚合、剩余百分比与绝对余额语义、缺失分段、按桶粒度门控的轻度平滑、标尺、滚动视窗及绘图区 Ctrl+滚轮契约"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.ts"
@@ -1444,7 +1444,7 @@
                       "kind": "file",
                       "desc": "统计图表纯逻辑",
                       "detail": [
-                        "HistoryPoint 按 Scope/小时桶构造序列，百分比优先 remaining 并在缺失时倒置 used；含分段/刻度/拟合、视窗推进与滚轮分流"
+                        "HistoryPoint 按 Scope/展示桶构造序列，百分比优先 remaining 并在缺失时倒置 used；含缺失分段、按桶粒度门控的轻度平滑与刻度、视窗推进及滚轮分流"
                       ],
                       "rel": [
                         "apps/quota-desktop/src/components/usageChartView.test.ts",

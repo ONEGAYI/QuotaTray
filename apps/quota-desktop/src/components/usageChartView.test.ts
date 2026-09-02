@@ -10,6 +10,7 @@ import {
   splitUsageSeries,
   USAGE_RANGES,
   USAGE_TOOLTIP_GAP,
+  usageSmoothingRadius,
   usageTooltipPlacement,
   type UsageSample,
 } from "./usageChartView";
@@ -67,6 +68,46 @@ describe("使用统计图表纯逻辑", () => {
     ]);
 
     expect(buildLineGeometry([point(3, 7)], () => 18, () => 24).path).toBe("");
+  });
+
+  it("平台两端采用轻度局部平滑，但悬浮点仍保留真实值", () => {
+    const geometry = buildLineGeometry(
+      [point(0, 100), point(1, 80), point(2, 80), point(3, 80), point(4, 60)],
+      (timestamp) => timestamp / HOUR * 100,
+      (value) => value,
+    );
+
+    expect(geometry.points.map((item) => item.y)).toEqual([100, 80, 80, 80, 60]);
+    expect(geometry.curvePoints[1].y).toBeGreaterThan(80);
+    expect(geometry.curvePoints[2].y).toBeCloseTo(80);
+    expect(geometry.curvePoints[3].y).toBeLessThan(80);
+  });
+
+  it("轻度平滑不跨越额度重置，重置段保持真实跳变", () => {
+    const geometry = buildLineGeometry(
+      [point(0, 80), point(1, 60), point(2, 100), point(3, 90)],
+      (timestamp) => timestamp / HOUR * 100,
+      (value) => 100 - value,
+    );
+
+    expect(geometry.path).toContain(" L 200 0");
+    expect(geometry.curvePoints.map((item) => item.y)).toEqual([20, 40, 0, 10]);
+  });
+
+  it("仅 15 分钟及以下的细粒度桶启用轻度平滑，1 小时桶保留平台", () => {
+    expect(usageSmoothingRadius(15 * MINUTE)).toBe(2);
+    expect(usageSmoothingRadius(15 * MINUTE + 1)).toBe(0);
+    expect(usageSmoothingRadius(HOUR)).toBe(0);
+
+    const samples = [point(0, 100), point(1, 80), point(2, 80), point(3, 80), point(4, 60)];
+    const geometry = buildLineGeometry(
+      samples,
+      (timestamp) => timestamp / HOUR * 100,
+      (value) => value,
+      { smoothingRadius: usageSmoothingRadius(HOUR) },
+    );
+
+    expect(geometry.curvePoints.map((item) => item.y)).toEqual([100, 80, 80, 80, 60]);
   });
 
   it("孤立单点从断线分段中单独提取用于圆点渲染", () => {

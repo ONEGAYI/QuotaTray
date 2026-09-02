@@ -250,22 +250,59 @@ function formatCoordinate(value: number): string {
   return Object.is(rounded, -0) ? "0" : String(rounded);
 }
 
-/**
- * 以单调三次 Hermite 曲线连接真实点。切线经过限幅，避免在相邻点范围外
- * 产生视觉过冲；缺失区间应在调用前由 splitUsageSeries 分段。
- */
-export function buildLineGeometry(
-  samples: UsageSample[],
-  xOf: (timestamp: number) => number,
-  yOf: (value: number) => number,
-): { path: string; points: ChartPoint[] } {
-  const points = samples.map((sample) => ({
-    x: xOf(sample.timestamp),
-    y: yOf(sample.value),
-    sample,
-  }));
-  if (points.length < 2) return { path: "", points };
+const LIGHT_SMOOTHING_RADIUS = 2;
+const MAX_SMOOTHING_BUCKET_MS = USAGE_RANGES["24h"].bucketMs;
+const MIN_RESET_JUMP_PX = 12;
+const RESET_RANGE_FRACTION = 0.25;
 
+/** 轻度平滑只用于 15 分钟及以下的细粒度展示桶。 */
+export function usageSmoothingRadius(bucketMs: number): number {
+  return Number.isFinite(bucketMs) && bucketMs > 0 && bucketMs <= MAX_SMOOTHING_BUCKET_MS
+    ? LIGHT_SMOOTHING_RADIUS
+    : 0;
+}
+
+function splitCurvePointsAtResets(points: ChartPoint[]): ChartPoint[][] {
+  const ys = points.map((point) => point.y);
+  const visualRange = Math.max(...ys) - Math.min(...ys);
+  const resetThreshold = Math.max(MIN_RESET_JUMP_PX, visualRange * RESET_RANGE_FRACTION);
+  const segments: ChartPoint[][] = [[points[0]]];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const valueIncreased = current.sample.value > previous.sample.value;
+    const visualJump = Math.abs(current.y - previous.y);
+    if (valueIncreased && visualJump >= resetThreshold) {
+      segments.push([current]);
+    } else {
+      segments[segments.length - 1].push(current);
+    }
+  }
+  return segments;
+}
+
+function lightSmoothCurveSegment(points: ChartPoint[], radius: number): ChartPoint[] {
+  if (points.length <= 2) return points;
+  const sigma = radius / 1.6;
+  return points.map((point, index) => {
+    if (index === 0 || index === points.length - 1) return point;
+    const from = Math.max(0, index - radius);
+    const to = Math.min(points.length - 1, index + radius);
+    let weightedY = 0;
+    let totalWeight = 0;
+    for (let cursor = from; cursor <= to; cursor += 1) {
+      const distance = cursor - index;
+      const weight = Math.exp(-(distance * distance) / (2 * sigma * sigma));
+      weightedY += points[cursor].y * weight;
+      totalWeight += weight;
+    }
+    return { ...point, y: weightedY / totalWeight };
+  });
+}
+
+function appendMonotoneCurve(path: string, points: ChartPoint[]): string {
+  if (points.length < 2) return path;
   const slopes = points.slice(1).map((point, index) => {
     const previous = points[index];
     const dx = point.x - previous.x;
@@ -280,7 +317,6 @@ export function buildLineGeometry(
     return (2 * before * after) / (before + after);
   });
 
-  let path = `M ${formatCoordinate(points[0].x)} ${formatCoordinate(points[0].y)}`;
   for (let index = 0; index < points.length - 1; index += 1) {
     const from = points[index];
     const to = points[index + 1];
@@ -291,5 +327,40 @@ export function buildLineGeometry(
     const c2y = to.y - tangents[index + 1] * dx / 3;
     path += ` C ${formatCoordinate(c1x)} ${formatCoordinate(c1y)} ${formatCoordinate(c2x)} ${formatCoordinate(c2y)} ${formatCoordinate(to.x)} ${formatCoordinate(to.y)}`;
   }
-  return { path, points };
+  return path;
+}
+
+/**
+ * 启用时对真实点做轻度局部平滑，再以单调三次 Hermite 曲线连接；调用方按
+ * 展示桶粒度传入半径 2 或 0。悬浮点仍保留原始坐标；检测到显著正向跳增时
+ * 按额度重置分段，以直线保留真实跳变。缺失区间应在调用前由
+ * splitUsageSeries 分段。
+ */
+export function buildLineGeometry(
+  samples: UsageSample[],
+  xOf: (timestamp: number) => number,
+  yOf: (value: number) => number,
+  options: { smoothingRadius?: number } = {},
+): { path: string; points: ChartPoint[]; curvePoints: ChartPoint[] } {
+  const points = samples.map((sample) => ({
+    x: xOf(sample.timestamp),
+    y: yOf(sample.value),
+    sample,
+  }));
+  if (points.length < 2) return { path: "", points, curvePoints: points };
+
+  const smoothingRadius = Math.max(0, Math.floor(options.smoothingRadius ?? LIGHT_SMOOTHING_RADIUS));
+  const smoothedSegments = smoothingRadius > 0
+    ? splitCurvePointsAtResets(points).map((segment) => lightSmoothCurveSegment(segment, smoothingRadius))
+    : [points];
+  const curvePoints = smoothedSegments.flat();
+  let path = "";
+  for (const [index, segment] of smoothedSegments.entries()) {
+    const first = segment[0];
+    path += index === 0
+      ? `M ${formatCoordinate(first.x)} ${formatCoordinate(first.y)}`
+      : ` L ${formatCoordinate(first.x)} ${formatCoordinate(first.y)}`;
+    path = appendMonotoneCurve(path, segment);
+  }
+  return { path, points, curvePoints };
 }
