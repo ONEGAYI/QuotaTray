@@ -2250,10 +2250,7 @@
                   "desc": "结构化事件打点与滚动日志装配",
                   "detail": [
                     "qt_event! 宏定义事件载荷约定（事件名+空格+fields JSON），log facade 薄层；flexi-logging feature 门控装配 flexi_logger（JSONL 按天+5MB 滚动、7 天保留、进程级幂等 init_logging），desktop/CLI 经 feature 开启共享",
-                    "安全红线：事件字段白名单制（条目/通道/错误分类与已脱敏文案/耗时/代理 host:port），凭据永不入日志"
-                  ],
-                  "tags": [
-                    "pure"
+                    "安全红线：事件字段白名单制（条目/通道/错误分类与已脱敏文案/耗时/代理 host:port/数据目录），凭据永不入日志"
                   ]
                 },
                 "model.rs": {

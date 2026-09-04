@@ -1012,7 +1012,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         && let (Some(data), Some(at)) = (outcome.data.as_ref(), outcome.at)
         && let Err(e) = state.history.lock().unwrap().record(&id, data, at)
     {
-        eprintln!("历史记录写入失败：{e}");
+        log::warn!("历史记录写入失败：{e}");
     }
     // 低余额提醒（两端共用）：成功查询后按设置阈值边沿触发——首次达标
     // 广播 low-balance 并按平台补发系统通知（Android 后台走
