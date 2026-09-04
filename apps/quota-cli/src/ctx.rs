@@ -105,6 +105,15 @@ impl Ctx {
             .map(|dir| dir.join("history.db"))
             .unwrap_or_else(|| PathBuf::from("history.db"))
     }
+
+    /// 滚动日志目录：与历史库同根（`~/.quotatray/logs` 或便携 `Data/logs`）。
+    /// 仅 watch 长驻模式装配文件日志；单次命令的告警直接走 stderr。
+    pub fn logs_dir(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .map(|dir| dir.join("logs"))
+            .unwrap_or_else(|| PathBuf::from("logs"))
+    }
 }
 
 /// 按 settings.json 的网络代理端口构造查询引擎（None = 直连）。

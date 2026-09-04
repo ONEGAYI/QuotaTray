@@ -101,6 +101,9 @@ mod android {
 
     /// 单轮后台刷新（Worker 调入）：任何失败仅日志并以「仅渠道元数据」
     /// 收场——Worker 无 UI 可透错，静默口径与桌面调度器一致。
+    ///
+    /// 冷启动场景（前台从未跑过）stderr 无处可去，此处幂等初始化滚动
+    /// 日志是后台链路唯一的留痕通道（前台已装时为 no-op）。
     pub fn background_refresh_once(data_dir: &Path) -> BackgroundRefreshResult {
         let empty = |name: String| BackgroundRefreshResult {
             channel: ChannelInfo {
@@ -109,6 +112,12 @@ mod android {
             },
             notifications: Vec::new(),
         };
+        if let Err(e) = quota_core::logging::rolling::init_logging(
+            &data_dir.join("logs"),
+            quota_core::logging::rolling::LOG_BASENAME_DESKTOP,
+        ) {
+            eprintln!("后台刷新：日志初始化失败（继续不留痕）：{e}");
+        }
         let Ok(paths) = DataPaths::new(Some(data_dir.to_path_buf())) else {
             return empty(String::new());
         };
@@ -134,22 +143,22 @@ mod android {
         // Kotlin 已先补调 initializeNdkContext）、引擎（代理主机/端口随
         // 设置）、历史库（WAL + busy_timeout 兜底与前台并发）
         let Ok(vault) = quota_core::Vault::open(&quota_core::KeyringStore::new()) else {
-            eprintln!("后台刷新：保险库打开失败，本轮跳过");
+            log::warn!("后台刷新：保险库打开失败，本轮跳过");
             return bail();
         };
         let Ok(engine) = crate::state::build_engine(
             settings.update_proxy_host.as_deref(),
             settings.update_proxy_port,
         ) else {
-            eprintln!("后台刷新：查询引擎构造失败，本轮跳过");
+            log::warn!("后台刷新：查询引擎构造失败，本轮跳过");
             return bail();
         };
         let Ok(history) = quota_core::HistoryStore::open(&paths.history()) else {
-            eprintln!("后台刷新：历史库打开失败，本轮跳过");
+            log::warn!("后台刷新：历史库打开失败，本轮跳过");
             return bail();
         };
         let Ok(cfg) = AppConfig::load(&paths.config()) else {
-            eprintln!("后台刷新：配置读取失败，本轮跳过");
+            log::warn!("后台刷新：配置读取失败，本轮跳过");
             return bail();
         };
         let mut fresh = Vec::new();
@@ -164,7 +173,7 @@ mod android {
                 Ok(data) => {
                     let at = crate::state::now_ms();
                     if let Err(e) = history.record(&entry.id, &data, at) {
-                        eprintln!("后台刷新：历史写入失败（{}）：{e}", entry.id);
+                        log::warn!("后台刷新：历史写入失败（{}）：{e}", entry.id);
                     }
                     // 边沿判定仅在通知路径成立时做：前台时跳过——否则
                     // Worker 抢先登记全局会吞掉前台命令路径的首次达标
@@ -180,7 +189,8 @@ mod android {
                         );
                     }
                 }
-                Err(e) => eprintln!("后台刷新：查询失败（{}）：{e}", entry.id),
+                // 查询失败不再单独打点：core query() 的 query_done 事件已含条目与错误分类
+                Err(_) => {}
             }
         }
         build_result(
@@ -275,7 +285,7 @@ mod android {
             },
         );
         if let Err(e) = scheduled {
-            eprintln!("后台刷新调度同步失败：{e}");
+            log::warn!("后台刷新调度同步失败：{e}");
         }
     }
 
@@ -322,13 +332,13 @@ mod android {
             }
         }))
         .unwrap_or_else(|_| {
-            eprintln!("后台刷新：Rust 侧 panic 已捕获");
+            log::warn!("后台刷新：Rust 侧 panic 已捕获");
             fallback_json()
         });
         match env.new_string(outcome) {
             Ok(s) => s.into_raw(),
             Err(e) => {
-                eprintln!("后台刷新：返回 JSON 构造失败：{e}");
+                log::warn!("后台刷新：返回 JSON 构造失败：{e}");
                 let _ = env.exception_clear();
                 env.new_string(fallback_json())
                     .map(|s| s.into_raw())

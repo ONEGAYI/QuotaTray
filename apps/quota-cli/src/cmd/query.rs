@@ -76,6 +76,15 @@ pub async fn run(
     };
 
     if watch {
+        // watch 是常驻进程且清屏重绘会吞掉历史轮次的错误——装配滚动
+        // JSONL 日志留痕（与 GUI 同目录、不同基名，互不干扰）；失败仅
+        // stderr 告警，watch 本身继续可用
+        if let Err(e) = quota_core::logging::rolling::init_logging(
+            &ctx.logs_dir(),
+            quota_core::logging::rolling::LOG_BASENAME_CLI,
+        ) {
+            eprintln!("日志初始化失败（继续运行，本次不留痕）：{e}");
+        }
         let term = console::Term::stdout();
         let period = Duration::from_secs(interval_min.unwrap_or(DEFAULT_INTERVAL_MIN) * 60);
         // ctrl_c 常驻监听（tokio 信号无监听者时被丢弃，须覆盖查询与休眠两阶段）

@@ -1255,9 +1255,9 @@ fn persist_settings(
     // 继续用旧客户端跑完，写锁仅在换新实例的瞬间持有）
     if (old_proxy_port != settings.update_proxy_port
         || old_proxy_host != settings.update_proxy_host)
-        && let Err(e) = crate::state::rebuild_engine(state)
+        && let Err(e) = crate::state::rebuild_engine(state, "settings_change")
     {
-        eprintln!("代理变更后重建查询引擎失败：{e}");
+        log::warn!("代理变更后重建查询引擎失败：{e}");
     }
 
     if old_autostart != settings.autostart {

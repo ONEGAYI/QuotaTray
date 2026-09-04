@@ -19,7 +19,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-quota-core = { path = "../../../crates/quota-core" }
+quota-core = { path = "../../../crates/quota-core", features = ["flexi-logging"] }
 tauri = { version = "2", features = ["image-png"] }
 tauri-plugin-dialog = "2.7.2"
 tauri-plugin-opener = "2" # 标题栏 GitHub 按钮：外部浏览器打开仓库主页
@@ -29,6 +29,7 @@ serde_json = { workspace = true }
 url = { workspace = true } # 代理主机 sanitize 的 URL 预检（第 2 轮 review 加固）
 tokio = { workspace = true }
 dirs = { workspace = true }
+log = { workspace = true }        # 迁移 eprintln 的告警打点；装配经 core 的 flexi-logging feature
 # 桌面端私有依赖（不动 workspace 根共享段）：
 sys-locale = "0.3"   # language=system 时解析系统 locale
 async-trait = "0.1"  # update_ctl 测试注入 mock HttpClient/AssetDownloader

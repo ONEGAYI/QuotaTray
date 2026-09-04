@@ -2245,6 +2245,17 @@
                     "模块声明与 re-export（对外 API 面单一出口）"
                   ]
                 },
+                "logging.rs": {
+                  "kind": "file",
+                  "desc": "结构化事件打点与滚动日志装配",
+                  "detail": [
+                    "qt_event! 宏定义事件载荷约定（事件名+空格+fields JSON），log facade 薄层；flexi-logging feature 门控装配 flexi_logger（JSONL 按天+5MB 滚动、7 天保留、进程级幂等 init_logging），desktop/CLI 经 feature 开启共享",
+                    "安全红线：事件字段白名单制（条目/通道/错误分类与已脱敏文案/耗时/代理 host:port），凭据永不入日志"
+                  ],
+                  "tags": [
+                    "pure"
+                  ]
+                },
                 "model.rs": {
                   "kind": "file",
                   "desc": "用量模型与错误分类",
@@ -2537,6 +2548,22 @@
                       ]
                     }
                   }
+                }
+              }
+            },
+            "tests": {
+              "kind": "dir",
+              "desc": "core 集成测试目录",
+              "children": {
+                "logging_smoke.rs": {
+                  "kind": "file",
+                  "desc": "滚动日志装配端到端冒烟",
+                  "detail": [
+                    "独立进程集成测试：init_logging 真实启动→落盘文件名约定（基名_r时间戳.jsonl）→事件行/纯文本行逐行可 JSON 解析→二次 init 幂等；仅 flexi-logging feature 下编译"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
                 }
               }
             }

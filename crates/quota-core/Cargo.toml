@@ -26,6 +26,13 @@ chrono = { workspace = true }
 regex = { workspace = true }
 rquickjs = { workspace = true }
 rusqlite = { workspace = true }
+log = { workspace = true }
+# 装配端（desktop/CLI）经 `flexi-logging` feature 开启滚动日志实现；
+# core 默认构建不带此依赖，保持库纯净
+flexi_logger = { workspace = true, optional = true }
+
+[features]
+flexi-logging = ["dep:flexi_logger"]
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = "1.1.0"

@@ -51,6 +51,11 @@ impl DataPaths {
     pub fn history(&self) -> PathBuf {
         self.root.join("history.db")
     }
+
+    /// 滚动日志目录（JSONL，7 天保留；目录由装配方按需创建）。
+    pub fn logs(&self) -> PathBuf {
+        self.root.join("logs")
+    }
 }
 
 /// 错误信息（IPC 传输形状，kind 对齐 CLI `--json` 约定的小写字符串）。
@@ -179,7 +184,10 @@ pub fn now_ms() -> u64 {
 }
 
 /// 网络代理（主机/端口）变更后热重建查询引擎（save_settings 调用）。
-pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpError> {
+///
+/// `trigger` 进入 `engine_rebuild` 事件日志（startup / settings_change /
+/// reconcile），代理诊断时用于区分引擎被谁换过、何时换的。
+pub fn rebuild_engine(state: &AppState, trigger: &str) -> Result<(), quota_core::http::HttpError> {
     let (proxy_host, proxy_port) = {
         let settings = state.settings.read().unwrap();
         (
@@ -189,6 +197,15 @@ pub fn rebuild_engine(state: &AppState) -> Result<(), quota_core::http::HttpErro
     };
     let engine = build_engine(proxy_host.as_deref(), proxy_port)?;
     *state.engine.write().unwrap() = engine;
+    quota_core::qt_event!(
+        info,
+        "engine_rebuild",
+        {
+            "trigger": trigger,
+            "proxy_host": proxy_host,
+            "proxy_port": proxy_port,
+        }
+    );
     Ok(())
 }
 
@@ -220,19 +237,18 @@ pub fn reconcile_proxy_from_disk(state: &AppState) -> bool {
         *guard = disk;
         prev
     };
-    if let Err(e) = rebuild_engine(state) {
-        eprintln!("代理端口对账后重建查询引擎失败，回滚内存设置：{e}");
+    if let Err(e) = rebuild_engine(state, "reconcile") {
+        log::warn!("代理端口对账后重建查询引擎失败，回滚内存设置：{e}");
         *state.settings.write().unwrap() = prev;
         return false;
     }
-    eprintln!(
-        "代理端口对账自愈：磁盘端口 {} 已同步进运行态并重建查询引擎",
-        state
-            .settings
-            .read()
-            .unwrap()
-            .update_proxy_port
-            .unwrap_or_default()
+    quota_core::qt_event!(
+        info,
+        "proxy_reconcile",
+        {
+            "recovered": true,
+            "port": state.settings.read().unwrap().update_proxy_port,
+        }
     );
     true
 }
@@ -300,7 +316,7 @@ impl AppState {
         ) {
             Ok(engine) => engine,
             Err(e) => {
-                eprintln!("代理客户端构造失败（{e}），降级直连启动");
+                log::warn!("代理客户端构造失败（{e}），降级直连启动");
                 build_engine(None, None).map_err(|e| format!("HTTP 客户端初始化失败：{e}"))?
             }
         };
@@ -321,13 +337,23 @@ impl AppState {
         let history = match HistoryStore::open(&paths.history()) {
             Ok(store) => store,
             Err(e) => {
-                eprintln!("历史库打开失败（本次运行不落盘）：{e}");
+                log::warn!("历史库打开失败（本次运行不落盘）：{e}");
                 HistoryStore::open_in_memory().map_err(|e| e.to_string())?
             }
         };
         // 启动惰性清理：删除下载目录中不新于当前版本的旧安装包/旧 zip
         // （安装成功后的回收路径；失败仅告警，见 update_ctl 契约）
         crate::update_ctl::cleanup_stale_installers();
+        // 启动事件：版本/运行形态/数据目录进日志（代理诊断的时间锚点）
+        quota_core::qt_event!(
+            info,
+            "startup",
+            {
+                "version": env!("CARGO_PKG_VERSION"),
+                "mode": if mode.is_portable() { "portable" } else { "installed" },
+                "data_dir": paths.root.display().to_string(),
+            }
+        );
         Ok(Self {
             engine: std::sync::RwLock::new(engine),
             vault,
@@ -432,6 +458,11 @@ mod tests {
         let p = DataPaths::new(Some(PathBuf::from("/tmp/sandbox"))).unwrap();
         assert_eq!(p.config(), PathBuf::from("/tmp/sandbox/config.json"));
         assert_eq!(p.snapshot(), PathBuf::from("/tmp/sandbox/cache.json"));
+        assert_eq!(
+            p.logs(),
+            PathBuf::from("/tmp/sandbox/logs"),
+            "日志目录跟随数据根派生"
+        );
         let default = DataPaths::new(None).unwrap();
         assert!(
             default.config().ends_with(".quotatray\\config.json")

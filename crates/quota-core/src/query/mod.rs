@@ -71,7 +71,23 @@ impl QueryEngine {
     }
 
     /// 查询单个供应商条目：解密凭据 → 按 kind 分派 → 超时包裹。
+    ///
+    /// 外层统一打 `query_done` 事件（desktop/CLI/Android 后台三路消费方
+    /// 的单点观测面）：通道、成败、错误分类与耗时进滚动日志，代理故障
+    /// 排障的时间线以此锚定。
     pub async fn query(
+        &self,
+        vault: &Vault,
+        entry: &ProviderEntry,
+    ) -> Result<Vec<UsageData>, QueryError> {
+        let started = std::time::Instant::now();
+        let result = self.query_once(vault, entry).await;
+        log_query_done(entry, &result, started.elapsed().as_millis() as u64);
+        result
+    }
+
+    /// 查询单个供应商条目：解密凭据 → 按 kind 分派 → 超时包裹。
+    async fn query_once(
         &self,
         vault: &Vault,
         entry: &ProviderEntry,
@@ -116,6 +132,35 @@ impl QueryEngine {
                 self.timeout.as_secs()
             ))),
         }
+    }
+}
+
+/// `query_done` 事件：成功 info、失败 warn（按 level 快速过滤故障）。
+/// 错误文案沿用面向用户的同一脱敏管道（不含 URL 与凭据），入日志安全。
+fn log_query_done(
+    entry: &crate::config::ProviderEntry,
+    result: &Result<Vec<UsageData>, QueryError>,
+    elapsed_ms: u64,
+) {
+    let channel = if entry.use_proxy { "proxied" } else { "direct" };
+    match result {
+        Ok(data) => crate::qt_event!(info, "query_done", {
+            "entry": entry.id,
+            "name": entry.name,
+            "channel": channel,
+            "ok": true,
+            "windows": data.len(),
+            "elapsed_ms": elapsed_ms,
+        }),
+        Err(e) => crate::qt_event!(warn, "query_done", {
+            "entry": entry.id,
+            "name": entry.name,
+            "channel": channel,
+            "ok": false,
+            "err_kind": if e.is_transient() { "transient" } else { "deterministic" },
+            "err_msg": e.message().to_string(),
+            "elapsed_ms": elapsed_ms,
+        }),
     }
 }
 
