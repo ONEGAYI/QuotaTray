@@ -328,15 +328,33 @@ pub(crate) mod testing {
         pub network_fail: bool,
         pub delay: Option<Duration>,
         /// 多响应序列（非空时按调用序弹出——多步请求的 provider 如
-        /// Gemini 刷新→loadCodeAssist→retrieveUserQuota 需要）；
-        /// 耗尽后回落单响应字段。
-        queue: std::sync::Mutex<Vec<(u16, String)>>,
+        /// Gemini 刷新→loadCodeAssist→retrieveUserQuota，与瞬时失败
+        /// 重试测试的「先失败后成功」编排）；耗尽后回落单响应字段。
+        queue: std::sync::Mutex<Vec<MockResp>>,
         /// 二进制协议（grok gRPC-web）的精确 raw 注入；None 时
         /// raw = body 的 UTF-8 字节（文本响应等价）。
         raw_override: Option<Vec<u8>>,
         /// 收到的请求记录（update 模块用它断言 User-Agent/Accept 等头契约）。
         /// Mutex 无 Clone，手动实现（克隆快照进新 Mutex）。
         captured: std::sync::Mutex<Vec<HttpRequest>>,
+    }
+
+    /// 序列元素：网络级失败 / 网络级超时 / 正常响应。
+    /// Timeout 直接模拟 `HttpError::Timeout` 分类（不经真实等待）。
+    #[derive(Clone, Debug)]
+    pub enum MockResp {
+        Fail,
+        Timeout,
+        Resp { status: u16, body: String },
+    }
+
+    impl MockResp {
+        pub fn ok(body: &str) -> Self {
+            Self::Resp {
+                status: 200,
+                body: body.into(),
+            }
+        }
     }
 
     impl Clone for MockHttp {
@@ -382,14 +400,26 @@ pub(crate) mod testing {
 
         /// 按调用序依次返回的多响应序列（gemini 三步请求等场景）。
         pub fn seq(responses: &[(u16, &str)]) -> Self {
+            Self::seq_of(
+                &responses
+                    .iter()
+                    .map(|(s, b)| MockResp::Resp {
+                        status: *s,
+                        body: (*b).into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
+
+        /// 序列化多响应（含网络级失败/超时形态）：瞬时失败重试测试的
+        /// 「先 Fail 后 ok」编排入口。
+        pub fn seq_of(responses: &[MockResp]) -> Self {
             Self {
                 status: 200,
                 body: String::new(),
                 network_fail: false,
                 delay: None,
-                queue: std::sync::Mutex::new(
-                    responses.iter().map(|(s, b)| (*s, (*b).into())).collect(),
-                ),
+                queue: std::sync::Mutex::new(responses.to_vec()),
                 raw_override: None,
                 captured: std::sync::Mutex::new(Vec::new()),
             }
@@ -455,22 +485,28 @@ pub(crate) mod testing {
             if self.network_fail {
                 return Err(HttpError::Network("mock 网络故障".into()));
             }
-            let (status, body) = {
+            let item = {
                 let mut queue = self.queue.lock().unwrap();
-                if queue.is_empty() {
-                    (self.status, self.body.clone())
-                } else {
-                    queue.remove(0)
+                match queue.first() {
+                    Some(_) => queue.remove(0),
+                    None => MockResp::Resp {
+                        status: self.status,
+                        body: self.body.clone(),
+                    },
                 }
             };
-            Ok(HttpResponse {
-                status,
-                raw: self
-                    .raw_override
-                    .clone()
-                    .unwrap_or_else(|| body.clone().into_bytes()),
-                body,
-            })
+            match item {
+                MockResp::Fail => Err(HttpError::Network("mock 网络故障".into())),
+                MockResp::Timeout => Err(HttpError::Timeout),
+                MockResp::Resp { status, body } => Ok(HttpResponse {
+                    status,
+                    raw: self
+                        .raw_override
+                        .clone()
+                        .unwrap_or_else(|| body.clone().into_bytes()),
+                    body,
+                }),
+            }
         }
     }
 }

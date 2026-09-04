@@ -16,6 +16,11 @@ use crate::vault::Vault;
 /// 业务级默认超时（取 cc-switch clamp(2,30) 区间内的 15 秒）。
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// 瞬时失败自动重试的间隔：代理软件切换节点/重载配置的扰动窗口多为
+/// 秒级，2.5 秒足以跨过绝大多数；最坏总时长 15 + 2.5 + 15 ≈ 32.5 秒，
+/// 小于全部消费方时限（桌面/CLI 轮询 ≥ 1 分钟、WorkManager 10 分钟）。
+pub const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(2500);
+
 #[derive(Clone)]
 pub struct QueryEngine {
     /// 直连通道（默认路由）。
@@ -75,14 +80,38 @@ impl QueryEngine {
     /// 外层统一打 `query_done` 事件（desktop/CLI/Android 后台三路消费方
     /// 的单点观测面）：通道、成败、错误分类与耗时进滚动日志，代理故障
     /// 排障的时间线以此锚定。
+    ///
+    /// 瞬时失败自动重试一次（代理软件秒级扰动窗口的直接止血）：
+    /// 超时/网络错误归 transient 的错误在 [`TRANSIENT_RETRY_DELAY`]
+    /// 后重发一次；确定性错误（认证/解析类）零重试——立即透出。
+    /// 重试用同一 HTTP 客户端，但失败连接已被 hyper 丢弃，重发即新连接。
     pub async fn query(
         &self,
         vault: &Vault,
         entry: &ProviderEntry,
     ) -> Result<Vec<UsageData>, QueryError> {
         let started = std::time::Instant::now();
-        let result = self.query_once(vault, entry).await;
-        log_query_done(entry, &result, started.elapsed().as_millis() as u64);
+        let mut attempt = 1u32;
+        let mut result = self.query_once(vault, entry).await;
+        if let Err(e) = &result
+            && e.is_transient()
+        {
+            attempt = 2;
+            crate::qt_event!(warn, "query_retry", {
+                "entry": entry.id,
+                "name": entry.name,
+                "attempt": attempt,
+                "reason": e.message().to_string(),
+            });
+            tokio::time::sleep(TRANSIENT_RETRY_DELAY).await;
+            result = self.query_once(vault, entry).await;
+        }
+        log_query_done(
+            entry,
+            &result,
+            attempt,
+            started.elapsed().as_millis() as u64,
+        );
         result
     }
 
@@ -140,6 +169,7 @@ impl QueryEngine {
 fn log_query_done(
     entry: &crate::config::ProviderEntry,
     result: &Result<Vec<UsageData>, QueryError>,
+    attempt: u32,
     elapsed_ms: u64,
 ) {
     let channel = if entry.use_proxy { "proxied" } else { "direct" };
@@ -149,6 +179,7 @@ fn log_query_done(
             "name": entry.name,
             "channel": channel,
             "ok": true,
+            "attempt": attempt,
             "windows": data.len(),
             "elapsed_ms": elapsed_ms,
         }),
@@ -157,6 +188,7 @@ fn log_query_done(
             "name": entry.name,
             "channel": channel,
             "ok": false,
+            "attempt": attempt,
             "err_kind": if e.is_transient() { "transient" } else { "deterministic" },
             "err_msg": e.message().to_string(),
             "elapsed_ms": elapsed_ms,
@@ -170,6 +202,7 @@ mod tests {
     use crate::PlanVariant;
     use crate::config::ProviderEntry;
     use crate::provider::testing::MockHttp;
+    use crate::provider::testing::MockResp;
     use crate::vault::InMemoryStore;
 
     fn entry(provider: &str) -> ProviderEntry {
@@ -206,8 +239,9 @@ mod tests {
         assert_eq!(data[0].remaining, Some(88.0));
     }
 
-    /// 契约：超时 → 瞬时失败。
-    #[tokio::test]
+    /// 契约：超时 → 瞬时失败（瞬时失败会触发一次自动重试，paused 时钟
+    /// 下重试间隔即时推进，测试不真实等待）。
+    #[tokio::test(start_paused = true)]
     async fn timeout_is_transient() {
         let vault = Vault::open(&InMemoryStore::new()).unwrap();
         let mut e = entry("deepseek");
@@ -219,6 +253,83 @@ mod tests {
         );
         let err = engine.query(&vault, &e).await.unwrap_err();
         assert!(err.is_transient());
+    }
+
+    /// 契约：瞬时网络失败自动重试一次并成功——重试后结果正常返回，
+    /// HTTP 层实际发起两次请求（代理软件秒级扰动的止血语义）。
+    #[tokio::test(start_paused = true)]
+    async fn transient_network_error_retries_once() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("deepseek");
+        e.set_api_key(&vault, "k").unwrap();
+
+        let http = std::sync::Arc::new(MockHttp::seq_of(&[
+            MockResp::Fail,
+            MockResp::ok(
+                r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"88.00"}]}"#,
+            ),
+        ]));
+        let engine = QueryEngine::new(http.clone(), DEFAULT_TIMEOUT);
+        let data = engine.query(&vault, &e).await.expect("重试后应成功");
+        assert_eq!(data[0].remaining, Some(88.0));
+        assert_eq!(http.captured_requests().len(), 2, "应恰好发起两次请求");
+    }
+
+    /// 契约：超时归类（HttpError::Timeout）同样进入重试路径——代理
+    /// 黑洞（写成功等响应直到超时）与连接失败（reset/refused）同为
+    /// 瞬时扰动，重试语义一致。
+    #[tokio::test(start_paused = true)]
+    async fn timeout_classified_transient_also_retries() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("deepseek");
+        e.set_api_key(&vault, "k").unwrap();
+
+        let http = std::sync::Arc::new(MockHttp::seq_of(&[
+            MockResp::Timeout,
+            MockResp::ok(
+                r#"{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"1.00"}]}"#,
+            ),
+        ]));
+        let engine = QueryEngine::new(http.clone(), DEFAULT_TIMEOUT);
+        assert!(engine.query(&vault, &e).await.is_ok());
+        assert_eq!(http.captured_requests().len(), 2);
+    }
+
+    /// 契约：确定性错误零重试——认证失败（401）立即透出，即使下一次
+    /// 会成功也不重试（重试无意义且放大对端压力）。
+    #[tokio::test(start_paused = true)]
+    async fn deterministic_error_does_not_retry() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("deepseek");
+        e.set_api_key(&vault, "k").unwrap();
+
+        let http = std::sync::Arc::new(MockHttp::seq_of(&[
+            MockResp::Resp {
+                status: 401,
+                body: String::new(),
+            },
+            // 若错误地发生了重试，第二次会成功——测试将因 Err 断言失败
+            MockResp::ok("{}"),
+        ]));
+        let engine = QueryEngine::new(http.clone(), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &e).await.unwrap_err();
+        assert!(!err.is_transient(), "401 应为确定性失败");
+        assert_eq!(http.captured_requests().len(), 1, "确定性错误不得重试");
+    }
+
+    /// 契约：重试耗尽返回最后一次错误（仍为瞬时分类，keep-last-good
+    /// 语义由调用方承接），请求恰为两次、无额外放大。
+    #[tokio::test(start_paused = true)]
+    async fn retry_exhausted_returns_last_error() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut e = entry("deepseek");
+        e.set_api_key(&vault, "k").unwrap();
+
+        let http = std::sync::Arc::new(MockHttp::seq_of(&[MockResp::Fail, MockResp::Fail]));
+        let engine = QueryEngine::new(http.clone(), DEFAULT_TIMEOUT);
+        let err = engine.query(&vault, &e).await.unwrap_err();
+        assert!(err.is_transient());
+        assert_eq!(http.captured_requests().len(), 2, "只重试一次，不放大");
     }
 
     /// 契约：未注册的平台 id → 确定性失败。
