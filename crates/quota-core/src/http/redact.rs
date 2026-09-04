@@ -111,6 +111,17 @@ pub(crate) fn redact_and_truncate(body: &str, req: &HttpRequest) -> String {
     format!("{prefix}\n…（已截断，响应体共 {total} 字符）")
 }
 
+/// 用本次请求的全部密钥形态（整值/URL-encoded/稳定前缀，与
+/// [`redact_body`] 的字面量遍历同一序列）清洗任意文本——错误
+/// source 链等非响应体文本的清洗入口。
+pub(crate) fn redact_with_request(text: &str, req: &HttpRequest) -> String {
+    let mut out = text.to_string();
+    for secret in secret_values(req) {
+        out = out.replace(&secret, REDACTED);
+    }
+    out
+}
+
 /// 从本次请求收集真实密钥值（含 Bearer 剥壳、URL-encoded 与稳定前缀形态）。
 ///
 /// - 敏感名头的值整体 + `Bearer ` 剥壳后的 token（cookie 除外：

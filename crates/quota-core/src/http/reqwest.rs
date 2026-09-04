@@ -48,15 +48,20 @@ impl HttpClient for ReqwestHttpClient {
         for (name, value) in &req.headers {
             request = request.header(name, value);
         }
-        if let Some(body) = req.body {
+        // body clone 而非 move：send 失败时 req 仍需完整供错误清洗借用
+        if let Some(body) = req.body.clone() {
             request = request.body(body);
         }
-        let resp = request.send().await.map_err(map_reqwest_err)?;
+        let resp = request.send().await.map_err(|e| map_reqwest_err(e, &req))?;
         let status = resp.status().as_u16();
         // bytes 先行保真（raw 供二进制协议）；body 用 lossy UTF-8——
         // 取代 text() 的 charset 嗅探（既有平台全为 JSON，RFC 8259
         // 强制 UTF-8，无回归；text() 对无效序列同样 lossy）
-        let raw = resp.bytes().await.map_err(map_reqwest_err)?.to_vec();
+        let raw = resp
+            .bytes()
+            .await
+            .map_err(|e| map_reqwest_err(e, &req))?
+            .to_vec();
         let body = String::from_utf8_lossy(&raw).into_owned();
         Ok(HttpResponse { status, body, raw })
     }
@@ -67,15 +72,30 @@ impl HttpClient for ReqwestHttpClient {
 /// 安全：reqwest 的 `Error::Display` 尾部附带完整 URL（可能含 query string 里的
 /// 明文凭据），统一经 [`reqwest::Error::without_url`] 剥离后再转为文案——
 /// 错误信息红线见 `model.rs`（不含凭据材料，可直接透出）。
-fn map_reqwest_err(e: reqwest::Error) -> HttpError {
+/// 网络错误的文案拼接完整 source 链（`; caused by: …`）：io 层根因
+/// （如 `os error 10061` 连接被拒 / `10054` 连接被重置）是代理故障
+/// 分层定位的决定性信息；source 链本身不含 URL，但保守起见整体过
+/// 一遍密钥字面量清洗（与响应体清洗同一序列）。
+fn map_reqwest_err(e: reqwest::Error, req: &super::HttpRequest) -> HttpError {
     // 先借用判定分类，再按需消耗 e 剥离 URL（其 None 分支拿不回原错误）
     let is_timeout = e.is_timeout();
     let is_cfg_error = e.is_builder() || e.is_redirect();
-    let text = if e.url().is_some() {
-        e.without_url().to_string()
+    let e = if e.url().is_some() {
+        e.without_url()
     } else {
-        e.to_string()
+        e
     };
+    let mut text = e.to_string();
+    let mut source = std::error::Error::source(&e);
+    while let Some(err) = source {
+        let part = err.to_string();
+        if !part.is_empty() {
+            text.push_str("; caused by: ");
+            text.push_str(&part);
+        }
+        source = err.source();
+    }
+    let text = super::redact::redact_with_request(&text, req);
     if is_timeout {
         HttpError::Timeout
     } else if is_cfg_error {
@@ -135,5 +155,18 @@ mod tests {
         let msg = err.to_string();
         assert!(!msg.contains(secret), "错误文案泄漏明文凭据：{msg}");
         assert!(!msg.contains("192.0.2.1"), "错误文案泄漏请求 URL：{msg}");
+        // source 链契约：网络错误文案必含 io 层根因（os error 码是代理
+        // 故障分层定位的决定性信息）；本机网络环境下保留地址也可能
+        // 挂起到总超时（Timeout 变体无文案），两种形态都合法
+        match err {
+            super::HttpError::Network(text) => {
+                assert!(
+                    text.contains("; caused by:"),
+                    "网络错误应带 source 链：{text}"
+                );
+            }
+            super::HttpError::Timeout => {}
+            other => panic!("预期网络层错误，实际：{other}"),
+        }
     }
 }

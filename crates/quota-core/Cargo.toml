@@ -26,7 +26,7 @@ chrono = { workspace = true }
 regex = { workspace = true }
 rquickjs = { workspace = true }
 rusqlite = { workspace = true }
-log = { workspace = true }
+log = { workspace = true, features = ["std"] }
 # 装配端（desktop/CLI）经 `flexi-logging` feature 开启滚动日志实现；
 # core 默认构建不带此依赖，保持库纯净
 flexi_logger = { workspace = true, optional = true }
@@ -50,3 +50,8 @@ apple-native-keyring-store = { version = "1.0.1", features = ["protected"] }
 android-native-keyring-store = "1.0.0"
 # rquickjs-sys 不随 crate 发布 Android 预生成绑定，Android 目标需在构建时生成。
 rquickjs = { workspace = true, features = ["bindgen"] }
+
+[dev-dependencies]
+# 重试契约测试用 #[tokio::test(start_paused)] 即时推进重试间隔；
+# dev-dependencies 的 feature 仅测试目标激活，不影响发布构建
+tokio = { workspace = true, features = ["test-util"] }
