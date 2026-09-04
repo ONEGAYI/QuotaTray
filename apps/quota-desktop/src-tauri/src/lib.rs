@@ -238,13 +238,13 @@ pub fn run() {
             if let RuntimeMode::Installed {
                 data_dir: Some(root),
             } = &mode
-            {
-                if let Err(e) = quota_core::logging::rolling::init_logging(
-                    &root.join("logs"),
+                && let Ok(paths) = state::DataPaths::new(Some(root.clone()))
+                && let Err(e) = quota_core::logging::rolling::init_logging(
+                    &paths.logs(),
                     quota_core::logging::rolling::LOG_BASENAME_DESKTOP,
-                ) {
-                    log::warn!("日志初始化失败（继续运行，本进程不留痕）：{e}");
-                }
+                )
+            {
+                log::warn!("日志初始化失败（继续运行，本进程不留痕）：{e}");
             }
             if let Some(mode) = gate_mode {
                 // 便携首启：仅托管门控，AppState/托盘/调度器待确认后补齐。

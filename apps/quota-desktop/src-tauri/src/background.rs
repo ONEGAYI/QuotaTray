@@ -112,15 +112,17 @@ mod android {
             },
             notifications: Vec::new(),
         };
+        let Ok(paths) = DataPaths::new(Some(data_dir.to_path_buf())) else {
+            return empty(String::new());
+        };
+        // 冷启动场景（前台从未跑过）stderr 无处可去，此处幂等初始化滚动
+        // 日志是后台链路唯一的留痕通道（前台已装时为 no-op）
         if let Err(e) = quota_core::logging::rolling::init_logging(
-            &data_dir.join("logs"),
+            &paths.logs(),
             quota_core::logging::rolling::LOG_BASENAME_DESKTOP,
         ) {
             eprintln!("后台刷新：日志初始化失败（继续不留痕）：{e}");
         }
-        let Ok(paths) = DataPaths::new(Some(data_dir.to_path_buf())) else {
-            return empty(String::new());
-        };
         let settings = Settings::load(&paths.settings());
         let lang = Lang::parse(&settings.language);
         let bail = || empty(lang.notification_channel_name());
@@ -169,28 +171,26 @@ mod android {
             {
                 continue;
             }
-            match tauri::async_runtime::block_on(engine.query(&vault, entry)) {
-                Ok(data) => {
-                    let at = crate::state::now_ms();
-                    if let Err(e) = history.record(&entry.id, &data, at) {
-                        log::warn!("后台刷新：历史写入失败（{}）：{e}", entry.id);
-                    }
-                    // 边沿判定仅在通知路径成立时做：前台时跳过——否则
-                    // Worker 抢先登记全局会吞掉前台命令路径的首次达标
-                    // （refetch_and_store 变 Silent，红点与通知都不产生）
-                    if decision.notify {
-                        collect_low_balance(
-                            &lang,
-                            &entry.id,
-                            &entry.name,
-                            &data,
-                            settings.low_balance_threshold_percent,
-                            &mut fresh,
-                        );
-                    }
+            // 查询失败不单独打点：core query() 的 query_done 事件已含
+            // 条目与错误分类（含重试）
+            if let Ok(data) = tauri::async_runtime::block_on(engine.query(&vault, entry)) {
+                let at = crate::state::now_ms();
+                if let Err(e) = history.record(&entry.id, &data, at) {
+                    log::warn!("后台刷新：历史写入失败（{}）：{e}", entry.id);
                 }
-                // 查询失败不再单独打点：core query() 的 query_done 事件已含条目与错误分类
-                Err(_) => {}
+                // 边沿判定仅在通知路径成立时做：前台时跳过——否则
+                // Worker 抢先登记全局会吞掉前台命令路径的首次达标
+                // （refetch_and_store 变 Silent，红点与通知都不产生）
+                if decision.notify {
+                    collect_low_balance(
+                        &lang,
+                        &entry.id,
+                        &entry.name,
+                        &data,
+                        settings.low_balance_threshold_percent,
+                        &mut fresh,
+                    );
+                }
             }
         }
         build_result(
