@@ -185,8 +185,9 @@ pub fn now_ms() -> u64 {
 
 /// 网络代理（主机/端口）变更后热重建查询引擎（save_settings 调用）。
 ///
-/// `trigger` 进入 `engine_rebuild` 事件日志（startup / settings_change /
-/// reconcile），代理诊断时用于区分引擎被谁换过、何时换的。
+/// `trigger` 进入 `engine_rebuild` 事件日志（settings_change / reconcile）；
+/// 启动路径不经此处（AppState::init 直接 build_engine，以 startup 事件
+/// 记录），代理诊断时用于区分引擎被谁换过、何时换的。
 pub fn rebuild_engine(state: &AppState, trigger: &str) -> Result<(), quota_core::http::HttpError> {
     let (proxy_host, proxy_port) = {
         let settings = state.settings.read().unwrap();

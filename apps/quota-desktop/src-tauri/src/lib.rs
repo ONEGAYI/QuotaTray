@@ -164,7 +164,9 @@ pub fn run() {
     // 滚动 JSONL 日志（非关键基础设施）：目录跟随数据根（安装态
     // `~/.quotatray/logs`、便携态 `Data/logs`）；失败仅告警继续启动。
     // 便携首启门控之前也要装——确认页阶段的异常同样值得留痕，且
-    // Data/ 目录此刻可能不存在，由 init_logging 按需创建
+    // Data/ 目录此刻可能不存在，由 init_logging 按需创建。已知副作用：
+    // 用户在确认页选择退出（拒绝便携初始化）时 `Data/logs` 与空日志
+    // 文件残留（几 KB，不含凭据），视为可接受取舍
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if let Ok(paths) = state::DataPaths::new(match &mode {
         RuntimeMode::Portable { root } => Some(root.clone()),

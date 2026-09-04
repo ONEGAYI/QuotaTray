@@ -78,12 +78,16 @@ pub mod rolling {
     use flexi_logger::TS_DASHES_BLANK_COLONS_DOT_BLANK as TS_LOCAL;
     use flexi_logger::WriteMode;
 
-    /// GUI 基名。与 CLI 基名必须互不为前缀——清理按文件名模式匹配
-    /// 自身基名的轮转文件，前缀包含会让另一端的清理误删本端日志。
+    /// GUI 基名。与 CLI 基名必须互不为前缀——清理按基名/时间戳 infix
+    /// 模式匹配自身轮转文件，前缀包含会让另一端的清理误删本端日志。
+    /// 实际文件名形如 `quotatray_r2026-09-04_15-23-55.jsonl`
+    /// （`TimestampsDirect` 的 `_r` 前缀 + 秒级时间戳 infix）。
     pub const LOG_BASENAME_DESKTOP: &str = "quotatray";
     /// CLI（watch 模式）基名，与 CLI bin 名一致。
     pub const LOG_BASENAME_CLI: &str = "quota-cli";
-    /// 保留时间窗口（天）：跨天滚动文件按文件名时间戳清理。
+    /// 保留时间窗口（天）：`Cleanup::KeepForDays` 按文件 **mtime** 判定
+    /// 删除（flexi_logger 实测行为，不解析文件名时间戳——语义略宽松：
+    /// 近 7 天内最后写入的文件都保留）。
     pub const LOG_RETENTION_DAYS: usize = 7;
     /// 单文件大小上限（字节）：错误风暴防单日文件暴涨，超出即滚动。
     pub const LOG_MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
@@ -322,9 +326,11 @@ mod rolling_tests {
         }
     }
 
-    /// 契约：GUI 与 CLI 的日志基名互不为前缀——清理按基名模式匹配
-    /// 自身轮转文件，前缀包含会让另一端清理误删本端日志（真实文件名
-    /// 形如 `quotatray.2026-09-04.jsonl` / `quota-cli.2026-09-04.jsonl`）。
+    /// 契约：GUI 与 CLI 的日志基名互不为前缀——清理按基名/时间戳
+    /// infix 模式匹配自身轮转文件，前缀包含会让另一端清理误删本端
+    /// 日志（真实文件名形如 `quotatray_r2026-09-04_15-23-55.jsonl` /
+    /// `quota-cli_r2026-09-04_15-23-55.jsonl`，`quota-` 与 `quotat`
+    /// 第 6 字符即分叉）。
     #[test]
     fn desktop_and_cli_basenames_do_not_prefix_each_other() {
         assert!(!LOG_BASENAME_DESKTOP.starts_with(LOG_BASENAME_CLI));
@@ -347,5 +353,7 @@ mod rolling_tests {
             .is_ok(),
             "守卫置位后应静默返回 Ok"
         );
+        // 复位守卫：残留 true 会让同进程后续真实 init 的测试莫名 no-op
+        INITED.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
