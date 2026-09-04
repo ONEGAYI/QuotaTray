@@ -85,9 +85,11 @@ impl QueryEngine {
     /// 排障的时间线以此锚定。
     ///
     /// 瞬时失败自动重试一次（代理软件秒级扰动窗口的直接止血）：
-    /// 超时/网络错误归 transient 的错误在 [`TRANSIENT_RETRY_DELAY`]
-    /// 后重发一次；确定性错误（认证/解析类）零重试——立即透出。
-    /// 重试用同一 HTTP 客户端，但失败连接已被 hyper 丢弃，重发即新连接。
+    /// `is_transient()` 家族的错误在 [`TRANSIENT_RETRY_DELAY`] 后重发
+    /// 一次——除超时/网络错误外还包括 HTTP 408/429/5xx（限流 429 时
+    /// 2.5 秒后再打一次对端，固定间隔暂不读 Retry-After）；确定性
+    /// 错误（认证/解析类）零重试——立即透出。重试用同一 HTTP 客户端，
+    /// 但失败连接已被 hyper 丢弃，重发即新连接。
     pub async fn query(
         &self,
         vault: &Vault,
