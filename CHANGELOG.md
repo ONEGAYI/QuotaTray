@@ -2,6 +2,35 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.9.0] - 2026-09-04
+
+本版本为代理与弱网环境下的查询稳定性建立「自动止血 + 事后定位」闭环：查询瞬时失败自动重试、网络错误透出底层根因，并新增常驻端滚动 JSONL 诊断日志。两项主变更均经双角度子代理审查与交叉 CI 门禁全量收口后合入。
+
+### 新功能
+
+**滚动 JSONL 诊断日志（桌面、便携与 Android）**
+
+- 常驻端新增滚动 JSONL 日志：按天 + 单文件 5MB 双条件滚动、保留 7 天，逐行合法 JSON 可直接被 jq 等工具消费；目录跟随数据根（安装版 `~/.quotatray/logs/`、便携版 `Data/logs/`、Android 应用私有目录），`RUST_LOG` 环境变量可临时调深级别（#95）
+- 查询链路与引擎生命周期事件打点：query_done（条目/通道/错误分类/耗时）、query_retry、engine_rebuild（触发源与新旧代理配置）、proxy_reconcile、startup（版本/运行形态/数据目录），代理故障的时间线从此有留痕锚点（#95）
+- Android WorkManager 后台刷新冷启动路径同样落日志（此前 stderr 无处可去），与前台路径进程级幂等并存（#95）
+- CLI `quota query --watch` 落盘同目录独立基名日志（与 GUI 互不干扰），补上清屏重绘吞掉历史错误轮次的留痕缺口（#95）
+
+**查询瞬时失败自动重试**
+
+- 超时、网络错误与 HTTP 408/429/5xx 在 2.5 秒后自动重试一次：代理软件切换节点、重载配置等秒级扰动不再表现为「断开、需手动开关条目代理才能恢复」；认证/解析类确定性错误保持零重试立即透出（#96）
+- 桌面轮询、CLI（含 watch）、Android 前台与后台刷新经查询引擎单点全部生效（#96）
+
+### Bug 修复
+
+- 网络错误文案拼接完整底层原因链（如 `os error 10061` 连接被拒 / `10054` 连接被重置），经既有脱敏管道透出到卡片错误详情、CLI 输出与日志——故障层一眼可辨，不再只有顶层 `error sending request`（#96）
+- 使用统计图表平滑按时间尺度门控：15 分钟及以下细粒度桶保留轻度高斯平滑，1 小时等粗粒度桶关闭平滑保留真实曲线，避免长周期视图失真为三角波；额度重置跳变与各类读数始终基于真实样本（#94）
+
+### 其他改进
+
+- 修复 android-preview 交叉编译门禁三处失败（Android cfg 半边的 clippy 盲区）（#95）
+- file-tree 技能升级：目录条目写入防呆与 check 报错分流（#93）
+- README 新增界面速览节并入库三张界面图
+
 ## [0.8.5] - 2026-08-31
 
 本版本为使用统计带来多曲线比较与近 24 小时视图两项增强，并集中修复 Android 端多项界面与网络问题；多曲线比较经一轮独立分级审查（P0–P3）全量收口后合入。
@@ -530,6 +559,8 @@
 - CLI 中 clap 内置的错误骨架文案（`error:` / `Usage:`）为库英文原文，无法翻译（生态限制）（#4）
 
 <!-- 变更链接 -->
+[0.9.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.5...v0.9.0
+[0.8.5]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.4...v0.8.5
 [0.8.4]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.8.1...v0.8.2
