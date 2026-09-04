@@ -11,7 +11,7 @@ name = "quota"
 path = "src/main.rs"
 
 [dependencies]
-quota-core = { path = "../../crates/quota-core" }
+quota-core = { path = "../../crates/quota-core", features = ["flexi-logging"] }
 clap = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

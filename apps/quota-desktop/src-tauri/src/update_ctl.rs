@@ -519,7 +519,7 @@ pub fn cleanup_stale_installers() {
         if is_stale_installer(&name, VERSION)
             && let Err(e) = std::fs::remove_file(entry.path())
         {
-            eprintln!("旧安装包清理失败（{name}）：{e}");
+            log::warn!("旧安装包清理失败（{name}）：{e}");
         }
     }
 }

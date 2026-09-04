@@ -213,7 +213,7 @@ impl Settings {
                 s
             }
             Err(e) => {
-                eprintln!("settings.json 解析失败，回退默认设置：{e}");
+                log::warn!("settings.json 解析失败，回退默认设置：{e}");
                 Self::default()
             }
         }
@@ -247,13 +247,13 @@ fn read_with_retry(path: &Path) -> Option<String> {
             Ok(text) => return Some(text),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
             Err(e) => {
-                eprintln!("settings.json 读取失败（第 {attempt} 次）：{e}");
+                log::warn!("settings.json 读取失败（第 {attempt} 次）：{e}");
                 last_err = Some(e);
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
         }
     }
-    eprintln!("settings.json 连续读取失败，回退默认设置：{last_err:?}");
+    log::warn!("settings.json 连续读取失败，回退默认设置：{last_err:?}");
     None
 }
 

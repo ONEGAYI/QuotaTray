@@ -1012,7 +1012,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         && let (Some(data), Some(at)) = (outcome.data.as_ref(), outcome.at)
         && let Err(e) = state.history.lock().unwrap().record(&id, data, at)
     {
-        eprintln!("历史记录写入失败：{e}");
+        log::warn!("历史记录写入失败：{e}");
     }
     // 低余额提醒（两端共用）：成功查询后按设置阈值边沿触发——首次达标
     // 广播 low-balance 并按平台补发系统通知（Android 后台走
@@ -1255,9 +1255,9 @@ fn persist_settings(
     // 继续用旧客户端跑完，写锁仅在换新实例的瞬间持有）
     if (old_proxy_port != settings.update_proxy_port
         || old_proxy_host != settings.update_proxy_host)
-        && let Err(e) = crate::state::rebuild_engine(state)
+        && let Err(e) = crate::state::rebuild_engine(state, "settings_change")
     {
-        eprintln!("代理变更后重建查询引擎失败：{e}");
+        log::warn!("代理变更后重建查询引擎失败：{e}");
     }
 
     if old_autostart != settings.autostart {

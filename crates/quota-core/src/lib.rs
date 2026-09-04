@@ -9,10 +9,12 @@
 //! - `script`：QuickJS 沙箱脚本查询（M4，`{request, extractor}` 协议）
 //! - `history`：查询结果的历史存储（M5，SQLite + 版本化迁移）
 //! - `runtime`：安装态/便携态运行模式解析（Portable 方案 A，纯函数）
+//! - `logging`：结构化事件打点约定（log facade 薄层，两端装配 flexi_logger）
 
 pub mod config;
 pub mod history;
 pub mod http;
+pub mod logging;
 pub mod model;
 pub mod pricing;
 pub mod provider;
@@ -34,6 +36,7 @@ pub use history::{
     DEFAULT_RETENTION_DAYS, HistoryError, HistoryExportRow, HistoryPoint, HistoryStore, WindowKind,
     window_key, window_kind,
 };
+pub use logging::EVENT_TARGET;
 pub use model::{QueryError, UsageData, used_percent};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,

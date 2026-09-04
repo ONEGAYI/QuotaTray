@@ -36,6 +36,9 @@ regex = "1"
 rquickjs = "0.12"
 # 历史数据存储（M5 history）：bundled 内嵌编译 SQLite，Windows 分发自包含
 rusqlite = { version = "0.40", features = ["bundled"] }
+# 结构化日志：core 经 log facade 打点，两端 bin 以 flexi_logger 装配（JSONL 滚动）
+log = "0.4"
+flexi_logger = "0.31"
 
 [profile.release]
 lto = "thin"

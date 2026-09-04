@@ -127,7 +127,7 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
             .build();
         if let Err(e) = app.notification().create_channel(channel) {
             // 非关键：渠道创建失败仅表现为通知走默认渠道或缺声光效果
-            eprintln!("通知渠道创建失败：{e}");
+            log::warn!("通知渠道创建失败：{e}");
         }
         // 后台刷新调度同步（C 项）：应用启动时按当前设置注册/取消
         // WorkManager 周期任务——安装后开开关即生效、升级后注册不丢；
@@ -161,6 +161,22 @@ pub fn run() {
     };
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let mode = RuntimeMode::Installed { data_dir: None };
+    // 滚动 JSONL 日志（非关键基础设施）：目录跟随数据根（安装态
+    // `~/.quotatray/logs`、便携态 `Data/logs`）；失败仅告警继续启动。
+    // 便携首启门控之前也要装——确认页阶段的异常同样值得留痕，且
+    // Data/ 目录此刻可能不存在，由 init_logging 按需创建。已知副作用：
+    // 用户在确认页选择退出（拒绝便携初始化）时 `Data/logs` 与空日志
+    // 文件残留（几 KB，不含凭据），视为可接受取舍
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Ok(paths) = state::DataPaths::new(match &mode {
+        RuntimeMode::Portable { root } => Some(root.clone()),
+        RuntimeMode::Installed { data_dir } => data_dir.clone(),
+    }) && let Err(e) = quota_core::logging::rolling::init_logging(
+        &paths.logs(),
+        quota_core::logging::rolling::LOG_BASENAME_DESKTOP,
+    ) {
+        eprintln!("日志初始化失败（继续运行，本进程不留痕）：{e}");
+    }
     // 便携形态：WebView2 用户数据（缓存/DOM Storage）定向到 Data/WebView2，
     // 主窗与悬停窗共用——进程级环境变量必须在任何 WebView 创建前设置，
     // 否则数据落到 %LOCALAPPDATA%（便携数据外溢）。目录创建失败仍设置
@@ -171,7 +187,7 @@ pub fn run() {
     if let RuntimeMode::Portable { root } = &mode {
         let webview_dir = root.join("WebView2");
         if let Err(e) = std::fs::create_dir_all(&webview_dir) {
-            eprintln!("WebView2 数据目录创建失败（将由运行时自建或回退系统默认）：{e}");
+            log::warn!("WebView2 数据目录创建失败（将由运行时自建或回退系统默认）：{e}");
         }
         // 安全性：此刻位于 run() 最开头、Builder 构造之前，Tauri 运行时
         // 尚未 spawn 任何线程，进程内无并发读环境变量者——set_var 的
@@ -218,6 +234,20 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(move |app| {
             let mode = runtime_mode_for_app(app.handle(), &mode)?;
+            // Android 数据目录依赖 AppHandle（桌面端已在 run() 顶部装好，
+            // init_logging 进程级幂等，此处对桌面是 no-op）
+            #[cfg(any(target_os = "android", target_os = "ios"))]
+            if let RuntimeMode::Installed {
+                data_dir: Some(root),
+            } = &mode
+                && let Ok(paths) = state::DataPaths::new(Some(root.clone()))
+                && let Err(e) = quota_core::logging::rolling::init_logging(
+                    &paths.logs(),
+                    quota_core::logging::rolling::LOG_BASENAME_DESKTOP,
+                )
+            {
+                log::warn!("日志初始化失败（继续运行，本进程不留痕）：{e}");
+            }
             if let Some(mode) = gate_mode {
                 // 便携首启：仅托管门控，AppState/托盘/调度器待确认后补齐。
                 // HoverPanelState 必须此刻托管：single-instance 回调（确认页
