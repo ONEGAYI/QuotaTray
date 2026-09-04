@@ -17,8 +17,11 @@ use crate::vault::Vault;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 瞬时失败自动重试的间隔：代理软件切换节点/重载配置的扰动窗口多为
-/// 秒级，2.5 秒足以跨过绝大多数；最坏总时长 15 + 2.5 + 15 ≈ 32.5 秒，
-/// 小于全部消费方时限（桌面/CLI 轮询 ≥ 1 分钟、WorkManager 10 分钟）。
+/// 秒级，2.5 秒足以跨过绝大多数。单条目最坏总时长 15 + 2.5 + 15 ≈
+/// 32.5 秒；消费方时限按条目数核对——桌面/CLI 轮询周期内各条目并发
+/// 查询（≥ 1 分钟周期无虞），Android 后台刷新是**串行**循环，N 条全
+/// 瞬时失败时总时长上限 N × 32.5 秒（约 19 条逼近 WorkManager 10
+/// 分钟限；典型条目数 ≤10 时 ≤325 秒，安全余量充足）。
 pub const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(2500);
 
 #[derive(Clone)]
@@ -166,6 +169,8 @@ impl QueryEngine {
 
 /// `query_done` 事件：成功 info、失败 warn（按 level 快速过滤故障）。
 /// 错误文案沿用面向用户的同一脱敏管道（不含 URL 与凭据），入日志安全。
+/// `elapsed_ms` 为端到端耗时——attempt = 2 时含 2.5 秒重试等待
+/// （如超时重试后约 17.5s，并非 DEFAULT_TIMEOUT 的 15s）。
 fn log_query_done(
     entry: &crate::config::ProviderEntry,
     result: &Result<Vec<UsageData>, QueryError>,
