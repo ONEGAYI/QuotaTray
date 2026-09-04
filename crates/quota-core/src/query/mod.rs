@@ -20,8 +20,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 /// 秒级，2.5 秒足以跨过绝大多数。单条目最坏总时长 15 + 2.5 + 15 ≈
 /// 32.5 秒；消费方时限按条目数核对——桌面/CLI 轮询周期内各条目并发
 /// 查询（≥ 1 分钟周期无虞），Android 后台刷新是**串行**循环，N 条全
-/// 瞬时失败时总时长上限 N × 32.5 秒（约 19 条逼近 WorkManager 10
-/// 分钟限；典型条目数 ≤10 时 ≤325 秒，安全余量充足）。
+/// 瞬时失败时总时长上限 N × 32.5 秒（18 条逼近、第 19 条即越限
+/// WorkManager 10 分钟限；典型条目数 ≤10 时 ≤325 秒，安全余量充足）。
 pub const TRANSIENT_RETRY_DELAY: Duration = Duration::from_millis(2500);
 
 #[derive(Clone)]
