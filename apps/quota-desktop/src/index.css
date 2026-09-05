@@ -276,12 +276,9 @@ button:disabled { cursor: not-allowed; }
 .qt-provider-list.is-drag-active .qt-provider-card {
   transition: transform var(--qt-dur-4) cubic-bezier(.2, .9, .3, 1.06), border-color var(--qt-dur-3) ease, box-shadow var(--qt-dur-3) ease, opacity var(--qt-dur-3) ease;
 }
-/* 拖拽中冻结 hover 上浮与次级区展开（高度变化会破坏槽位几何测量）。
+/* 拖拽中冻结次级区展开（高度变化会破坏槽位几何测量）。
    次级区同时去掉过渡：收起必须瞬时效（激活时同步失效，测量才能拿到
    收起态几何——否则被拖卡片的 hover 展开高度会污染让位偏移计算） */
-.qt-provider-list.is-drag-active .qt-provider-card:hover,
-.qt-provider-list.is-drag-active .qt-provider-card:focus-within,
-.qt-provider-list.is-drag-active .qt-provider-card.is-expanded { transform: none; }
 .qt-provider-list.is-drag-active .qt-provider-secondary { transition: none; }
 /* 轮询/操作反馈横幅随 isFetching 翻转挂卸（约 31px、in-flow）：拖拽中
    必须隐藏，否则高度变化污染已冻结的槽位几何，让位偏移整段错位 */
@@ -437,8 +434,11 @@ body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 92px; }
 .qt-error-detail-toggle[aria-expanded="true"] { opacity: 1; }
 .qt-error-detail-body { display: block; margin-top: 6px; font-size: 12px; opacity: .82; overflow-wrap: anywhere; }
 
-.qt-provider-card { position: relative; overflow: visible; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-lg); background: var(--qt-surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 42%, transparent); transition: border-color var(--qt-dur-3) ease, box-shadow var(--qt-dur-3) ease, transform var(--qt-dur-3) ease, opacity var(--qt-dur-3) ease; }
-.qt-provider-card:hover, .qt-provider-card:focus-within, .qt-provider-card.is-expanded { border-color: color-mix(in srgb, var(--qt-accent) 58%, var(--qt-border)); box-shadow: 0 8px 26px var(--qt-shadow); transform: translateY(-1px); }
+.qt-provider-card { position: relative; overflow: visible; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-lg); background: var(--qt-surface); box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 42%, transparent); transition: border-color var(--qt-dur-3) ease, box-shadow var(--qt-dur-3) ease, opacity var(--qt-dur-3) ease; }
+/* hover 反馈只做边框高亮与阴影加深，禁止 transform 位移：位移会移动
+   命中测试边界，悬停展开完成的卡片被压下边界时形成 hover 自持振荡
+   （2026-09-05 修复）；浮起感由阴影加深单独承担 */
+.qt-provider-card:hover, .qt-provider-card:focus-within, .qt-provider-card.is-expanded { border-color: color-mix(in srgb, var(--qt-accent) 58%, var(--qt-border)); box-shadow: 0 8px 26px var(--qt-shadow); }
 .qt-provider-card.is-warning { border-color: color-mix(in srgb, var(--qt-warning) 52%, var(--qt-border)); }
 .qt-provider-card.has-balance-alert { border-color: color-mix(in srgb, var(--qt-danger) 58%, var(--qt-border)); }
 .qt-provider-card.is-disabled { opacity: .62; }
@@ -449,11 +449,16 @@ body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 92px; }
 .qt-provider-heading { min-width: 0; }
 .qt-provider-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .qt-provider-name-row h2 { overflow: hidden; margin: 0; font-size: 17px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.qt-provider-route { min-height: 29px; margin-top: 2px; }
-.qt-provider-route-label { position: relative; display: block; padding-top: 4px; color: var(--qt-text-soft); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qt-provider-model-select { display: none; width: min(100%, 230px); min-height: 29px; padding-top: 3px; padding-bottom: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.qt-provider-card:hover .qt-provider-route-label, .qt-provider-card:focus-within .qt-provider-route-label, .qt-provider-card.is-expanded .qt-provider-route-label { display: none; }
-.qt-provider-card:hover .qt-provider-model-select, .qt-provider-card:focus-within .qt-provider-model-select, .qt-provider-card.is-expanded .qt-provider-model-select { display: block; }
+/* route 行 grid 同格叠放：label 与模型下拉常驻占位、hover 只切
+   visibility——display 互切会让 primary 高度瞬时跳 ±9.5px（空 Tooltip
+   壳 strut 与下拉框高度不同），压线悬停时形成 hover 自持震荡
+   （2026-09-05 修复；仅带模型下拉的卡片触发） */
+.qt-provider-route { display: grid; min-height: 29px; margin-top: 2px; }
+.qt-provider-route-label { position: relative; display: block; grid-area: 1 / 1; align-self: center; padding-top: 4px; color: var(--qt-text-soft); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-provider-route .qt-tooltip-anchor { grid-area: 1 / 1; align-self: center; }
+.qt-provider-model-select { display: block; visibility: hidden; width: min(100%, 230px); min-height: 29px; padding-top: 3px; padding-bottom: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-provider-card:hover .qt-provider-route-label, .qt-provider-card:focus-within .qt-provider-route-label, .qt-provider-card.is-expanded .qt-provider-route-label { visibility: hidden; }
+.qt-provider-card:hover .qt-provider-model-select, .qt-provider-card:focus-within .qt-provider-model-select, .qt-provider-card.is-expanded .qt-provider-model-select { visibility: visible; }
 .qt-provider-balance { display: flex; width: 138px; justify-self: end; flex-direction: column; align-items: flex-end; text-align: right; }
 .qt-provider-balance span { color: var(--qt-text-soft); font-size: 12px; }
 .qt-provider-balance strong { display: inline-flex; align-items: baseline; gap: 4px; margin-top: 3px; color: var(--qt-text); font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; white-space: nowrap; }
@@ -509,10 +514,10 @@ body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 92px; }
   .qt-provider-secondary { grid-template-columns: 1fr; gap: 10px; }
   .qt-provider-card:hover .qt-provider-secondary, .qt-provider-card:focus-within .qt-provider-secondary { max-height: 0; padding-top: 0; padding-bottom: 0; border-top-color: transparent; opacity: 0; }
   .qt-provider-card.is-expanded .qt-provider-secondary { max-height: 1400px; padding-top: 12px; padding-bottom: 12px; overflow: visible; border-top-color: var(--qt-border); opacity: 1; }
-  .qt-provider-card:hover .qt-provider-route-label, .qt-provider-card:focus-within .qt-provider-route-label { display: block; }
-  .qt-provider-card:hover .qt-provider-model-select, .qt-provider-card:focus-within .qt-provider-model-select { display: none; }
-  .qt-provider-card.is-expanded .qt-provider-route-label { display: none; }
-  .qt-provider-card.is-expanded .qt-provider-model-select { display: block; }
+  .qt-provider-card:hover .qt-provider-route-label, .qt-provider-card:focus-within .qt-provider-route-label { visibility: visible; }
+  .qt-provider-card:hover .qt-provider-model-select, .qt-provider-card:focus-within .qt-provider-model-select { visibility: hidden; }
+  .qt-provider-card.is-expanded .qt-provider-route-label { visibility: hidden; }
+  .qt-provider-card.is-expanded .qt-provider-model-select { visibility: visible; }
   .qt-provider-actions { justify-content: flex-start; }
 }
 
@@ -1041,7 +1046,6 @@ body.qt-mobile-runtime [data-tooltip]::after { display: none !important; }
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover {
   border-color: var(--qt-border);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 42%, transparent);
-  transform: none;
 }
 body.qt-mobile-runtime .qt-provider-card.is-warning:not(.is-expanded):hover { border-color: color-mix(in srgb, var(--qt-warning) 52%, var(--qt-border)); }
 body.qt-mobile-runtime .qt-provider-card.has-balance-alert:not(.is-expanded):hover { border-color: color-mix(in srgb, var(--qt-danger) 58%, var(--qt-border)); }
@@ -1072,11 +1076,11 @@ body.qt-mobile-runtime .qt-provider-card.is-expanded .qt-provider-secondary {
   border-top-color: var(--qt-border); opacity: 1;
 }
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover .qt-provider-route-label,
-body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-route-label { display: block; }
+body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-route-label { visibility: visible; }
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover .qt-provider-model-select,
-body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-model-select { display: none; }
-body.qt-mobile-runtime .qt-provider-card.is-expanded .qt-provider-route-label { display: none; }
-body.qt-mobile-runtime .qt-provider-card.is-expanded .qt-provider-model-select { display: block; }
+body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-model-select { visibility: hidden; }
+body.qt-mobile-runtime .qt-provider-card.is-expanded .qt-provider-route-label { visibility: hidden; }
+body.qt-mobile-runtime .qt-provider-card.is-expanded .qt-provider-model-select { visibility: visible; }
 body.qt-mobile-runtime .qt-drag-handle { width: 44px; height: 44px; top: calc(50% - 22px); left: -6px; }
 body.qt-mobile-runtime .qt-provider-primary { padding-left: 35px; }
 body.qt-mobile-runtime .qt-provider-actions .qt-btn,
