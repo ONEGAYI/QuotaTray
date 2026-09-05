@@ -125,6 +125,13 @@
                             "T-004：四 variant 矩阵、激活态走 accent、图标钮四尺寸档"
                           ]
                         },
+                        "card.md": {
+                          "kind": "file",
+                          "desc": "余额卡片 hover 反馈规范",
+                          "detail": [
+                            "T-014 卡片 hover 反馈几何中性契约：三态反馈禁止 transform 位移与 display 互切换位，route 行 grid 同格叠放 + visibility 互切保持几何恒定（2026-09-05 PR #99 hover 振荡修复沉淀）"
+                          ]
+                        },
                         "empty-state.md": {
                           "kind": "file",
                           "desc": "空态卡规范",
