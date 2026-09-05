@@ -34,7 +34,9 @@ pub use stepfun::StepFun;
 pub use zhipu::{ZAI, ZHIPU, ZhipuApi};
 pub use zhipu_metered::{ZAI_API, ZHIPU_API, ZhipuMetered};
 
-use std::sync::{Arc, LazyLock};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -152,6 +154,75 @@ pub fn resolve_console_url(entry: &ProviderEntry) -> Option<String> {
 }
 
 // ---- 共用工具 -----------------------------------------------------------
+
+/// 本机 CLI 凭据文件读取失败的用户文案。
+///
+/// `install_hint` 为各平台的安装引导尾巴（如"安装 Codex CLI 并用
+/// ChatGPT 账号登录"），NotFound 时逐字拼回既有引导文案；权限拒绝与
+/// 其余 IO 错误（共享冲突、占用等）透出真实原因——安全软件/游戏反
+/// 作弊窗口期拦截读取时，笼统的"未找到"会掩盖实际故障（真机案例：
+/// 2026-09-05 Codex 卡片持续误报未找到，实为读取被拒）。
+fn cli_creds_read_error(
+    path: &std::path::Path,
+    err: &std::io::Error,
+    install_hint: &str,
+) -> String {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "未找到 {}，请先在本机{}后再添加本平台",
+            path.display(),
+            install_hint
+        ),
+        std::io::ErrorKind::PermissionDenied => format!(
+            "无权读取 {}：文件存在但访问被拒（安全软件/反作弊拦截或权限不足时会出现），可稍后重试或检查文件权限",
+            path.display()
+        ),
+        _ => format!("读取 {} 失败：{err}", path.display()),
+    }
+}
+
+/// CLI 凭据文件的进程内快照（key = 凭据文件路径，value = 文件内容）。
+static CLI_CREDS_CACHE: LazyLock<Mutex<HashMap<PathBuf, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// 读 CLI 凭据文件：读得到就更新进程内快照并返回；读取被环境性
+/// 拦截（权限拒绝/共享冲突——游戏反作弊窗口期 ACE 会全局拒绝读取
+/// auth.json 这类凭据文件）时回退旧快照继续查询，不打断常规刷新
+/// （仿 CLI 自身"启动读一次、token 驻留内存"的行为；token 有效期
+/// 远长于拦截窗口，游戏退出后读取恢复即同步新 token）。
+///
+/// 仅 NotFound 直接报引导：文件消失是登出/卸载信号，旧 token 对
+/// 服务端已无意义；且不清快照——与瞬时拦截共用回退路径。
+///
+/// `attempt` 注入实际读取动作（生产为 `std::fs::read_to_string`，
+/// 测试注入 mock），使缓存行为可脱离真实文件系统单测。
+pub(crate) fn read_cli_creds_cached(
+    path: &std::path::Path,
+    install_hint: &str,
+    attempt: impl FnOnce(&std::path::Path) -> std::io::Result<String>,
+) -> Result<String, String> {
+    // 快照 Map 无需不变量保护：锁中毒时直接取回数据（持有者 panic
+    // 至多留下旧快照，不影响正确性），避免毒锁让四个 CLI 凭据查询
+    // 在桌面常驻进程中永久 panic。
+    let cache = || {
+        CLI_CREDS_CACHE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    };
+    match attempt(path) {
+        Ok(content) => {
+            cache().insert(path.to_path_buf(), content.clone());
+            Ok(content)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(cli_creds_read_error(path, &e, install_hint))
+        }
+        Err(e) => match cache().get(path) {
+            Some(cached) => Ok(cached.clone()),
+            None => Err(cli_creds_read_error(path, &e, install_hint)),
+        },
+    }
+}
 
 /// 发送请求并解析 JSON。
 ///
@@ -514,6 +585,82 @@ pub(crate) mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 凭据读取错误分类：NotFound 维持既有安装引导（install_hint 逐字
+    /// 拼回原文案）；权限拒绝/其他 IO 错误透出真实原因，不得误报"未找到"。
+    #[test]
+    fn cli_creds_read_error_classifies_io_kinds() {
+        let p = std::path::Path::new(r"C:\Users\u\.codex\auth.json");
+        let hint = "安装 Codex CLI 并用 ChatGPT 账号登录";
+
+        let not_found =
+            cli_creds_read_error(p, &std::io::Error::from(std::io::ErrorKind::NotFound), hint);
+        assert!(not_found.contains("未找到"));
+        assert!(not_found.contains(hint));
+
+        let denied = cli_creds_read_error(
+            p,
+            &std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            hint,
+        );
+        assert!(denied.contains("无权读取"));
+        assert!(!denied.contains("未找到"), "权限拒绝不得误报为未找到");
+
+        // Windows ERROR_SHARING_VIOLATION（os error 32）等未映射
+        // kind 的错误走兜底分支：透出原始错误信息
+        let sharing = cli_creds_read_error(p, &std::io::Error::from_raw_os_error(32), hint);
+        assert!(sharing.contains("读取"));
+        assert!(sharing.contains("32"), "应携带 os 错误码：{sharing}");
+        assert!(!sharing.contains("未找到"));
+    }
+
+    /// 凭据快照缓存：读得到就更新快照；被环境性拦截（权限拒绝等）
+    /// 时回退旧快照继续查询；NotFound 直接报引导且不清缓存。
+    /// 每个测试用独立路径 key 隔离全局缓存。
+    #[test]
+    fn cli_creds_cache_updates_and_falls_back() {
+        let p = std::path::PathBuf::from(r"C:\__qt_test_cache_1__\.codex\auth.json");
+        let denied = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+
+        // 无快照 + 读取被拒 → 报真实错误，不得误报未找到
+        let err = read_cli_creds_cached(&p, "安装 X CLI", |_| Err(denied())).unwrap_err();
+        assert!(!err.contains("未找到"), "被拒时不得误报未找到：{err}");
+
+        // 能读 → 更新快照并返回内容
+        let ok = read_cli_creds_cached(&p, "安装 X CLI", |_| Ok(r#"{"t":1}"#.into())).unwrap();
+        assert_eq!(ok, r#"{"t":1}"#);
+
+        // 再次被拒 → 回退旧快照（查询不中断）
+        let cached = read_cli_creds_cached(&p, "安装 X CLI", |_| Err(denied())).unwrap();
+        assert_eq!(cached, r#"{"t":1}"#);
+
+        // 共享冲突（os error 32，无稳定 ErrorKind 映射）同样回退
+        let sharing = read_cli_creds_cached(&p, "安装 X CLI", |_| {
+            Err(std::io::Error::from_raw_os_error(32))
+        })
+        .unwrap();
+        assert_eq!(sharing, r#"{"t":1}"#);
+    }
+
+    /// NotFound 语义独立于拦截：文件消失按登出/卸载报引导，
+    /// 且不清掉快照（后续拦截仍可回退）。
+    #[test]
+    fn cli_creds_not_found_reports_hint_and_keeps_cache() {
+        let p = std::path::PathBuf::from(r"C:\__qt_test_cache_2__\.codex\auth.json");
+        read_cli_creds_cached(&p, "安装 X CLI", |_| Ok("tok".into())).unwrap();
+
+        let nf = || std::io::Error::from(std::io::ErrorKind::NotFound);
+        let err = read_cli_creds_cached(&p, "安装 X CLI", |_| Err(nf())).unwrap_err();
+        assert!(err.contains("未找到"));
+        assert!(err.contains("安装 X CLI"));
+
+        // NotFound 未清缓存：再被拦截仍回退
+        let again = read_cli_creds_cached(&p, "安装 X CLI", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+        })
+        .unwrap();
+        assert_eq!(again, "tok");
+    }
 
     fn native_entry(provider: &str) -> ProviderEntry {
         ProviderEntry {

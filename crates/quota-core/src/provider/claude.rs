@@ -1,9 +1,10 @@
 //! Claude 订阅（Pro/Max）用量查询——CLI 凭据复用。
 //!
 //! 凭据只读 `~/.claude/.credentials.json`（Claude Code 登录后生成），
-//! QuotaTray 不做 OAuth 登录、不刷新、不落盘：token 仅在查询期间
-//! 存在于内存。过期不预判（`expiresAt` 多态格式启发不可靠），401/403
-//! 由服务端兜底并透出重新登录引导。
+//! QuotaTray 不做 OAuth 登录、不刷新、不落盘：token 仅驻内存（进程
+//! 内快照缓存，见 `super::read_cli_creds_cached`——文件被环境性拦截
+//! 时回退旧快照继续查询）。过期不预判（`expiresAt` 多态格式启发
+//! 不可靠），401/403 由服务端兜底并透出重新登录引导。
 //!
 //! `GET https://api.anthropic.com/api/oauth/usage`（Bearer +
 //! `anthropic-beta: oauth-2025-04-20`）：顶层为窗口名 →
@@ -64,11 +65,8 @@ fn read_claude_token() -> Result<String, String> {
         return Err("无法定位用户主目录".into());
     };
     let path = home.join(".claude").join(".credentials.json");
-    let content = std::fs::read_to_string(&path).map_err(|_| {
-        format!(
-            "未找到 {}，请先在本机安装并登录 Claude Code 后再添加本平台",
-            path.display()
-        )
+    let content = super::read_cli_creds_cached(&path, "安装并登录 Claude Code", |p| {
+        std::fs::read_to_string(p)
     })?;
     parse_claude_token(&content)
 }
