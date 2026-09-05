@@ -37,6 +37,7 @@
   --qt-chart-axis: #cbd2dc;
   --qt-chart-grid: #b7c0cc;
   --qt-chart-gap-stripe: #aab4c1;
+  --qt-chart-marker: #0891b2;
   --qt-series-1: var(--qt-accent);
   --qt-series-2: #df6f9f;
   --qt-series-3: #3d9b87;
@@ -92,6 +93,7 @@
   --qt-chart-axis: #a2a2a2;
   --qt-chart-grid: #55585d;
   --qt-chart-gap-stripe: #686b70;
+  --qt-chart-marker: #22d3ee;
   --qt-series-1: var(--qt-accent);
   --qt-series-2: #df6f9f;
   --qt-series-3: #3d9b87;
@@ -404,6 +406,25 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-manage-remove { color: var(--qt-danger); }
 .qt-usage-manage-remove:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
 .qt-usage-manage-empty { padding: 36px 18px; color: var(--qt-text-soft); text-align: center; }
+.qt-usage-head-actions { display: flex; flex: none; gap: 7px; }
+.qt-usage-marker-toggle[aria-pressed="true"] { border-color: color-mix(in srgb, var(--qt-chart-marker) 45%, var(--qt-border)); background: color-mix(in srgb, var(--qt-chart-marker) 10%, var(--qt-surface)); color: var(--qt-chart-marker); }
+.qt-usage-marker-line { stroke: var(--qt-chart-marker); stroke-width: 1.4; opacity: .85; vector-effect: non-scaling-stroke; }
+.qt-usage-marker-dot { fill: var(--qt-chart-marker); stroke: var(--qt-surface); stroke-width: 1.5; pointer-events: none; }
+.qt-usage-marker-hit { fill: transparent; cursor: ew-resize; }
+/* 预留高度覆盖满载最坏行数（桌面窄窗两行 / 移动端窄屏三至四行），
+   放置/删除/聚焦切换不引起卡片高度跳变 */
+.qt-usage-marker-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 54px; border-top: 1px solid var(--qt-border); padding: 8px 18px; background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 11px; }
+.qt-usage-marker-empty { color: var(--qt-text-faint); }
+.qt-usage-marker-label { display: inline-flex; align-items: center; gap: 5px; color: var(--qt-chart-marker); font-weight: 600; }
+.qt-usage-marker-item { display: inline-flex; align-items: center; gap: 5px; }
+.qt-usage-marker-item.is-offscreen { opacity: .55; }
+.qt-usage-marker-item time { font-variant-numeric: tabular-nums; }
+.qt-usage-marker-value { color: var(--qt-series-color); font-weight: 650; font-variant-numeric: tabular-nums; }
+.qt-usage-marker-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; border: 0; border-radius: var(--qt-radius-xs); padding: 0; background: transparent; color: var(--qt-text-faint); cursor: pointer; transition: color var(--qt-dur-1) ease, background var(--qt-dur-1) ease; }
+.qt-usage-marker-remove:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
+.qt-usage-marker-clear { margin-left: auto; }
+.qt-usage-marker-delta { color: var(--qt-text); font-weight: 650; font-variant-numeric: tabular-nums; }
+body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 92px; }
 .qt-loading-card, .qt-empty-state { border: 1px dashed var(--qt-border-strong); border-radius: var(--qt-radius-lg); padding: 34px; background: color-mix(in srgb, var(--qt-surface) 78%, transparent); color: var(--qt-text-soft); text-align: center; }
 .qt-empty-state p { margin: 0; color: var(--qt-text); font-weight: 600; }
 .qt-empty-state span { display: block; margin-top: 5px; font-size: 12px; }
@@ -1125,6 +1146,7 @@ body.qt-mobile-runtime .qt-inline-link::before { position: absolute; inset: -15p
    不带任何视觉样式，视觉继续由各自 Tailwind 类承担。 */
 body.qt-mobile-runtime .qt-usage-comparison-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-usage-reset { min-height: 44px; }
+body.qt-mobile-runtime .qt-usage-head-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-settings-content .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-pricing-day-chip { min-height: 44px; }

@@ -1141,6 +1141,9 @@ pub struct SettingsPatch {
     pub background_refresh_enabled: Option<bool>,
     pub background_refresh_interval_minutes: Option<u32>,
     pub usage_comparison_series: Option<Vec<quota_core::UsageComparisonSeries>>,
+    /// 单层 Option（清空 = Some([])，与 usage_comparison_series 同模式）：
+    /// 定位线只有「设置新列表」一种写路径，无「恢复未初始化」语义。
+    pub usage_marker_lines: Option<Vec<u64>>,
 }
 
 /// 双层 Option 反序列化：委托内层 `Option<T>` 的标准反序列化——
@@ -1202,6 +1205,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.usage_comparison_series.clone() {
         base.usage_comparison_series = Some(v);
+    }
+    if let Some(v) = patch.usage_marker_lines.clone() {
+        base.usage_marker_lines = Some(v);
     }
 }
 
@@ -2622,6 +2628,7 @@ mod tests {
             language: "zh".into(),
             tray_icon_entry_id: Some("A1B2C3".into()),
             ring_units_per_circle: 500.0,
+            usage_marker_lines: Some(vec![100, 200]),
             ..Settings::default()
         };
         // 仅提交主题，其余字段缺省
@@ -2642,6 +2649,11 @@ mod tests {
         assert_eq!(base.language, "zh");
         assert_eq!(base.tray_icon_entry_id, Some("A1B2C3".into()));
         assert_eq!(base.ring_units_per_circle, 500.0);
+        assert_eq!(
+            base.usage_marker_lines,
+            Some(vec![100, 200]),
+            "未提交字段保持现值"
+        );
 
         // 双层 Option：显式清空（Some(None)）与不动（缺省）可区分
         apply_settings_patch(
@@ -2663,10 +2675,24 @@ mod tests {
             &mut base,
             &SettingsPatch {
                 update_proxy_host: Some(Some("10.0.0.2".into())),
+                usage_marker_lines: Some(vec![300]),
                 ..SettingsPatch::default()
             },
         );
         assert_eq!(base.update_proxy_host, Some("10.0.0.2".into()));
+        assert_eq!(base.usage_marker_lines, Some(vec![300]), "定位线覆盖提交");
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                usage_marker_lines: Some(Vec::new()),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(
+            base.usage_marker_lines,
+            Some(Vec::new()),
+            "Some([]) 显式清空定位线"
+        );
     }
 
     /// 契约：serde 边界上 JSON null → Some(None)（显式清空）、字段缺省 →

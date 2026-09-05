@@ -200,6 +200,9 @@ export interface Settings {
   background_refresh_interval_minutes: number;
   /** null = 旧版/首次运行等待自动初始化；[] = 用户主动清空。 */
   usage_comparison_series: UsageComparisonSeries[] | null;
+  /** 使用统计定位线时刻（epoch 毫秒，最多 2 条，按写入顺序——拖动交叉后
+   *  不保证时间有序）；null = 无。 */
+  usage_marker_lines: number[] | null;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段
@@ -222,6 +225,7 @@ export interface SettingsPatch {
   background_refresh_enabled?: boolean;
   background_refresh_interval_minutes?: number;
   usage_comparison_series?: UsageComparisonSeries[];
+  usage_marker_lines?: number[];
 }
 
 /** 错误双轨（kind 对齐 CLI --json 约定）。 */

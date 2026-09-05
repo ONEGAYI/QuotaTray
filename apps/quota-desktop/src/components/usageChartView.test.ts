@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  addUsageMarker,
   advanceUsageViewDomain,
   buildLineGeometry,
   buildHistorySeries,
   historyPointValue,
   isolatedUsageSamples,
+  moveUsageMarker,
   niceAbsoluteScale,
   shouldZoomUsageChart,
+  snapUsageMarkerTimestamp,
   splitUsageSeries,
+  USAGE_MARKER_LIMIT,
   USAGE_RANGES,
   USAGE_TOOLTIP_GAP,
   usageSmoothingRadius,
@@ -242,5 +246,29 @@ describe("使用统计图表纯逻辑", () => {
     expect(series.gaps).toEqual([
       { from: { timestamp: 160 * MINUTE, value: 24 }, to: { timestamp: 260 * MINUTE, value: 30 }, missingBuckets: 6 },
     ]);
+  });
+
+  it("定位线放置：追加新时间戳，重复幂等，满两条后丢最旧", () => {
+    expect(USAGE_MARKER_LIMIT).toBe(2);
+    expect(addUsageMarker([], 100)).toEqual([100]);
+    expect(addUsageMarker([100], 200)).toEqual([100, 200]);
+    expect(addUsageMarker([100, 200], 200)).toEqual([100, 200]);
+    expect(addUsageMarker([100, 200], 300)).toEqual([200, 300]);
+  });
+
+  it("定位线拖动微调：更新自身时刻，与另一条重合或未移动时原地不动", () => {
+    expect(moveUsageMarker([100, 300], 300, 200)).toEqual([100, 200]);
+    expect(moveUsageMarker([100, 300], 300, 100)).toEqual([100, 300]);
+    expect(moveUsageMarker([100, 300], 300, 300)).toEqual([100, 300]);
+  });
+
+  it("定位线吸附：容差内吸附最近样本，容差外与空样本保留原始时刻", () => {
+    const samples = [point(0, 10), point(2, 20)];
+    expect(snapUsageMarkerTimestamp(0.6 * HOUR, samples, HOUR)).toBe(0);
+    expect(snapUsageMarkerTimestamp(1.2 * HOUR, samples, HOUR)).toBe(2 * HOUR);
+    // 等距时吸附先遍历到的样本（序列按时间升序输入，即较早的样本）
+    expect(snapUsageMarkerTimestamp(HOUR, samples, HOUR)).toBe(0);
+    expect(snapUsageMarkerTimestamp(4 * HOUR, samples, HOUR)).toBe(4 * HOUR);
+    expect(snapUsageMarkerTimestamp(3 * HOUR, [], HOUR)).toBe(3 * HOUR);
   });
 });

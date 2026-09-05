@@ -4,7 +4,7 @@
 > 何时用哪档。**组件粒度条目只写使用场景（用哪个令牌），不重复记录值**；值的增删改
 > 只发生在本域。索引与维护规则见 [SKILL.md](../../SKILL.md)。
 
-## DT-001 颜色令牌（33 × 明暗两套）
+## DT-001 颜色令牌（34 × 明暗两套）
 
 **结构**：`:root` 定义亮色，`:root.dark` 同名覆盖暗色——任何颜色令牌都必须两套成对
 出现，只加亮色不加暗色视为违反。
@@ -17,7 +17,7 @@
 | 强调 | `accent(-rgb/-strong/-soft)` / `on-accent` | 品牌紫系；`-rgb` 供 `rgb()` 透明度合成；激活态一律走 `accent-strong` |
 | 语义 | `success` `warning` `danger`（各带 `-soft`） | 成功 / 警示 / 危险，配对 soft 底构成提示块 |
 | 峰谷 | `peak` / `offpeak` | 定价高峰橙 / 空闲蓝，凡峰谷语义必用此对，禁自选色 |
-| 图表 | `chart-axis` `chart-grid` `chart-gap-stripe` / `series-1..4` | 图表轴 / 网格 / 断档条纹 / 固定顺序的比较曲线色槽 |
+| 图表 | `chart-axis` `chart-grid` `chart-gap-stripe` `chart-marker` / `series-1..4` | 图表轴 / 网格 / 断档条纹 / 定位线（2026-09-05，青色系，与四条曲线色槽及峰谷色均区分） / 固定顺序的比较曲线色槽 |
 | 其他 | `shadow` `scrollbar-thumb(-hover)` | 阴影色 / 滚动条 |
 
 **半透明派生**一律 `color-mix(in srgb, var(--qt-*) N%, transparent)`，禁止新写死 rgba/hex。

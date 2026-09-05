@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { exactTime, kindLabel, markerSpanText, relativeTime, resetCountdown, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -52,6 +52,20 @@ describe("额度重置倒计时", () => {
     vi.setSystemTime(new Date(NOW));
     expect(resetCountdown(mins(21))).toBe("21m");
     vi.useRealTimers();
+  });
+});
+
+describe("定位线时间差", () => {
+  const mins = (n: number) => n * 60_000;
+
+  it("分钟粒度向下取整且至少 1 分钟，零值段省略", () => {
+    expect(markerSpanText(20_000, "zh")).toBe("1分");
+    expect(markerSpanText(20_000, "en")).toBe("1m");
+    expect(markerSpanText(mins(45), "zh")).toBe("45分");
+    expect(markerSpanText(mins(90), "en")).toBe("1h 30m");
+    expect(markerSpanText(mins(24 * 60 + 15), "zh")).toBe("1天15分");
+    expect(markerSpanText(mins(2 * 24 * 60 + 3 * 60 + 15), "zh")).toBe("2天3小时15分");
+    expect(markerSpanText(mins(2 * 24 * 60 + 3 * 60 + 15), "en")).toBe("2d 3h 15m");
   });
 });
 
