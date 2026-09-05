@@ -220,6 +220,7 @@ QuotaTray/
 │           ├── references/ # 规范正文目录
 │           │   ├── common-ui/     # 通用 UI 组件域
 │           │   │   ├── button.md          # 按钮规范
+│           │   │   ├── card.md            # 余额卡片 hover 反馈规范
 │           │   │   ├── empty-state.md     # 空态卡规范
 │           │   │   ├── feedback-banner.md # 反馈块规范
 │           │   │   ├── field.md           # 表单字段规范

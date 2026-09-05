@@ -45,6 +45,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | T-011 | 移动端壳层与全屏页面 | [mobile/layout.md](references/mobile/layout.md) | Android 前端 | 生效 | 2026-08-28 |
 | T-012 | 配置指引渲染器（文档排版） | [common-ui/guide-viewer.md](references/common-ui/guide-viewer.md) | 全部组件 | 生效 | 2026-08-30 |
 | T-013 | 使用统计多曲线比较与定位线 | [usage-stats/comparison-chart.md](references/usage-stats/comparison-chart.md) | 使用统计页 | 生效 | 2026-09-05 |
+| T-014 | 余额卡片 hover 反馈几何中性 | [common-ui/card.md](references/common-ui/card.md) | 账户页卡片 | 草案 | 2026-09-05 |
 
 ### 令牌条目（DT-）
 
