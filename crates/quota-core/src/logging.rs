@@ -70,6 +70,9 @@ pub mod rolling {
     use flexi_logger::Cleanup;
     use flexi_logger::Criterion;
     use flexi_logger::DeferredNow;
+    // Duplicate 仅 debug 构建 duplicate 到 stderr 使用；cfg 门控防止
+    // release 构建（debug_assertions=false）下成为无主 import
+    #[cfg(debug_assertions)]
     use flexi_logger::Duplicate;
     use flexi_logger::FileSpec;
     use flexi_logger::Logger;
@@ -167,7 +170,9 @@ pub mod rolling {
         let result = (|| {
             std::fs::create_dir_all(dir)
                 .map_err(|e| format!("日志目录创建失败（{}）：{e}", dir.display()))?;
-            let mut logger = Logger::try_with_env_or_str(LOG_DEFAULT_SPEC)
+            // debug 构建用遮蔽而非赋值：release 下 cfg 块被剥离，无需 mut
+            // （mut 只在 debug 半边需要会导致 release 编译告警 unused_mut）
+            let logger = Logger::try_with_env_or_str(LOG_DEFAULT_SPEC)
                 .map_err(|e| format!("日志规格解析失败：{e}"))?
                 .log_to_file(
                     FileSpec::default()
@@ -183,9 +188,7 @@ pub mod rolling {
                 .format(jsonl_format)
                 .write_mode(WriteMode::Direct);
             #[cfg(debug_assertions)]
-            {
-                logger = logger.duplicate_to_stderr(Duplicate::All);
-            }
+            let logger = logger.duplicate_to_stderr(Duplicate::All);
             logger.start().map_err(|e| format!("日志初始化失败：{e}"))
         })();
         if let Err(e) = result {
