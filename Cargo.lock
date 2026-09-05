@@ -3485,7 +3485,7 @@ dependencies = [
 
 [[package]]
 name = "quota-cli"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "arboard",
  "async-trait",
@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "quota-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "aes-gcm",
  "android-native-keyring-store",
@@ -3537,7 +3537,7 @@ dependencies = [
 
 [[package]]
 name = "quota-desktop"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-trait",
  "dirs 6.0.0",
