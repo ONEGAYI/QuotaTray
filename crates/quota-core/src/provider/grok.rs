@@ -3,7 +3,9 @@
 //! 凭据只读 `~/.grok/auth.json`（grok CLI 登录后生成）：顶层为
 //! scope → 条目 的 map，`https://auth.x.ai::` 前缀（OIDC/SuperGrok）
 //! 优先、`/sign-in`（legacy）兜底，条目 `key` 字段即 Bearer token。
-//! token 不刷新（grok CLI 自刷，约 7 天），过期由服务端兜底。
+//! token 不刷新（grok CLI 自刷，约 7 天），过期由服务端兜底；读取经
+//! 进程内快照缓存（见 `super::read_cli_creds_cached`），拦截窗口期
+//! 回退旧 token。
 //!
 //! 查询走 gRPC-web：`POST grok.com/grok_api_v2.GrokBuildBilling/
 //! GetGrokCreditsConfig`，body 为 5 字节空 data 帧，带 Origin/Referer/
@@ -63,11 +65,8 @@ fn read_grok_token() -> Result<String, String> {
         return Err("无法定位用户主目录".into());
     };
     let path = home.join(".grok").join("auth.json");
-    let content = std::fs::read_to_string(&path).map_err(|_| {
-        format!(
-            "未找到 {}，请先在本机安装 Grok CLI 并登录后再添加本平台",
-            path.display()
-        )
+    let content = super::read_cli_creds_cached(&path, "安装 Grok CLI 并登录", |p| {
+        std::fs::read_to_string(p)
     })?;
     parse_grok_token(&content)
 }

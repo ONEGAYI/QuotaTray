@@ -5,6 +5,8 @@
 //! 约 1 小时过期，过期时用 refresh_token + gemini-cli 公开 client
 //! 凭据（源码明文值，非机密）刷新——**不写回文件**（避免与 gemini-cli
 //! 竞争写），仅本次查询内存使用；刷新失败回退旧 token 继续试。
+//! 文件读取另经进程内快照缓存（见 `super::read_cli_creds_cached`）：
+//! 文件被环境性拦截时回退旧快照（快照内 refresh_token 仍可自刷新）。
 //!
 //! 两步 RPC（cloudcode-pa v1internal，无公开文档）：
 //! `loadCodeAssist`（拿 cloudaicompanionProject）→
@@ -69,11 +71,8 @@ fn read_gemini_creds() -> Result<GeminiCreds, String> {
         return Err("无法定位用户主目录".into());
     };
     let path = home.join(".gemini").join("oauth_creds.json");
-    let content = std::fs::read_to_string(&path).map_err(|_| {
-        format!(
-            "未找到 {}，请先在本机安装 Gemini CLI 并登录后再添加本平台",
-            path.display()
-        )
+    let content = super::read_cli_creds_cached(&path, "安装 Gemini CLI 并登录", |p| {
+        std::fs::read_to_string(p)
     })?;
     parse_gemini_creds(&content)
 }

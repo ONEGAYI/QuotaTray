@@ -2383,14 +2383,12 @@
                     },
                     "mod.rs": {
                       "kind": "file",
-                      "desc": "trait 与注册表（21 项）",
+                      "desc": "trait、注册表与共用工具",
                       "detail": [
                         "NativeProvider trait（query 收套餐变体）+ 注册表（21 项）+",
-                        "supports_plan_variant/uses_cli_credentials/uses_api_key2 标记（订阅",
-                        "四家 CLI 凭据型：查询时读本机官方 CLI 登录文件；阿里云余额为 native 双凭据）+",
-                        "解析工具（parse_success_json/status_error_with_body 错误",
-                        "附脱敏响应体 detail——error_detail 嵌套 error.message 后",
-                        "回退平铺字符串，非字符串形态不误提取）+ MockHttp"
+                        "supports_plan_variant/uses_cli_credentials/uses_api_key2 标记（订阅四家 CLI 凭据型：查询时读本机官方 CLI 登录文件；阿里云余额为 native 双凭据）+",
+                        "CLI 凭据共用工具（cli_creds_read_error 读取错误分类——NotFound 维持安装引导、权限拒绝/共享冲突透出真实原因；read_cli_creds_cached 进程内凭据快照——拦截窗口期回退旧 token 继续查询，2026-09-05 ACE 反作弊实证）+",
+                        "解析工具（parse_success_json/status_error_with_body 错误附脱敏响应体 detail——error_detail 嵌套 error.message 后回退平铺字符串，非字符串形态不误提取）+ MockHttp"
                       ]
                     },
                     "novita.rs": {

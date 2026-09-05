@@ -3,7 +3,9 @@
 //! 凭据只读 `~/.codex/auth.json`（Codex CLI 以 ChatGPT 账号登录后
 //! 生成；`auth_mode == "chatgpt"` 才有订阅用量，API key 模式直接
 //! 确定性引导）。token 不刷新不落盘（Codex CLI 自刷，`last_refresh`
-//! 超 8 天仅视为陈旧提示，不阻断——服务端 401/403 兜底）。
+//! 超 8 天仅视为陈旧提示，不阻断——服务端 401/403 兜底）；读取经
+//! 进程内快照缓存（见 `super::read_cli_creds_cached`）：文件被环境
+//! 性拦截时回退旧 token 继续查询，游戏反作弊窗口期不打断刷新。
 //!
 //! `GET https://chatgpt.com/backend-api/wham/usage`：**必须携带
 //! `User-Agent: codex-cli`**（否则大概率被 Cloudflare 拦截），存在
@@ -70,12 +72,10 @@ fn read_codex_token() -> Result<CodexToken, String> {
         return Err("无法定位用户主目录".into());
     };
     let path = home.join(".codex").join("auth.json");
-    let content = std::fs::read_to_string(&path).map_err(|_| {
-        format!(
-            "未找到 {}，请先在本机安装 Codex CLI 并用 ChatGPT 账号登录后再添加本平台",
-            path.display()
-        )
-    })?;
+    let content =
+        super::read_cli_creds_cached(&path, "安装 Codex CLI 并用 ChatGPT 账号登录", |p| {
+            std::fs::read_to_string(p)
+        })?;
     parse_codex_token(&content)
 }
 
