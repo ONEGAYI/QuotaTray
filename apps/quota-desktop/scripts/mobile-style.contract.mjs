@@ -156,6 +156,17 @@ test("Android 统计页与正文主按钮满足 44px 命中区（T-010 审查轮
     css,
     /body\.qt-mobile-runtime \.qt-usage-reset\s*\{[^}]*min-height:\s*44px;/s,
   );
+  // 卡头按钮组（定位线开关 + 重置）按组覆盖（2026-09-05 定位线）
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-head-actions \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,
+  );
+  // 定位线手柄命中圆是 SVG 属性（CSS 正则锁不到），按 TSX 源码锁取值：
+  // 移动端 r=22（viewBox 360 近 1:1 渲染，直径 ≈44px 触达）
+  assert.match(
+    usageStats,
+    /className="qt-usage-marker-hit"[^>]*r=\{mobile \? 22 : 18\}/,
+  );
   assert.match(
     css,
     /body\.qt-mobile-runtime \.qt-settings-content \.qt-btn\s*\{[^}]*min-height:\s*44px;/s,

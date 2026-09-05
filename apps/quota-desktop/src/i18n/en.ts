@@ -80,6 +80,13 @@ export const en: Record<TextKey, string> = {
   "usage.comparisonChartLabel": "Usage comparison chart with {count} series",
   "usage.absoluteValue": "Absolute · {unit}",
   "usage.remainingPercent": "Remaining percent",
+  "usage.markerMode": "Marker",
+  "usage.markerEmpty": "No markers yet: click \"Marker\", then click the chart to place up to two and measure the span",
+  "usage.markerPlaceHint": "Click the chart to place a marker (max 2, snaps to data points); Esc or click again to exit",
+  "usage.markerRemoveOne": "Remove this marker",
+  "usage.markerClearAll": "Clear all markers",
+  "usage.markerOffscreen": "Marker is outside the current view (pan or zoom to see it)",
+  "usage.markerDelta": "Span {span}",
 
   // ---- 供应商卡片 ----
   "card.disabled": "Disabled",

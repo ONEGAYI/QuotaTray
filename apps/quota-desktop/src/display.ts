@@ -97,6 +97,22 @@ export function resetCountdown(resetAtMs: number | null | undefined, nowMs: numb
   return hours % 24 === 0 ? `${days}d` : `${days}d${hours % 24}h`;
 }
 
+/** 定位线时间差（"2天3小时15分" / "2d 3h 15m"）：分钟向下取整且至少
+ *  1 分钟（毫秒级差异对测量无意义）；天/时为 0 的段省略，分钟恒显。
+ *  与 resetCountdown 的缩写风格不同——定位线差值是主读数，用完整词。 */
+export function markerSpanText(diffMs: number, lang: UiLang): string {
+  const totalMin = Math.max(1, Math.floor(diffMs / 60_000));
+  const days = Math.floor(totalMin / 1_440);
+  const hours = Math.floor((totalMin % 1_440) / 60);
+  const minutes = totalMin % 60;
+  if (lang === "zh") {
+    return `${days > 0 ? `${days}天` : ""}${hours > 0 ? `${hours}小时` : ""}${minutes}分`;
+  }
+  return [days > 0 ? `${days}d` : "", hours > 0 ? `${hours}h` : "", `${minutes}m`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** 多窗口短标签：取 plan_name 全角括号内的窗口标注
  *  （"GLM Coding Plan（5h）" → "5h"；week 映射双语"周限"/"weekly"）。
  *  无括号用全名（template 窗口名），无名回退"窗口 N"。 */

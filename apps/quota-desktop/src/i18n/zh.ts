@@ -83,6 +83,13 @@ export const zh = {
   "usage.comparisonChartLabel": "{count} 条使用趋势比较图",
   "usage.absoluteValue": "绝对值 · {unit}",
   "usage.remainingPercent": "剩余百分比",
+  "usage.markerMode": "定位线",
+  "usage.markerEmpty": "暂无定位线：点击「定位线」按钮后在图表上选取时刻，可放置最多两条测量时间差",
+  "usage.markerPlaceHint": "点击图表放置定位线（最多 2 条，自动吸附数据点）；Esc 或再次点击退出",
+  "usage.markerRemoveOne": "删除此定位线",
+  "usage.markerClearAll": "清除全部定位线",
+  "usage.markerOffscreen": "定位线在当前视图外（平移或缩放图表可见）",
+  "usage.markerDelta": "时间差 {span}",
 
   // ---- 供应商卡片 ----
   "card.disabled": "已停用",

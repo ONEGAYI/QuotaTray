@@ -1,14 +1,15 @@
-import { Maximize2, MousePointer2, Plus, RotateCcw, Settings2 } from "lucide-react";
+import { LocateFixed, Maximize2, MousePointer2, Plus, RotateCcw, Settings2, Trash2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { api } from "../api";
+import { markerSpanText } from "../display";
 import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate, type UsageComparisonDialogMode } from "./UsageComparisonDialog";
 import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, SegmentedControl } from "./ui";
-import { advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, niceAbsoluteScale, shouldZoomUsageChart, splitUsageSeries, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, niceAbsoluteScale, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
 
 interface UsageScope extends HistorySeries {
   id: string;
@@ -20,6 +21,7 @@ interface UsageScope extends HistorySeries {
 }
 
 interface CursorState { timestamp: number; x: number; dock: "top" | "bottom"; }
+interface MarkerDragState { pointerId: number; timestamp: number; list: number[]; dirty: boolean; }
 interface Props { providers: ProviderEntry[]; providersLoading: boolean; providersError?: unknown; mobile?: boolean; }
 
 const HISTORY_FETCH_SPAN_MS = Math.max(...Object.values(USAGE_RANGES).map((item) => item.spanMs));
@@ -69,10 +71,13 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<UsageComparisonDialogMode | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [markerMode, setMarkerMode] = useState(false);
+  const [markersOverride, setMarkersOverride] = useState<number[] | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const previousTotalRef = useRef<UsageDomain>(viewDomain);
   const autoInitRef = useRef(false);
   const dragRef = useRef<{ pointerId: number; startX: number; domain: UsageDomain } | null>(null);
+  const markerDragRef = useRef<MarkerDragState | null>(null);
   const rangeConfig = USAGE_RANGES[range];
   const totalDomain = useMemo<UsageDomain>(() => [rangeNow - rangeConfig.spanMs, rangeNow], [rangeNow, rangeConfig.spanMs]);
   const chart = mobile ? { width: 360, height: 300, left: 42, right: 326, top: 28, bottom: 258 } : { width: 840, height: 410, left: 74, right: 766, top: 42, bottom: 338 };
@@ -108,6 +113,24 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     await api.patchSettings({ usage_comparison_series: next });
     qc.setQueryData<Settings | undefined>(["settings"], (current) => current ? { ...current, usage_comparison_series: next } : current);
   }, [qc]);
+  const markers = markersOverride ?? settings.data?.usage_marker_lines ?? [];
+  const saveMarkers = useCallback(async (next: number[]) => {
+    setMarkersOverride(next);
+    try {
+      await api.patchSettings({ usage_marker_lines: next });
+      qc.setQueryData<Settings | undefined>(["settings"], (current) => current ? { ...current, usage_marker_lines: next } : current);
+    } catch {
+      // 写盘失败回退到已存值（磁盘未变、settings 缓存未动）；仅当期间没有
+      // 新的本地修改才回退，避免晚到的失败抹掉后续已生效的放置
+      setMarkersOverride((current) => current === next ? null : current);
+    }
+  }, [qc]);
+  useEffect(() => {
+    if (!markerMode) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMarkerMode(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [markerMode]);
   useEffect(() => {
     if (settings.data?.usage_comparison_series !== null) {
       autoInitRef.current = false;
@@ -158,24 +181,65 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const axisFormatter = new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : "en-US", { month: "numeric", day: "numeric", hour: "2-digit" });
 
   const svgPoint = (clientX: number, clientY: number) => { const bounds = svgRef.current?.getBoundingClientRect(); return bounds ? { x: ((clientX - bounds.left) / bounds.width) * chart.width, y: ((clientY - bounds.top) / bounds.height) * chart.height } : { x: 0, y: 0 }; };
+  const timestampAt = (x: number) => viewDomain[0] + ((x - chart.left) / plotWidth) * (viewDomain[1] - viewDomain[0]);
+  const markerSamples = useMemo(() => scopes.flatMap((scope) => scope.samples), [scopes]);
+  // 吸附候选限定当前视图内：吸附到视图外样本的定位线会被渲染层过滤而不显示
+  const inViewMarkerSamples = () => markerSamples.filter((sample) => sample.timestamp >= viewDomain[0] && sample.timestamp <= viewDomain[1]);
+  const placeMarker = (point: { x: number; y: number }) => {
+    const snapped = snapUsageMarkerTimestamp(timestampAt(point.x), inViewMarkerSamples(), rangeConfig.bucketMs);
+    const next = addUsageMarker(markers, snapped);
+    if (next === markers) return;
+    setCursor(null);
+    void saveMarkers(next);
+    if (next.length >= USAGE_MARKER_LIMIT) setMarkerMode(false);
+  };
+  const dragMarker = (point: { x: number }) => {
+    const drag = markerDragRef.current;
+    if (!drag) return;
+    const clampedX = Math.min(chart.right, Math.max(chart.left, point.x));
+    const snapped = snapUsageMarkerTimestamp(timestampAt(clampedX), inViewMarkerSamples(), rangeConfig.bucketMs);
+    const next = moveUsageMarker(drag.list, drag.timestamp, snapped);
+    markerDragRef.current = next === drag.list ? drag : { pointerId: drag.pointerId, timestamp: snapped, list: next, dirty: true };
+    if (next !== drag.list) { setMarkersOverride(next); setCursor(null); }
+  };
+  const startMarkerDrag = (event: ReactPointerEvent<SVGGElement>, timestamp: number) => {
+    event.stopPropagation();
+    markerDragRef.current = { pointerId: event.pointerId, timestamp, list: markers, dirty: false };
+    svgRef.current?.setPointerCapture(event.pointerId);
+  };
   const updateCursor = (point: { x: number; y: number }) => {
     if (point.x < chart.left || point.x > chart.right || point.y < chart.top || point.y > chart.bottom) return;
-    setCursor({ timestamp: viewDomain[0] + ((point.x - chart.left) / plotWidth) * (viewDomain[1] - viewDomain[0]), x: point.x, dock: usageTooltipDock(point.y, chart.height) });
+    setCursor({ timestamp: timestampAt(point.x), x: point.x, dock: usageTooltipDock(point.y, chart.height) });
   };
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>) => {
     const point = svgPoint(event.clientX, event.clientY);
-    if (mobile) {
-      if (point.x < chart.left || point.x > chart.right || point.y < chart.top || point.y > chart.bottom) setCursor(null);
-      else updateCursor(point);
+    const inside = point.x >= chart.left && point.x <= chart.right && point.y >= chart.top && point.y <= chart.bottom;
+    if (markerMode) {
+      if (inside) placeMarker(point);
+      else if (mobile) setCursor(null);
+    } else if (mobile) {
+      if (inside) updateCursor(point);
+      else setCursor(null);
     } else { dragRef.current = { pointerId: event.pointerId, startX: point.x, domain: viewDomain }; setIsDragging(true); }
     event.currentTarget.setPointerCapture(event.pointerId);
   };
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>) => {
     const point = svgPoint(event.clientX, event.clientY); const drag = dragRef.current;
+    if (markerDragRef.current?.pointerId === event.pointerId) { dragMarker(point); return; }
     if (!mobile && drag?.pointerId === event.pointerId) { const span = drag.domain[1] - drag.domain[0]; const shift = -((point.x - drag.startX) / plotWidth) * span; setViewDomain(clampDomain(drag.domain[0] + shift, drag.domain[1] + shift, totalDomain[0], totalDomain[1])); setCursor(null); }
     else if (!mobile || event.buttons > 0) updateCursor(point);
   };
-  const endPointer = (event: ReactPointerEvent<SVGSVGElement>) => { dragRef.current = null; setIsDragging(false); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); };
+  const endPointer = (event: ReactPointerEvent<SVGSVGElement>) => {
+    // 仅本指针收尾 marker 拖动：触屏第二指的 up/cancel 不得打断进行中的拖动
+    const markerDrag = markerDragRef.current;
+    if (markerDrag?.pointerId === event.pointerId) {
+      markerDragRef.current = null;
+      if (markerDrag.dirty) void saveMarkers(markerDrag.list);
+    }
+    dragRef.current = null;
+    setIsDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (mobile || scopes.length === 0) return; const point = svgPoint(event.clientX, event.clientY); const inside = point.x >= chart.left && point.x <= chart.right && point.y >= chart.top && point.y <= chart.bottom;
     if (!shouldZoomUsageChart(event, inside)) return; event.preventDefault(); const totalSpan = totalDomain[1] - totalDomain[0]; const currentSpan = viewDomain[1] - viewDomain[0]; const minSpan = Math.max(rangeConfig.bucketMs * 4, totalSpan * .08); const nextSpan = Math.min(totalSpan, Math.max(minSpan, currentSpan * (event.deltaY > 0 ? 1.18 : .84))); const ratio = (point.x - chart.left) / plotWidth; const anchor = viewDomain[0] + currentSpan * ratio; const nextMin = anchor - nextSpan * ratio; setViewDomain(clampDomain(nextMin, nextMin + nextSpan, totalDomain[0], totalDomain[1])); setCursor(null);
@@ -193,9 +257,20 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     {!mobile && scopes.length > 0 && <div className="qt-usage-series-summary">{scopes.map((scope) => { const current = scope.samples[scope.samples.length - 1]; return <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}><i /><span>{scope.providerName} · {scope.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button>; })}</div>}
     {mobile && scopes.length > 0 && <div className="qt-usage-mobile-focus">{scopes.map((scope) => <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}>{scope.providerName} · {scope.name}</button>)}</div>}
     {pageState ? <div className={`qt-usage-state is-${pageState.kind}`}><strong>{pageState.kind === "empty" ? t("usage.emptyTitle") : t("usage.statusTitle")}</strong><span>{pageState.message}</span></div> : <article className="qt-usage-chart-card">
-      <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></header>
+      <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><div className="qt-usage-head-actions"><Button icon={LocateFixed} variant="ghost" className="qt-usage-marker-toggle" aria-pressed={markerMode} title={t("usage.markerPlaceHint")} onClick={() => setMarkerMode((value) => !value)}>{t("usage.markerMode")}</Button><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></div></header>
+      <div className="qt-usage-marker-readout">{(() => {
+        if (markers.length === 0) return <span className="qt-usage-marker-empty">{t("usage.markerEmpty")}</span>;
+        const sorted = [...markers].sort((a, b) => a - b);
+        const focusedScope = scopes.find((scope) => scope.id === focusedId) ?? null;
+        return <>
+          <span className="qt-usage-marker-label"><LocateFixed size={13} aria-hidden="true" />{t("usage.markerMode")}</span>
+          {sorted.map((ts) => { const sample = focusedScope ? nearestSample(focusedScope, ts) : null; const offscreen = ts < viewDomain[0] || ts > viewDomain[1]; return <span key={ts} className={`qt-usage-marker-item ${offscreen ? "is-offscreen" : ""}`} title={offscreen ? t("usage.markerOffscreen") : undefined} style={focusedScope ? { "--qt-series-color": SERIES_COLORS[focusedScope.colorSlot] } as CSSProperties : undefined}><time dateTime={new Date(ts).toISOString()}>{dateFormatter.format(ts)}</time>{focusedScope && <strong className="qt-usage-marker-value">{sample ? formatNumber(sample.value, focusedScope.metric) : "—"}</strong>}<button type="button" className="qt-usage-marker-remove qt-touch-inline" aria-label={t("usage.markerRemoveOne")} onClick={() => void saveMarkers(markers.filter((marker) => marker !== ts))}><X size={13} aria-hidden="true" /></button></span>; })}
+          {sorted.length === 2 && <span className="qt-usage-marker-delta">{t("usage.markerDelta", { span: markerSpanText(Math.abs(sorted[1] - sorted[0]), lang) })}</span>}
+          <button type="button" className="qt-usage-marker-remove qt-usage-marker-clear qt-touch-inline" aria-label={t("usage.markerClearAll")} title={t("usage.markerClearAll")} onClick={() => void saveMarkers([])}><Trash2 size={13} aria-hidden="true" /></button>
+        </>;
+      })()}</div>
       <div className={`qt-usage-chart-wrap ${isDragging ? "is-dragging" : ""}`} onWheelCapture={onWheel}>
-        <svg ref={svgRef} className="qt-usage-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={t("usage.comparisonChartLabel", { count: scopes.length })} onPointerLeave={() => { if (!mobile && !isDragging) setCursor(null); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onDoubleClick={() => { if (!mobile) resetView(); }}>
+        <svg ref={svgRef} className="qt-usage-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={t("usage.comparisonChartLabel", { count: scopes.length })} onPointerLeave={() => { if (!mobile && !isDragging) setCursor(null); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onDoubleClick={() => { if (!mobile && !markerMode) resetView(); }}>
           <defs>
             <clipPath id="qt-usage-plot-clip"><rect x={chart.left} y={chart.top} width={plotWidth} height={plotHeight} rx="2" /></clipPath>
             <linearGradient id="qt-usage-gap-fade" x1="0" x2="1">
@@ -213,6 +288,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
           <g className={`qt-usage-axis qt-usage-axis-right ${percentPresent ? "is-active" : ""}`}>{percentPresent && yTicks.map((tick) => { const y = chart.bottom - tick / 100 * plotHeight; return <g key={tick}><line x1={chart.right} x2={chart.right + 7} y1={y} y2={y} /><text x={chart.right + 11} y={y + 4}>{tick}%</text></g>; })}</g>
           <g className="qt-usage-axis qt-usage-axis-bottom is-active">{xTicks.map((tick, index) => <text key={tick} x={xOf(tick)} y={chart.bottom + 24} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{axisFormatter.format(tick)}</text>)}</g>
           <g clipPath="url(#qt-usage-plot-clip)">{splitScopes.map(({ scope, split }) => { const muted = focusedId && focusedId !== scope.id; const showLongGaps = shouldShowFocusedGap(focusedId, scope.id); return <g key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} className={muted ? "is-muted" : focusedId === scope.id ? "is-focused" : ""}>{showLongGaps && split.gaps.map((gap) => { const from = xOf(gap.from.timestamp); const to = xOf(gap.to.timestamp); return <g key={`gap-${gap.from.timestamp}`}><rect className="qt-usage-gap-fill" x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-fade)" /><rect x={from} y={chart.top} width={to - from} height={plotHeight} fill="url(#qt-usage-gap-pattern)" opacity=".34" /><circle className="qt-usage-gap-edge" cx={from} cy={yOf(scope, gap.from.value)} r="4.5" /><circle className="qt-usage-gap-edge" cx={to} cy={yOf(scope, gap.to.value)} r="4.5" /></g>; })}{split.bridges.map((bridge) => <line key={bridge.from.timestamp} className="qt-usage-bridge" x1={xOf(bridge.from.timestamp)} y1={yOf(scope, bridge.from.value)} x2={xOf(bridge.to.timestamp)} y2={yOf(scope, bridge.to.value)} />)}{split.segments.map((segment, index) => { const geometry = buildLineGeometry(segment, xOf, (value) => yOf(scope, value), { smoothingRadius }); return geometry.path ? <path key={index} className="qt-usage-series" d={geometry.path} /> : null; })}{isolatedUsageSamples(split).map((sample) => <circle key={`solo-${sample.timestamp}`} className="qt-usage-endpoint" cx={xOf(sample.timestamp)} cy={yOf(scope, sample.value)} r="4" />)}{cursor && (() => { const sample = nearestSample(scope, cursor.timestamp); return sample && detailIds.includes(scope.id) ? <circle className="qt-usage-hover-dot" cx={cursor.x} cy={yOf(scope, sample.value)} r="4" /> : null; })()}</g>; })}{cursor && <line className="qt-usage-crosshair" x1={cursor.x} x2={cursor.x} y1={chart.top} y2={chart.bottom} />}</g>
+          {markers.filter((ts) => ts >= viewDomain[0] && ts <= viewDomain[1]).map((ts) => { const x = xOf(ts); return <g key={ts} className="qt-usage-marker"><line className="qt-usage-marker-line" x1={x} x2={x} y1={chart.top} y2={chart.bottom} /><g className="qt-usage-marker-handle" onPointerDown={(event) => startMarkerDrag(event, ts)}><circle className="qt-usage-marker-hit" cx={x} cy={chart.top + 9} r={mobile ? 22 : 18} /><circle className="qt-usage-marker-dot" cx={x} cy={chart.top + 9} r={5} /></g></g>; })}
         </svg>
         {!mobile && cursor && <div className={`qt-usage-tooltip is-docked-${cursor.dock}`} style={{ left: `${Math.min(82, Math.max(12, cursor.x / chart.width * 100))}%` }}><span className="qt-usage-tooltip-time">{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} className="qt-usage-tooltip-row" style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
       </div>

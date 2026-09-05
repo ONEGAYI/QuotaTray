@@ -42,6 +42,10 @@ export type UsageDomain = [number, number];
 
 export type UsageRange = "24h" | "7d";
 
+/** 定位线上限：超出时丢弃最早写入的条目（数组头部），保持「测量两点间隔」
+ *  语义；与 Rust 侧 settings.rs 的 MAX_USAGE_MARKER_LINES 同值，两端同步修改。 */
+export const USAGE_MARKER_LIMIT = 2;
+
 export interface UsageRangeConfig {
   spanMs: number;
   bucketMs: number;
@@ -221,6 +225,41 @@ export function splitUsageSeries(
 /** 单点分段无法形成 SVG path，需以真实端点圆单独渲染。 */
 export function isolatedUsageSamples(split: SplitUsageSeries): UsageSample[] {
   return split.segments.flatMap((segment) => segment.length === 1 ? segment : []);
+}
+
+/**
+ * 放置定位线：与既有时间戳重复时幂等返回原数组（时间差为 0 无意义）；
+ * 已满上限时丢弃最早写入的条目——两次测量意图以最新一次为准（两条拖动
+ * 交叉后数组序不保证时间序，超限丢弃的是数组头部）。
+ */
+export function addUsageMarker(existing: number[], timestamp: number): number[] {
+  if (existing.includes(timestamp)) return existing;
+  const next = [...existing, timestamp];
+  return next.length > USAGE_MARKER_LIMIT ? next.slice(next.length - USAGE_MARKER_LIMIT) : next;
+}
+
+/** 拖动微调定位线：目标时刻与另一条重合或未移动时原地不动（幂等返回原数组）。 */
+export function moveUsageMarker(existing: number[], from: number, to: number): number[] {
+  if (from === to || existing.includes(to)) return existing;
+  return existing.map((timestamp) => (timestamp === from ? to : timestamp));
+}
+
+/**
+ * 吸附最近真实样本时刻：距离 ≤ tolerance 才吸附（等距时取先遍历到的样本），
+ * 无样本或超出容差时保留原始时刻——定位线对齐真实采样点，读数才干净。
+ */
+export function snapUsageMarkerTimestamp(
+  timestamp: number,
+  samples: UsageSample[],
+  toleranceMs: number,
+): number {
+  let best: UsageSample | null = null;
+  for (const sample of samples) {
+    if (!best || Math.abs(sample.timestamp - timestamp) < Math.abs(best.timestamp - timestamp)) {
+      best = sample;
+    }
+  }
+  return best && Math.abs(best.timestamp - timestamp) <= toleranceMs ? best.timestamp : timestamp;
 }
 
 const NICE_FACTORS = [1, 2, 2.5, 5, 10];

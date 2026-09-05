@@ -71,7 +71,20 @@ pub struct Settings {
     /// 使用统计比较组合；None = 尚未初始化，Some([]) = 用户主动清空。
     #[serde(default)]
     pub usage_comparison_series: Option<Vec<quota_core::UsageComparisonSeries>>,
+    /// 使用统计定位线时刻（epoch 毫秒，最多 2 条，按写入顺序——两条拖动
+    /// 交叉后不保证时间有序）；两条线用于测量时间差。仅存本机，不进配置
+    /// 迁移包。
+    #[serde(default)]
+    pub usage_marker_lines: Option<Vec<u64>>,
 }
+
+/// 定位线上限：与前端 `usageChartView.ts` 的 `USAGE_MARKER_LIMIT` 同值，
+/// 两端同步修改。
+const MAX_USAGE_MARKER_LINES: usize = 2;
+
+/// 定位线时刻上界：JS `Date` 安全域为 ±8.64e15 毫秒，超出即 Invalid Date，
+/// 读数行的 `toISOString()` 会抛错——手改文件塞超大值必须在此拦下。
+const MAX_USAGE_MARKER_TS: u64 = 8_640_000_000_000_000;
 
 fn default_interval() -> u32 {
     5
@@ -124,6 +137,7 @@ impl Default for Settings {
             background_refresh_enabled: false,
             background_refresh_interval_minutes: default_background_interval(),
             usage_comparison_series: None,
+            usage_marker_lines: None,
         }
     }
 }
@@ -194,6 +208,22 @@ impl Settings {
         if let Some(items) = self.usage_comparison_series.take() {
             self.usage_comparison_series =
                 Some(quota_core::sanitize_usage_comparison_series(items));
+        }
+        // 定位线：过滤 0 与超 JS Date 安全域的坏值（防手改文件）、保序去重
+        // （重复时刻时间差恒 0 无意义）、超上限时与前端同向丢弃最早写入的
+        // 条目——前端 addUsageMarker 已收口，这里防手改文件与旧版残留。
+        if let Some(items) = self.usage_marker_lines.take() {
+            let mut seen = std::collections::HashSet::new();
+            let mut cleaned: Vec<u64> = Vec::new();
+            for ts in items {
+                if ts > 0 && ts < MAX_USAGE_MARKER_TS && seen.insert(ts) {
+                    cleaned.push(ts);
+                }
+            }
+            if cleaned.len() > MAX_USAGE_MARKER_LINES {
+                cleaned.drain(..cleaned.len() - MAX_USAGE_MARKER_LINES);
+            }
+            self.usage_marker_lines = Some(cleaned);
         }
     }
 
@@ -295,6 +325,7 @@ mod tests {
                 window_key: "w0".into(),
                 color_slot: 0,
             }]),
+            usage_marker_lines: Some(vec![1_700_000_000_000, 1_700_086_000_000]),
         };
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s, "完整设置 roundtrip 无损");
@@ -334,6 +365,7 @@ mod tests {
             s.usage_comparison_series, None,
             "旧版/首次运行等待前端自动初始化"
         );
+        assert_eq!(s.usage_marker_lines, None, "默认没有定位线");
     }
 
     #[test]
@@ -409,6 +441,40 @@ mod tests {
         assert_eq!(blank.usage_comparison_series, Some(Vec::new()));
     }
 
+    /// 契约：定位线 sanitize——过滤 0 与超大值、保序去重、与前端同向保留
+    /// 最新两条（丢弃最早写入）；空列表保持显式空。
+    #[test]
+    fn sanitize_usage_marker_lines_dedupes_and_truncates() {
+        let mut s = Settings {
+            usage_marker_lines: Some(vec![0, 500, 500, 600, 700]),
+            ..Settings::default()
+        };
+        s.sanitize();
+        assert_eq!(
+            s.usage_marker_lines,
+            Some(vec![600, 700]),
+            "0 被过滤、重复去重、超两条时丢弃最早写入保留最新"
+        );
+
+        let mut oversized = Settings {
+            usage_marker_lines: Some(vec![9_000_000_000_000_000, 100]),
+            ..Settings::default()
+        };
+        oversized.sanitize();
+        assert_eq!(
+            oversized.usage_marker_lines,
+            Some(vec![100]),
+            "超 JS Date 安全域的时刻被过滤（读数行 toISOString 会抛错）"
+        );
+
+        let mut cleared = Settings {
+            usage_marker_lines: Some(Vec::new()),
+            ..Settings::default()
+        };
+        cleared.sanitize();
+        assert_eq!(cleared.usage_marker_lines, Some(Vec::new()));
+    }
+
     /// 契约：部分字段的配置文件（老版本升级）回退字段级默认而非整体失败。
     #[test]
     fn partial_config_uses_field_defaults() {
@@ -427,6 +493,7 @@ mod tests {
             "老版本配置缺字段回退默认关闭"
         );
         assert_eq!(s.background_refresh_interval_minutes, 30);
+        assert_eq!(s.usage_marker_lines, None, "老版本配置缺定位线字段回退默认");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -472,6 +539,7 @@ mod tests {
             background_refresh_enabled: true,
             background_refresh_interval_minutes: 9999,
             usage_comparison_series: None,
+            usage_marker_lines: None,
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
