@@ -420,7 +420,9 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-marker-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; border: 0; border-radius: var(--qt-radius-xs); padding: 0; background: transparent; color: var(--qt-text-faint); cursor: pointer; transition: color var(--qt-dur-1) ease, background var(--qt-dur-1) ease; }
 .qt-usage-marker-remove:hover { background: var(--qt-danger-soft); color: var(--qt-danger); }
 .qt-usage-marker-clear { margin-left: auto; }
-.qt-usage-marker-delta { color: var(--qt-text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.qt-usage-marker-delta, .qt-usage-marker-rate { color: var(--qt-text); font-weight: 650; font-variant-numeric: tabular-nums; }
+/* 速率与时间差同一换行段（共享 flex 项），以间距分隔而非独立 flex 项——最窄窗口下少一个换行点 */
+.qt-usage-marker-rate { margin-left: 14px; }
 body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 92px; }
 .qt-loading-card, .qt-empty-state { border: 1px dashed var(--qt-border-strong); border-radius: var(--qt-radius-lg); padding: 34px; background: color-mix(in srgb, var(--qt-surface) 78%, transparent); color: var(--qt-text-soft); text-align: center; }
 .qt-empty-state p { margin: 0; color: var(--qt-text); font-weight: 600; }

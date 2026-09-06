@@ -7,10 +7,12 @@ import {
   historyPointValue,
   isolatedUsageSamples,
   moveUsageMarker,
+  nearestUsageSample,
   niceAbsoluteScale,
   shouldZoomUsageChart,
   snapUsageMarkerTimestamp,
   splitUsageSeries,
+  usageMarkerBurnRate,
   USAGE_MARKER_LIMIT,
   USAGE_RANGES,
   USAGE_TOOLTIP_GAP,
@@ -270,5 +272,50 @@ describe("使用统计图表纯逻辑", () => {
     expect(snapUsageMarkerTimestamp(HOUR, samples, HOUR)).toBe(0);
     expect(snapUsageMarkerTimestamp(4 * HOUR, samples, HOUR)).toBe(4 * HOUR);
     expect(snapUsageMarkerTimestamp(3 * HOUR, [], HOUR)).toBe(3 * HOUR);
+  });
+
+  it("定位线平均消耗速率：剩余量下降换算每小时，按 marker 时间差取值样本", () => {
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    expect(usageMarkerBurnRate(scope, [0, 8 * HOUR])).toBeCloseTo(3.375);
+    // 值取自容差内最近样本，时间差按 marker 时刻（0.2h 处吸附 0h 样本）
+    const drifted = { samples: [point(0, 10), point(4, 20)], bucketMs: HOUR };
+    expect(usageMarkerBurnRate(drifted, [0.2 * HOUR, 4 * HOUR])).toBeCloseTo(-10 / 3.8);
+    // markers 乱序传入（拖动交叉后的真实形态）与升序同结果，且不突变入参
+    const shuffled = [8 * HOUR, 0];
+    expect(usageMarkerBurnRate(scope, shuffled)).toBeCloseTo(3.375);
+    expect(shuffled).toEqual([8 * HOUR, 0]);
+  });
+
+  it("定位线平均消耗速率：回升为负值，余额序列同样适用", () => {
+    const refill = { samples: [point(0, 10), point(2, 16)], bucketMs: HOUR };
+    expect(usageMarkerBurnRate(refill, [0, 2 * HOUR])).toBeCloseTo(-3);
+    const balance = { samples: [point(0, 100), point(4, 86)], bucketMs: HOUR };
+    expect(usageMarkerBurnRate(balance, [0, 4 * HOUR])).toBeCloseTo(3.5);
+  });
+
+  it("定位线平均消耗速率：样本缺失或时间差不足一分钟时无可测值", () => {
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    expect(usageMarkerBurnRate(scope, [0, 20 * HOUR])).toBeNull();
+    expect(usageMarkerBurnRate({ samples: [], bucketMs: HOUR }, [0, HOUR])).toBeNull();
+    expect(usageMarkerBurnRate(scope, [0])).toBeNull();
+    expect(usageMarkerBurnRate(scope, [4 * HOUR, 4 * HOUR])).toBeNull();
+    // 时间差不足 1 分钟：与时间差文案「至少 1 分钟」口径对齐，不显示速率
+    expect(usageMarkerBurnRate(scope, [0, 30_000])).toBeNull();
+  });
+
+  it("定位线平均消耗速率：两条线落在同一样本容差内时速率为零（合法读数）", () => {
+    expect(usageMarkerBurnRate({ samples: [point(0, 10)], bucketMs: HOUR }, [0.2 * HOUR, 0.8 * HOUR])).toBe(0);
+  });
+
+  it("容差内最近样本取值：等距取先遍历到的较早样本，恰一个桶宽仍命中，容差外为空", () => {
+    const samples = [point(0, 10), point(2, 20)];
+    expect(nearestUsageSample(samples, 0.6 * HOUR, HOUR)).toEqual(point(0, 10));
+    expect(nearestUsageSample(samples, 1.2 * HOUR, HOUR)).toEqual(point(2, 20));
+    // 等距中点取较早样本（与 snapUsageMarkerTimestamp 口径一致）
+    expect(nearestUsageSample(samples, HOUR, HOUR)).toEqual(point(0, 10));
+    // 恰好一个桶宽命中（<= 边界），超出即无值
+    expect(nearestUsageSample([point(0, 10)], HOUR, HOUR)).toEqual(point(0, 10));
+    expect(nearestUsageSample([point(0, 10)], HOUR + 1, HOUR)).toBeNull();
+    expect(nearestUsageSample([], HOUR, HOUR)).toBeNull();
   });
 });
