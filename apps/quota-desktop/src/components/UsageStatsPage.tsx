@@ -2,14 +2,14 @@ import { LocateFixed, Maximize2, MousePointer2, Plus, RotateCcw, Settings2, Tras
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { api } from "../api";
-import { markerSpanText } from "../display";
+import { markerRateText, markerSpanText } from "../display";
 import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate, type UsageComparisonDialogMode } from "./UsageComparisonDialog";
 import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, SegmentedControl } from "./ui";
-import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, niceAbsoluteScale, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
 
 interface UsageScope extends HistorySeries {
   id: string;
@@ -47,8 +47,7 @@ function formatAxisNumber(value: number): string {
 }
 
 function nearestSample(scope: UsageScope, timestamp: number): UsageSample | null {
-  const nearest = scope.samples.reduce<UsageSample | null>((best, sample) => !best || Math.abs(sample.timestamp - timestamp) < Math.abs(best.timestamp - timestamp) ? sample : best, null);
-  return nearest && Math.abs(nearest.timestamp - timestamp) <= scope.bucketMs ? nearest : null;
+  return nearestUsageSample(scope.samples, timestamp, scope.bucketMs);
 }
 
 function clampDomain(min: number, max: number, totalMin: number, totalMax: number): UsageDomain {
@@ -265,7 +264,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
         return <>
           <span className="qt-usage-marker-label"><LocateFixed size={13} aria-hidden="true" />{t("usage.markerMode")}</span>
           {sorted.map((ts) => { const sample = focusedScope ? nearestSample(focusedScope, ts) : null; const offscreen = ts < viewDomain[0] || ts > viewDomain[1]; return <span key={ts} className={`qt-usage-marker-item ${offscreen ? "is-offscreen" : ""}`} title={offscreen ? t("usage.markerOffscreen") : undefined} style={focusedScope ? { "--qt-series-color": SERIES_COLORS[focusedScope.colorSlot] } as CSSProperties : undefined}><time dateTime={new Date(ts).toISOString()}>{dateFormatter.format(ts)}</time>{focusedScope && <strong className="qt-usage-marker-value">{sample ? formatNumber(sample.value, focusedScope.metric) : "—"}</strong>}<button type="button" className="qt-usage-marker-remove qt-touch-inline" aria-label={t("usage.markerRemoveOne")} onClick={() => void saveMarkers(markers.filter((marker) => marker !== ts))}><X size={13} aria-hidden="true" /></button></span>; })}
-          {sorted.length === 2 && <span className="qt-usage-marker-delta">{t("usage.markerDelta", { span: markerSpanText(Math.abs(sorted[1] - sorted[0]), lang) })}</span>}
+          {sorted.length === 2 && <span className="qt-usage-marker-delta">{t("usage.markerDelta", { span: markerSpanText(Math.abs(sorted[1] - sorted[0]), lang) })}{focusedScope && (() => { const rate = usageMarkerBurnRate(focusedScope, sorted); return rate != null && <span className="qt-usage-marker-rate">{t("usage.markerRate", { rate: markerRateText(rate, focusedScope.metric, focusedScope.unit) })}</span>; })()}</span>}
           <button type="button" className="qt-usage-marker-remove qt-usage-marker-clear qt-touch-inline" aria-label={t("usage.markerClearAll")} title={t("usage.markerClearAll")} onClick={() => void saveMarkers([])}><Trash2 size={13} aria-hidden="true" /></button>
         </>;
       })()}</div>

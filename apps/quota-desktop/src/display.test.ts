@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, markerSpanText, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { exactTime, kindLabel, markerRateText, markerSpanText, relativeTime, resetCountdown, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -66,6 +66,26 @@ describe("定位线时间差", () => {
     expect(markerSpanText(mins(24 * 60 + 15), "zh")).toBe("1天15分");
     expect(markerSpanText(mins(2 * 24 * 60 + 3 * 60 + 15), "zh")).toBe("2天3小时15分");
     expect(markerSpanText(mins(2 * 24 * 60 + 3 * 60 + 15), "en")).toBe("2d 3h 15m");
+  });
+});
+
+describe("定位线平均消耗速率", () => {
+  it("最多 2 位小数并去尾零，负值保留符号表示回升", () => {
+    expect(markerRateText(15, "percent", "%")).toBe("15%/h");
+    expect(markerRateText(3.375, "percent", "%")).toBe("3.38%/h");
+    expect(markerRateText(0.2, "percent", "%")).toBe("0.2%/h");
+    expect(markerRateText(-3, "percent", "%")).toBe("-3%/h");
+    expect(markerRateText(-0.21, "percent", "%")).toBe("-0.21%/h");
+    expect(markerRateText(-0.2, "percent", "%")).toBe("-0.2%/h");
+    // 舍入到 0 的微弱回升显示 0，不得出现 "-0"
+    expect(markerRateText(-0.004, "percent", "%")).toBe("0%/h");
+    expect(markerRateText(0.004, "percent", "%")).toBe("0%/h");
+  });
+
+  it("余额序列带绝对单位，单位为空时仅剩每时值", () => {
+    expect(markerRateText(3.5, "absolute", "CNY")).toBe("3.5 CNY/h");
+    expect(markerRateText(1234.567, "absolute", "credits")).toBe("1234.57 credits/h");
+    expect(markerRateText(1.234, "absolute", "")).toBe("1.23/h");
   });
 });
 

@@ -262,6 +262,41 @@ export function snapUsageMarkerTimestamp(
   return best && Math.abs(best.timestamp - timestamp) <= toleranceMs ? best.timestamp : timestamp;
 }
 
+/** 距给定时刻最近且不超过一个展示桶宽的真实样本（读数行与悬浮读数取值口径）。 */
+export function nearestUsageSample(
+  samples: UsageSample[],
+  timestamp: number,
+  bucketMs: number,
+): UsageSample | null {
+  const nearest = samples.reduce<UsageSample | null>(
+    (best, sample) => !best || Math.abs(sample.timestamp - timestamp) < Math.abs(best.timestamp - timestamp) ? sample : best,
+    null,
+  );
+  return nearest && Math.abs(nearest.timestamp - timestamp) <= bucketMs ? nearest : null;
+}
+
+/**
+ * 定位线平均消耗速率（每小时）：两条线各按读数同口径取容差内最近样本，
+ * 剩余量之差换算为正消耗（曲线值语义是剩余量，负值表示区间内回升；
+ * 仅配 used 的模板曲线值为已用量，方向相反）。时间差按 marker 时刻计算，
+ * 与读数行展示的时间差同源。样本缺失、时间差为零或不足 1 分钟（毫秒级
+ * 差异无测量意义，与 markerSpanText「至少 1 分钟」口径对齐）返回 null
+ * （无可测值）。
+ */
+export function usageMarkerBurnRate(
+  scope: { samples: UsageSample[]; bucketMs: number },
+  markers: number[],
+): number | null {
+  if (markers.length < 2) return null;
+  const [early, late] = [...markers].sort((a, b) => a - b);
+  const spanMs = late - early;
+  if (spanMs < 60_000) return null;
+  const from = nearestUsageSample(scope.samples, early, scope.bucketMs);
+  const to = nearestUsageSample(scope.samples, late, scope.bucketMs);
+  if (!from || !to) return null;
+  return (from.value - to.value) / (spanMs / 3_600_000);
+}
+
 const NICE_FACTORS = [1, 2, 2.5, 5, 10];
 
 function niceStep(rawStep: number): number {

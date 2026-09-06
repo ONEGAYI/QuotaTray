@@ -90,6 +90,7 @@ export const zh = {
   "usage.markerClearAll": "清除全部定位线",
   "usage.markerOffscreen": "定位线在当前视图外（平移或缩放图表可见）",
   "usage.markerDelta": "时间差 {span}",
+  "usage.markerRate": "平均消耗 {rate}",
 
   // ---- 供应商卡片 ----
   "card.disabled": "已停用",

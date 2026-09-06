@@ -113,6 +113,21 @@ export function markerSpanText(diffMs: number, lang: UiLang): string {
     .join(" ");
 }
 
+/** 定位线平均消耗速率（"15%/h" / "3.5 CNY/h"）：最多 2 位小数并去尾零；
+ *  曲线值是剩余量，负速率表示区间内回升（额度重置/充值；仅配 used 的
+ *  模板曲线值为已用量，方向相反），舍入到 0 的微弱回升不显示负号。 */
+export function markerRateText(
+  ratePerHour: number,
+  metric: "absolute" | "percent",
+  unit: string,
+): string {
+  const rounded = parseFloat(ratePerHour.toFixed(2));
+  // -0 显式归零，对齐 usageChartView formatCoordinate 先例
+  const value = Object.is(rounded, -0) ? "0" : String(rounded);
+  const suffix = metric === "percent" ? "%" : unit ? ` ${unit}` : "";
+  return `${value}${suffix}/h`;
+}
+
 /** 多窗口短标签：取 plan_name 全角括号内的窗口标注
  *  （"GLM Coding Plan（5h）" → "5h"；week 映射双语"周限"/"weekly"）。
  *  无括号用全名（template 窗口名），无名回退"窗口 N"。 */
