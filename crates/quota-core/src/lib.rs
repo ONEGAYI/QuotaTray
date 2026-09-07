@@ -52,8 +52,9 @@ pub use runtime::{
 pub use script::{ScriptConfig, ScriptError};
 pub use template::{TemplateConfig, TemplateError};
 pub use update::{
-    AssetDownloader, AssetSelector, DownloadProgress, DownloadProgressReporter, Flavor,
-    ReqwestAssetDownloader, UpdateError, UpdateStatus, VERSION, arch_label, expected_asset_name,
-    is_stale_installer, parse_asset_filename,
+    AssetDownloader, AssetSelector, DownloadProgress, DownloadProgressReporter, DualHttpClients,
+    Flavor, ReqwestAssetDownloader, UpdateChannel, UpdateError, UpdateStatus, VERSION, arch_label,
+    build_dual_http_clients, check_update_with_fallback, expected_asset_name, is_stale_installer,
+    parse_asset_filename,
 };
 pub use vault::{FileStore, InMemoryStore, KeyringStore, SecretStore, Vault};

@@ -39,7 +39,8 @@ pub struct Settings {
     #[serde(default)]
     pub update_last_check: Option<u64>,
     /// 更新通道代理端口（本机 HTTP 代理，如 Clash；None = 直连/环境变量）。
-    /// 检测与下载安装包共用；CLI 读同一 settings.json 自动生效。
+    /// 检测双通道（直连优先、失败经代理重试）与下载安装包共用；
+    /// CLI 读同一 settings.json 自动生效。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
     /// 更新通道代理主机（IP 或域名；None/空白 = 127.0.0.1 本机代理，

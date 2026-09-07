@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use dialoguer::{Confirm, theme::ColorfulTheme};
-use quota_core::http::{HttpClient, ReqwestHttpClient};
+use quota_core::http::HttpClient;
 use quota_core::update::{
     self, AssetDownloader, DownloadProgress, DownloadProgressReporter, UpdateStatus, VERSION,
 };
@@ -97,15 +97,17 @@ fn format_bytes(value: u64) -> String {
     }
 }
 
-/// 生产入口：reqwest 检测（10s 超时）+ reqwest 下载（10 分钟超时）。
-/// 更新代理端口读自 settings.json（GUI 设置页写入，两端口径一致）。
+/// 生产入口：reqwest 双通道检测（直连优先 10s + 代理兜底 10s）+ reqwest
+/// 下载（10 分钟超时）。更新代理端口读自 settings.json（GUI 设置页写入，
+/// 两端口径一致）。
 pub async fn run(ctx: &Ctx, args: UpdateArgs) -> i32 {
     let prefs = crate::settings_io::load_prefs(&ctx.config_path);
     if let Some(port) = prefs.update_proxy_port {
         println!("{}", texts::update_proxy_note(ctx.lang, port));
     }
     let proxy = quota_core::update::proxy_url_of(prefs.update_proxy_port);
-    let Ok(http) = ReqwestHttpClient::new_with_proxy(Duration::from_secs(10), proxy.as_deref())
+    let Ok(clients) =
+        quota_core::update::build_dual_http_clients(Duration::from_secs(10), proxy.as_deref())
     else {
         eprintln!(
             "{}{}",
@@ -122,31 +124,37 @@ pub async fn run(ctx: &Ctx, args: UpdateArgs) -> i32 {
         );
         return 1;
     };
-    run_with(&http, &downloader, ctx, args).await
+    let (direct, proxied) = clients.as_dyn();
+    run_with(direct, proxied, &downloader, ctx, args).await
 }
 
-/// 可注入入口（测试传 mock http/downloader）。
+/// 可注入入口（测试传 mock 直连/代理通道与 downloader）。
 pub async fn run_with(
-    http: &dyn HttpClient,
+    direct: &dyn HttpClient,
+    proxied: Option<&dyn HttpClient>,
     downloader: &dyn AssetDownloader,
     ctx: &Ctx,
     args: UpdateArgs,
 ) -> i32 {
     let lang = ctx.lang;
-    let status = match update::check_update(http, VERSION, ctx.update_selector()).await {
-        Ok(s) => s,
-        Err(e) => {
-            // 手动检测也算一次检测：写回节流时间戳（失败也写，语义与启动钩子一致）
-            let _ = crate::settings_io::write_last_check(
-                &ctx.config_path,
-                crate::settings_io::now_ms(),
-            );
-            // 终端无悬停交互，直接展示完整文案（限流 403 等状态异常
-            // 在括号内附 GitHub 响应 message）
-            eprintln!("{}{}", t(lang, T::UpdateCheckFail), e.full_message());
-            return if e.is_transient() { 2 } else { 1 };
-        }
-    };
+    let status =
+        match update::check_update_with_fallback(direct, proxied, VERSION, ctx.update_selector())
+            .await
+            .map(|(status, _channel)| status)
+        {
+            Ok(s) => s,
+            Err(e) => {
+                // 手动检测也算一次检测：写回节流时间戳（失败也写，语义与启动钩子一致）
+                let _ = crate::settings_io::write_last_check(
+                    &ctx.config_path,
+                    crate::settings_io::now_ms(),
+                );
+                // 终端无悬停交互，直接展示完整文案（限流 403 等状态异常
+                // 在括号内附 GitHub 响应 message）
+                eprintln!("{}{}", t(lang, T::UpdateCheckFail), e.full_message());
+                return if e.is_transient() { 2 } else { 1 };
+            }
+        };
     let _ = crate::settings_io::write_last_check(&ctx.config_path, crate::settings_io::now_ms());
     match status {
         UpdateStatus::NoRelease => {
@@ -370,6 +378,7 @@ mod tests {
         };
         let code = run_with(
             &portable_release_http(),
+            None,
             &dl,
             &ctx,
             UpdateArgs {
@@ -403,6 +412,7 @@ mod tests {
             };
             let code = run_with(
                 &http,
+                None,
                 &never_downloader(),
                 &ctx,
                 UpdateArgs {
@@ -425,6 +435,7 @@ mod tests {
         };
         let code = run_with(
             &http,
+            None,
             &never_downloader(),
             &ctx,
             UpdateArgs {
@@ -449,6 +460,7 @@ mod tests {
         };
         let code = run_with(
             &release_http(),
+            None,
             &dl,
             &ctx,
             UpdateArgs {
@@ -478,6 +490,7 @@ mod tests {
         };
         let code = run_with(
             &release_http(),
+            None,
             &dl,
             &ctx,
             UpdateArgs {
@@ -497,6 +510,7 @@ mod tests {
         let http = RouteHttp { routes: vec![] }; // 无路由 → Network 错
         let code = run_with(
             &http,
+            None,
             &never_downloader(),
             &ctx,
             UpdateArgs {
@@ -513,6 +527,7 @@ mod tests {
         };
         let code = run_with(
             &http,
+            None,
             &never_downloader(),
             &ctx,
             UpdateArgs {
@@ -523,6 +538,27 @@ mod tests {
         )
         .await;
         assert_eq!(code, 1);
+    }
+
+    /// 契约：双通道检测——直连网络失败且代理通道返回 release 时，
+    /// 以代理结果为准正常走完检测（check_only → 0）。
+    #[tokio::test]
+    async fn dual_channel_direct_failure_falls_back_to_proxy() {
+        let ctx = ctx_with("dual", Lang::Zh);
+        let direct = RouteHttp { routes: vec![] }; // 无路由 → Network 错
+        let code = run_with(
+            &direct,
+            Some(&release_http()),
+            &never_downloader(),
+            &ctx,
+            UpdateArgs {
+                check_only: true,
+                yes: true,
+                output: None,
+            },
+        )
+        .await;
+        assert_eq!(code, 0, "直连失败经代理成功应按成功处理");
     }
 
     #[test]
