@@ -52,6 +52,32 @@ export function hardenAndroidManifest(source) {
   return hardened;
 }
 
+/**
+ * 注入自安装权限（2026-09-07 所有者重新确认，推翻 2026-08-29「不声明」
+ * 口径）：Android 8+ 的「安装未知应用」授权列表只列声明了
+ * REQUEST_INSTALL_PACKAGES 的应用——不声明时真机授权列表搜不到本应用、
+ * 授权页开关置灰，应用内安装链死路。声明后：授权放行时 ACTION_VIEW
+ * 一步拉起系统安装确认页，未授权时系统弹「未知来源」引导直达本应用
+ * 授权页。GitHub 分发无 Play 审核顾虑；未来 Play 构建必须剥离该权限
+ * 与商店外安装逻辑（缺口追踪「分发通道分流」条款）。
+ */
+export function injectAndroidRequestInstallPermission(source) {
+  if (source.includes("android.permission.REQUEST_INSTALL_PACKAGES")) {
+    return source;
+  }
+  const anchor = source.match(/[ \t]*<application[ \t>/\r\n]/);
+  if (!anchor) {
+    throw new Error("AndroidManifest.xml 缺少 <application> 锚点");
+  }
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  // 函数 replacement 避免锚点文本中的 $ 序列被 String.replace 展开
+  return source.replace(
+    anchor[0],
+    () =>
+      `    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />${newline}${anchor[0]}`,
+  );
+}
+
 export function androidKeyringBridgeSource() {
   return `package io.crates.keyring
 
@@ -83,23 +109,23 @@ import android.util.Log
 /**
  * APK 安装引导桥：Rust 侧（src-tauri/src/apk_install.rs）经 JNI 调用，
  * 以 ACTION_VIEW 把 SAF 保存的 APK 交给系统安装器；不走应用自安装
- * 通道（Play 审核高危项），由系统安装器经用户确认接管，无分发红线。
+ * 通道，由系统安装器经用户确认接管。
  *
  * 本类仅被 Rust 反射加载（loadClass），无任何 Java/Kotlin 静态引用——
  * release 构建的 R8 会将其视作无引用代码收缩改名，keep 规则见
  * proguard-quotatray.pro（同样由本脚本注入）。两个入口都必须经主线程
  * Handler 派发 startActivity（Rust 命令线程发起，非 UI 线程）。
  *
- * 「安装未知应用」闸口（Android 8+）：其许可状态**程序化不可知**——
- * PackageManager 与 AppOpsManager 的查询 API 均要求调用方先声明自安装
- * 权限（本项目永不声明，调用即 SecurityException，API 36 实证
- * 2026-08-29）。因此不做预判：openApk 直接发安装请求——Android 7 无需
- * 闸口直接弹确认页，8~15 上授权放行时一步到位；未声明权限时新版系统
- * （API 36 实证：AppOps allow 亦被弹回，授权页开关置灰）一律 toast 弹
- * 回，前端提示行以「文件管理器打开已保存 APK」为主出路，并提供
- * openInstallConsent 的授权页入口作为旧版系统的次出路（公开 Settings
- * action，同样不触碰权限声明；该 action 为 API 26 引入，更低版本返回
- * false 由前端降级）。
+ * 「安装未知应用」闸口（Android 8+）：自安装权限声明由本脚本注入
+ * AndroidManifest（2026-09-07 所有者重新确认推翻原「不声明」口径——
+ * 真机端测实证未声明时授权列表搜不到本应用、授权页开关置灰，应用内
+ * 安装链死路；GitHub 分发无 Play 审核顾虑，未来 Play 构建须剥离）。
+ * 声明后本应用出现在系统授权列表：授权放行时 openApk 一步拉起系统
+ * 安装确认页；未授权时系统弹「未知来源」引导对话框直达本应用授权页，
+ * 因此不做授权预判（直发更简单，系统引导完备）——Android 7 无闸口
+ * 直接弹确认页；openInstallConsent 提供显式授权页入口（公开
+ * Settings action，API 26 引入，更低版本返回 false 由前端降级）；
+ * 文件管理器打开已保存 APK 为兜底出路。
  */
 object ApkInstallHelper {
     @JvmStatic
@@ -474,7 +500,11 @@ export async function main() {
   if (hardened === source && !source.includes('android:allowBackup="false"')) {
     throw new Error(`AndroidManifest.xml 缺少 <application>：${manifestPath}`);
   }
-  await writeIfChanged(manifestPath, hardened);
+  const permissionInjected = injectAndroidRequestInstallPermission(hardened);
+  if (!permissionInjected.includes("android.permission.REQUEST_INSTALL_PACKAGES")) {
+    throw new Error(`AndroidManifest.xml 未能注入自安装权限：${manifestPath}`);
+  }
+  await writeIfChanged(manifestPath, permissionInjected);
 
   const mainActivityPath = fileURLToPath(mainActivityUrl);
   const mainActivity = await readFile(mainActivityPath, "utf8");

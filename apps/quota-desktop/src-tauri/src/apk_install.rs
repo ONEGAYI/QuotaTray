@@ -23,11 +23,13 @@ const HELPER_CLASS: &str = "com.quotatray.android.ApkInstallHelper";
 /// - `Ok(false)`：系统无安装器可处理（裁剪 ROM），调用方降级为手动引导；
 /// - `Err`：桥本身故障（ndk-context 未初始化 / JNI 异常），确定性错误。
 ///
-/// 「安装未知应用」未授权时系统以 toast 弹回（不报错）——授权状态
-/// 程序化不可知（PackageManager/AppOps 查询均需先声明自安装权限，
-/// 本项目永不声明，API 36 实证 2026-08-29：AppOps allow 亦被弹回、
-/// 授权页开关置灰），前端提示行以文件管理器为主出路，并以
-/// [`open_install_consent`] 作为旧版系统的授权页次出路。
+/// 「安装未知应用」闸口（Android 8+）：自安装权限已声明
+/// （`android-post-init.mjs` 注入 manifest，2026-09-07 所有者重新确认——
+/// 原「永不声明」口径经真机端测证伪：授权列表搜不到本应用，应用内
+/// 安装链死路）。授权放行时一步拉起系统安装确认页；未授权时系统弹
+/// 「未知来源」引导直达本应用授权页。不做授权预判（系统引导完备，
+/// 直发更简单），并以 [`open_install_consent`] 提供显式授权页入口，
+/// 文件管理器打开已保存 APK 为兜底出路。
 pub fn open_apk(uri: &str) -> Result<bool, String> {
     with_helper_class_named(HELPER_CLASS, |env, context, helper| {
         let j_uri = env
