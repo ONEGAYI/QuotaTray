@@ -247,6 +247,9 @@ export function moveUsageMarker(existing: number[], from: number, to: number): n
 /**
  * 吸附最近真实样本时刻：距离 ≤ tolerance 才吸附（等距时取先遍历到的样本），
  * 无样本或超出容差时保留原始时刻——定位线对齐真实采样点，读数才干净。
+ * 未吸附路径归整为整数毫秒：输入来自图表坐标换算（带小数），而
+ * usage_marker_lines 持久化为 u64，浮点会使后端反序列化失败、保存回退，
+ * 表现为空采集区域（不吸附）放不上线（2026-09-07 真机实证）。
  */
 export function snapUsageMarkerTimestamp(
   timestamp: number,
@@ -259,7 +262,7 @@ export function snapUsageMarkerTimestamp(
       best = sample;
     }
   }
-  return best && Math.abs(best.timestamp - timestamp) <= toleranceMs ? best.timestamp : timestamp;
+  return best && Math.abs(best.timestamp - timestamp) <= toleranceMs ? best.timestamp : Math.round(timestamp);
 }
 
 /** 距给定时刻最近且不超过一个展示桶宽的真实样本（读数行与悬浮读数取值口径）。 */
