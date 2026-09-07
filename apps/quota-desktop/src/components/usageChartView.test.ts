@@ -274,6 +274,21 @@ describe("使用统计图表纯逻辑", () => {
     expect(snapUsageMarkerTimestamp(3 * HOUR, [], HOUR)).toBe(3 * HOUR);
   });
 
+  it("定位线时刻恒为整数毫秒：未吸附时归整坐标换算的小数时刻（持久化契约）", () => {
+    // 真机故障（2026-09-07）：图表坐标换算得的时刻带小数毫秒，吸附命中时
+    // 取到整数样本时刻侥幸可用；空采集区域不吸附时浮点时刻进入
+    // usage_marker_lines，后端 Vec<u64> 反序列化失败 → 保存回退 → 放不上。
+    // snap 是放置与拖动的唯一时刻出口，在此处归整（真机复现：空区域
+    // tap 后读数行回到空态；样本区域 tap 可放置）。
+    const fractional = 3.7 * HOUR + 0.25; // 13320000.25
+    expect(Number.isInteger(fractional)).toBe(false);
+    expect(snapUsageMarkerTimestamp(fractional, [], HOUR)).toBe(13_320_000);
+    // 容差外有样本同样归整保留（不走样本时刻）
+    expect(snapUsageMarkerTimestamp(fractional, [point(0, 10)], HOUR)).toBe(13_320_000);
+    // 吸附路径本就返回整数样本时刻，不受影响
+    expect(snapUsageMarkerTimestamp(0.4 * HOUR, [point(0, 10)], HOUR)).toBe(0);
+  });
+
   it("定位线平均消耗速率：剩余量下降换算每小时，按 marker 时间差取值样本", () => {
     const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
     expect(usageMarkerBurnRate(scope, [0, 8 * HOUR])).toBeCloseTo(3.375);
