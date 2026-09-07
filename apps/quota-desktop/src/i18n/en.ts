@@ -408,7 +408,7 @@ export const en: Record<TextKey, string> = {
   "settings.noInstaller":
     "No system installer available. Open the saved APK from your file manager to install it manually",
   "settings.installConsentHint":
-    "No install confirmation shown? Open the saved APK from your file manager to install it, or first allow this app to install unknown apps on some systems",
+    "No install confirmation shown? Allow this app to install unknown apps first (open the system setting via the link above, then retry), or open the saved APK from your file manager to install it directly",
   "settings.installConsentOpen": "Open system setting",
   "settings.installConsentUnsupported":
     "This system does not provide that settings page (version too old); install from your file manager instead",

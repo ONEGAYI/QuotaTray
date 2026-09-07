@@ -9,6 +9,7 @@ import {
   hardenAndroidManifest,
   initializeAndroidKeyringInMainActivity,
   injectAndroidReleaseSigning,
+  injectAndroidRequestInstallPermission,
   injectAndroidWorkManagerDependency,
   proguardKeepRulesSource,
 } from "./android-post-init.mjs";
@@ -20,6 +21,40 @@ test("Android manifest 关闭系统备份且重复执行幂等", () => {
   assert.match(hardened, /android:fullBackupContent="false"/);
   assert.equal(hardened.match(/android:allowBackup=/g)?.length, 1);
   assert.equal(hardenAndroidManifest(hardened), hardened);
+});
+
+test("Android manifest 注入自安装权限（授权列表可见前提）且幂等", () => {
+  // 2026-09-07 所有者重新确认：不声明时「安装未知应用」授权列表搜不到
+  // 本应用（Android 8+ 列表只列声明该权限的应用），应用内安装链死路
+  const fixture = `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application android:allowBackup="false" android:fullBackupContent="false">
+    </application>
+</manifest>
+`;
+  const injected = injectAndroidRequestInstallPermission(fixture);
+  assert.match(
+    injected,
+    /<uses-permission android:name="android\.permission\.REQUEST_INSTALL_PACKAGES" \/>/,
+  );
+  assert.equal(injected.match(/REQUEST_INSTALL_PACKAGES/g)?.length, 1);
+  // 必须落在 <application 之前（manifest 直接子元素段，与模板 uses-permission 同区）
+  assert.ok(
+    injected.indexOf("REQUEST_INSTALL_PACKAGES") < injected.indexOf("<application"),
+  );
+  assert.equal(injectAndroidRequestInstallPermission(injected), injected);
+  // 锚点漂移拒绝（不得静默生成无权限工程）
+  assert.throws(
+    () => injectAndroidRequestInstallPermission('<manifest></manifest>'),
+    /缺少 <application> 锚点/,
+  );
+  // CRLF 模板保持行尾一致
+  const crlf = injectAndroidRequestInstallPermission(
+    fixture.replace(/\n/g, "\r\n"),
+  );
+  assert.match(crlf, /REQUEST_INSTALL_PACKAGES" \/>\r\n/);
 });
 
 test("Android Keyring 桥接类从 Tauri 主库导出 JNI 初始化入口", () => {
@@ -195,11 +230,11 @@ test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰�
   assert.match(consentBlock, /ActivityNotFoundException/);
   // 系统无安装器时返回 false（前端降级手动引导），不得静默成功
   assert.match(source, /resolveActivity/);
-  // 「安装未知应用」闸口：许可状态程序化不可知（PackageManager/AppOps
-  // 查询均需先声明自安装权限，API 36 实证 SecurityException），不做预判
-  // ——openApk 直接发安装请求，openInstallConsent 提供授权页次出路
-  //（公开 Settings action，用户开关而非权限声明；API 26 引入，更低版本
-  // 返回 false 交前端降级）。
+  // 「安装未知应用」闸口：自安装权限声明移至 manifest（post-init 注入，
+  // 2026-09-07 所有者重新确认），helper 不做授权预判直接发安装请求——
+  // 未授权时系统弹「未知来源」引导直达授权页；openInstallConsent 提供
+  // 显式授权页入口（公开 Settings action，API 26 引入，更低版本返回
+  // false 交前端降级）
   assert.match(source, /fun openInstallConsent\(context: Context\): Boolean/);
   assert.match(source, /ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
   assert.match(source, /Build\.VERSION\.SDK_INT < 26/);
@@ -207,8 +242,9 @@ test("APK 安装引导 helper 以 ACTION_VIEW 交给系统安装器且不触碰�
   // Kotlin 得到字面量不插值、运行时 URI 错误但编译通过）
   assert.match(source, /package:\$\{context\.packageName\}/);
   assert.doesNotMatch(source, /\\\$\{/);
-  // 红线锁定：不出现应用自安装通道 API 与权限声明（Play 审核高危项）；
-  // 负向后瞻放行 AppOps 常量形态（如历史方案回流可被捕获）
+  // 红线锁定：helper 源不出现应用自安装通道 API 与授权状态查询——
+  // 权限声明归 manifest 注入（injectAndroidRequestInstallPermission），
+  // 未来 Play 构建剥离声明时 helper 行为不变（缺口追踪分流条款）
   assert.doesNotMatch(source, /installPackage\(|PackageInstaller/);
   assert.doesNotMatch(source, /(?<!OPSTR_)REQUEST_INSTALL/);
   assert.doesNotMatch(source, /canRequestPackageInstalls/);
