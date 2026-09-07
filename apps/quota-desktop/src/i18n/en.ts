@@ -362,7 +362,7 @@ export const en: Record<TextKey, string> = {
   "settings.updateEnabledHint": "Checks for new versions in the background while the app is running",
   "settings.updateProxyPort": "Network proxy port",
   "settings.updateProxyPortTitle": "Network proxy port",
-  "settings.updateProxyPortHint": "Route update checks and proxied provider queries through an HTTP proxy (e.g. 7897 for Clash); leave empty for a direct connection",
+  "settings.updateProxyPortHint": "Route installer downloads and proxied provider queries through an HTTP proxy (e.g. 7897 for Clash); update checks try a direct connection first and fall back to the proxy; leave empty for direct connection",
   "settings.updateProxyHost": "Network proxy host",
   "settings.updateProxyHostTitle": "Network proxy host",
   "settings.updateProxyHostHint": "IP or hostname of the proxy; empty means local (127.0.0.1). On Android, enter your PC's LAN IP to use its proxy (enable Allow LAN in the proxy app)",

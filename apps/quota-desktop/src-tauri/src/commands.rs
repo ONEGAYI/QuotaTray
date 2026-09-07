@@ -1644,12 +1644,13 @@ pub async fn check_update_now(
     let lang = lang_of(&state);
     ensure_update_check_supported(lang)?;
     let proxy = crate::update_ctl::proxy_url(&state);
-    let http = quota_core::http::ReqwestHttpClient::new_with_proxy(
+    let clients = quota_core::update::build_dual_http_clients(
         std::time::Duration::from_secs(10),
         proxy.as_deref(),
     )
     .map_err(|e| lang.err_update_client(&e))?;
-    let inner = crate::update_ctl::run_check(&state, &http).await;
+    let (direct, proxied) = clients.as_dyn();
+    let inner = crate::update_ctl::run_check(&state, direct, proxied).await;
     tray::rebuild(&app, &state);
     // 检测后联动：探测恢复广播 + 自动下载（后台执行，不阻塞本命令返回）；
     // 两者均为桌面语义（托盘消息、NSIS 自动安装链），移动端不编译

@@ -35,6 +35,19 @@ impl ReqwestHttpClient {
             .map_err(|e| HttpError::Network(e.to_string()))?;
         Ok(Self { client })
     }
+
+    /// 真直连构造：显式禁用系统与环境变量代理（reqwest 默认两者都可能生效）。
+    /// 用于更新检测的「直连优先」通道——匿名 GitHub API 按 IP 限额，若直连
+    /// 通道被系统代理（Clash 等常开）静默劫持，出口仍是代理共享 IP，
+    /// 双通道形同虚设。
+    pub fn new_direct(fallback_timeout: Duration) -> Result<Self, HttpError> {
+        let client = reqwest::Client::builder()
+            .timeout(fallback_timeout)
+            .no_proxy()
+            .build()
+            .map_err(|e| HttpError::Network(e.to_string()))?;
+        Ok(Self { client })
+    }
 }
 
 #[async_trait]
@@ -127,6 +140,14 @@ mod tests {
         assert!(
             ReqwestHttpClient::new_with_proxy(Duration::from_secs(5), Some("not a url")).is_err(),
             "非法 URL（无 scheme）应返回 Err"
+        );
+    }
+
+    #[test]
+    fn new_direct_builds_client() {
+        assert!(
+            ReqwestHttpClient::new_direct(Duration::from_secs(5)).is_ok(),
+            "真直连构造（no_proxy）应成功"
         );
     }
 

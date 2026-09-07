@@ -13,8 +13,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use quota_core::http::HttpClient;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-use quota_core::http::ReqwestHttpClient;
 
 use quota_core::update::{
     self, AssetDownloader, DownloadProgress, DownloadProgressReporter, ReqwestAssetDownloader,
@@ -257,7 +255,9 @@ pub(crate) fn notify_desktop(app: &AppHandle, state: &AppState, title: &str, bod
 }
 
 /// 更新通道代理 URL（settings 主机/端口 → `http://{host}:{port}`；主机
-/// 缺省回退 127.0.0.1，端口未配置 = 直连）。检测与下载共用同一设置项。
+/// 缺省回退 127.0.0.1，端口未配置 = 无代理）。口径：检测走双通道
+/// （直连优先、失败经代理重试，见 core `check_update_with_fallback`），
+/// 安装包下载与开启代理的条目查询经此代理。
 pub(crate) fn proxy_url(state: &AppState) -> Option<String> {
     let (host, port) = {
         let settings = state.settings.read().unwrap();
@@ -290,10 +290,16 @@ impl DownloadProgressReporter for TauriProgressReporter<'_> {
     }
 }
 
-/// 执行一次检测（http 注入便于测试）：更新状态表 + settings 节流时间戳
-/// 落盘。托盘重建留给调用方（手动检测与调度任务都重建，时机各自掌控）。
-/// 检测失败（网络/解析）记入 `last_error` 而非中断——自动场景静默可查。
-pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlState {
+/// 执行一次检测（双通道客户端注入便于测试：直连优先、失败经代理重试，
+/// 通道策略见 core `check_update_with_fallback`）：更新状态表 + settings
+/// 节流时间戳落盘。托盘重建留给调用方（手动检测与调度任务都重建，
+/// 时机各自掌控）。检测失败（网络/解析）记入 `last_error` 而非中断——
+/// 自动场景静默可查。
+pub async fn run_check(
+    state: &AppState,
+    direct: &dyn HttpClient,
+    proxied: Option<&dyn HttpClient>,
+) -> UpdateCtlState {
     let now = now_ms();
     let prev = state.update_ctl.read().unwrap().clone();
     let prev_downloaded = prev.downloaded.clone();
@@ -302,7 +308,10 @@ pub async fn run_check(state: &AppState, http: &dyn HttpClient) -> UpdateCtlStat
     // 资产选择按架构 × 运行形态分流，绝不跨形态回退。
     let selector =
         update::AssetSelector::for_runtime(update::arch_label(), state.mode.is_portable());
-    let mut inner = match update::check_update(http, VERSION, selector).await {
+    let mut inner = match update::check_update_with_fallback(direct, proxied, VERSION, selector)
+        .await
+        .map(|(status, _channel)| status)
+    {
         Ok(UpdateStatus::Available {
             version,
             html_url,
@@ -660,11 +669,12 @@ pub fn spawn_scheduler(app: AppHandle) {
                     last,
                     now_ms(),
                     quota_core::update::POLL_INTERVAL_MS,
-                ) && let Ok(http) = ReqwestHttpClient::new_with_proxy(
+                ) && let Ok(clients) = quota_core::update::build_dual_http_clients(
                     Duration::from_secs(10),
                     proxy_url(&state).as_deref(),
                 ) {
-                    let inner = run_check(&state, &http).await;
+                    let (direct, proxied) = clients.as_dyn();
+                    let inner = run_check(&state, direct, proxied).await;
                     let _ = app.emit(UPDATE_STATE_EVENT, dto_of(&inner, state.mode.is_portable()));
                     tray::rebuild(&app, &state);
                     // 检测后联动：探测恢复广播 + 自动下载（内部自 spawn）
@@ -818,7 +828,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 200, body)],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.info.as_ref().and_then(|i| i.asset_name.as_deref()),
             Some(zip.as_str()),
@@ -845,7 +855,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 404, "".into())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert!(inner.last_check.is_some(), "检测过即记录时间戳");
         assert!(inner.info.is_none());
         assert!(inner.last_error.is_none());
@@ -870,7 +880,7 @@ mod tests {
         };
         state.update_ctl.write().unwrap().downloaded = Some(downloaded.clone());
         let http = RouteHttp { routes: vec![] };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert!(
             inner.last_error.is_some(),
             "网络失败进 last_error 而非 panic"
@@ -881,7 +891,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 404, "".into())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert!(inner.last_error.is_none());
         assert_eq!(inner.downloaded, None, "已最新时旧安装包记录失效");
 
@@ -903,7 +913,7 @@ mod tests {
                 r#"{"message":"API rate limit exceeded for 1.2.3.4."}"#.into(),
             )],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.last_error.as_deref(),
             Some("网络错误：HTTP 403"),
@@ -920,9 +930,41 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 404, "".into())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(inner.last_error, None);
         assert_eq!(inner.last_error_detail, None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 契约：双通道检测——直连失败（网络错）且代理通道返回 release 时，
+    /// 以代理结果为最终结果（info 正常落表、不产生错误）。
+    #[tokio::test]
+    async fn run_check_direct_failure_falls_back_to_proxy() {
+        let dir = std::env::temp_dir().join(format!("qt-updctl-dual-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let state = sandbox_state(&dir);
+
+        let setup =
+            update::expected_asset_name("9.9.9", update::arch_label(), update::Flavor::SetupExe);
+        let proxied = RouteHttp {
+            routes: vec![(
+                "releases/latest",
+                200,
+                format!(
+                    r#"{{"tag_name":"v9.9.9","html_url":"u","assets":[
+                        {{"name":"{setup}","browser_download_url":"https://x/setup","size":1}}
+                    ]}}"#
+                ),
+            )],
+        };
+        let direct = RouteHttp { routes: Vec::new() }; // 无路由 → 网络错
+        let inner = run_check(&state, &direct, Some(&proxied)).await;
+        assert!(
+            inner.info.as_ref().is_some_and(|i| i.version == "9.9.9"),
+            "直连失败应采用代理通道结果"
+        );
+        assert!(inner.last_error.is_none());
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1201,7 +1243,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 200, body)],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         let d = inner.downloaded.expect("磁盘同名资产文件应恢复已下载记录");
         assert_eq!(d.asset_name, name);
         assert_eq!(PathBuf::from(&d.path), file, "恢复路径即下载目录内同名文件");
@@ -1222,7 +1264,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 404, "".into())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(inner.downloaded, None, "无新版本不恢复");
         cleanup();
     }
@@ -1378,7 +1420,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 200, body)],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.ready_notified.as_deref(),
             Some(name.as_str()),
@@ -1389,13 +1431,13 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 404, "".into())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(inner.ready_notified, None, "记录失效清广播位");
 
         // 检测失败：沿用旧广播状态
         state.update_ctl.write().unwrap().ready_notified = Some("setup.exe".into());
         let http = RouteHttp { routes: vec![] };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.ready_notified.as_deref(),
             Some("setup.exe"),
@@ -1424,7 +1466,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 200, body.clone())],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(inner.available_notified, None, "换版本清空旧登记");
 
         // 同版本：登记与 available 一致 → 保留（不重复打扰）
@@ -1432,7 +1474,7 @@ mod tests {
         let http = RouteHttp {
             routes: vec![("releases/latest", 200, body)],
         };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.available_notified.as_deref(),
             Some("9.9.9"),
@@ -1441,7 +1483,7 @@ mod tests {
 
         // 检测失败：沿用旧登记
         let http = RouteHttp { routes: vec![] };
-        let inner = run_check(&state, &http).await;
+        let inner = run_check(&state, &http, None).await;
         assert_eq!(
             inner.available_notified.as_deref(),
             Some("9.9.9"),

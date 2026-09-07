@@ -642,19 +642,25 @@ async fn auto_update_hint(ctx: &Ctx) {
     // 与 `quota update` 子命令同口径：代理端口读 settings.json（GUI
     // 设置页写入），保证两入口对 GitHub 的出口一致
     let proxy = update::proxy_url_of(prefs.update_proxy_port);
-    let Ok(http) = quota_core::http::ReqwestHttpClient::new_with_proxy(
-        std::time::Duration::from_secs(4),
-        proxy.as_deref(),
-    ) else {
+    // 双通道预算：配了代理时直连/代理各 2s（串行最坏 4s < 外层 5s）；
+    // 未配置维持单通道 4s 不变
+    let per_channel = if proxy.is_some() {
+        std::time::Duration::from_secs(2)
+    } else {
+        std::time::Duration::from_secs(4)
+    };
+    let Ok(clients) = quota_core::update::build_dual_http_clients(per_channel, proxy.as_deref())
+    else {
         return;
     };
+    let (direct, proxied) = clients.as_dyn();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        update::check_update(&http, VERSION, ctx.update_selector()),
+        update::check_update_with_fallback(direct, proxied, VERSION, ctx.update_selector()),
     )
     .await;
     let _ = settings_io::write_last_check(&ctx.config_path, now);
-    if let Ok(Ok(update::UpdateStatus::Available { version, .. })) = result {
+    if let Ok(Ok((update::UpdateStatus::Available { version, .. }, _))) = result {
         eprintln!("{}", texts::update_hint_available(ctx.lang, &version));
     }
 }

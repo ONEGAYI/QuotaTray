@@ -8,6 +8,9 @@
 //! header 与 302 跟随均支持）；安装包是二进制字节流，走独立的
 //! [`AssetDownloader`]——HttpClient 的 body 是 String 且生产实现带 15s
 //! 总超时，载不动安装包，也不为此扩展 M2 冻结的 trait API 面。
+//! 检测通道策略：端侧配了代理时走双通道（直连优先、失败经代理重试，
+//! [`check_update_with_fallback`]）；安装包下载不做直连回退（配了代理
+//! 即经代理）。
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,7 +19,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use crate::http::{HttpClient, HttpError, HttpRequest};
+use crate::http::{HttpClient, HttpError, HttpRequest, ReqwestHttpClient};
 
 /// 当前程序版本（workspace 单源继承，与 CLI `--version` / GUI app 版本一致）。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -394,6 +397,85 @@ fn extract_error_message(body: &str) -> Option<String> {
 /// 回退——跨架构/跨形态相似名一律不命中，由端侧引导去发布页）。
 fn pick_asset(assets: &[ReleaseAsset], expected: &str) -> Option<ReleaseAsset> {
     assets.iter().find(|a| a.name == expected).cloned()
+}
+
+// ---- 双通道检测（直连优先，代理兜底） -------------------------------------
+
+/// 检测实际应答的通道：双通道回退策略的可观测结果（端侧当前未消费；
+/// 回退触发率等打点/展示可在此扩展）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateChannel {
+    Direct,
+    Proxied,
+}
+
+/// 双通道检测：先直连，直连成功（含无 release / 已最新）即用且**不发出
+/// 代理请求**；直连任何失败（网络/超时/限流/解析——直连被劫持时既可能
+/// 表现为网络错、也可能是 200 + 烂 JSON）且配置了代理时经代理重试一次，
+/// 代理结果（无论成败）为最终结果。未配置代理时直连错误即最终错误
+/// （单通道现状不变）。
+///
+/// 动机：匿名 GitHub API 按 IP 限额（60 次/小时），代理出口是共享 IP、
+/// 额度易被耗尽——能直连拿到就绝不消耗代理额度。必须串行而非并行
+/// 双发：并行必然消耗代理共享额度，违背目的。
+pub async fn check_update_with_fallback(
+    direct: &dyn HttpClient,
+    proxied: Option<&dyn HttpClient>,
+    current: &str,
+    selector: AssetSelector,
+) -> Result<(UpdateStatus, UpdateChannel), UpdateError> {
+    match check_update(direct, current, selector).await {
+        Ok(status) => Ok((status, UpdateChannel::Direct)),
+        // 直连错误不透出：有代理时经代理重试、以代理结果（无论成败）
+        // 为最终结果；无代理时直连错误才是最终错误
+        Err(direct_err) => match proxied {
+            Some(http) => check_update(http, current, selector)
+                .await
+                .map(|status| (status, UpdateChannel::Proxied)),
+            None => Err(direct_err),
+        },
+    }
+}
+
+/// 双通道检测的生产客户端对（[`check_update_with_fallback`] 的注入材料）。
+pub struct DualHttpClients {
+    pub direct: ReqwestHttpClient,
+    pub proxied: Option<ReqwestHttpClient>,
+}
+
+impl DualHttpClients {
+    /// trait 对象注入视图（直连 + 可选代理），直传
+    /// [`check_update_with_fallback`] 或端侧的 run_check 类封装。
+    pub fn as_dyn(&self) -> (&dyn HttpClient, Option<&dyn HttpClient>) {
+        (
+            &self.direct,
+            self.proxied.as_ref().map(|c| c as &dyn HttpClient),
+        )
+    }
+}
+
+/// 按代理配置构造双通道检测客户端：
+///
+/// - 配置了代理：直连通道用 [`ReqwestHttpClient::new_direct`] **真直连**
+///   （显式禁用系统/环境代理——默认构造会被常开的系统代理静默劫持，
+///   「直连」出口仍是代理共享 IP，双通道形同虚设），代理通道显式挂
+///   该代理；
+/// - 未配置代理：单通道，直连客户端维持默认构造（环境变量代理语义
+///   与既有行为一致，不回归依赖环境变量代理的用户）。
+///
+/// 任一构造失败整体返回 Err（沿用「非法代理 URL 不静默回退直连」契约）。
+pub fn build_dual_http_clients(
+    timeout: Duration,
+    proxy: Option<&str>,
+) -> Result<DualHttpClients, HttpError> {
+    let (direct, proxied) = match proxy {
+        None => (ReqwestHttpClient::new_with_proxy(timeout, None)?, None),
+        Some(url) => (
+            ReqwestHttpClient::new_direct(timeout)?,
+            Some(ReqwestHttpClient::new_with_proxy(timeout, Some(url))?),
+        ),
+    };
+    Ok(DualHttpClients { direct, proxied })
 }
 
 // ---- 下载 -----------------------------------------------------------------
@@ -1039,6 +1121,101 @@ mod tests {
             .unwrap_err();
         assert!(!err.is_transient(), "解析失败是确定性错误：{err}");
         assert!(matches!(err, UpdateError::Parse(_)));
+    }
+
+    // ---- check_update_with_fallback（双通道：直连优先，代理兜底） ----
+
+    /// 契约：直连成功（含已最新/无 release）即用直连结果，代理通道
+    /// 零请求——并行或抢先发代理请求会必然消耗代理共享额度，违背
+    /// 双通道目的。
+    #[tokio::test]
+    async fn fallback_direct_success_skips_proxied_channel() {
+        let direct = MockHttp::ok(r#"{"tag_name":"v0.1.0","assets":[]}"#); // UpToDate
+        let proxied = MockHttp::status(403);
+        let (status, channel) =
+            check_update_with_fallback(&direct, Some(&proxied), "0.1.0", X64_SETUP)
+                .await
+                .unwrap();
+        assert_eq!(status, UpdateStatus::UpToDate);
+        assert_eq!(channel, UpdateChannel::Direct);
+        assert!(
+            proxied.captured_requests().is_empty(),
+            "直连成功不得发出代理请求"
+        );
+
+        // 404（无 release）同为直连 Ok，同样短路代理通道
+        let direct = MockHttp::status(404);
+        let proxied = MockHttp::status(403);
+        let (status, channel) =
+            check_update_with_fallback(&direct, Some(&proxied), "0.1.0", X64_SETUP)
+                .await
+                .unwrap();
+        assert_eq!(status, UpdateStatus::NoRelease);
+        assert_eq!(channel, UpdateChannel::Direct);
+        assert!(proxied.captured_requests().is_empty());
+    }
+
+    /// 契约：直连失败的四种形态（网络错 / 限流 403 / 200 + 烂 JSON /
+    /// 超时——劫持与不可达场景）都触发代理重试，且以代理结果为最终结果。
+    #[tokio::test]
+    async fn fallback_direct_errors_retry_via_proxy() {
+        for direct in [
+            MockHttp::fail(),
+            MockHttp::status(403),
+            MockHttp::ok("not json"),
+            MockHttp::seq_of(&[crate::provider::testing::MockResp::Timeout]),
+        ] {
+            let proxied = MockHttp::ok(RELEASE_JSON);
+            let (status, channel) =
+                check_update_with_fallback(&direct, Some(&proxied), "0.1.0", X64_SETUP)
+                    .await
+                    .unwrap_or_else(|e| panic!("代理成功应胜出：{e}"));
+            assert_eq!(channel, UpdateChannel::Proxied);
+            assert!(
+                matches!(status, UpdateStatus::Available { version, .. } if version == "0.2.0"),
+                "应采用代理通道的 Available 结果"
+            );
+        }
+    }
+
+    /// 契约：未配置代理时直连错误即最终错误（单通道现状不变）。
+    #[tokio::test]
+    async fn fallback_without_proxy_reports_direct_error() {
+        let err = check_update_with_fallback(&MockHttp::fail(), None, "0.1.0", X64_SETUP)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, UpdateError::Http(HttpError::Network(_))));
+        assert!(err.is_transient());
+    }
+
+    /// 契约：双失败时以**代理通道**错误为最终结果（最后一次尝试）。
+    #[tokio::test]
+    async fn fallback_both_fail_reports_proxied_error() {
+        let proxied = MockHttp::status(500);
+        let err = check_update_with_fallback(&MockHttp::fail(), Some(&proxied), "0.1.0", X64_SETUP)
+            .await
+            .unwrap_err();
+        let UpdateError::HttpStatus { status_text, .. } = &err else {
+            panic!("应透传代理通道错误：{err:?}");
+        };
+        assert_eq!(status_text, "HTTP 500");
+    }
+
+    /// 契约：构造器按代理配置分流——None 单通道默认构造；Some 双通道
+    /// 真直连 + 显式代理；非法代理 URL 整体 Err（不静默回退直连）。
+    #[test]
+    fn build_dual_http_clients_branches_on_proxy() {
+        let clients = build_dual_http_clients(Duration::from_secs(5), None).unwrap();
+        assert!(clients.proxied.is_none(), "未配置代理应只有直连通道");
+
+        let clients =
+            build_dual_http_clients(Duration::from_secs(5), Some("http://127.0.0.1:7897")).unwrap();
+        assert!(clients.proxied.is_some(), "配置代理应有代理通道");
+
+        assert!(
+            build_dual_http_clients(Duration::from_secs(5), Some("not a url")).is_err(),
+            "非法代理 URL 应整体 Err"
+        );
     }
 
     /// 契约：pick_asset 按期望名完整相等匹配——与顺序无关，相似名

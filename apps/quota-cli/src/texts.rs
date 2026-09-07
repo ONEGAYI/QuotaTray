@@ -1489,11 +1489,14 @@ pub fn update_hint_available(lang: Lang, version: &str) -> String {
     }
 }
 
-/// 读到代理端口时的一行提示（让用户知道更新流量走了代理）。
+/// 读到代理端口时的一行提示（让用户知道下载流量走了代理；检测走
+/// 双通道——直连优先、失败经代理重试）。
 pub fn update_proxy_note(lang: Lang, port: u16) -> String {
     match lang {
-        Lang::En => format!("Using local proxy 127.0.0.1:{port} for update checks and downloads"),
-        _ => format!("检测与下载经本机代理 127.0.0.1:{port}"),
+        Lang::En => format!(
+            "Downloads use local proxy 127.0.0.1:{port}; update checks try direct first and fall back to the proxy"
+        ),
+        _ => format!("下载经本机代理 127.0.0.1:{port}；检测优先直连，失败自动经代理重试"),
     }
 }
 
