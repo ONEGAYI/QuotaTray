@@ -535,6 +535,18 @@ QuotaTray/
 ├── scripts/                # 维护脚本
 │   ├── clean.ps1         # 分级清理器
 │   ├── clean.tests.ps1   # 清理器契约测试
+│   ├── fetch_pricing/    # 官网定价确定性抓取脚本集
+│   │   ├── fetch_pricing.py # 抓取主入口：路由与一键全抓
+│   │   ├── providers/       # 平台抓取组件目录
+│   │   │   ├── __init__.py # Provider 协议声明与通用件导出
+│   │   │   ├── _http.py    # 共用 HTTP GET 助手
+│   │   │   ├── deepseek.py # DeepSeek 中文定价页抓取组件
+│   │   │   ├── model.py    # 通用数据结构与异常
+│   │   │   ├── zai.py      # Z.ai 国际站定价页抓取组件
+│   │   │   └── zhipu.py    # 智谱国内站 app.js 价格解析组件
+│   │   └── tests/           # 契约测试与快照
+│   │       ├── fetch_pricing.tests.py # 抓取契约测试
+│   │       └── fixtures/…             # 官网页 HTML 固化快照
 │   ├── package.ps1       # 一键发布资产打包脚本
 │   └── package.tests.ps1 # 打包脚本契约测试
 └── setup-hooks.cmd         # git hooks 配置入口（幂等）

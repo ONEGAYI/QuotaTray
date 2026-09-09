@@ -387,16 +387,21 @@ pub fn preset_with_currency(native_id: &str, currency: &str) -> Option<PresetPro
 
 /// 按 native id 取预置峰谷定价；无预置 → None。
 ///
-/// 数据抓取自各官网定价页（2026-08-23，中英文页交叉验证）：
-/// - DeepSeek：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/ （CNY）
-///   与英文页（USD）。高峰 = 北京时间周一至周五 09:00–12:00、14:00–18:00，
-///   空闲价为高峰一半。
+/// 数据抓取自各官网定价页：
+/// - DeepSeek：中文页 https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+///   （2026-08-23 抓取、2026-09-09 按 Flash 系列降价公告更新 CNY 档；
+///   官方英文页路由故障，USD 档待修复后核实）。高峰 = 北京时间周一至
+///   周五 09:00–12:00、14:00–18:00，空闲价为高峰一半。
 /// - Kimi：https://platform.kimi.com/docs/pricing/chat （CNY）/
 ///   platform.kimi.ai（USD），无峰谷（恒空闲，两档同价）。
-/// - 智谱/Z.ai：open.bigmodel.cn/pricing（CNY，SPA 实抓）/ docs.z.ai
-///   （USD）。按量无峰谷；Coding Plan 订阅积分制高峰 = 工作日 14:00–18:00，
-///   其余时段（含周末全天）积分消耗更低——倍率口径以官网权益说明为准
-///   （Z.ai 为闲时 0.5×，智谱国内站倍率曾调整过，两站均非峰谷时段本身）。
+/// - 智谱/Z.ai（2026-09-09 经 `scripts/fetch_pricing` 脚本核实）：
+///   国内 open.bigmodel.cn（CNY，SPA 价格打包于 app.js）/ 国际
+///   docs.z.ai（USD，SSG 直出）。按量无峰谷；GLM-5.3-Flash 为限时
+///   促销新模型，预置取促销前原价档；国际站已无 GLM-5-Turbo（随官网
+///   撤除），国内 5-Turbo 为输入长度阶梯价、预置取基础档（<32K）。
+///   Coding Plan 订阅积分制高峰 = 工作日 14:00–18:00，其余时段（含
+///   周末全天）积分消耗更低——倍率口径以官网权益说明为准（Z.ai 为
+///   闲时 0.5×，智谱国内站倍率曾调整过，两站均非峰谷时段本身）。
 pub fn preset(native_id: &str) -> Option<PresetProvider> {
     match native_id {
         "deepseek" => Some(deepseek_preset("CNY")),
@@ -425,6 +430,7 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
             "CNY",
             &[
                 ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
+                ("glm-5.3-flash", "GLM-5.3-Flash", 0.23, 0.8, 2.8),
                 ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
                 ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
             ],
@@ -434,6 +440,7 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
             "CNY",
             &[
                 ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
+                ("glm-5.3-flash", "GLM-5.3-Flash", 0.23, 0.8, 2.8),
                 ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
                 ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
             ],
@@ -443,8 +450,8 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
             "USD",
             &[
                 ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
+                ("glm-5.3-flash", "GLM-5.3-Flash", 0.03, 0.15, 0.50),
                 ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
-                ("glm-5-turbo", "GLM-5-Turbo", 0.24, 1.2, 4.0),
             ],
         )),
         "zai" => Some(zhipu_preset(
@@ -452,8 +459,8 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
             "USD",
             &[
                 ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
+                ("glm-5.3-flash", "GLM-5.3-Flash", 0.03, 0.15, 0.50),
                 ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
-                ("glm-5-turbo", "GLM-5-Turbo", 0.24, 1.2, 4.0),
             ],
         )),
         _ => None,
@@ -461,11 +468,18 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
 }
 
 /// DeepSeek 预置（单站双币：账户币种由余额 API `currency` 字段返回）。
+///
+/// CNY 于 2026-09-09 更新：Flash 系列降价（官方调价通知经媒体转述，
+/// 北京时间 9 月 10 日 12:00 生效）——空闲档命中/未命中/输出
+/// 0.02/1/4 元，高峰 = 空闲 × 2；Vision Exp 与 Flash 历史同价、同属
+/// Flash 系列，随之更新；V4 Pro 不在降价范围。USD 档因官方英文定价页
+/// 路由故障（2026-09-09 实测）暂维持 8·23 旧值，待修复后经
+/// `scripts/fetch_pricing` 核实再同步。
 fn deepseek_preset(currency: &'static str) -> PresetProvider {
     let (flash, pro): ((f64, f64, f64), (f64, f64, f64)) = if currency == "USD" {
         ((0.014, 0.44, 1.32), (0.044, 1.32, 3.96))
     } else {
-        ((0.10, 3.0, 9.0), (0.30, 9.0, 27.0))
+        ((0.04, 2.0, 8.0), (0.30, 9.0, 27.0))
     };
     let half = |(a, b, c): (f64, f64, f64)| (a / 2.0, b / 2.0, c / 2.0);
     let (flash_off, pro_off) = (half(flash), half(pro));
@@ -1247,14 +1261,14 @@ mod tests {
         let pro = &p.models[1];
         let vision = &p.models[2];
         assert_eq!(flash.id, "flash");
-        assert_eq!(flash.peak, PriceTier::full(0.10, 3.0, 9.0));
-        assert_eq!(flash.off_peak, PriceTier::full(0.05, 1.5, 4.5));
+        assert_eq!(flash.peak, PriceTier::full(0.04, 2.0, 8.0));
+        assert_eq!(flash.off_peak, PriceTier::full(0.02, 1.0, 4.0));
         assert_eq!(pro.id, "pro");
         assert_eq!(pro.peak, PriceTier::full(0.30, 9.0, 27.0));
         assert_eq!(pro.off_peak, PriceTier::full(0.15, 4.5, 13.5));
         assert_eq!(vision.id, "vision");
-        assert_eq!(vision.peak, PriceTier::full(0.10, 3.0, 9.0));
-        assert_eq!(vision.off_peak, PriceTier::full(0.05, 1.5, 4.5));
+        assert_eq!(vision.peak, PriceTier::full(0.04, 2.0, 8.0));
+        assert_eq!(vision.off_peak, PriceTier::full(0.02, 1.0, 4.0));
         // 空闲价 = 高峰一半（官网规则自检）
         for m in &p.models {
             for (a, b) in [
@@ -1330,21 +1344,23 @@ mod tests {
             ]
         );
 
-        // 智谱国内：GLM-5.3 / 5.2 / 5-Turbo（基础档）+ Coding Plan 订阅项
+        // 智谱国内：GLM-5.3 / 5.3-Flash（原价档）/ 5.2 / 5-Turbo（基础档）
+        // + Coding Plan 订阅项
         let p = preset("zhipu").unwrap();
         assert_eq!(p.currency, "CNY");
         assert_eq!(p.timezone_offset_minutes, 480);
         assert!(p.windows.is_empty(), "智谱按量无峰谷（平台级恒空闲）");
         assert_eq!(p.default_model, "glm-5.3");
         assert_eq!(
-            p.models[..3],
+            p.models[..4],
             [
                 flat_payg("glm-5.3", "GLM-5.3", (2.0, 8.0, 28.0)),
+                flat_payg("glm-5.3-flash", "GLM-5.3-Flash", (0.23, 0.8, 2.8)),
                 flat_payg("glm-5.2", "GLM-5.2", (2.0, 8.0, 28.0)),
                 flat_payg("glm-5-turbo", "GLM-5-Turbo", (1.2, 5.0, 22.0)),
             ]
         );
-        let coding = &p.models[3];
+        let coding = &p.models[4];
         assert_eq!(coding.id, "coding-plan");
         assert_eq!(coding.display, "GLM Coding Plan（订阅积分）");
         assert_eq!(coding.plan, PlanKind::Subscription);
@@ -1357,9 +1373,10 @@ mod tests {
             Some(&[peak_window_workday("14:00", "18:00")][..]),
             "Coding Plan 高峰 = 工作日 14:00–18:00"
         );
-        assert_eq!(p.models.len(), 4, "不应有第 5 个模型");
+        assert_eq!(p.models.len(), 5, "不应有第 6 个模型");
 
-        // Z.ai：美元价（5.3 与 5.2 同价）+ 同款订阅项
+        // Z.ai：美元价（5.3 与 5.2 同价，5.3-Flash 取原价档）+ 同款订阅项；
+        // GLM-5-Turbo 已随国际站下架撤除（2026-09-09 核实）
         let p = preset("zai").unwrap();
         assert_eq!(p.currency, "USD");
         assert_eq!(p.timezone_offset_minutes, 480);
@@ -1368,10 +1385,11 @@ mod tests {
             p.models[..3],
             [
                 flat_payg("glm-5.3", "GLM-5.3", (0.26, 1.4, 4.4)),
+                flat_payg("glm-5.3-flash", "GLM-5.3-Flash", (0.03, 0.15, 0.50)),
                 flat_payg("glm-5.2", "GLM-5.2", (0.26, 1.4, 4.4)),
-                flat_payg("glm-5-turbo", "GLM-5-Turbo", (0.24, 1.2, 4.0)),
             ]
         );
+        assert!(!p.models.iter().any(|m| m.id == "glm-5-turbo"));
         assert_eq!(p.models[3].plan, PlanKind::Subscription);
         assert_eq!(
             p.models[3].windows,
@@ -1406,15 +1424,16 @@ mod tests {
     }
 
     /// 契约：智谱/Z.ai 通用 API Provider 只提供按量模型，不混入
-    /// Coding Plan 订阅项；两站分别使用 CNY/USD。
+    /// Coding Plan 订阅项；两站分别使用 CNY/USD。国内含 5.3-Flash 共
+    /// 4 档，国际撤 5-Turbo 后含 5.3-Flash 共 3 档。
     #[test]
     fn zhipu_metered_presets_only_contain_payg_models() {
-        for (id, currency) in [("zhipu_api", "CNY"), ("zai_api", "USD")] {
+        for (id, currency, expect_len) in [("zhipu_api", "CNY", 4usize), ("zai_api", "USD", 3)] {
             let p = preset(id).unwrap();
             assert_eq!(p.native_id, id);
             assert_eq!(p.currency, currency);
             assert_eq!(p.default_model, "glm-5.3");
-            assert_eq!(p.models.len(), 3);
+            assert_eq!(p.models.len(), expect_len);
             assert!(
                 p.models
                     .iter()
@@ -1422,6 +1441,13 @@ mod tests {
             );
             assert!(p.models.iter().all(|model| model.windows.is_none()));
         }
+        // 国际站已撤 GLM-5-Turbo（国内保留）；两站均有 5.3-Flash 原价档
+        let zhipu = preset("zhipu_api").unwrap();
+        let zai = preset("zai_api").unwrap();
+        assert!(zhipu.models.iter().any(|m| m.id == "glm-5-turbo"));
+        assert!(!zai.models.iter().any(|m| m.id == "glm-5-turbo"));
+        assert!(zhipu.models.iter().any(|m| m.id == "glm-5.3-flash"));
+        assert!(zai.models.iter().any(|m| m.id == "glm-5.3-flash"));
     }
 
     /// 契约：DeepSeek 单站双币——余额 API 的 currency 决定取哪套预置；
@@ -1722,7 +1748,7 @@ mod tests {
         // 默认（无 hint）：CNY 套
         let r = resolve_in_currency(&entry, &Default::default(), None).unwrap();
         assert_eq!(r.currency.as_deref(), Some("CNY"));
-        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.1));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.04));
         // USD hint：数字与标签同时切到 USD 套
         let r = resolve_in_currency(&entry, &Default::default(), Some("USD")).unwrap();
         assert_eq!(r.currency.as_deref(), Some("USD"));
@@ -1870,7 +1896,7 @@ mod tests {
         assert_eq!(r.model_label.as_deref(), Some("V4 Flash"));
         assert_eq!(r.timezone_offset_minutes, Some(480));
         assert_eq!(r.windows.len(), 2);
-        assert_eq!(r.peak, Some(PriceTier::full(0.10, 3.0, 9.0)));
+        assert_eq!(r.peak, Some(PriceTier::full(0.04, 2.0, 8.0)));
         assert_eq!(r.currency.as_deref(), Some("CNY"));
     }
 
@@ -1906,7 +1932,7 @@ mod tests {
         assert_eq!(r.windows[0].start, "10:00");
         assert_eq!(
             r.peak,
-            Some(PriceTier::full(0.10, 3.0, 9.0)),
+            Some(PriceTier::full(0.04, 2.0, 8.0)),
             "价格回退预置 flash"
         );
     }
@@ -1939,7 +1965,7 @@ mod tests {
             ..Default::default()
         };
         let r = resolve(&deepseek_entry(Some(cfg))).unwrap();
-        assert_eq!(r.peak, Some(PriceTier::full(0.10, 3.0, 9.0)));
+        assert_eq!(r.peak, Some(PriceTier::full(0.04, 2.0, 8.0)));
         assert!(
             matches!(r.source, PricingSource::Preset { .. }),
             "全空档视为未提供"
@@ -2024,7 +2050,7 @@ mod tests {
         assert_eq!(r.timezone_offset_minutes, Some(0));
         // 价格/时段仍回退预置
         assert_eq!(r.windows.len(), 2);
-        assert_eq!(r.peak, Some(PriceTier::full(0.10, 3.0, 9.0)));
+        assert_eq!(r.peak, Some(PriceTier::full(0.04, 2.0, 8.0)));
     }
 
     /// 契约：HH:MM 解析基础边界（实现自 update.rs 迁入后由本模块锁定）。

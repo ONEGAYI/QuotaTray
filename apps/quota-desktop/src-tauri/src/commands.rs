@@ -2454,7 +2454,7 @@ mod tests {
         // 序列化形状（前端 types.ts 镜像的依据）
         let j = serde_json::to_value(p).unwrap();
         assert_eq!(j["models"][0]["id"], "flash");
-        assert_eq!(j["models"][0]["peak"]["cache_hit_input"], 0.1);
+        assert_eq!(j["models"][0]["peak"]["cache_hit_input"], 0.04);
         assert_eq!(j["models"][0]["plan"], "pay_as_you_go");
         assert_eq!(ds.pricing_by_currency["CNY"].currency, "CNY");
         assert_eq!(ds.pricing_by_currency["USD"].currency, "USD");

@@ -361,11 +361,11 @@ mod tests {
             assert!(out.contains(peak_label), "{lang:?}: {out}");
             assert!(out.contains("V4 Flash"), "{lang:?}: {out}");
             assert!(out.contains("CNY/MTokens"), "{lang:?}: {out}");
-            // flash 价格（去尾零格式）
-            assert!(out.contains("0.1"), "{lang:?}: {out}");
-            assert!(out.contains("0.05"), "{lang:?}: {out}");
-            assert!(out.contains("9"), "{lang:?}: {out}");
-            assert!(out.contains("4.5"), "{lang:?}: {out}");
+            // flash 价格（去尾零格式，9·10 降价后档位）
+            assert!(out.contains("0.04"), "{lang:?}: {out}");
+            assert!(out.contains("0.02"), "{lang:?}: {out}");
+            assert!(out.contains("8"), "{lang:?}: {out}");
+            assert!(out.contains("4"), "{lang:?}: {out}");
             assert!(out.contains(not_next), "{lang:?} 应含下次切换：{out}");
         }
         // 中文时段聚合与偏移
@@ -394,8 +394,8 @@ mod tests {
         assert_eq!(j["next_change"]["kind"], "off_peak");
         assert!(j["next_change"]["at_ms"].is_u64());
         // 峰谷价格档齐全
-        assert_eq!(j["peak"]["cache_hit_input"], 0.1);
-        assert_eq!(j["off_peak"]["output"], 4.5);
+        assert_eq!(j["peak"]["cache_hit_input"], 0.04);
+        assert_eq!(j["off_peak"]["output"], 4.0);
     }
 
     /// 契约：model 选择切档后 source 仍为 preset、价格随之切换。
@@ -465,7 +465,7 @@ mod tests {
         assert_eq!(resolved.currency.as_deref(), Some("USD"));
         assert_eq!(
             resolved.peak.as_ref().unwrap().cache_hit_input,
-            Some(0.1),
+            Some(0.04),
             "价格回退预置"
         );
 

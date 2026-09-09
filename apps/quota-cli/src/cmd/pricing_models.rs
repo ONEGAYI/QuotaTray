@@ -356,7 +356,7 @@ mod tests {
         for lang in [Lang::Zh, Lang::En] {
             let table = render_models_table(&list, lang);
             assert!(table.contains("night-x"), "{lang:?}: {table}");
-            assert!(table.contains("0.1/3/9"), "{lang:?} 峰价紧凑串：{table}");
+            assert!(table.contains("0.04/2/8"), "{lang:?} 峰价紧凑串：{table}");
             assert!(
                 table.contains(t(lang, T::PricingModelSourceCustom)),
                 "{table}"

@@ -2929,6 +2929,149 @@
             "test"
           ]
         },
+        "fetch_pricing": {
+          "kind": "dir",
+          "desc": "官网定价确定性抓取脚本集",
+          "children": {
+            "fetch_pricing.py": {
+              "kind": "file",
+              "desc": "抓取主入口：路由与一键全抓",
+              "detail": [
+                "argparse provider 路由，无参数 = 全部注册平台（deepseek/zhipu/zai）",
+                "table/json 双格式输出；单平台失败不阻断其余，失败汇总非零退出",
+                "产出供人工核对后更新 pricing.rs 预置，不自动改源码"
+              ],
+              "rel": [
+                "crates/quota-core/src/pricing.rs",
+                "scripts/package.ps1"
+              ]
+            },
+            "providers": {
+              "kind": "dir",
+              "desc": "平台抓取组件目录",
+              "detail": [
+                "deepseek：中文定价页 SSG 直出（CNY）；USD 档英文页断供显式失败",
+                "zhipu：国内站 Vue SPA，价格静态打包在 app.js，壳→bundle→字段锚点解析（CNY）",
+                "zai：国际站 SSG 直出，表头形态锚点 + del 划线原价（USD）",
+                "新平台遵守 __init__.py 四件协议后于主入口注册"
+              ],
+              "children": {
+                "__init__.py": {
+                  "kind": "file",
+                  "desc": "Provider 协议声明与通用件导出",
+                  "detail": [
+                    "协议四件：PROVIDER_ID/DISPLAY_NAME/SOURCE_NOTE/fetch(currency)",
+                    "通用结构与异常从 model.py 导出；平台注册表在上层主入口维护"
+                  ]
+                },
+                "_http.py": {
+                  "kind": "file",
+                  "desc": "共用 HTTP GET 助手",
+                  "detail": [
+                    "UA、超时、FetchError 语义统一，各 provider 复用"
+                  ]
+                },
+                "deepseek.py": {
+                  "kind": "file",
+                  "desc": "DeepSeek 中文定价页抓取组件",
+                  "detail": [
+                    "Docusaurus SSG 直出，urllib 直抓（零第三方依赖）",
+                    "内容关键词锚点解析（百万tokens输入X/空闲·高峰时段/X元），不依赖 CSS class",
+                    "解析后自校验高峰=空闲×2；结构漂移抛 ParseError（fail loud 不输出半截数据）",
+                    "英文页 2026-09-09 实测路由故障，USD 档抛 SourceUnavailable，绝不汇率折算"
+                  ],
+                  "rel": [
+                    "crates/quota-core/src/provider/deepseek.rs"
+                  ]
+                },
+                "model.py": {
+                  "kind": "file",
+                  "desc": "通用数据结构与异常",
+                  "detail": [
+                    "Tier 峰/谷两档三价（hit/miss/out），单位每百万 tokens",
+                    "ModelPricing 含官网原始 model_id、版本/档位、促销文案与原价三档",
+                    "ParseError/SourceUnavailable/FetchError 三类异常语义"
+                  ]
+                },
+                "zai.py": {
+                  "kind": "file",
+                  "desc": "Z.ai 国际站定价页抓取组件",
+                  "detail": [
+                    "docs.z.ai SSG 直出，收录表头 Model/Input/Cached Input 的模型表（Latest/Text/Vision）",
+                    "<del>$原价</del> $现价 划线促销取现价、原价存 promo_original",
+                    "三价不齐（- 与反斜杠占位）的行跳过收录；2026-09-09 快照固化：国际站无 GLM-5-Turbo"
+                  ]
+                },
+                "zhipu.py": {
+                  "kind": "file",
+                  "desc": "智谱国内站 app.js 价格解析组件",
+                  "detail": [
+                    "抓取链：/pricing 壳 → 提取 app.<hash>.js 完整 URL → bundle 解析",
+                    "对象字面量字段锚点（name/inPrice/outPrice/hit/upDownText/intro）",
+                    "促销双价 [现价,原价] 取现价、原价存 promo_original；「免费」按 0 收录",
+                    "「输入长度/输出长度」分档续行归属具名模型并带档位后缀（引号感知切分）"
+                  ]
+                }
+              }
+            },
+            "tests": {
+              "kind": "dir",
+              "desc": "契约测试与快照",
+              "children": {
+                "fetch_pricing.tests.py": {
+                  "kind": "file",
+                  "desc": "抓取契约测试",
+                  "detail": [
+                    "三平台 fixture 快照离线运行，不依赖网络",
+                    "覆盖：解析契约（模型集合/三档价格/峰=谷×2/促销原价/分档续行）、结构漂移 fail loud、币种通道、入口路由",
+                    "跑法：python scripts/fetch_pricing/tests/fetch_pricing.tests.py"
+                  ],
+                  "rel": [
+                    "scripts/fetch_pricing/fetch_pricing.py",
+                    "scripts/fetch_pricing/providers/deepseek.py"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "fixtures": {
+                  "kind": "dir",
+                  "desc": "官网页 HTML 固化快照",
+                  "collapsed": true,
+                  "children": {
+                    "deepseek_zh_2026-09-09.html": {
+                      "kind": "file",
+                      "desc": "中文定价页快照（8·17 价）",
+                      "detail": [
+                        "2026-09-09 固化的中文定价页完整 HTML（8·17 峰谷版价格）",
+                        "解析锚点契约基线：官网改版时对照此快照适配解析器"
+                      ],
+                      "rel": [
+                        "scripts/fetch_pricing/tests/fetch_pricing.tests.py"
+                      ]
+                    },
+                    "zai_en_2026-09-09.html": {
+                      "kind": "file",
+                      "desc": "Z.ai 定价页表格快照",
+                      "detail": [
+                        "2026-09-09 固化的国际站定价页表格区段（8 表）",
+                        "表头形态与 del 划线锚点契约基线"
+                      ]
+                    },
+                    "zhipu_app_2026-09-09.js": {
+                      "kind": "file",
+                      "desc": "智谱 app.js 价格块快照",
+                      "detail": [
+                        "2026-09-09 固化的主 bundle 价格对象块（含 GLM-5.3-Flash 促销双价与分档续行）",
+                        "app.js 字段锚点契约基线"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "package.ps1": {
           "kind": "file",
           "desc": "一键发布资产打包脚本",
