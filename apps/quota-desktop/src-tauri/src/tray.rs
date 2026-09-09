@@ -753,12 +753,12 @@ mod tests {
             pricing_lines(&e, PEAK_NOW, Lang::Zh),
             vec![
                 "⚡ 高峰 · V4 Flash",
-                "命中 0.1 · 未命中 3 · 输出 9 CNY/Mtok"
+                "命中 0.04 · 未命中 2 · 输出 8 CNY/Mtok"
             ]
         );
         assert_eq!(
             pricing_lines(&e, PEAK_NOW, Lang::En),
-            vec!["⚡ Peak · V4 Flash", "Hit 0.1 · Miss 3 · Out 9 CNY/Mtok"]
+            vec!["⚡ Peak · V4 Flash", "Hit 0.04 · Miss 2 · Out 8 CNY/Mtok"]
         );
     }
 
@@ -768,10 +768,7 @@ mod tests {
         let e = entry_with(None);
         assert_eq!(
             pricing_lines(&e, OFF_NOW, Lang::Zh),
-            vec![
-                "空闲 · V4 Flash",
-                "命中 0.05 · 未命中 1.5 · 输出 4.5 CNY/Mtok"
-            ]
+            vec!["空闲 · V4 Flash", "命中 0.02 · 未命中 1 · 输出 4 CNY/Mtok"]
         );
     }
 
