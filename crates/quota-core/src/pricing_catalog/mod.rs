@@ -1256,21 +1256,22 @@ mod tests {
     #[test]
     fn catalog_diff_reports_review_dimensions() {
         let base = bundled_catalog().clone();
-        let candidate = seed_variant(2, |cat| {
+        let candidate = seed_variant(base.revision + 1, |cat| {
             for provider in &mut cat.providers {
                 if provider.native_id != "deepseek" {
                     continue;
                 }
                 for suite in &mut provider.suites {
-                    // CNY：flash 涨价 + old 下架 + 新模型 + 换默认 + 平台窗口变
+                    // CNY：flash 涨价 + pro 下架 + 新模型 + 换默认 + 平台窗口变
+                    // （种子 vision 已 retired，下架维度改由 active 的 pro 演示）
                     if suite.currency == "CNY" {
                         for m in &mut suite.models {
                             if m.id == "flash" {
                                 m.peak = Some(PriceTier::full(0.99, 0.99, 0.99));
                             }
-                            if m.id == "vision" {
+                            if m.id == "pro" {
                                 m.status = ModelStatus::Retired;
-                                m.retired_at = Some("2026-09-10".into());
+                                m.retired_at = Some("2026-09-11".into());
                             }
                         }
                         suite.models.push(CatalogModel {
@@ -1296,13 +1297,20 @@ mod tests {
             .map(|d| d.report_line())
             .collect();
         let joined = lines.join("\n");
-        assert!(joined.contains("revision: 1 → 2"), "{joined}");
+        assert!(
+            joined.contains(&format!(
+                "revision: {} → {}",
+                base.revision,
+                base.revision + 1
+            )),
+            "{joined}"
+        );
         assert!(
             joined.contains("deepseek[CNY] flash.peak.cache_hit_input: 0.04 → 0.99"),
             "{joined}"
         );
         assert!(
-            joined.contains("vision 下架（retired_at=2026-09-10"),
+            joined.contains("pro 下架（retired_at=2026-09-11"),
             "{joined}"
         );
         assert!(joined.contains("新增模型 brand-new"), "{joined}");

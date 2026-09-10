@@ -595,10 +595,11 @@ mod tests {
             });
     }
 
-    /// rev2 新价包：flash CNY 峰价改为 0.99（区分种子旧价 0.04）。
-    fn rev2_package() -> String {
+    /// 更新候选包：flash CNY 峰价改为 0.99（与种子现价 0.04 区分），
+    /// revision 取种子 +1（种子随数据 PR 递增，动态推导防测试再碎）。
+    fn bumped_package() -> String {
         let mut cat = quota_core::bundled_catalog().clone();
-        cat.revision = 2;
+        cat.revision += 1;
         for m in &mut cat.providers[0].suites[0].models {
             if m.id == "flash" {
                 m.peak = Some(quota_core::PriceTier::full(0.99, 0.99, 0.99));
@@ -607,8 +608,8 @@ mod tests {
         serde_json::to_string(&cat).unwrap()
     }
 
-    /// 契约（V-10）：update 成功落盘 rev2 → 后续 pricing 解析走有效目录
-    /// 读到新价；退出码 0。
+    /// 契约（V-10）：update 成功落盘更高 revision → 后续 pricing 解析
+    /// 走有效目录读到新价；退出码 0。
     #[tokio::test]
     async fn update_then_resolve_reads_new_price() {
         let (ctx, root) = temp_ctx("e2e");
@@ -625,13 +626,16 @@ mod tests {
         .unwrap();
         assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.04));
 
-        // update：mock 200 rev2 新价包
-        let code = run_update_with(&ctx, true, MockClient::ok(&rev2_package()), None).await;
+        // update：mock 200 高版本新价包
+        let code = run_update_with(&ctx, true, MockClient::ok(&bumped_package()), None).await;
         assert_eq!(code, 0);
 
-        // 更新后：show 同一装载路径读到 rev2 新价与版本
+        // 更新后：show 同一装载路径读到新价与版本
         let after = quota_core::load_effective(&ctx.catalog_dir());
-        assert_eq!(after.catalog.revision, 2);
+        assert_eq!(
+            after.catalog.revision,
+            quota_core::bundled_catalog().revision + 1
+        );
         assert_eq!(after.origin, quota_core::CatalogOrigin::Cached);
         let r = quota_core::pricing::resolve_in_catalog(
             &entry,
@@ -682,7 +686,7 @@ mod tests {
         deepseek_config(&ctx.config_path);
         let lock = ctx.catalog_dir().join("pricing-catalog.lock");
         std::fs::write(&lock, b"pid=99999").unwrap();
-        let code = run_update_with(&ctx, false, MockClient::ok(&rev2_package()), None).await;
+        let code = run_update_with(&ctx, false, MockClient::ok(&bumped_package()), None).await;
         assert_eq!(code, 0, "busy 非失败");
         assert!(lock.exists(), "他人锁不被删");
         let _ = std::fs::remove_dir_all(&root);

@@ -376,9 +376,9 @@ mod tests {
         }
     }
 
-    /// 契约（T-02）：模型行携带生命周期 status——预置 active（bundled
-    /// 种子全 active）、自定义恒 custom；retired 行在表格模型名后缀标注
-    /// 且价格列仍显示最后已知值。
+    /// 契约（T-02）：模型行携带生命周期 status——预置行如实透出种子状态
+    /// （2026-09-10 起 bundled 种子含 retired 条目 vision）、自定义恒 custom；
+    /// retired 行在表格模型名后缀标注且价格列仍显示最后已知值。
     #[test]
     fn model_rows_carry_lifecycle_status() {
         let list = models_json_with(
@@ -388,13 +388,21 @@ mod tests {
         )
         .unwrap();
         for m in &list.models {
-            if m.source == "preset" {
-                assert_eq!(m.status, "active", "{}", m.id);
-            } else {
+            if m.source != "preset" {
                 assert_eq!(m.status, "custom", "{}", m.id);
                 assert_eq!(m.id, "flash", "同 id 自定义行仍在");
             }
         }
+        // 种子状态如实透出：active 与 retired 都来自目录条目本身
+        let preset = |id: &str| {
+            list.models
+                .iter()
+                .find(|m| m.source == "preset" && m.id == id)
+                .unwrap_or_else(|| panic!("缺少预置行 {id}"))
+        };
+        assert_eq!(preset("flash").status, "active");
+        assert_eq!(preset("pro").status, "active");
+        assert_eq!(preset("vision").status, "retired");
         // retired 行表格后缀（手工构造行，不依赖 bundled 数据形态）
         let retired_list = ModelListJson {
             provider: "deepseek".into(),

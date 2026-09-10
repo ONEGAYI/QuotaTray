@@ -594,6 +594,12 @@ mod tests {
         Box::new(|| NOW)
     }
 
+    /// 相对内置种子的 revision（+N 保持原测试的相对间隔语义；
+    /// 种子随数据 PR 升版后测试无需再改绝对数字）。
+    fn rev_plus(n: u64) -> u64 {
+        bundled_catalog().revision + n
+    }
+
     /// 基于内置种子的合法包（改 revision；内容等价 = 「更高 revision 携带
     /// 旧价格」的人工回滚形状）。
     fn pkg(revision: u64) -> String {
@@ -629,7 +635,7 @@ mod tests {
     #[tokio::test]
     async fn restarted_sync_preserves_last_success_after_failure() {
         let dir = TempDir::new("metadata-restart");
-        let first = sync_with(&dir, MockHttp::ok(&pkg(3)));
+        let first = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(2))));
         first.update().await;
         let restarted = sync_with(&dir, MockHttp::seq_of(&[MockResp::Fail]));
         assert_eq!(restarted.status().last_success_ms, Some(NOW));
@@ -656,7 +662,7 @@ mod tests {
             &dir,
             &CatalogCacheEnvelope {
                 schema_version: 1,
-                catalog: serde_json::from_str(&pkg(7)).unwrap(),
+                catalog: serde_json::from_str(&pkg(rev_plus(6))).unwrap(),
                 last_attempt_ms: Some(NOW),
                 last_success_ms: Some(NOW),
                 last_error: None,
@@ -665,7 +671,7 @@ mod tests {
         let e = load_effective(&dir.0);
         assert_eq!(e.origin, CatalogOrigin::Cached);
         assert_eq!(e.fallback_reason, None);
-        assert_eq!(e.catalog.revision, 7);
+        assert_eq!(e.catalog.revision, rev_plus(6));
     }
 
     /// 契约：损坏缓存（垃圾字节）与不兼容缓存（信封版本错/目录校验失败）
@@ -682,7 +688,7 @@ mod tests {
             &dir,
             &CatalogCacheEnvelope {
                 schema_version: 99,
-                catalog: serde_json::from_str(&pkg(7)).unwrap(),
+                catalog: serde_json::from_str(&pkg(rev_plus(6))).unwrap(),
                 last_attempt_ms: None,
                 last_success_ms: None,
                 last_error: None,
@@ -695,7 +701,7 @@ mod tests {
 
         // 目录数据非法（负价）同样不兼容
         let dir = TempDir::new("v04e");
-        let bad = pkg_mut(7, |cat| {
+        let bad = pkg_mut(rev_plus(6), |cat| {
             cat.providers[0].suites[0].models[0].peak = Some(PriceTier {
                 output: Some(-1.0),
                 ..Default::default()
@@ -764,7 +770,7 @@ mod tests {
 
         // 负价（数据校验拒绝）
         let dir = TempDir::new("v05c");
-        let bad = pkg_mut(2, |cat| {
+        let bad = pkg_mut(rev_plus(1), |cat| {
             cat.providers[0].suites[0].models[0].peak = Some(PriceTier {
                 output: Some(-1.0),
                 ..Default::default()
@@ -774,9 +780,9 @@ mod tests {
         assert!(matches!(s.update().await, CatalogUpdateOutcome::Failed(
             CatalogSyncError::Rejected(m)) if m.contains("价格")));
 
-        // 同版本异内容（bundled=rev1；同 rev 改价）
+        // 同版本异内容（与 bundled 种子同 revision 但改价）
         let dir = TempDir::new("v05d");
-        let divergent = pkg_mut(1, |cat| {
+        let divergent = pkg_mut(bundled_catalog().revision, |cat| {
             cat.providers[0].suites[0].models[0].peak = Some(PriceTier::full(9.9, 9.9, 9.9));
         });
         let s = sync_with(&dir, MockHttp::ok(&divergent));
@@ -785,7 +791,7 @@ mod tests {
 
         // 物理删除（删 deepseek flash）
         let dir = TempDir::new("v05e");
-        let removal = pkg_mut(2, |cat| {
+        let removal = pkg_mut(rev_plus(1), |cat| {
             cat.providers[0].suites[0]
                 .models
                 .retain(|m| m.id != "flash");
@@ -804,20 +810,20 @@ mod tests {
     async fn stale_instance_attempt_preserves_other_process_newer_catalog() {
         for response in [
             MockHttp::seq_of(&[MockResp::Fail]),
-            MockHttp::ok(&pkg(1)),
-            MockHttp::ok(&pkg(2)),
-            MockHttp::ok(&pkg(3)),
+            MockHttp::ok(&pkg(rev_plus(0))),
+            MockHttp::ok(&pkg(rev_plus(1))),
+            MockHttp::ok(&pkg(rev_plus(2))),
         ] {
             let dir = TempDir::new("stale-instance");
             let stale = sync_with(&dir, response);
-            let writer = sync_with(&dir, MockHttp::ok(&pkg(3)));
+            let writer = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(2))));
             assert!(matches!(
                 writer.update().await,
                 CatalogUpdateOutcome::Updated { .. }
             ));
             stale.update().await;
-            assert_eq!(envelope_on_disk(&dir).catalog.revision, 3);
-            assert_eq!(stale.effective().catalog.revision, 3);
+            assert_eq!(envelope_on_disk(&dir).catalog.revision, rev_plus(2));
+            assert_eq!(stale.effective().catalog.revision, rev_plus(2));
         }
     }
 
@@ -825,7 +831,7 @@ mod tests {
     async fn failed_attempt_respects_foreign_write_lock() {
         let dir = TempDir::new("failure-lock");
         let stale = sync_with(&dir, MockHttp::seq_of(&[MockResp::Fail]));
-        let writer = sync_with(&dir, MockHttp::ok(&pkg(3)));
+        let writer = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(2))));
         writer.update().await;
         let before = std::fs::read(dir.0.join(CATALOG_CACHE_FILE)).unwrap();
         let lock = dir.0.join(CATALOG_LOCK_FILE);
@@ -838,7 +844,7 @@ mod tests {
         assert!(lock.exists());
     }
 
-    /// 契约：先 rev3 后 rev2（先发后到）→ revision 不倒退；重复同包 →
+    /// 契约：先发高 rev 后发低 rev（先发后到）→ revision 不倒退；重复同包 →
     /// Unchanged（不发变更信号）；人工回滚（更高 rev 携带旧价）→ Apply。
     #[tokio::test]
     async fn update_is_monotonic_and_idempotent() {
@@ -846,34 +852,38 @@ mod tests {
         let s = sync_with(
             &dir,
             MockHttp::seq(&[
-                (200, &pkg(3)),
-                (200, &pkg(2)),
-                (200, &pkg(3)),
-                (200, &pkg(5)),
+                (200, &pkg(rev_plus(2))),
+                (200, &pkg(rev_plus(1))),
+                (200, &pkg(rev_plus(2))),
+                (200, &pkg(rev_plus(4))),
             ]),
         );
         match s.update().await {
-            CatalogUpdateOutcome::Updated { catalog } => assert_eq!(catalog.revision, 3),
-            other => panic!("rev3 应 Updated：{other:?}"),
+            CatalogUpdateOutcome::Updated { catalog } => {
+                assert_eq!(catalog.revision, rev_plus(2))
+            }
+            other => panic!("更高 rev 应 Updated：{other:?}"),
         }
         match s.update().await {
-            CatalogUpdateOutcome::Unchanged { revision } => assert_eq!(revision, 3),
+            CatalogUpdateOutcome::Unchanged { revision } => assert_eq!(revision, rev_plus(2)),
             other => panic!("旧包应 Unchanged 不降级：{other:?}"),
         }
-        assert_eq!(s.effective().catalog.revision, 3, "不倒退");
+        assert_eq!(s.effective().catalog.revision, rev_plus(2), "不倒退");
         assert!(
             matches!(s.update().await, CatalogUpdateOutcome::Unchanged { .. }),
             "重复同包 Unchanged"
         );
         // 人工回滚：更高 revision 携带旧价格内容 → 接受
         match s.update().await {
-            CatalogUpdateOutcome::Updated { catalog } => assert_eq!(catalog.revision, 5),
+            CatalogUpdateOutcome::Updated { catalog } => {
+                assert_eq!(catalog.revision, rev_plus(4))
+            }
             other => panic!("人工回滚应 Updated：{other:?}"),
         }
         assert_eq!(
             envelope_on_disk(&dir).catalog.revision,
-            5,
-            "磁盘同步到 rev5"
+            rev_plus(4),
+            "磁盘同步到人工回滚 rev"
         );
     }
 
@@ -881,7 +891,7 @@ mod tests {
     #[tokio::test]
     async fn update_returns_busy_when_in_flight() {
         let dir = TempDir::new("v06b");
-        let s = sync_with(&dir, MockHttp::ok(&pkg(2)));
+        let s = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(1))));
         s.in_flight
             .store(true, std::sync::atomic::Ordering::Relaxed); // 模拟在途
         assert_eq!(s.update().await, CatalogUpdateOutcome::Busy);
@@ -897,7 +907,7 @@ mod tests {
     #[tokio::test]
     async fn update_returns_busy_when_cross_process_lock_held() {
         let dir = TempDir::new("v06c");
-        let s = sync_with(&dir, MockHttp::ok(&pkg(2)));
+        let s = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(1))));
         let lock = dir.0.join(CATALOG_LOCK_FILE);
         std::fs::write(&lock, b"pid=99999").unwrap(); // 他人锁
         assert_eq!(s.update().await, CatalogUpdateOutcome::Busy);
@@ -909,7 +919,7 @@ mod tests {
         ));
     }
 
-    /// 契约：锁内重读磁盘——另一进程已写入 rev5，候选 rev3 不覆盖新版本。
+    /// 契约：锁内重读磁盘——另一进程已写入更高 rev，候选更低 rev 不覆盖新版本。
     #[tokio::test]
     async fn update_reloads_disk_inside_lock_and_skips_stale_candidate() {
         let dir = TempDir::new("v06d");
@@ -917,25 +927,34 @@ mod tests {
             &dir,
             &CatalogCacheEnvelope {
                 schema_version: 1,
-                catalog: serde_json::from_str(&pkg(5)).unwrap(),
+                catalog: serde_json::from_str(&pkg(rev_plus(4))).unwrap(),
                 last_attempt_ms: None,
                 last_success_ms: None,
                 last_error: None,
             },
         );
-        let s = CatalogSync::new(&dir.0, Box::new(MockHttp::ok(&pkg(3))), None, clock());
+        let s = CatalogSync::new(
+            &dir.0,
+            Box::new(MockHttp::ok(&pkg(rev_plus(2)))),
+            None,
+            clock(),
+        );
         match s.update().await {
-            CatalogUpdateOutcome::Unchanged { revision } => assert_eq!(revision, 5),
+            CatalogUpdateOutcome::Unchanged { revision } => assert_eq!(revision, rev_plus(4)),
             other => panic!("不应覆盖他进程新版本：{other:?}"),
         }
-        assert_eq!(envelope_on_disk(&dir).catalog.revision, 5, "磁盘保持 rev5");
+        assert_eq!(
+            envelope_on_disk(&dir).catalog.revision,
+            rev_plus(4),
+            "磁盘保持更高 rev"
+        );
     }
 
     /// 契约：缓存写入失败（路径被目录占用）→ Failed(Io)，内存快照仍可用。
     #[tokio::test]
     async fn update_write_failure_keeps_memory_snapshot() {
         let dir = TempDir::new("v06e");
-        let s = sync_with(&dir, MockHttp::ok(&pkg(2)));
+        let s = sync_with(&dir, MockHttp::ok(&pkg(rev_plus(1))));
         // 缓存路径占位为目录：tmp 写入成功但 rename 失败（Windows 实测路径）
         std::fs::create_dir_all(dir.0.join(CATALOG_CACHE_FILE)).unwrap();
         match s.update().await {
@@ -959,10 +978,10 @@ mod tests {
     #[tokio::test]
     async fn direct_success_makes_no_proxy_request() {
         let dir = TempDir::new("v07a");
-        let proxy = MockHttp::ok(&pkg(9));
+        let proxy = MockHttp::ok(&pkg(rev_plus(8)));
         let s = CatalogSync::new(
             &dir.0,
-            Box::new(MockHttp::ok(&pkg(2))),
+            Box::new(MockHttp::ok(&pkg(rev_plus(1)))),
             Some(Box::new(proxy.clone())),
             clock(),
         );
@@ -983,11 +1002,13 @@ mod tests {
         let s = CatalogSync::new(
             &dir.0,
             Box::new(MockHttp::seq_of(&[MockResp::Fail])),
-            Some(Box::new(MockHttp::ok(&pkg(2)))),
+            Some(Box::new(MockHttp::ok(&pkg(rev_plus(1))))),
             clock(),
         );
         match s.update().await {
-            CatalogUpdateOutcome::Updated { catalog } => assert_eq!(catalog.revision, 2),
+            CatalogUpdateOutcome::Updated { catalog } => {
+                assert_eq!(catalog.revision, rev_plus(1))
+            }
             other => panic!("代理兜底应成功：{other:?}"),
         }
     }
@@ -999,7 +1020,7 @@ mod tests {
         let s = CatalogSync::new(
             &dir.0,
             Box::new(MockHttp::ok("<hijacked>")),
-            Some(Box::new(MockHttp::ok(&pkg(2)))),
+            Some(Box::new(MockHttp::ok(&pkg(rev_plus(1))))),
             clock(),
         );
         assert!(matches!(
@@ -1012,10 +1033,10 @@ mod tests {
     #[tokio::test]
     async fn both_channels_fail_keeps_old_data() {
         let dir = TempDir::new("v07d");
-        // 先成功一次落盘 rev2，再双失败
+        // 先成功一次落盘新版缓存，再双失败
         let s = CatalogSync::new(
             &dir.0,
-            Box::new(MockHttp::seq(&[(200, &pkg(2))])),
+            Box::new(MockHttp::seq(&[(200, &pkg(rev_plus(1)))])),
             None,
             clock(),
         );
@@ -1033,7 +1054,11 @@ mod tests {
             CatalogUpdateOutcome::Failed(CatalogSyncError::Network(_)) => {}
             other => panic!("双失败应 Network：{other:?}"),
         }
-        assert_eq!(s2.effective().catalog.revision, 2, "缓存数据仍可读");
+        assert_eq!(
+            s2.effective().catalog.revision,
+            rev_plus(1),
+            "缓存数据仍可读"
+        );
         assert_eq!(s2.status().origin, CatalogOrigin::Cached);
     }
 
@@ -1046,7 +1071,7 @@ mod tests {
         let dir = TempDir::new("st");
         let s = CatalogSync::new(
             &dir.0,
-            Box::new(MockHttp::seq(&[(200, &pkg(2)), (404, "")])),
+            Box::new(MockHttp::seq(&[(200, &pkg(rev_plus(1))), (404, "")])),
             None,
             clock(),
         );
@@ -1055,13 +1080,13 @@ mod tests {
             CatalogUpdateOutcome::Updated { .. }
         ));
         let st = s.status();
-        assert_eq!(st.revision, 2);
+        assert_eq!(st.revision, rev_plus(1));
         assert_eq!(st.origin, CatalogOrigin::Cached);
         assert_eq!(st.last_success_ms, Some(NOW));
         assert_eq!(st.last_error, None);
         assert!(matches!(s.update().await, CatalogUpdateOutcome::Failed(_)));
         let st = s.status();
-        assert_eq!(st.revision, 2, "失败不改变有效目录");
+        assert_eq!(st.revision, rev_plus(1), "失败不改变有效目录");
         assert!(st.last_error.as_deref().is_some_and(|e| e.contains("404")));
     }
 
@@ -1161,14 +1186,14 @@ mod tests {
             &dir,
             &CatalogCacheEnvelope {
                 schema_version: 1,
-                catalog: serde_json::from_str(&pkg(4)).unwrap(),
+                catalog: serde_json::from_str(&pkg(rev_plus(3))).unwrap(),
                 last_attempt_ms: None,
                 last_success_ms: None,
                 last_error: None,
             },
         );
         assert!(s.reload_from_disk_if_newer());
-        assert_eq!(s.status().revision, 4);
+        assert_eq!(s.status().revision, rev_plus(3));
         assert_eq!(s.status().origin, CatalogOrigin::Cached);
         assert!(!s.reload_from_disk_if_newer(), "重复调用不动作");
     }

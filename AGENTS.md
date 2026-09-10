@@ -45,6 +45,12 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 [2026-08-29 安卓缺口调研报告.md](<docs/预研文档/2026-08-29 安卓缺口调研报告.md>)。
 
 
+## Agent 工程技能配置
+
+- **Issue tracker**：任务包（spec + 工单）以 GitHub Issues 为唯一载体——规格发布为父 issue、工单挂 sub-issue、依赖用原生 blocked-by 关系；2026-09-10 起不再落 `.scratch/` 本地任务包（旧包 model-pricing-catalog 保留为历史存档）。详见 [docs/agents/issue-tracker.md](<docs/agents/issue-tracker.md>)。
+- **分诊标签**：五个规范角色用默认字符串（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 [docs/agents/triage-labels.md](<docs/agents/triage-labels.md>)。
+- **领域文档**：单一上下文布局，词汇基准是本文件「术语表」与「设计决策快照」两节。详见 [docs/agents/domain.md](<docs/agents/domain.md>)。
+
 ## 工程规范
 
 - 通用行为准则、提交规范（中文、`类型: 简述` + 正文）、发布规范遵循用户全局 AGENTS.md，此处不重复。
@@ -502,6 +508,10 @@ QuotaTray/
 │       └── v1/ # 定价目录 v1 格式
 │           └── catalog.json # 预置定价目录数据源
 ├── docs/                   # 文档
+│   ├── agents/          # 工程技能配置文档
+│   │   ├── domain.md        # 工程技能领域文档消费规则
+│   │   ├── issue-tracker.md # 工程技能 issue 约定
+│   │   └── triage-labels.md # 分诊标签角色映射表
 │   ├── Android端预览版说明.md # Android预览端说明
 │   ├── assets/          # 指引打包资产根目录
 │   │   └── bundle/ # 随应用打包的指引图片
@@ -523,14 +533,15 @@ QuotaTray/
 │   │   └── 2026-08-29 安卓端端测清单.md # 安卓真机端测清单（更新链/升级/通用）
 │   ├── 移动端能力缺口追踪.md     # Android 能力缺口活追踪
 │   └── 预研文档/            # 立项前调研与预研报告
-│       ├── 2026-08-22 项目方案预研.md         # 项目方案预研
-│       ├── 2026-08-23 CC-Switch调研报告.md  # cc-switch 调研
-│       ├── 2026-08-25 预置Provider缺口预研.md # 预置缺口预研
-│       ├── 2026-08-27 WoA与便携版预研报告.md    # WoA 与便携版预研
-│       ├── 2026-08-28 自动更新预研报告.md       # 自动更新静默与双目录预研
-│       ├── 2026-08-29 安卓更新与下载预研报告.md    # 安卓更新下载预研
-│       ├── 2026-08-29 安卓缺口调研报告.md       # 安卓缺口八项现状盘点（移动端计划底稿）
-│       └── 2026-08-30 百炼余额查询预研.md       # 百炼余额查询预研报告
+│       ├── 2026-08-22 项目方案预研.md          # 项目方案预研
+│       ├── 2026-08-23 CC-Switch调研报告.md   # cc-switch 调研
+│       ├── 2026-08-25 预置Provider缺口预研.md  # 预置缺口预研
+│       ├── 2026-08-27 WoA与便携版预研报告.md     # WoA 与便携版预研
+│       ├── 2026-08-28 自动更新预研报告.md        # 自动更新静默与双目录预研
+│       ├── 2026-08-29 安卓更新与下载预研报告.md     # 安卓更新下载预研
+│       ├── 2026-08-29 安卓缺口调研报告.md        # 安卓缺口八项现状盘点（移动端计划底稿）
+│       ├── 2026-08-30 百炼余额查询预研.md        # 百炼余额查询预研报告
+│       └── 2026-09-10 DeepSeek新模型定价调研.md # DeepSeek V4.1 定价调研
 ├── examples/               # 可运行示例
 │   ├── scripts/   # 脚本查询示例
 │   │   ├── basic.js        # 最小闭环脚本示例

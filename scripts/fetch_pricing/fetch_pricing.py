@@ -17,7 +17,8 @@
 
 已实现
 ------
-- deepseek：中文定价页（CNY）。Docusaurus SSG 直出，内容关键词锚点解析。
+- deepseek：中文定价页（CNY）+ 英文定价页（USD，2026-09-10 从断供
+  恢复）。Docusaurus SSG 直出，内容关键词锚点解析，双币按序产出。
 - zhipu：智谱国内站（CNY）。定价页为 Vue SPA，价格静态打包在主 bundle
   app.js 内——抓取链 = 壳 → app.<hash>.js → 对象字面量字段锚点解析。
 - zai：Z.ai 国际站（USD）。SSG 直出，表头形态锚点（Model/Input/Cached
@@ -26,8 +27,9 @@
 
 局限
 ----
-- 三平台均为单币种通道（deepseek-CNY / zhipu-CNY / zai-USD）；
-  DeepSeek USD 档因英文页路由故障暂无来源（见 providers/deepseek.py）。
+- 币种通道：deepseek 双币（CNY 中文页 + USD 英文页）、zhipu 仅 CNY、
+  zai 仅 USD；多币种平台由 SUPPORTED_CURRENCIES 声明（见 providers/
+  __init__.py 协议）。
 - 仅抓按量价格矩阵；峰谷时段窗口（DeepSeek）、订阅制积分倍率
   （GLM Coding Plan / Z.ai Coding Plan）不在范围，仍人工维护。
 - 官网改版时脚本 ParseError 退出（fail loud），需对照 fixtures 快照
@@ -55,6 +57,12 @@ PROVIDERS = {
 def default_targets() -> list:
     """一键全抓的目标清单：当前为全部注册平台。"""
     return sorted(PROVIDERS.keys())
+
+
+def provider_currencies(provider) -> tuple:
+    """平台的币种展开清单：声明 SUPPORTED_CURRENCIES 者按声明顺序逐币种
+    抓取；未声明者回退单默认币种（zhipu/zai 等单币平台无需声明）。"""
+    return getattr(provider, "SUPPORTED_CURRENCIES", (provider.DEFAULT_CURRENCY,))
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -133,16 +141,20 @@ def main(argv=None) -> int:
         provider = PROVIDERS[target]
         print(f"== {provider.DISPLAY_NAME}（{target}）==", file=sys.stderr)
         print(f"来源说明：{provider.SOURCE_NOTE}", file=sys.stderr)
-        try:
-            snapshot = provider.fetch()
-        except Exception as exc:  # 单平台失败不阻断其余平台，最终汇总退出
-            failures.append((target, exc))
-            print(f"[失败] {target}: {exc}", file=sys.stderr)
-            continue
-        if args.format == "json":
-            _print_json(snapshot)
-        else:
-            _print_table(snapshot)
+        currencies = provider_currencies(provider)
+        for currency in currencies:
+            # 多币种平台以「平台/币种」标记成功与失败，单币种保持平台名
+            label = f"{target}/{currency}" if len(currencies) > 1 else target
+            try:
+                snapshot = provider.fetch(currency)
+            except Exception as exc:  # 单平台失败不阻断其余，最终汇总退出
+                failures.append((label, exc))
+                print(f"[失败] {label}: {exc}", file=sys.stderr)
+                continue
+            if args.format == "json":
+                _print_json(snapshot)
+            else:
+                _print_table(snapshot)
 
     if failures:
         print(

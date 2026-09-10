@@ -4,10 +4,11 @@
 跑法：python scripts/fetch_pricing/tests/fetch_pricing.tests.py
 
 契约范围：
-- DeepSeek 中文定价页解析（fixture 固化 2026-09-09 快照，离线可测）
+- DeepSeek 中文定价页（CNY）与英文定价页（USD）解析
+  （fixture 固化 2026-09-10 新版两列快照，离线可测）
 - 结构漂移 fail loud（改版报错而非输出错数据）
-- USD 通道断供的显式失败
-- 主入口 provider 路由表
+- USD 通道经英文页快照产出候选；未知币种显式失败
+- 主入口 provider 路由表与多币种展开
 
 网络不在契约内：fetch 的 HTTP 路径由人工触发主入口验证。
 """
@@ -26,7 +27,14 @@ FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 def load_zh_fixture() -> str:
     with open(
-        os.path.join(FIXTURES, "deepseek_zh_2026-09-09.html"), encoding="utf-8"
+        os.path.join(FIXTURES, "deepseek_zh_2026-09-10.html"), encoding="utf-8"
+    ) as f:
+        return f.read()
+
+
+def load_en_fixture() -> str:
+    with open(
+        os.path.join(FIXTURES, "deepseek_en_2026-09-10.html"), encoding="utf-8"
     ) as f:
         return f.read()
 
@@ -46,7 +54,7 @@ def load_zai_fixture() -> str:
 
 
 class ParseDeepSeekZhTest(unittest.TestCase):
-    """中文页解析契约：模型集合、三档价格、峰=谷×2。"""
+    """中文页解析契约：两列模型集合（无脚注尾巴）、三档新价、峰=谷×2。"""
 
     @classmethod
     def setUpClass(cls):
@@ -57,34 +65,31 @@ class ParseDeepSeekZhTest(unittest.TestCase):
         self.assertEqual(self.snapshot.currency, "CNY")
         self.assertIn("api-docs.deepseek.com", self.snapshot.source_url)
 
-    def test_model_ids(self):
+    def test_model_ids_without_footnote_refs(self):
+        """表头模型 ID 带脚注上标（deepseek-flash(1)），解析后必须剥离。"""
         self.assertEqual(
             [m.model_id for m in self.snapshot.models],
-            [
-                "deepseek-v4-flash",
-                "deepseek-v4-pro",
-                "deepseek-v4-flash-vision-exp",
-            ],
+            ["deepseek-flash", "deepseek-v4-pro"],
         )
 
     def test_model_versions(self):
         """模型版本行应一并提取（版本号 bump 是模型升级信号）。"""
         by_id = {m.model_id: m.version for m in self.snapshot.models}
-        self.assertEqual(by_id["deepseek-v4-flash"], "DeepSeek-V4-Flash-0731")
+        self.assertEqual(by_id["deepseek-flash"], "DeepSeek-V4.1-Flash")
         self.assertEqual(by_id["deepseek-v4-pro"], "DeepSeek-V4-Pro-0813")
 
     def test_flash_prices(self):
         flash = self.snapshot.models[0]
         self.assertEqual(
             (flash.off_peak.hit, flash.off_peak.miss, flash.off_peak.out),
-            (0.05, 1.5, 4.5),
+            (0.02, 1.0, 4.0),
         )
         self.assertEqual(
             (flash.peak.hit, flash.peak.miss, flash.peak.out),
-            (0.10, 3.0, 9.0),
+            (0.04, 2.0, 8.0),
         )
 
-    def test_pro_and_vision_prices(self):
+    def test_pro_prices(self):
         pro = self.snapshot.models[1]
         self.assertEqual(
             (pro.off_peak.hit, pro.off_peak.miss, pro.off_peak.out),
@@ -93,11 +98,6 @@ class ParseDeepSeekZhTest(unittest.TestCase):
         self.assertEqual(
             (pro.peak.hit, pro.peak.miss, pro.peak.out),
             (0.30, 9.0, 27.0),
-        )
-        vision = self.snapshot.models[2]
-        self.assertEqual(
-            (vision.peak.hit, vision.peak.miss, vision.peak.out),
-            (0.10, 3.0, 9.0),
         )
 
     def test_peak_is_double_off_peak_validated(self):
@@ -110,6 +110,56 @@ class ParseDeepSeekZhTest(unittest.TestCase):
             for tier in (m.peak, m.off_peak):
                 for v in (tier.hit, tier.miss, tier.out):
                     self.assertIsInstance(v, float)
+
+
+class ParseDeepSeekEnTest(unittest.TestCase):
+    """英文页解析契约（2026-09-10 恢复，与中文页同构两列表）：
+    USD 模型集合、三档新价、峰=谷×2。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snapshot = deepseek.parse_en_html(load_en_fixture())
+
+    def test_provider_metadata(self):
+        self.assertEqual(self.snapshot.provider, "deepseek")
+        self.assertEqual(self.snapshot.currency, "USD")
+        self.assertEqual(self.snapshot.source_url, deepseek.EN_URL)
+
+    def test_model_ids_without_footnote_refs(self):
+        self.assertEqual(
+            [m.model_id for m in self.snapshot.models],
+            ["deepseek-flash", "deepseek-v4-pro"],
+        )
+
+    def test_model_versions(self):
+        by_id = {m.model_id: m.version for m in self.snapshot.models}
+        self.assertEqual(by_id["deepseek-flash"], "DeepSeek-V4.1-Flash")
+        self.assertEqual(by_id["deepseek-v4-pro"], "DeepSeek-V4-Pro-0813")
+
+    def test_flash_prices(self):
+        flash = self.snapshot.models[0]
+        self.assertEqual(
+            (flash.off_peak.hit, flash.off_peak.miss, flash.off_peak.out),
+            (0.003, 0.15, 0.6),
+        )
+        self.assertEqual(
+            (flash.peak.hit, flash.peak.miss, flash.peak.out),
+            (0.006, 0.3, 1.2),
+        )
+
+    def test_pro_prices(self):
+        pro = self.snapshot.models[1]
+        self.assertEqual(
+            (pro.off_peak.hit, pro.off_peak.miss, pro.off_peak.out),
+            (0.022, 0.66, 1.98),
+        )
+        self.assertEqual(
+            (pro.peak.hit, pro.peak.miss, pro.peak.out),
+            (0.044, 1.32, 3.96),
+        )
+
+    def test_peak_is_double_off_peak_validated(self):
+        deepseek.assert_peak_double_off_peak(self.snapshot)
 
 
 class FailLoudTest(unittest.TestCase):
@@ -127,14 +177,14 @@ class FailLoudTest(unittest.TestCase):
 
     def test_non_numeric_price_raises(self):
         html = load_zh_fixture()
-        mutated = html.replace("0.05元", "免费", 1)
+        mutated = html.replace("0.02元", "免费", 1)
         with self.assertRaises(deepseek.ParseError):
             self._parse(mutated)
 
     def test_price_cell_count_mismatch_raises(self):
         html = load_zh_fixture()
         # 删掉一个价格单元格，数字列数与模型数不符必须报错
-        mutated = html.replace("0.05元", "", 1)
+        mutated = html.replace("0.02元", "", 1)
         with self.assertRaises(deepseek.ParseError):
             self._parse(mutated)
 
@@ -146,17 +196,41 @@ class FailLoudTest(unittest.TestCase):
         """高峰≠空闲×2 时自校验必须拦截（防解析错位）。"""
         html = load_zh_fixture()
         # 只改峰价不改谷价，破坏 2 倍关系；parse 内嵌自校验应立即拦截
-        mutated = html.replace("0.10元", "0.11元", 1)
+        mutated = html.replace("0.04元", "0.05元", 1)
         with self.assertRaises(deepseek.ParseError):
             self._parse(mutated)
 
+    def test_non_dollar_price_in_en_page_raises(self):
+        """英文页价格必须是 $X 美元格式；出现「X元」即改版信号，fail loud。"""
+        html = load_en_fixture()
+        mutated = html.replace("$0.006", "0.006元", 1)
+        with self.assertRaises(deepseek.ParseError):
+            deepseek.parse_en_html(mutated)
+
+    def test_malformed_dollar_number_raises(self):
+        """畸形美元数字（$1.2.3）是改版/脏数据信号，必须以 ParseError 拦截，
+        而不是让 float() 的 ValueError 逃逸「结构漂移抛 ParseError」契约。"""
+        html = load_en_fixture()
+        mutated = html.replace("$0.006", "$1.2.3", 1)
+        with self.assertRaises(deepseek.ParseError):
+            deepseek.parse_en_html(mutated)
+
 
 class UsdChannelTest(unittest.TestCase):
-    """英文页 2026-09-09 实测断供：USD 通道必须显式失败而非折算。"""
+    """英文页 2026-09-10 已从断供恢复：USD 通道经英文页快照产出候选；
+    未知币种仍显式失败（绝不按汇率折算）。"""
 
-    def test_usd_unsupported_is_explicit(self):
+    def test_usd_candidates_from_en_page(self):
+        snapshot = deepseek.parse_en_html(load_en_fixture())
+        self.assertEqual(snapshot.currency, "USD")
+        self.assertEqual(
+            [m.model_id for m in snapshot.models],
+            ["deepseek-flash", "deepseek-v4-pro"],
+        )
+
+    def test_unknown_currency_unsupported(self):
         with self.assertRaises(deepseek.SourceUnavailable):
-            deepseek.fetch(currency="USD")
+            deepseek.fetch(currency="EUR")
 
 
 class ParseZhipuAppJsTest(unittest.TestCase):
@@ -323,6 +397,13 @@ class EntryRoutingTest(unittest.TestCase):
     def test_unknown_provider_rejected(self):
         with self.assertRaises(SystemExit):
             entry.parse_args(["nonexistent"])
+
+    def test_provider_currencies(self):
+        """币种展开契约：deepseek 双币（CNY 中文页 + USD 英文页），
+        其余平台默认单币（未声明 SUPPORTED_CURRENCIES 时回退默认币种）。"""
+        self.assertEqual(entry.provider_currencies(deepseek), ("CNY", "USD"))
+        self.assertEqual(entry.provider_currencies(zai), ("USD",))
+        self.assertEqual(entry.provider_currencies(zhipu), ("CNY",))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": 1,
+  "revision": 2,
   "published_at": "2026-09-10",
   "providers": [
     {
@@ -18,14 +18,14 @@
           "models": [
             {
               "id": "flash",
-              "display": "V4 Flash",
+              "display": "V4.1-Flash",
               "plan": "pay_as_you_go",
               "windows": null,
               "peak": { "cache_hit_input": 0.04, "cache_miss_input": 2.0, "output": 8.0 },
               "off_peak": { "cache_hit_input": 0.02, "cache_miss_input": 1.0, "output": 4.0 },
               "status": "active",
               "source_urls": ["https://api-docs.deepseek.com/zh-cn/quick_start/pricing"],
-              "verified_at": "2026-09-09",
+              "verified_at": "2026-09-10",
               "retired_at": null
             },
             {
@@ -45,12 +45,12 @@
               "display": "V4 Flash Vision Exp",
               "plan": "pay_as_you_go",
               "windows": null,
-              "peak": { "cache_hit_input": 0.04, "cache_miss_input": 2.0, "output": 8.0 },
-              "off_peak": { "cache_hit_input": 0.02, "cache_miss_input": 1.0, "output": 4.0 },
-              "status": "active",
+              "peak": { "cache_hit_input": 0.1, "cache_miss_input": 3.0, "output": 9.0 },
+              "off_peak": { "cache_hit_input": 0.05, "cache_miss_input": 1.5, "output": 4.5 },
+              "status": "retired",
               "source_urls": ["https://api-docs.deepseek.com/zh-cn/quick_start/pricing"],
-              "verified_at": "2026-09-09",
-              "retired_at": null
+              "verified_at": "2026-09-10",
+              "retired_at": "2026-09-10"
             }
           ]
         },
@@ -65,17 +65,17 @@
           "models": [
             {
               "id": "flash",
-              "display": "V4 Flash",
+              "display": "V4.1-Flash",
               "plan": "pay_as_you_go",
               "windows": null,
-              "peak": { "cache_hit_input": 0.014, "cache_miss_input": 0.44, "output": 1.32 },
-              "off_peak": { "cache_hit_input": 0.007, "cache_miss_input": 0.22, "output": 0.66 },
+              "peak": { "cache_hit_input": 0.006, "cache_miss_input": 0.3, "output": 1.2 },
+              "off_peak": { "cache_hit_input": 0.003, "cache_miss_input": 0.15, "output": 0.6 },
               "status": "active",
               "source_urls": [
                 "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
                 "https://api-docs.deepseek.com/quick_start/pricing"
               ],
-              "verified_at": "2026-08-23",
+              "verified_at": "2026-09-10",
               "retired_at": null
             },
             {
@@ -100,13 +100,13 @@
               "windows": null,
               "peak": { "cache_hit_input": 0.014, "cache_miss_input": 0.44, "output": 1.32 },
               "off_peak": { "cache_hit_input": 0.007, "cache_miss_input": 0.22, "output": 0.66 },
-              "status": "active",
+              "status": "retired",
               "source_urls": [
                 "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
                 "https://api-docs.deepseek.com/quick_start/pricing"
               ],
-              "verified_at": "2026-08-23",
-              "retired_at": null
+              "verified_at": "2026-09-10",
+              "retired_at": "2026-09-10"
             }
           ]
         }

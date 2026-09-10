@@ -9,6 +9,9 @@
 - ``fetch(currency)`` 抓取入口，返回通用 ``PricingSnapshot``；
                       结构漂移抛 ``ParseError``，来源断供抛 ``SourceUnavailable``，
                       网络故障抛 ``FetchError``
+- ``SUPPORTED_CURRENCIES`` （可选）多币种平台的币种清单：主入口按声明
+                      顺序逐币种调用 ``fetch(currency)``；未声明者回退
+                      单默认币种 ``(DEFAULT_CURRENCY,)``
 
 通用数据结构与异常定义在 ``model.py``；平台注册表在上层主入口维护。
 已实现：deepseek。

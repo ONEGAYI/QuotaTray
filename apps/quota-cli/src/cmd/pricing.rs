@@ -432,7 +432,7 @@ mod tests {
         ] {
             let out = render_show(&entry.id, &entry.name, &resolved, PEAK_NOW_MS, lang);
             assert!(out.contains(peak_label), "{lang:?}: {out}");
-            assert!(out.contains("V4 Flash"), "{lang:?}: {out}");
+            assert!(out.contains("V4.1-Flash"), "{lang:?}: {out}");
             assert!(out.contains("CNY/MTokens"), "{lang:?}: {out}");
             // flash 价格（去尾零格式，9·10 降价后档位）
             assert!(out.contains("0.04"), "{lang:?}: {out}");
@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(j["model_status"], "active");
         assert_eq!(j["preset"]["native_id"], "deepseek");
         assert_eq!(j["preset"]["model"], "flash");
-        assert_eq!(j["model_label"], "V4 Flash");
+        assert_eq!(j["model_label"], "V4.1-Flash");
         assert_eq!(j["currency"], "CNY");
         assert_eq!(j["timezone_offset_minutes"], 480);
         assert_eq!(j["windows"].as_array().unwrap().len(), 2);
@@ -639,7 +639,7 @@ mod tests {
             pricing::resolve_in_currency(&cfg2.providers[0], &Default::default(), Some("USD"))
                 .unwrap();
         assert_eq!(resolved.currency.as_deref(), Some("USD"));
-        assert_eq!(resolved.peak.as_ref().unwrap().cache_hit_input, Some(0.014));
+        assert_eq!(resolved.peak.as_ref().unwrap().cache_hit_input, Some(0.006));
         let _ = std::fs::remove_file(&path);
     }
 
