@@ -45,7 +45,8 @@ fn pricing_show_and_model_list_expose_official_sources() {
             value["source_urls"][0],
             "https://api-docs.deepseek.com/zh-cn/quick_start/pricing"
         );
-        assert_eq!(value["verified_at"], "2026-09-09");
+        // verified_at 与种子 flash 条目同步（数据 PR 更新种子时同步此断言）
+        assert_eq!(value["verified_at"], "2026-09-10");
     }
     std::fs::remove_dir_all(root).unwrap();
 }
