@@ -1152,7 +1152,7 @@ mod tests {
 
     // ---- 预置数据快照 ----
 
-    /// 契约：DeepSeek 预置数据逐字锁定（官网 2026-08-23 抓取，改价须核对官网）。
+    /// 契约：DeepSeek 预置数据逐字锁定（官网 2026-09-10 抓取，改价须核对官网）。
     #[test]
     fn deepseek_preset_snapshot() {
         let p = preset("deepseek").unwrap();
@@ -1164,15 +1164,20 @@ mod tests {
         let pro = &p.models[1];
         let vision = &p.models[2];
         assert_eq!(flash.id, "flash");
+        assert_eq!(flash.display, "V4.1-Flash");
+        assert_eq!(flash.status, ModelStatus::Active);
         assert_eq!(flash.peak, PriceTier::full(0.04, 2.0, 8.0));
         assert_eq!(flash.off_peak, PriceTier::full(0.02, 1.0, 4.0));
         assert_eq!(pro.id, "pro");
         assert_eq!(pro.peak, PriceTier::full(0.30, 9.0, 27.0));
         assert_eq!(pro.off_peak, PriceTier::full(0.15, 4.5, 13.5));
+        // vision 已于 2026-09-10 下架：CNY 回写保留最后已知价（USD 侧同源保留）
         assert_eq!(vision.id, "vision");
-        assert_eq!(vision.peak, PriceTier::full(0.04, 2.0, 8.0));
-        assert_eq!(vision.off_peak, PriceTier::full(0.02, 1.0, 4.0));
-        // 空闲价 = 高峰一半（官网规则自检）
+        assert_eq!(vision.display, "V4 Flash Vision Exp");
+        assert_eq!(vision.status, ModelStatus::Retired);
+        assert_eq!(vision.peak, PriceTier::full(0.1, 3.0, 9.0));
+        assert_eq!(vision.off_peak, PriceTier::full(0.05, 1.5, 4.5));
+        // 空闲价 = 高峰一半（官网规则自检；retired 保留价同样满足）
         for m in &p.models {
             for (a, b) in [
                 (m.peak.cache_hit_input, m.off_peak.cache_hit_input),
@@ -1362,18 +1367,19 @@ mod tests {
         let usd = preset_with_currency("deepseek", "USD").unwrap();
         assert_eq!(cny.currency, "CNY");
         assert_eq!(usd.currency, "USD");
-        // USD 套三模型逐字锁定（Flash 与 Vision 同价）
+        // USD 套三模型逐字锁定（Flash 为 V4.1 新价；Vision 已退役、
+        // 保留最后已知价 = 原 V4 Flash 价）
         assert_eq!(
             usd.models,
             vec![
                 PresetModel {
                     id: "flash".into(),
-                    display: "V4 Flash".into(),
+                    display: "V4.1-Flash".into(),
                     plan: PlanKind::PayAsYouGo,
                     status: ModelStatus::Active,
                     windows: None,
-                    peak: PriceTier::full(0.014, 0.44, 1.32),
-                    off_peak: PriceTier::full(0.007, 0.22, 0.66),
+                    peak: PriceTier::full(0.006, 0.3, 1.2),
+                    off_peak: PriceTier::full(0.003, 0.15, 0.6),
                 },
                 PresetModel {
                     id: "pro".into(),
@@ -1388,7 +1394,7 @@ mod tests {
                     id: "vision".into(),
                     display: "V4 Flash Vision Exp".into(),
                     plan: PlanKind::PayAsYouGo,
-                    status: ModelStatus::Active,
+                    status: ModelStatus::Retired,
                     windows: None,
                     peak: PriceTier::full(0.014, 0.44, 1.32),
                     off_peak: PriceTier::full(0.007, 0.22, 0.66),
@@ -1659,8 +1665,8 @@ mod tests {
         // USD hint：数字与标签同时切到 USD 套
         let r = resolve_in_currency(&entry, &Default::default(), Some("USD")).unwrap();
         assert_eq!(r.currency.as_deref(), Some("USD"));
-        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.014));
-        assert_eq!(r.peak.as_ref().unwrap().output, Some(1.32));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.006));
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(1.2));
         // 非双币平台忽略 hint（zhipu 唯一 CNY 套）
         let zhipu = native_entry("zhipu");
         let r = resolve_in_currency(&zhipu, &Default::default(), Some("USD")).unwrap();
@@ -1800,7 +1806,7 @@ mod tests {
                 model: "flash".into()
             }
         );
-        assert_eq!(r.model_label.as_deref(), Some("V4 Flash"));
+        assert_eq!(r.model_label.as_deref(), Some("V4.1-Flash"));
         assert_eq!(r.timezone_offset_minutes, Some(480));
         assert_eq!(r.windows.len(), 2);
         assert_eq!(r.peak, Some(PriceTier::full(0.04, 2.0, 8.0)));
