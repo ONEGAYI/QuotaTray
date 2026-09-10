@@ -11,6 +11,7 @@ import { dataSummary } from "../display";
 import { useLang, type TextKey } from "../i18n";
 import { invalidateProviderCaches, useNativeMetas } from "../queries";
 import type {
+  NativeMeta,
   PlanVariant,
   PricingConfig,
   ProviderEntry,
@@ -68,6 +69,14 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const natives = useNativeMetas();
+  // 编辑会话基准快照（spec §7）：打开期间目录更新不重置草稿与选项——
+  // metas 首次到达时冻结，重新打开编辑页才使用新目录；数据分叉时提示。
+  const metasRef = useRef<NativeMeta[] | null>(null);
+  if (!metasRef.current && natives.data) metasRef.current = natives.data;
+  const frozenNatives = metasRef.current;
+  const catalogUpdatedMidEdit = Boolean(
+    frozenNatives && natives.data && frozenNatives !== natives.data,
+  );
   const [tab, setTab] = useState<Tab>(
     initial?.kind.type === "template"
       ? "template"
@@ -116,13 +125,13 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         : "native";
   const availableNativeMetas = useMemo(
     () =>
-      (natives.data ?? []).filter(
+      (frozenNatives ?? natives.data ?? []).filter(
         (meta) =>
           !mobile ||
           !meta.uses_cli_credentials ||
           (initial?.kind.type === "native" && initial.kind.provider === meta.id),
       ),
-    [initial, mobile, natives.data],
+    [initial, mobile, frozenNatives, natives.data],
   );
   const selectedNativeMeta = useMemo(() => {
     if (tab !== "native") return null;
@@ -339,15 +348,20 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     </label>
   );
   const pricingSection = (
-    <PricingSection
+    <>
+      {catalogUpdatedMidEdit && (
+        <p className="qt-hint">{t("edit.catalogUpdatedHint")}</p>
+      )}
+      <PricingSection
       key={`${tab}:${nativeProvider}`}
       preset={selectedPreset}
       customModels={selectedNativeMeta?.custom_models ?? []}
       initial={tab === initialTab ? initial?.pricing : undefined}
-      onChange={(pricing) => {
-        pricingRef.current = pricing;
-      }}
-    />
+        onChange={(pricing) => {
+          pricingRef.current = pricing;
+        }}
+      />
+    </>
   );
 
   return (

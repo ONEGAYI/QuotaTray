@@ -209,6 +209,9 @@ export const en: Record<TextKey, string> = {
   "edit.guideButton": "Setup guide",
   "edit.guideImageMissing": "Image missing: {alt}",
   "edit.guideDocMissing": "Guide document is missing. Please update to the latest version and retry.",
+  "edit.catalogUpdatedHint": "Pricing catalog updated; this editor keeps the data from when it opened. Reopen to use the new data.",
+  "pricing.retiredTag": "retired",
+  "pricing.retiredNote": "Model retired: showing last known prices.",
 
   // ---- Template sub-tabs and presets ----
   "edit.subProvider": "Provider & model",
@@ -376,6 +379,13 @@ export const en: Record<TextKey, string> = {
   "settings.checking": "Checking…",
   "settings.upToDate": "Up to date",
   "settings.updateCheckFailed": "Update operation failed",
+  "settings.catalogTitle": "Model & pricing catalog",
+  "settings.catalogUpdateNow": "Update now",
+  "settings.catalogUpdating": "Updating…",
+  "settings.catalogResultUpdated": "Updated to revision {revision}",
+  "settings.catalogResultUnchanged": "Up to date (revision {revision})",
+  "settings.catalogResultBusy": "Another update is in progress; try again later",
+  "settings.catalogResultFailed": "Update failed: {msg}",
   "settings.updateAvailable": "Version v{version} is available",
   "settings.updateError": "Check failed: {msg}",
   "settings.download": "Download installer",

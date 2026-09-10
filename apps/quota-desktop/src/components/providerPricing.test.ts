@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { NativeMeta, ProviderEntry } from "../types";
+import type { NativeMeta, PresetModel, ProviderEntry } from "../types";
 import {
   isPeakAt,
   pricingModelChoices,
@@ -230,6 +230,7 @@ describe("Provider 卡片定价视图", () => {
     expect(resolveProviderPricingView(customized, meta, now)).toEqual({
       modelId: "pro",
       modelLabel: "V4 Pro",
+      modelStatus: "active",
       period: "peak",
       tier: { output: 20 },
       currency: "CNY",
@@ -267,11 +268,77 @@ describe("Provider 卡片定价视图", () => {
     });
   });
 
-  it("未知模型作为展示标签，价格回退默认模型", () => {
+  it("未知模型保留标签，价格未知不借默认模型（T-02 语义）", () => {
     const customized: ProviderEntry = { ...entry, pricing: { model: "我的模型" } };
     const view = resolveProviderPricingView(customized, meta, Date.UTC(2026, 7, 19, 6, 0));
-    expect(view).toMatchObject({ modelId: "flash", modelLabel: "我的模型" });
-    expect(view?.tier?.output).toBe(4.5);
+    expect(view).toMatchObject({
+      modelId: undefined,
+      modelLabel: "我的模型",
+      modelStatus: "missing",
+      plan: "pay_as_you_go",
+    });
+    expect(view?.tier).toBeNull();
+  });
+
+  it("missing 手填整档生效，未填档保持未知", () => {
+    const customized: ProviderEntry = {
+      ...entry,
+      pricing: { model: "我的模型", peak: { output: 9 } },
+    };
+    const view = resolveProviderPricingView(customized, meta, Date.UTC(2026, 7, 19, 1, 30));
+    expect(view?.modelStatus).toBe("missing");
+    expect(view?.tier).toEqual({ output: 9 });
+  });
+
+  it("retired 模型保留最后已知价并透出 retired 状态", () => {
+    const retiredMeta: NativeMeta = {
+      ...meta,
+      pricing: {
+        ...meta.pricing!,
+        models: [
+          ...meta.pricing!.models.filter((m) => m.id !== "pro"),
+          {
+            id: "pro",
+            display: "V4 Pro",
+            plan: "pay_as_you_go",
+            status: "retired",
+            windows: null,
+            peak: { cache_hit_input: 9, cache_miss_input: 9, output: 9 },
+            off_peak: { cache_hit_input: 0, cache_miss_input: 0, output: 0 },
+          } as PresetModel,
+        ].sort((a, b) => a.id.localeCompare(b.id)),
+      },
+    };
+    const customized: ProviderEntry = { ...entry, pricing: { model: "pro" } };
+    const view = resolveProviderPricingView(customized, retiredMeta, Date.UTC(2026, 7, 19, 6, 0));
+    expect(view?.modelStatus).toBe("retired");
+    // retired 最后已知价（闲档）生效
+    expect(view?.tier?.output).toBe(0);
+  });
+
+  it("选择列表默认只列 active；当前值引用的 retired 模型保留并标注", () => {
+    const preset = meta.pricing!;
+    const withRetired = {
+      ...preset,
+      models: [
+        ...preset.models.filter((m) => m.id !== "pro"),
+        {
+          id: "pro",
+          display: "V4 Pro",
+          plan: "pay_as_you_go",
+          status: "retired",
+          windows: null,
+          peak: { cache_hit_input: 9, cache_miss_input: 9, output: 9 },
+          off_peak: { cache_hit_input: 0, cache_miss_input: 0, output: 0 },
+        } as PresetModel,
+      ],
+    };
+    const plain = pricingModelChoices(withRetired, []);
+    expect(plain.some((c) => c.modelId === "pro")).toBe(false);
+    const keeping = pricingModelChoices(withRetired, [], "pro");
+    const current = keeping.find((c) => c.modelId === "pro");
+    // 当前值保留并标注
+    expect(current?.status).toBe("retired");
   });
 
   it("切换非默认模型保留其他覆盖与密文", () => {

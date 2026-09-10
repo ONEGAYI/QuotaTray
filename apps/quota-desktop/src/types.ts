@@ -150,6 +150,28 @@ export interface PresetModel {
   off_peak: PriceTier;
 }
 
+/** 定价目录状态（设置页展示；origin/fallback_reason 与 core 同名小写）。 */
+export interface CatalogStatus {
+  revision: number;
+  origin: "bundled" | "cached";
+  fallback_reason:
+    | "no_cache"
+    | "corrupted_cache"
+    | "incompatible_cache"
+    | "stale_cache"
+    | null;
+  last_attempt_ms: number | null;
+  last_success_ms: number | null;
+  last_error: string | null;
+}
+
+/** 定价目录手动更新结果（result 与 core CatalogUpdateOutcome 同名）。 */
+export interface CatalogUpdateResult {
+  result: "updated" | "unchanged" | "busy" | "failed";
+  revision: number | null;
+  error: string | null;
+}
+
 /** 峰谷定价预置（IPC 形状）。 */
 export interface PresetPricing {
   currency: string;

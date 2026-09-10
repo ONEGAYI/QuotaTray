@@ -310,6 +310,8 @@ pub fn run() {
             commands::reorder_providers,
             commands::clear_all_data,
             commands::list_native_metas,
+            commands::catalog_status,
+            commands::catalog_update,
             commands::validate_template,
             commands::test_template,
             commands::validate_script,

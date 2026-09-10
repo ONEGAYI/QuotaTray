@@ -47,7 +47,12 @@ export function PricingSection(props: Props) {
     setDraft((current) => ({ ...current, ...partial }));
   };
 
-  const modelChoices = pricingModelChoices(props.preset, props.customModels);
+  // 当前值引用的 retired 模型保留在列表（不丢配置），标注已下架
+  const modelChoices = pricingModelChoices(
+    props.preset,
+    props.customModels,
+    draft.model.trim() || undefined,
+  );
   const selectedChoice = draft.model.trim()
     ? modelChoices.find(
         (choice) => choice.modelId?.toLowerCase() === draft.model.trim().toLowerCase(),
@@ -78,6 +83,7 @@ export function PricingSection(props: Props) {
     || selectedChoice?.label
     || presetModel?.display
     || t("pricing.customModel");
+  const selectedRetired = selectedChoice?.status === "retired";
 
   const setMode = (custom: boolean) => {
     patch({
@@ -200,9 +206,13 @@ export function PricingSection(props: Props) {
                 {choice.value === "default" ? t("pricing.presetDefault") : ""}
                 {choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : ""}
                 {choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : ""}
+                {choice.status === "retired" ? ` · ${t("pricing.retiredTag")}` : ""}
               </option>
             ))}
           </select>
+          {selectedRetired && (
+            <span className={`${subduedTextCls} sm:text-right`}>{t("pricing.retiredNote")}</span>
+          )}
           <span className={`${subduedTextCls} sm:text-right`}>
             {selectedChoice?.source === "custom"
               ? t("pricing.libraryNote")

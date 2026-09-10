@@ -8,6 +8,9 @@ import type { UpdateStateDto } from "./types";
 export const PROVIDERS_CHANGED_EVENT = "providers-changed";
 /** 条目重排事件：各条目数据未变，只失效列表缓存（与后端常量成对）。 */
 export const PROVIDERS_REORDERED_EVENT = "providers-reordered";
+/** 定价目录更新成功事件：失效 native-metas（模型/价格随新目录刷新）；
+ * 已打开编辑页保留草稿，仅提示重新打开可用新数据（spec §7）。 */
+export const CATALOG_CHANGED_EVENT = "pricing-catalog-changed";
 
 type QueryInvalidator = {
   invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
@@ -51,8 +54,18 @@ export function useProviders() {
       void qc.invalidateQueries({ queryKey: ["native-metas"] });
       void qc.invalidateQueries({ queryKey: ["settings"] });
     });
+    // 目录更新成功：native-metas 重取（模型/价格刷新）；目录状态自刷新
+    const unlistenCatalog = listen(CATALOG_CHANGED_EVENT, () => {
+      void qc.invalidateQueries({ queryKey: ["native-metas"] });
+      void qc.invalidateQueries({ queryKey: ["catalog-status"] });
+    });
     return () => {
-      void Promise.all([unlistenProviders, unlistenReordered, unlistenImport]).then((unlisten) => {
+      void Promise.all([
+        unlistenProviders,
+        unlistenReordered,
+        unlistenImport,
+        unlistenCatalog,
+      ]).then((unlisten) => {
         unlisten.forEach((fn) => fn());
       });
     };
@@ -60,6 +73,15 @@ export function useProviders() {
   return useQuery({
     queryKey: ["providers"],
     queryFn: api.listProviders,
+  });
+}
+
+/** 定价目录状态（设置页目录区消费；目录变更事件自刷新）。 */
+export function useCatalogStatus() {
+  return useQuery({
+    queryKey: ["catalog-status"],
+    queryFn: api.catalogStatus,
+    staleTime: 30_000,
   });
 }
 
