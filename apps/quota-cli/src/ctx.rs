@@ -106,6 +106,15 @@ impl Ctx {
             .unwrap_or_else(|| PathBuf::from("history.db"))
     }
 
+    /// 定价目录缓存目录：与历史库同根（`--config` 覆盖时自然跟随；
+    /// 便携形态即 `Data/`），缓存文件与写锁都在此目录。
+    pub fn catalog_dir(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .map(|dir| dir.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     /// 滚动日志目录：与历史库同根（`~/.quotatray/logs` 或便携 `Data/logs`）。
     /// 仅 watch 长驻模式装配文件日志；单次命令的告警直接走 stderr。
     pub fn logs_dir(&self) -> PathBuf {

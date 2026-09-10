@@ -343,6 +343,38 @@ pub enum T {
     PricingModelSourceCustom,
     /// 平台无预置与自定义模型。
     PricingModelListEmpty,
+    /// 目录状态标题。
+    CatalogStatusTitle,
+    /// 目录载体：内置。
+    CatalogOriginBundled,
+    /// 目录载体：缓存。
+    CatalogOriginCached,
+    /// 回退原因标签。
+    CatalogFallbackLabel,
+    /// 回退原因：尚无缓存。
+    CatalogFallbackNoCache,
+    /// 回退原因：缓存损坏。
+    CatalogFallbackCorrupted,
+    /// 回退原因：缓存不兼容。
+    CatalogFallbackIncompatible,
+    /// 回退原因：缓存不新于内置。
+    CatalogFallbackStale,
+    /// 最近检查标签。
+    CatalogLastAttempt,
+    /// 最近成功标签。
+    CatalogLastSuccess,
+    /// 最近错误标签。
+    CatalogLastError,
+    /// 未检查占位。
+    CatalogNever,
+    /// 更新结果：已更新。
+    CatalogUpdateUpdated,
+    /// 更新结果：已是最新。
+    CatalogUpdateUnchanged,
+    /// 更新结果：忙碌。
+    CatalogUpdateBusy,
+    /// 更新失败前缀。
+    CatalogUpdateFailed,
     /// show 提示行：模型已下架，显示最后已知价格。
     PricingModelRetired,
     /// show 提示行：模型未匹配，价格未知（手填仍生效）。
@@ -657,6 +689,22 @@ fn zh(key: T) -> &'static str {
         T::PricingModelSourcePreset => "预置",
         T::PricingModelSourceCustom => "自定义",
         T::PricingModelListEmpty => "（该平台无预置与自定义模型）",
+        T::CatalogStatusTitle => "模型与价格目录",
+        T::CatalogOriginBundled => "内置（随应用版本）",
+        T::CatalogOriginCached => "缓存（已同步远程目录）",
+        T::CatalogFallbackLabel => "说明",
+        T::CatalogFallbackNoCache => "尚无本地缓存，使用内置数据",
+        T::CatalogFallbackCorrupted => "本地缓存损坏，已回退内置数据",
+        T::CatalogFallbackIncompatible => "本地缓存格式不兼容，已回退内置数据",
+        T::CatalogFallbackStale => "本地缓存不新于内置数据",
+        T::CatalogLastAttempt => "最近检查",
+        T::CatalogLastSuccess => "最近成功",
+        T::CatalogLastError => "最近错误",
+        T::CatalogNever => "未检查",
+        T::CatalogUpdateUpdated => "目录已更新至 revision",
+        T::CatalogUpdateUnchanged => "目录已是最新",
+        T::CatalogUpdateBusy => "另一更新正在进行（本机其他进程），本次跳过",
+        T::CatalogUpdateFailed => "目录更新失败：",
         T::PricingModelRetired => "模型已下架：显示最后已知价格",
         T::PricingModelMissing => "未匹配到该模型：价格未知（手填价格仍生效）",
         T::PricingModelRetiredTag => "已下架",
@@ -1007,6 +1055,22 @@ fn en(key: T) -> &'static str {
         T::ColOffPeakPrice => "Off-peak (hit/in/out)",
         T::PricingModelSourcePreset => "preset",
         T::PricingModelSourceCustom => "custom",
+        T::CatalogStatusTitle => "Model & pricing catalog",
+        T::CatalogOriginBundled => "bundled (shipped with app)",
+        T::CatalogOriginCached => "cached (synced from remote)",
+        T::CatalogFallbackLabel => "note",
+        T::CatalogFallbackNoCache => "no local cache yet; using bundled data",
+        T::CatalogFallbackCorrupted => "local cache corrupted; fell back to bundled data",
+        T::CatalogFallbackIncompatible => "local cache incompatible; fell back to bundled data",
+        T::CatalogFallbackStale => "local cache not newer than bundled data",
+        T::CatalogLastAttempt => "last check",
+        T::CatalogLastSuccess => "last success",
+        T::CatalogLastError => "last error",
+        T::CatalogNever => "never",
+        T::CatalogUpdateUpdated => "catalog updated to revision",
+        T::CatalogUpdateUnchanged => "catalog already up to date",
+        T::CatalogUpdateBusy => "another update is in progress on this machine; skipped",
+        T::CatalogUpdateFailed => "catalog update failed: ",
         T::PricingModelRetired => "Model retired: showing last known prices",
         T::PricingModelMissing => "Model not found: prices unknown (manual entries still apply)",
         T::PricingModelRetiredTag => "retired",

@@ -43,8 +43,8 @@ pub use model::{QueryError, UsageData, used_percent};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
     PricingSource, ResolvedModelStatus, ResolvedPricing, default_currency, format_price,
-    next_change, preset, preset_with_currency, resolve, resolve_in_catalog, resolve_in_currency,
-    resolve_with, validate, validate_custom_model,
+    next_change, preset, preset_in_catalog, preset_with_currency, resolve, resolve_in_catalog,
+    resolve_in_currency, resolve_with, validate, validate_custom_model,
 };
 pub use pricing_catalog::sync::{
     CATALOG_CACHE_FILE, CATALOG_LOCK_FILE, CATALOG_MAX_BYTES, CATALOG_URL, CatalogCacheEnvelope,

@@ -620,6 +620,17 @@
                         "stdin JSON 校验写入、清除回退预置"
                       ]
                     },
+                    "pricing_catalog.rs": {
+                      "kind": "file",
+                      "desc": "目录状态与手动更新命令",
+                      "detail": [
+                        "quota pricing catalog status/update（--json 双形态）：status 只读本地（装载 + 磁盘信封元数据拼合，零网络零客户端构造）；update 显式联网，settings 代理端口构造双通道（与安装包更新检测同口径），run_update_with 可注入 mock。",
+                        "退出码：updated/unchanged/busy=0；网络/响应类失败=2（瞬时）；拒绝/IO=1（确定性）。show/model list 已改读 load_effective 有效目录（本票）。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/pricing_catalog/sync.rs"
+                      ]
+                    },
                     "pricing_models.rs": {
                       "kind": "file",
                       "desc": "自定义模型库管理",

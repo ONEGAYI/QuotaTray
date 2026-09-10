@@ -261,25 +261,26 @@ QuotaTray/
 │   │   ├── Cargo.toml # CLI crate 清单
 │   │   └── src/       # CLI 源码
 │   │       ├── cmd/           # 子命令实现（每命令一模块）
-│   │       │   ├── add.rs            # 交互添加向导
-│   │       │   ├── assist.rs         # Agent 无凭据调试
-│   │       │   ├── clear.rs          # 清空全部用户数据命令
-│   │       │   ├── config.rs         # 配置导入导出
-│   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
-│   │       │   ├── edit.rs           # 编辑向导与启停
-│   │       │   ├── history.rs        # history 命令（M5）
-│   │       │   ├── list.rs           # 条目列表
-│   │       │   ├── mod.rs            # 子模块声明
-│   │       │   ├── natives.rs        # 预置平台表
-│   │       │   ├── pricing.rs        # 定价查看/写入
-│   │       │   ├── pricing_models.rs # 自定义模型库管理
-│   │       │   ├── query.rs          # 并行查询与 watch
-│   │       │   ├── remove.rs         # 确认删除
-│   │       │   ├── script.rs         # 脚本试查
-│   │       │   ├── setkey.rs         # 写入 API key
-│   │       │   ├── template.rs       # 模板试查
-│   │       │   ├── update.rs         # 更新检测/下载命令
-│   │       │   └── vault.rs          # vault 健康检查
+│   │       │   ├── add.rs             # 交互添加向导
+│   │       │   ├── assist.rs          # Agent 无凭据调试
+│   │       │   ├── clear.rs           # 清空全部用户数据命令
+│   │       │   ├── config.rs          # 配置导入导出
+│   │       │   ├── devsmoke.rs        # 开发冒烟（仅 debug）
+│   │       │   ├── edit.rs            # 编辑向导与启停
+│   │       │   ├── history.rs         # history 命令（M5）
+│   │       │   ├── list.rs            # 条目列表
+│   │       │   ├── mod.rs             # 子模块声明
+│   │       │   ├── natives.rs         # 预置平台表
+│   │       │   ├── pricing.rs         # 定价查看/写入
+│   │       │   ├── pricing_catalog.rs # 目录状态与手动更新命令
+│   │       │   ├── pricing_models.rs  # 自定义模型库管理
+│   │       │   ├── query.rs           # 并行查询与 watch
+│   │       │   ├── remove.rs          # 确认删除
+│   │       │   ├── script.rs          # 脚本试查
+│   │       │   ├── setkey.rs          # 写入 API key
+│   │       │   ├── template.rs        # 模板试查
+│   │       │   ├── update.rs          # 更新检测/下载命令
+│   │       │   └── vault.rs           # vault 健康检查
 │   │       ├── ctx.rs         # CLI 上下文
 │   │       ├── exit.rs        # 退出码三分约定
 │   │       ├── idgen.rs       # 随机 id 生成

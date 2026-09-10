@@ -225,6 +225,25 @@ enum PricingCmd {
     /// 自定义模型库管理（按平台聚类，条目 pricing.model 可选用）
     #[command(subcommand)]
     Model(ModelCmd),
+    /// 模型与价格目录管理（数据源状态与手动更新）
+    #[command(subcommand)]
+    Catalog(CatalogCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum CatalogCmd {
+    /// 查看目录状态（当前版本、载体、最近同步；只读本地不联网）
+    Status {
+        /// 输出 JSON（供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 显式联网检查并更新目录（成功与无变化退出 0；失败非零）
+    Update {
+        /// 输出 JSON（供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -561,6 +580,12 @@ async fn run(cli: Cli) -> i32 {
         }
         Command::Pricing(PricingCmd::Model(ModelCmd::Add { provider })) => {
             cmd::pricing_models::run_add(&ctx, &provider)
+        }
+        Command::Pricing(PricingCmd::Catalog(CatalogCmd::Status { json })) => {
+            cmd::pricing_catalog::run_status(&ctx, json)
+        }
+        Command::Pricing(PricingCmd::Catalog(CatalogCmd::Update { json })) => {
+            cmd::pricing_catalog::run_update(&ctx, json).await
         }
         Command::Pricing(PricingCmd::Model(ModelCmd::Remove { provider, id })) => {
             cmd::pricing_models::run_remove(&ctx, &provider, &id)

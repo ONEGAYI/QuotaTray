@@ -405,6 +405,18 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
     Some(suite_to_preset(native_id, suite))
 }
 
+/// [`preset_with_currency`] 的目录参数化形态：从指定目录取套构造，
+/// 供有效目录快照消费（CLI model list 与 GUI native metas 的统一入口；
+/// 旧两入口等价于传入内置种子）。
+pub fn preset_in_catalog(
+    native_id: &str,
+    currency_hint: Option<&str>,
+    catalog: &Catalog,
+) -> Option<PresetProvider> {
+    let suite = crate::pricing_catalog::find_suite(catalog, native_id, currency_hint)?;
+    Some(suite_to_preset(native_id, suite))
+}
+
 /// 目录套 → 兼容 `PresetProvider`。订阅项价格档 `null` 映射为空档；
 /// 无默认模型（全 retired 套）映射为空串——现有数据不出现该形状，
 /// resolve 未命中空串默认时按「无选中模型」处理。

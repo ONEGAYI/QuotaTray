@@ -44,10 +44,16 @@ pub struct ModelListJson {
     pub models: Vec<ModelRowJson>,
 }
 
-/// 汇总平台预置与自定义模型（纯函数；provider 未注册返回 None）。
-pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<ModelListJson> {
+/// 汇总平台预置与自定义模型（纯函数；预置行来自传入目录——run_list
+/// 传 [`quota_core::load_effective`] 有效目录，测试可传内置种子；
+/// provider 未注册返回 None）。
+pub fn models_json_with(
+    provider_id: &str,
+    custom: &[CustomModelDef],
+    catalog: &quota_core::Catalog,
+) -> Option<ModelListJson> {
     provider::find(provider_id)?; // 未注册平台无库语义
-    let preset = pricing::preset(provider_id);
+    let preset = pricing::preset_in_catalog(provider_id, None, catalog);
     let mut models = Vec::new();
     if let Some(p) = &preset {
         for m in &p.models {
@@ -218,9 +224,11 @@ pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
         .get(provider_id)
         .cloned()
         .unwrap_or_default();
+    // 有效目录（本地读取，无网络；JSON 模式亦不联网）
+    let catalog = quota_core::load_effective(&ctx.catalog_dir());
     // ensure_provider 已拦截未注册 id，此处 None 仅剩注册表竞争修改的
     // 理论路径，防御回退到与入口同一双语文案
-    let Some(list) = models_json(provider_id, &custom) else {
+    let Some(list) = models_json_with(provider_id, &custom, &catalog.catalog) else {
         eprintln!(
             "{}{}",
             t(lang, T::Err),
@@ -339,7 +347,12 @@ mod tests {
     /// 且价格列仍显示最后已知值。
     #[test]
     fn model_rows_carry_lifecycle_status() {
-        let list = models_json("deepseek", &[custom_model("flash")]).unwrap();
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("flash")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         for m in &list.models {
             if m.source == "preset" {
                 assert_eq!(m.status, "active", "{}", m.id);
@@ -378,7 +391,12 @@ mod tests {
     /// 无预置平台（siliconflow）仅有自定义行且币种走 default_currency。
     #[test]
     fn models_json_merges_preset_and_custom() {
-        let list = models_json("deepseek", &[custom_model("flash")]).unwrap();
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("flash")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         assert_eq!(list.currency, "CNY");
         assert_eq!(list.default_model.as_deref(), Some("flash"));
         assert_eq!(list.models.len(), 4);
@@ -386,27 +404,37 @@ mod tests {
         assert_eq!(list.models[3].source, "custom");
         assert_eq!(list.models[3].id, "flash");
 
-        let list = models_json("siliconflow", &[custom_model("glm-5.2")]).unwrap();
+        let list = models_json_with(
+            "siliconflow",
+            &[custom_model("glm-5.2")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         assert_eq!(list.default_model, None);
         assert_eq!(list.currency, "CNY");
         assert_eq!(list.models.len(), 1);
         assert_eq!(list.models[0].source, "custom");
 
         // 智谱订阅项：plan=subscription 且携带模型级窗口
-        let list = models_json("zhipu", &[]).unwrap();
+        let list = models_json_with("zhipu", &[], quota_core::bundled_catalog()).unwrap();
         let coding = list.models.iter().find(|m| m.id == "coding-plan").unwrap();
         assert_eq!(coding.plan, "subscription");
         assert_eq!(coding.windows.as_ref().map(Vec::len), Some(1));
         assert!(coding.peak.is_empty());
 
         // 未注册平台 → None
-        assert!(models_json("no-such", &[]).is_none());
+        assert!(models_json_with("no-such", &[], quota_core::bundled_catalog()).is_none());
     }
 
     /// 契约：表格含模型 id、双语表头、来源与模式标签、紧凑三档价。
     #[test]
     fn table_renders_sources_and_prices() {
-        let list = models_json("deepseek", &[custom_model("night-x")]).unwrap();
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("night-x")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         for lang in [Lang::Zh, Lang::En] {
             let table = render_models_table(&list, lang);
             assert!(table.contains("night-x"), "{lang:?}: {table}");

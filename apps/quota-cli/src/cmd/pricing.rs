@@ -194,7 +194,11 @@ pub fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
         return 1;
     };
     let hint = entry.pricing.as_ref().and_then(|p| p.currency.as_deref());
-    let Some(resolved) = pricing::resolve_in_currency(entry, &cfg.custom_models, hint) else {
+    // 有效目录：缓存与内置种子取高（本地读取，无网络；JSON 模式亦然）
+    let catalog = quota_core::load_effective(&ctx.catalog_dir());
+    let Some(resolved) =
+        pricing::resolve_in_catalog(entry, &cfg.custom_models, hint, &catalog.catalog)
+    else {
         println!("{}", t(lang, T::PricingNotConfigured));
         return 0;
     };
