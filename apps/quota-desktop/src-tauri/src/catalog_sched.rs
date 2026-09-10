@@ -9,15 +9,16 @@
 //! 回前台经 `set_app_foreground` 触发补检）。自动成功只更新状态与视图
 //! （事件失效 native-metas + 托盘重建），不弹系统通知、不要求重启。
 
-use std::time::Duration;
-
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands;
 use crate::state::{AppState, now_ms};
 
-/// 启动分钟调度（setup 阶段调用一次）。
+/// 启动分钟调度（setup 阶段调用一次；仅桌面——Android 无常驻循环，
+/// 回前台经 `set_app_foreground` → [`on_foreground`] 补检）。
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn spawn(app: AppHandle) {
+    use std::time::Duration;
     tauri::async_runtime::spawn(async move {
         loop {
             tick(&app).await;

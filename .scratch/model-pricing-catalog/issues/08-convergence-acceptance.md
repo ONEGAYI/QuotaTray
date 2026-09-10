@@ -85,12 +85,43 @@ Android 交叉 clippy 本机无 NDK，按项目约定以 CI android-preview job 
 `.qtray-export` 迁移容器、`history.db` 物理分离；transfer.rs 与 history 模块
 不读写该文件，同步只原子替换缓存自身（T-03 票据测试记录）。
 
+## 真实二进制冒烟（2026-09-10 补充，本机）
+
+**CLI（release 构建，沙箱 `--config` 目录）**：
+
+1. 零网络 `pricing catalog status` → `revision 1 · 内置`，`--json` 形状正确；
+   `pricing model list deepseek` 读出种子价（flash 0.04/2/8）。
+2. 手工构造 rev2 缓存信封（flash 改 0.05/2.5/9）写入沙箱后，**同一二进制不重构建**
+   读到新价，pro/vision 不受影响——「数据发布后免升级生效」的真实二进制证据。
+   （附带实证：注入字段名错误导致部分价格缺失时，表格如实渲染 `—` 而非回退默认。）
+3. 缓存写坏 JSON → 回落 bundled rev1，文案「本地缓存损坏，已回退内置数据」。
+4. 真网络 `catalog update`：未配代理 → 直连超时（exit 2，瞬时分类正确）；
+   配 127.0.0.1:7897 → 直连失败经代理兜底发出请求，远端 HTTP 404（数据文件
+   在未合并分支、raw URL 的 main 尚无此文件，符合预期）——错误如实透出、
+   bundled 快照不被破坏、最近检查时间记录。
+
+**GUI（dev 实例，生产数据目录，截图存 `evidence/`）**：
+
+- 主窗卡片正常渲染，DeepSeek 卡片显示种子价 0.3/9/27（bundled rev1 生效）。
+- 设置 → 更新 → 「模型与价格目录」区完整：状态行 `revision 1 · bundled`、
+  「立即更新」按钮、「自动更新模型与价格」开关与 6h/30min 描述文案。
+- 点「立即更新」走真实双通道（生产 settings 代理兜底），结果文案
+  「更新失败：响应不可用：HTTP 404」，状态行保持 bundled——与 CLI 同源行为。
+- 截图：`evidence/gui-catalog-section.jpg`（目录区）、`evidence/gui-catalog-update-404.jpg`
+  （更新结果）。冒烟期间生产实例短暂退出，已恢复运行。
+
+**环境结论更正**：本机实际有 NDK 27.2.12479018（此前「本地无 NDK」结论有误），
+Android 交叉 clippy 本地可跑。**首轮即抓到真实缺口**：`catalog_sched::spawn`
+仅桌面 setup 调用，Android 目标下为死代码（host clippy 不编译该半，CI 外无门禁
+时漏网）——已加 `#[cfg(not(any(android, ios)))]` 门控（`tick`/`on_foreground`
+保持跨端），双半 clippy 复验通过。
+
 ## 待人工验收项（不宣称已完成）
 
-- 桌面端真实前后台冒烟：常驻实例目录自动接收 + 卡片/托盘/编辑页刷新截图（V-08 真实环境）。
+- 常驻生产实例长时间运行的目录自动接收观察（6h 周期，dev 冒烟已覆盖手动链路与 UI）。
 - Android 模拟器安装包冒烟 + 真实设备（Android 保持 Preview 口径，不宣称稳定）。
-- V-11：首个真实数据变更 PR 的 CI 通过 + 分发 URL 取新 revision + 旧客户端自动应用。
-- Android 交叉 clippy 以 CI android-preview job 为准（本机无 NDK）。
+- V-11：首个真实数据变更 PR 的 CI 通过 + 分发 URL 取新 revision + 旧客户端自动应用
+  （双通道真实到达远端已由本轮 404 冒烟证实，合并 main 后 URL 即生效）。
 
 ## 验证
 
