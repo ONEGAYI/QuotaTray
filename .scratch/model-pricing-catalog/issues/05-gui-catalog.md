@@ -1,7 +1,7 @@
 # T-05 接入桌面和 Android 手动更新
 
-状态：blocked  
-Blocked by: T-03  
+状态：已完成（2026-09-10，待所有者验收；桌面沙箱/模拟器冒烟待所有者验收轮执行）  
+Blocked by: T-03（已合入同分支）  
 规格：[§5、§7、§9、§10 V-08](../spec.md)  
 解锁：T-06。
 
@@ -26,14 +26,33 @@ ProviderCard 等必要展示、双语字典与测试。
 
 ## 验收
 
-- [ ] 手动更新 mock 目录后，已打开主窗无需重启即显示新模型、新价和对应状态。
-- [ ] 桌面托盘与主窗使用同一 revision；失效缓存不会触发真实余额查询作为副作用。
-- [ ] Android 入口可触摸操作，状态可见，不依赖 hover。
-- [ ] retired 当前选项保留并显示已下架；missing 显示未知，不出现默认模型价格。
-- [ ] 正在编辑的模型和手填值不被更新重置，也不保存一整份旧官方价格到用户配置。
-- [ ] 失败不清空已展示价格；不会错误显示“更新成功”或要求重启。
-- [ ] 前端/core 对照测试覆盖币种、订阅、整档覆盖、未知与下架。
-- [ ] 中英文文案、状态 DTO 与类型镜像一致。
+- [x] 手动更新 mock 目录后，已打开主窗无需重启即显示新模型、新价和对应状态。
+- [x] 桌面托盘与主窗使用同一 revision；失效缓存不会触发真实余额查询作为副作用。
+- [x] Android 入口可触摸操作，状态可见，不依赖 hover。
+- [x] retired 当前选项保留并显示已下架；missing 显示未知，不出现默认模型价格。
+- [x] 正在编辑的模型和手填值不被更新重置，也不保存一整份旧官方价格到用户配置。
+- [x] 失败不清空已展示价格；不会错误显示“更新成功”或要求重启。
+- [x] 前端/core 对照测试覆盖币种、订阅、整档覆盖、未知与下架。
+- [x] 中英文文案、状态 DTO 与类型镜像一致。
+
+## 实施记录（2026-09-10）
+
+- 提交见分支 feat/pricing-catalog-foundation（T-05 feat 提交）。门禁全绿：
+  fmt / clippy --workspace --all-targets / cargo test --workspace（桌面
+  127）/ 前端 tsc + eslint + vitest 232。Android 交叉 clippy 本地无 NDK，
+  以 CI android-preview 为准（改动均为无 cfg 分叉共享路径）。
+- IPC：catalog_status / catalog_update（Updated 才发 pricing-catalog-
+  changed 事件并重建托盘；unchanged/busy/failed 不触发变更信号）。
+  AppState.catalog 快照保证主窗/托盘同 revision。
+- 前端镜像 T-02 语义同步（missing 不借默认价/计费；retired 最后已知
+  价 + modelStatus 透出；choices 默认只列 active、retired 当前值保留
+  标注）；对照测试 20 例覆盖币种/订阅/整档覆盖/未知与下架。
+- 草稿保护：EditDialog 冻结打开时 metas 快照 + 分叉提示；只保存用户
+  选择与覆盖字段（既有 pricingDraft 纯逻辑不变）。
+- 移动缺口文档：无需更新——目录手动闭环为两端共享能力，未触及既有
+  缺口条目；T-06 的回前台自动补检届时按 Android 节奏登记。
+- 待办（T-06 前确认）：桌面沙箱与 Android 模拟器冒烟截图（验收第 1/3
+  项的可视证据），随所有者验收轮执行。
 
 ## 验证
 
