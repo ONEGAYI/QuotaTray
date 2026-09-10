@@ -73,6 +73,9 @@ pub struct PresetModelDto {
     pub display: String,
     /// 计费模式（订阅项无三档价、窗口表达折扣时段，前端据此切换文案）。
     pub plan: quota_core::PlanKind,
+    /// 生命周期（"active"/"retired"）：retired 保留最后已知价格，
+    /// 前端据此标注已下架（T-02；展示行为由 T-05 接入）。
+    pub status: quota_core::ModelStatus,
     /// 模型级窗口覆盖（None = 继承平台级）。
     pub windows: Option<Vec<quota_core::PeakWindow>>,
     pub peak: quota_core::PriceTier,
@@ -93,6 +96,7 @@ impl PresetPricingDto {
                     id: m.id.clone(),
                     display: m.display.clone(),
                     plan: m.plan,
+                    status: m.status,
                     windows: m.windows.clone(),
                     peak: m.peak.clone(),
                     off_peak: m.off_peak.clone(),

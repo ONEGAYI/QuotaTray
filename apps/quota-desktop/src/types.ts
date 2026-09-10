@@ -142,6 +142,8 @@ export interface PresetModel {
   id: string;
   display: string;
   plan: PlanKind;
+  /** 生命周期：retired 保留最后已知价格（T-02；展示由 T-05 接入）。 */
+  status: "active" | "retired";
   /** 模型级窗口覆盖：null = 继承平台级（订阅项在此携带折扣时段）。 */
   windows: PeakWindow[] | null;
   peak: PriceTier;

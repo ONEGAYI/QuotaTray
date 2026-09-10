@@ -9,6 +9,7 @@ use chrono::{Datelike, TimeZone, Timelike};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{ProviderEntry, ProviderKind};
+use crate::pricing_catalog::{Catalog, ModelStatus};
 
 /// 星期（serde lowercase：`mon`…`sun`，与 chrono 星期同序）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -344,6 +345,8 @@ pub struct PresetModel {
     pub display: String,
     /// 计费模式（订阅项价格档留空、窗口表达折扣时段）。
     pub plan: PlanKind,
+    /// 生命周期：retired 模型保留最后已知价格，仅不再作默认选择。
+    pub status: ModelStatus,
     /// 模型级峰谷窗口覆盖：None = 继承平台级；Some(vec![]) = 该模型恒空闲。
     /// 订阅项在此携带自己的折扣窗口（如 Coding Plan 工作日 14:00–18:00），
     /// 同平台按量模型则继承平台级（无峰谷平台即恒空闲）。
@@ -404,7 +407,7 @@ pub fn preset(native_id: &str) -> Option<PresetProvider> {
 
 /// 目录套 → 兼容 `PresetProvider`。订阅项价格档 `null` 映射为空档；
 /// 无默认模型（全 retired 套）映射为空串——现有数据不出现该形状，
-/// 模型生命周期语义由后续票据在 resolve 链路引入。
+/// resolve 未命中空串默认时按「无选中模型」处理。
 fn suite_to_preset(
     native_id: &str,
     suite: &crate::pricing_catalog::CatalogSuite,
@@ -422,6 +425,7 @@ fn suite_to_preset(
                 id: m.id.clone(),
                 display: m.display.clone(),
                 plan: m.plan,
+                status: m.status,
                 windows: m.windows.clone(),
                 peak: m.peak.clone().unwrap_or_default(),
                 off_peak: m.off_peak.clone().unwrap_or_default(),
@@ -441,6 +445,38 @@ pub enum PricingSource {
     Custom,
 }
 
+/// 生效模型的生命周期状态（T-02 起 resolve 透出；与目录数据的
+/// 二态 [`ModelStatus`] 区分——这里是解析结果视角，多出解析期状态）：
+///
+/// - [`ResolvedModelStatus::Active`]：命中 active 官方模型（含未指定
+///   模型时的 active 默认模型选择）。
+/// - [`ResolvedModelStatus::Retired`]：命中 retired 官方模型，最后已知
+///   价格/窗口/计费模式照常生效，展示层据此标注「已下架」。
+/// - [`ResolvedModelStatus::Missing`]：显式指定了模型但自定义库与全部
+///   目录套均未命中。保留输入名称；**不借用任何其他模型的价格、
+///   模型级时段或计费模式**（spec §5.2）；平台级属性仍回退。
+/// - [`ResolvedModelStatus::Custom`]：命中用户自定义库模型，或无预置
+///   平台的纯自定义内容（与 source=Custom 口径一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedModelStatus {
+    Active,
+    Retired,
+    Missing,
+    Custom,
+}
+
+impl ResolvedModelStatus {
+    /// CLI/IPC 序列化值（保持小写下划线，与 JSON 字段口径一致）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResolvedModelStatus::Active => "active",
+            ResolvedModelStatus::Retired => "retired",
+            ResolvedModelStatus::Missing => "missing",
+            ResolvedModelStatus::Custom => "custom",
+        }
+    }
+}
+
 /// 条目最终生效的峰谷定价（自定义字段级覆盖预置，两端展示共用）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedPricing {
@@ -455,6 +491,8 @@ pub struct ResolvedPricing {
     /// 生效计费模式（订阅项价格档为 None、窗口表达折扣时段）。
     pub plan: PlanKind,
     pub source: PricingSource,
+    /// 生效模型生命周期（见 [`ResolvedModelStatus`]）。
+    pub model_status: ResolvedModelStatus,
 }
 
 impl ResolvedPricing {
@@ -521,7 +559,7 @@ pub fn resolve_with(
     entry: &ProviderEntry,
     custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
 ) -> Option<ResolvedPricing> {
-    resolve_impl(entry, custom_models, None)
+    resolve_impl(entry, custom_models, None, Catalog::bundled())
 }
 
 /// [`resolve_with`] 的带币种形态：`currency_hint` 参与**预置选套**——
@@ -534,13 +572,33 @@ pub fn resolve_in_currency(
     custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
     currency_hint: Option<&str>,
 ) -> Option<ResolvedPricing> {
-    resolve_impl(entry, custom_models, currency_hint)
+    resolve_impl(entry, custom_models, currency_hint, Catalog::bundled())
+}
+
+/// [`resolve_in_currency`] 的目录参数化形态：显式传入定价目录，
+/// 供有效目录快照（T-03 缓存）与含 retired 模型的测试目录注入；
+/// 三个旧入口等价于传入内置种子。
+pub fn resolve_in_catalog(
+    entry: &ProviderEntry,
+    custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
+    currency_hint: Option<&str>,
+    catalog: &Catalog,
+) -> Option<ResolvedPricing> {
+    resolve_impl(entry, custom_models, currency_hint, catalog)
+}
+
+impl Catalog {
+    /// 内置种子目录的便捷引用（等价 [`crate::pricing_catalog::bundled_catalog`]）。
+    fn bundled() -> &'static Catalog {
+        crate::pricing_catalog::bundled_catalog()
+    }
 }
 
 fn resolve_impl(
     entry: &ProviderEntry,
     custom_models: &std::collections::BTreeMap<String, Vec<CustomModelDef>>,
     currency_hint: Option<&str>,
+    catalog: &Catalog,
 ) -> Option<ResolvedPricing> {
     let native_id = match &entry.kind {
         ProviderKind::Native { provider } => Some(provider.as_str()),
@@ -548,7 +606,8 @@ fn resolve_impl(
     };
     let preset = native_id.and_then(|id| {
         let currency = currency_hint.unwrap_or_else(|| default_currency(id));
-        preset_with_currency(id, currency)
+        crate::pricing_catalog::find_suite(catalog, id, Some(currency))
+            .map(|suite| suite_to_preset(id, suite))
     });
     let lib = native_id.and_then(|id| custom_models.get(id));
     let custom = entry.pricing.as_ref();
@@ -562,19 +621,22 @@ fn resolve_impl(
         return None;
     }
 
-    // 模型选择：条目 model 先匹配自定义库（撞名优先），再匹配预置；
-    // 均不匹配时回退预置默认模型，条目 model 仅作展示标签。
+    // 模型选择（T-02 语义，spec §5.2）：条目 model 显式指定时依次匹配
+    // 自定义库（撞名优先）→ active 官方 → retired 官方（最后已知数据
+    // 照常生效）；全部未命中 = missing——保留输入名称、不借用默认模型
+    // 或任何其他模型的价格/模型级时段/计费模式（平台级属性仍回退）。
+    // 只有配置未指定模型时才使用 active 默认模型。
     // 选中模型统一为中间形态：字段缺失处由调用链回退（预置→平台级）。
     struct Selected {
         id: Option<String>,
         label: String,
         plan: PlanKind,
+        status: ResolvedModelStatus,
         windows: Option<Vec<PeakWindow>>,
         timezone: Option<i32>,
         peak: Option<PriceTier>,
         off_peak: Option<PriceTier>,
         currency: Option<String>,
-        from_lib: bool,
     }
     let non_empty = |t: &PriceTier| (!t.is_empty()).then(|| t.clone());
     // 自定义模型暂只有按量语义（CustomModelDef 无 plan 字段，订阅项
@@ -583,60 +645,64 @@ fn resolve_impl(
         id: Some(m.id.clone()),
         label: m.display.clone(),
         plan: PlanKind::PayAsYouGo,
+        status: ResolvedModelStatus::Custom,
         windows: m.windows.clone(),
         timezone: m.timezone_offset_minutes,
         peak: m.peak.as_ref().and_then(non_empty),
         off_peak: m.off_peak.as_ref().and_then(non_empty),
         currency: m.currency.clone(),
-        from_lib: true,
     };
     let from_preset_model = |m: &PresetModel, p: &PresetProvider| Selected {
         id: Some(m.id.clone()),
         label: m.display.clone(),
         plan: m.plan,
+        status: match m.status {
+            ModelStatus::Active => ResolvedModelStatus::Active,
+            ModelStatus::Retired => ResolvedModelStatus::Retired,
+        },
         windows: m.windows.clone(),
         timezone: Some(p.timezone_offset_minutes),
         peak: non_empty(&m.peak),
         off_peak: non_empty(&m.off_peak),
         currency: None,
-        from_lib: false,
     };
 
-    let (model, model_label, model_from_custom) =
+    let (model, model_label, model_status) =
         match (&preset, &lib, custom.and_then(|c| c.model.as_deref())) {
             (Some(p), _, Some(id)) => {
                 let lib_hit = lib
                     .and_then(|l| l.iter().find(|m| m.id.eq_ignore_ascii_case(id)))
                     .map(from_lib_model);
-                let preset_hit = p
-                    .models
-                    .iter()
-                    .find(|m| m.id.eq_ignore_ascii_case(id))
+                let model_hit = p.models.iter().find(|m| m.id.eq_ignore_ascii_case(id));
+                let active_hit = model_hit
+                    .filter(|m| m.status == ModelStatus::Active)
                     .map(|m| from_preset_model(m, p));
-                match lib_hit.or(preset_hit) {
+                let retired_hit = model_hit
+                    .filter(|m| m.status == ModelStatus::Retired)
+                    .map(|m| from_preset_model(m, p));
+                match lib_hit.or(active_hit).or(retired_hit) {
                     Some(m) => {
                         let label = m.label.clone();
-                        let from_lib = m.from_lib;
-                        (Some(m), label, from_lib)
+                        let status = m.status;
+                        (Some(m), label, status)
                     }
-                    None => {
-                        let default = p
-                            .models
-                            .iter()
-                            .find(|m| m.id == p.default_model)
-                            .map(|m| from_preset_model(m, p));
-                        (default, id.into(), true)
-                    }
+                    // missing：不回退默认模型（修正 T-01 前的旧行为）
+                    None => (None, id.into(), ResolvedModelStatus::Missing),
                 }
             }
             (Some(p), _, None) => {
+                // 未指定模型：active 默认模型（目录校验保证默认非 retired）
                 let default = p
                     .models
                     .iter()
                     .find(|m| m.id == p.default_model)
                     .map(|m| from_preset_model(m, p));
                 let label = default.as_ref().map(|m| m.label.clone());
-                (default, label.unwrap_or_default(), false)
+                (
+                    default,
+                    label.unwrap_or_default(),
+                    ResolvedModelStatus::Active,
+                )
             }
             (None, Some(l), Some(id)) => {
                 let hit = l
@@ -646,14 +712,14 @@ fn resolve_impl(
                 match hit {
                     Some(m) => {
                         let label = m.label.clone();
-                        (Some(m), label, true)
+                        (Some(m), label, ResolvedModelStatus::Custom)
                     }
-                    // 无预置平台：自定义库存在但未命中 → 纯标签（现状语义）
-                    None => (None, id.into(), true),
+                    // 无预置平台：库未命中 → missing（价格未知，仅保留标签）
+                    None => (None, id.into(), ResolvedModelStatus::Missing),
                 }
             }
-            (None, _, Some(id)) => (None, id.into(), true),
-            (None, _, None) => (None, String::new(), false),
+            (None, _, Some(id)) => (None, id.into(), ResolvedModelStatus::Missing),
+            (None, _, None) => (None, String::new(), ResolvedModelStatus::Custom),
         };
 
     // 生效值：条目显式 > 选中模型（含其模型级窗口）> 平台级（仅预置）。
@@ -690,7 +756,12 @@ fn resolve_impl(
             || c.peak.as_ref().is_some_and(|t| !t.is_empty())
             || c.off_peak.as_ref().is_some_and(|t| !t.is_empty())
             || c.currency.is_some()
-            || model_from_custom
+            // Custom = 库模型；Missing = 显式指定但未命中（模型标签仍是
+            // 用户输入，与旧口径一致计入自定义来源）
+            || matches!(
+                model_status,
+                ResolvedModelStatus::Custom | ResolvedModelStatus::Missing
+            )
     });
     let source = match (any_custom, preset.as_ref()) {
         (false, Some(p)) => PricingSource::Preset {
@@ -716,6 +787,7 @@ fn resolve_impl(
         model_label: (!model_label.is_empty()).then_some(model_label),
         plan: model.as_ref().map_or(PlanKind::PayAsYouGo, |m| m.plan),
         source,
+        model_status,
     })
 }
 
@@ -1117,12 +1189,13 @@ mod tests {
 
     // ---- resolve 合并回退链 ----
 
-    /// 无峰谷平台的按量模型构造（两档同价）。
+    /// 无峰谷平台的按量模型构造（两档同价，active）。
     fn flat_payg(id: &'static str, display: &'static str, t: (f64, f64, f64)) -> PresetModel {
         PresetModel {
             id: id.into(),
             display: display.into(),
             plan: PlanKind::PayAsYouGo,
+            status: ModelStatus::Active,
             windows: None,
             peak: PriceTier::full(t.0, t.1, t.2),
             off_peak: PriceTier::full(t.0, t.1, t.2),
@@ -1285,6 +1358,7 @@ mod tests {
                     id: "flash".into(),
                     display: "V4 Flash".into(),
                     plan: PlanKind::PayAsYouGo,
+                    status: ModelStatus::Active,
                     windows: None,
                     peak: PriceTier::full(0.014, 0.44, 1.32),
                     off_peak: PriceTier::full(0.007, 0.22, 0.66),
@@ -1293,6 +1367,7 @@ mod tests {
                     id: "pro".into(),
                     display: "V4 Pro".into(),
                     plan: PlanKind::PayAsYouGo,
+                    status: ModelStatus::Active,
                     windows: None,
                     peak: PriceTier::full(0.044, 1.32, 3.96),
                     off_peak: PriceTier::full(0.022, 0.66, 1.98),
@@ -1301,6 +1376,7 @@ mod tests {
                     id: "vision".into(),
                     display: "V4 Flash Vision Exp".into(),
                     plan: PlanKind::PayAsYouGo,
+                    status: ModelStatus::Active,
                     windows: None,
                     peak: PriceTier::full(0.014, 0.44, 1.32),
                     off_peak: PriceTier::full(0.007, 0.22, 0.66),
@@ -1930,5 +2006,248 @@ mod tests {
         let r = resolve(&deepseek_entry(None)).unwrap();
         assert_eq!(r.kind(WED_0930_BJ_MS), PeakKind::Peak);
         assert_eq!(r.kind(WED_0430_BJ_MS), PeakKind::OffPeak);
+    }
+
+    // ---- 模型生命周期（T-02，spec §5.2 / V-02 / V-03 / V-12） ------------------
+
+    /// 注入用测试目录：deepseek CNY 套含 active flash 与 retired old
+    /// （old 携带模型级窗口 20:00–22:00、部分未知价格档、retired_at）。
+    fn lifecycle_test_catalog() -> crate::pricing_catalog::Catalog {
+        use crate::pricing_catalog::{Catalog, CatalogModel, CatalogProvider, CatalogSuite};
+        let model = |id: &str,
+                     display: &str,
+                     status: crate::pricing_catalog::ModelStatus,
+                     windows: Option<Vec<PeakWindow>>,
+                     peak: Option<PriceTier>,
+                     off_peak: Option<PriceTier>,
+                     retired_at: Option<&str>| CatalogModel {
+            id: id.into(),
+            display: display.into(),
+            plan: PlanKind::PayAsYouGo,
+            status,
+            windows,
+            peak,
+            off_peak,
+            source_urls: vec![],
+            verified_at: None,
+            retired_at: retired_at.map(str::to_string),
+        };
+        Catalog {
+            schema_version: 1,
+            revision: 2,
+            published_at: None,
+            providers: vec![CatalogProvider {
+                native_id: "deepseek".into(),
+                default_currency: "CNY".into(),
+                suites: vec![CatalogSuite {
+                    currency: "CNY".into(),
+                    timezone_offset_minutes: 480,
+                    windows: vec![peak_window_workday("09:00", "12:00")],
+                    default_model: Some("flash".into()),
+                    models: vec![
+                        model(
+                            "flash",
+                            "V4 Flash",
+                            crate::pricing_catalog::ModelStatus::Active,
+                            None,
+                            Some(PriceTier::full(0.04, 2.0, 8.0)),
+                            Some(PriceTier::full(0.02, 1.0, 4.0)),
+                            None,
+                        ),
+                        model(
+                            "old",
+                            "V3 Old",
+                            crate::pricing_catalog::ModelStatus::Retired,
+                            Some(vec![peak_window_workday("20:00", "22:00")]),
+                            Some(PriceTier::full(1.0, 2.0, 3.0)),
+                            None,
+                            Some("2026-09-05"),
+                        ),
+                    ],
+                }],
+            }],
+        }
+    }
+
+    /// 契约（V-02）：显式指定未命中模型 → missing——保留输入名称、
+    /// 价格未知，不借默认模型的价格/模型级时段/计费模式；
+    /// 平台级属性（窗口/时区/币种）仍回退。
+    #[test]
+    fn resolve_missing_model_keeps_name_and_unknown_prices() {
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("ghost".into()),
+            ..Default::default()
+        });
+        let r = resolve(&entry).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Missing);
+        assert_eq!(r.model_label.as_deref(), Some("ghost"), "保留输入名称");
+        assert!(
+            r.peak.is_none() && r.off_peak.is_none(),
+            "价格未知，不借默认 flash 价"
+        );
+        assert_eq!(r.plan, PlanKind::PayAsYouGo, "不冒充订阅优惠");
+        assert_eq!(
+            r.windows.len(),
+            2,
+            "平台级窗口保留；若错借任一模型的模型级窗口则非 2"
+        );
+        assert_eq!(r.timezone_offset_minutes, BJ);
+        assert_eq!(r.currency.as_deref(), Some("CNY"));
+        assert!(
+            matches!(r.source, PricingSource::Custom),
+            "模型标签是用户输入，来源计自定义"
+        );
+    }
+
+    /// 契约（V-02）：默认模型为订阅项的平台（kimi_code），missing 不得
+    /// 冒充默认模型的订阅计费模式（价格档与模型级时段同理不借）。
+    #[test]
+    fn resolve_missing_not_borrows_subscription_default() {
+        let mut entry = native_entry("kimi_code_cn");
+        entry.pricing = Some(PricingConfig {
+            model: Some("ghost".into()),
+            ..Default::default()
+        });
+        let r = resolve(&entry).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Missing);
+        assert_eq!(
+            r.plan,
+            PlanKind::PayAsYouGo,
+            "不得借用默认 coding-plan 的订阅计费"
+        );
+        assert!(r.peak.is_none() && r.off_peak.is_none());
+        assert!(r.windows.is_empty());
+    }
+
+    /// 契约（V-02/V-03）：missing 模型的手填价格照常生效（整档覆盖），
+    /// 未填档保持未知。
+    #[test]
+    fn resolve_missing_model_manual_tier_wins() {
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("ghost".into()),
+            peak: Some(PriceTier::full(9.0, 9.0, 9.0)),
+            ..Default::default()
+        });
+        let r = resolve(&entry).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Missing);
+        assert_eq!(r.peak, Some(PriceTier::full(9.0, 9.0, 9.0)));
+        assert_eq!(r.off_peak, None, "未填档保持未知");
+    }
+
+    /// 契约（V-02/V-12）：retired 模型保留最后已知数据——价格（含部分
+    /// 未知档）、模型级窗口照常生效并透出 Retired；来源仍为预置。
+    #[test]
+    fn resolve_retired_model_keeps_last_known() {
+        let cat = lifecycle_test_catalog();
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("old".into()),
+            ..Default::default()
+        });
+        let r = resolve_in_catalog(&entry, &Default::default(), None, &cat).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Retired);
+        assert_eq!(r.model_label.as_deref(), Some("V3 Old"));
+        assert_eq!(r.peak, Some(PriceTier::full(1.0, 2.0, 3.0)), "最后已知价格");
+        assert_eq!(r.off_peak, None, "未知档不虚构");
+        assert_eq!(
+            r.windows,
+            vec![peak_window_workday("20:00", "22:00")],
+            "模型级窗口保留"
+        );
+        assert_eq!(
+            r.source,
+            PricingSource::Preset {
+                native_id: "deepseek".into(),
+                model: "old".into(),
+            }
+        );
+    }
+
+    /// 契约：未指定模型使用 active 默认模型（Active 状态）；显式选择
+    /// 大小写变体同样命中 retired。
+    #[test]
+    fn resolve_unspecified_uses_active_default() {
+        let cat = lifecycle_test_catalog();
+        let entry = deepseek_entry(None);
+        let r = resolve_in_catalog(&entry, &Default::default(), None, &cat).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Active);
+        assert_eq!(r.model_label.as_deref(), Some("V4 Flash"));
+        assert_eq!(r.peak.as_ref().unwrap().cache_hit_input, Some(0.04));
+
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("OLD".into()),
+            ..Default::default()
+        });
+        let r = resolve_in_catalog(&entry, &Default::default(), None, &cat).unwrap();
+        assert_eq!(
+            r.model_status,
+            ResolvedModelStatus::Retired,
+            "大小写不敏感命中 retired"
+        );
+    }
+
+    /// 契约（V-03）：自定义库撞名优先于 retired 官方（官方下架不推翻
+    /// 用户自建的同名模型），且库模型缺价档仍不回退官方。
+    #[test]
+    fn resolve_custom_shadows_retired_official() {
+        let cat = lifecycle_test_catalog();
+        let mut lib = std::collections::BTreeMap::new();
+        lib.insert(
+            "deepseek".to_string(),
+            vec![CustomModelDef {
+                id: "old".into(),
+                display: "V3 Old（自算）".into(),
+                peak: Some(PriceTier::full(7.0, 7.0, 7.0)),
+                ..Default::default()
+            }],
+        );
+        let mut entry = deepseek_entry(None);
+        entry.pricing = Some(PricingConfig {
+            model: Some("old".into()),
+            ..Default::default()
+        });
+        let r = resolve_in_catalog(&entry, &lib, None, &cat).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Custom);
+        assert_eq!(r.model_label.as_deref(), Some("V3 Old（自算）"));
+        assert_eq!(r.peak.as_ref().unwrap().output, Some(7.0));
+        assert_eq!(r.off_peak, None, "库模型缺价不回退官方 retired 价");
+    }
+
+    /// 契约：无预置平台显式指定未命中库的模型 → missing（价格未知、
+    /// 纯标签保留），状态不再与普通自定义内容混淆。
+    #[test]
+    fn resolve_presetless_missing_is_explicit() {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(
+            "siliconflow".to_string(),
+            vec![CustomModelDef {
+                id: "glm-5.2".into(),
+                display: "GLM-5.2 转售价".into(),
+                peak: Some(PriceTier::full(1.0, 4.0, 2.0)),
+                ..Default::default()
+            }],
+        );
+        let mut entry = native_entry("siliconflow");
+        entry.pricing = Some(PricingConfig {
+            model: Some("whatever".into()),
+            ..Default::default()
+        });
+        let r = resolve_with(&entry, &m).unwrap();
+        assert_eq!(r.model_status, ResolvedModelStatus::Missing);
+        assert_eq!(r.model_label.as_deref(), Some("whatever"));
+        assert!(r.peak.is_none() && r.off_peak.is_none());
+    }
+
+    /// 契约：目录参数化入口与旧入口在种子目录上逐字段等价（兼容口径）。
+    #[test]
+    fn resolve_in_catalog_matches_legacy_on_seed() {
+        let entry = deepseek_entry(None);
+        assert_eq!(
+            resolve_in_catalog(&entry, &Default::default(), None, Catalog::bundled()),
+            resolve(&entry)
+        );
     }
 }

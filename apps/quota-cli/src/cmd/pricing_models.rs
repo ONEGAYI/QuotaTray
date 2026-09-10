@@ -22,6 +22,9 @@ pub struct ModelRowJson {
     pub display: String,
     /// "preset" | "custom"
     pub source: &'static str,
+    /// "active" | "retired" | "custom"——预置模型生命周期（retired 保留
+    /// 最后已知价格）、自定义模型恒 custom（T-02）。
+    pub status: &'static str,
     /// "pay_as_you_go" | "subscription"
     pub plan: &'static str,
     /// 模型级窗口覆盖（预置订阅项在此携带折扣时段；null = 继承平台级）。
@@ -52,6 +55,10 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
                 id: m.id.clone(),
                 display: m.display.clone(),
                 source: "preset",
+                status: match m.status {
+                    quota_core::pricing_catalog::ModelStatus::Active => "active",
+                    quota_core::pricing_catalog::ModelStatus::Retired => "retired",
+                },
                 plan: plan_str(m.plan),
                 windows: m.windows.clone(),
                 peak: m.peak.clone(),
@@ -64,6 +71,7 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
             id: m.id.clone(),
             display: m.display.clone(),
             source: "custom",
+            status: "custom",
             // CustomModelDef 暂无 plan 字段（core from_lib_model 同口径硬编码
             // payg，放开时两处同步）
             plan: plan_str(PlanKind::PayAsYouGo),
@@ -117,8 +125,14 @@ pub fn render_models_table(list: &ModelListJson, lang: Lang) -> String {
         t(lang, T::ColOffPeakPrice),
     ]);
     for m in &list.models {
+        // retired 模型：模型名后缀「已下架」，价格列仍显示最后已知值
+        let display = if m.status == "retired" {
+            format!("{}（{}）", m.display, t(lang, T::PricingModelRetiredTag))
+        } else {
+            m.display.clone()
+        };
         table.add_row(vec![
-            Cell::new(&m.display),
+            Cell::new(display),
             Cell::new(&m.id),
             Cell::new(t(
                 lang,
@@ -318,6 +332,46 @@ mod tests {
             currency: Some("CNY".into()),
             ..Default::default()
         }
+    }
+
+    /// 契约（T-02）：模型行携带生命周期 status——预置 active（bundled
+    /// 种子全 active）、自定义恒 custom；retired 行在表格模型名后缀标注
+    /// 且价格列仍显示最后已知值。
+    #[test]
+    fn model_rows_carry_lifecycle_status() {
+        let list = models_json("deepseek", &[custom_model("flash")]).unwrap();
+        for m in &list.models {
+            if m.source == "preset" {
+                assert_eq!(m.status, "active", "{}", m.id);
+            } else {
+                assert_eq!(m.status, "custom", "{}", m.id);
+                assert_eq!(m.id, "flash", "同 id 自定义行仍在");
+            }
+        }
+        // retired 行表格后缀（手工构造行，不依赖 bundled 数据形态）
+        let retired_list = ModelListJson {
+            provider: "deepseek".into(),
+            currency: "CNY".into(),
+            default_model: Some("flash".into()),
+            models: vec![ModelRowJson {
+                id: "old".into(),
+                display: "V3 Old".into(),
+                source: "preset",
+                status: "retired",
+                plan: "pay_as_you_go",
+                windows: None,
+                peak: PriceTier::full(1.0, 2.0, 3.0),
+                off_peak: PriceTier::default(),
+            }],
+        };
+        for (lang, tag) in [(Lang::Zh, "已下架"), (Lang::En, "retired")] {
+            let out = render_models_table(&retired_list, lang);
+            assert!(out.contains("V3 Old"), "{out}");
+            assert!(out.contains(tag), "{lang:?}: {out}");
+        }
+        // JSON 序列化含 status 字段
+        let j = serde_json::to_value(&retired_list).unwrap();
+        assert_eq!(j["models"][0]["status"], "retired");
     }
 
     /// 契约：list 汇总——预置在前自定义在后，source/plan 字段正确，

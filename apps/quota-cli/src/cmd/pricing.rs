@@ -35,6 +35,9 @@ pub struct PricingShowJson {
     pub plan: &'static str,
     /// "preset" | "custom"
     pub source: &'static str,
+    /// "active" | "retired" | "missing" | "custom"（T-02 模型生命周期；
+    /// missing/retired 时价格档可能为 null = 未知，非抓取失败）。
+    pub model_status: &'static str,
     /// source=preset 时的来源定位。
     pub preset: Option<PresetInfoJson>,
     pub model_label: Option<String>,
@@ -92,6 +95,7 @@ pub fn show_json(id: &str, name: &str, resolved: &ResolvedPricing, now_ms: u64) 
         kind: kind_str(resolved.kind(now_ms)),
         plan: plan_str(resolved.plan),
         source,
+        model_status: resolved.model_status.as_str(),
         preset,
         model_label: resolved.model_label.clone(),
         currency: resolved.currency.clone(),
@@ -134,6 +138,18 @@ pub fn render_show(
         PricingSource::Custom => None,
     };
     let source_line = texts::pricing_source(lang, preset_info);
+    let mut lines = vec![header, source_line];
+    // 模型生命周期提示（T-02）：retired 显示最后已知价格的说明；
+    // missing 说明价格未知（手填仍生效）；active/custom 无需提示
+    match resolved.model_status {
+        quota_core::pricing::ResolvedModelStatus::Retired => {
+            lines.push(t(lang, T::PricingModelRetired).to_string());
+        }
+        quota_core::pricing::ResolvedModelStatus::Missing => {
+            lines.push(t(lang, T::PricingModelMissing).to_string());
+        }
+        _ => {}
+    }
     let table = render::pricing_table(resolved.peak.as_ref(), resolved.off_peak.as_ref(), lang);
     let windows_line = if resolved.windows.is_empty() {
         t(lang, T::PricingNoWindows).to_string()
@@ -144,7 +160,8 @@ pub fn render_show(
             &render::windows_desc(&resolved.windows, lang),
         )
     };
-    let mut lines = vec![header, source_line, table, windows_line];
+    lines.push(table);
+    lines.push(windows_line);
     if resolved.plan == quota_core::PlanKind::Subscription {
         lines.push(t(lang, T::PricingPlanNote).to_string());
     }
@@ -385,6 +402,7 @@ mod tests {
             .unwrap();
         assert_eq!(j["kind"], "peak");
         assert_eq!(j["source"], "preset");
+        assert_eq!(j["model_status"], "active");
         assert_eq!(j["preset"]["native_id"], "deepseek");
         assert_eq!(j["preset"]["model"], "flash");
         assert_eq!(j["model_label"], "V4 Flash");
@@ -632,5 +650,115 @@ mod tests {
         assert_eq!(run_show(&ctx, "s1", false), 0);
         assert_eq!(run_show(&ctx, "missing", false), 1);
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ---- 模型生命周期输出（T-02） ----------------------------------------------
+
+    /// 注入用迷你目录：deepseek CNY 套含 active flash 与 retired old
+    /// （old 带模型级窗口 20:00–22:00、部分已知价格）。
+    fn retired_catalog() -> quota_core::pricing_catalog::Catalog {
+        use quota_core::pricing_catalog::{
+            Catalog, CatalogModel, CatalogProvider, CatalogSuite, ModelStatus,
+        };
+        let tier = |a: f64, b: f64, c: f64| Some(PriceTier::full(a, b, c));
+        Catalog {
+            schema_version: 1,
+            revision: 2,
+            published_at: None,
+            providers: vec![CatalogProvider {
+                native_id: "deepseek".into(),
+                default_currency: "CNY".into(),
+                suites: vec![CatalogSuite {
+                    currency: "CNY".into(),
+                    timezone_offset_minutes: 480,
+                    windows: vec![],
+                    default_model: Some("flash".into()),
+                    models: vec![
+                        CatalogModel {
+                            id: "flash".into(),
+                            display: "V4 Flash".into(),
+                            plan: quota_core::PlanKind::PayAsYouGo,
+                            status: ModelStatus::Active,
+                            windows: None,
+                            peak: tier(0.04, 2.0, 8.0),
+                            off_peak: tier(0.02, 1.0, 4.0),
+                            source_urls: vec![],
+                            verified_at: None,
+                            retired_at: None,
+                        },
+                        CatalogModel {
+                            id: "old".into(),
+                            display: "V3 Old".into(),
+                            plan: quota_core::PlanKind::PayAsYouGo,
+                            status: ModelStatus::Retired,
+                            windows: Some(vec![PeakWindow {
+                                days: vec![Weekday::Mon],
+                                start: "20:00".into(),
+                                end: "22:00".into(),
+                            }]),
+                            peak: tier(1.0, 2.0, 3.0),
+                            off_peak: None,
+                            source_urls: vec![],
+                            verified_at: None,
+                            retired_at: Some("2026-09-05".into()),
+                        },
+                    ],
+                }],
+            }],
+        }
+    }
+
+    /// 契约（V-02）：显式指定未命中模型——JSON model_status=missing、
+    /// 价格档 null（非 0）；文本输出含未知提示行（双语）。
+    #[test]
+    fn show_missing_model_status_and_hint() {
+        let mut entry = deepseek_entry();
+        entry.pricing = Some(PricingConfig {
+            model: Some("ghost".into()),
+            ..Default::default()
+        });
+        let resolved = pricing::resolve(&entry).unwrap();
+        assert_eq!(resolved.model_status.as_str(), "missing");
+        let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
+            .unwrap();
+        assert_eq!(j["model_status"], "missing");
+        assert!(
+            j["peak"].is_null() && j["off_peak"].is_null(),
+            "null = 未知，非 0"
+        );
+        assert_eq!(j["model_label"], "ghost", "保留输入名称");
+        assert_eq!(j["plan"], "pay_as_you_go", "不冒充默认模型计费");
+        for (lang, hint) in [(Lang::Zh, "未匹配到该模型"), (Lang::En, "Model not found")] {
+            let out = render_show(&entry.id, &entry.name, &resolved, PEAK_NOW_MS, lang);
+            assert!(out.contains(hint), "{lang:?}: {out}");
+        }
+    }
+
+    /// 契约（V-02）：retired 模型——CLI 仍显示最后已知价格 + 「已下架」
+    /// 标注（JSON model_status=retired；文本双语提示行）。
+    #[test]
+    fn show_retired_model_last_known_with_hint() {
+        let mut entry = deepseek_entry();
+        entry.pricing = Some(PricingConfig {
+            model: Some("old".into()),
+            ..Default::default()
+        });
+        let resolved =
+            pricing::resolve_in_catalog(&entry, &Default::default(), None, &retired_catalog())
+                .unwrap();
+        assert_eq!(resolved.model_status.as_str(), "retired");
+        let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
+            .unwrap();
+        assert_eq!(j["model_status"], "retired");
+        assert_eq!(j["peak"]["output"], 3.0, "最后已知价格仍在");
+        assert!(j["off_peak"].is_null(), "未知档为 null");
+        for (lang, hint, label) in [
+            (Lang::Zh, "模型已下架", "V3 Old"),
+            (Lang::En, "Model retired", "V3 Old"),
+        ] {
+            let out = render_show(&entry.id, &entry.name, &resolved, PEAK_NOW_MS, lang);
+            assert!(out.contains(hint), "{lang:?}: {out}");
+            assert!(out.contains(label), "{lang:?}: {out}");
+        }
     }
 }

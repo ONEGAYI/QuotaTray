@@ -343,6 +343,12 @@ pub enum T {
     PricingModelSourceCustom,
     /// 平台无预置与自定义模型。
     PricingModelListEmpty,
+    /// show 提示行：模型已下架，显示最后已知价格。
+    PricingModelRetired,
+    /// show 提示行：模型未匹配，价格未知（手填仍生效）。
+    PricingModelMissing,
+    /// model list 表：已下架标记（模型名后缀）。
+    PricingModelRetiredTag,
     HelpPricing,
     HelpPricingShow,
     HelpPricingShowId,
@@ -651,6 +657,9 @@ fn zh(key: T) -> &'static str {
         T::PricingModelSourcePreset => "预置",
         T::PricingModelSourceCustom => "自定义",
         T::PricingModelListEmpty => "（该平台无预置与自定义模型）",
+        T::PricingModelRetired => "模型已下架：显示最后已知价格",
+        T::PricingModelMissing => "未匹配到该模型：价格未知（手填价格仍生效）",
+        T::PricingModelRetiredTag => "已下架",
         T::HelpPricing => "峰谷定价：查看 / 自定义 / 清除",
         T::HelpPricingShow => "查看条目生效峰谷定价（当前判定 + 价格对照 + 时段）",
         T::HelpPricingShowId => "条目 id",
@@ -998,6 +1007,9 @@ fn en(key: T) -> &'static str {
         T::ColOffPeakPrice => "Off-peak (hit/in/out)",
         T::PricingModelSourcePreset => "preset",
         T::PricingModelSourceCustom => "custom",
+        T::PricingModelRetired => "Model retired: showing last known prices",
+        T::PricingModelMissing => "Model not found: prices unknown (manual entries still apply)",
+        T::PricingModelRetiredTag => "retired",
         T::PricingModelListEmpty => "(no preset or custom models for this provider)",
         T::HelpPricing => "Peak/off-peak pricing: show / set / clear",
         T::HelpPricingShow => {

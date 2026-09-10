@@ -382,6 +382,70 @@ fn valid_date(s: &str) -> bool {
         || chrono::DateTime::parse_from_rfc3339(s).is_ok()
 }
 
+/// 对比校验：新目录不得**物理删除**基准目录已有的模型——下线的唯一
+/// 合法路径是改 `retired` 并保留最后经审核的数据（spec §4.3）。
+/// 模型身份 = native_id + currency + model id（国内、国际站不合并）。
+///
+/// 用途：客户端缓存防降级（T-03：远程包漏模型即拒绝）与发布校验
+/// （T-07：数据 PR 对比 main）。新增平台/套/模型一律放行。
+pub fn validate_no_removal(new: &Catalog, baseline: &Catalog) -> Result<(), CatalogError> {
+    for base_provider in &baseline.providers {
+        let Some(new_provider) = new
+            .providers
+            .iter()
+            .find(|p| p.native_id == base_provider.native_id)
+        else {
+            if base_provider.suites.iter().any(|s| !s.models.is_empty()) {
+                return Err(validation_error(
+                    &format!("providers[native_id={}]", base_provider.native_id),
+                    format!(
+                        "平台 {} 整体缺失：不得物理删除，应保留 retired 记录",
+                        base_provider.native_id
+                    ),
+                ));
+            }
+            continue;
+        };
+        for base_suite in &base_provider.suites {
+            let Some(new_suite) = new_provider
+                .suites
+                .iter()
+                .find(|s| s.currency.eq_ignore_ascii_case(&base_suite.currency))
+            else {
+                if !base_suite.models.is_empty() {
+                    return Err(validation_error(
+                        &format!(
+                            "providers[native_id={}].suites[currency={}]",
+                            base_provider.native_id, base_suite.currency
+                        ),
+                        format!("币种套 {} 整体缺失：模型不得物理删除", base_suite.currency),
+                    ));
+                }
+                continue;
+            };
+            for base_model in &base_suite.models {
+                if !new_suite
+                    .models
+                    .iter()
+                    .any(|m| m.id.eq_ignore_ascii_case(&base_model.id))
+                {
+                    return Err(validation_error(
+                        &format!(
+                            "providers[native_id={}].suites[currency={}].models[id={}]",
+                            base_provider.native_id, base_suite.currency, base_model.id
+                        ),
+                        format!(
+                            "模型 {} 被物理删除：应改为 retired 并保留最后已知数据",
+                            base_model.id
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---- 装载与选套 --------------------------------------------------------------
 
 /// 内置种子目录（进程内单例）。种子随版本构建且由测试锁定，
@@ -818,5 +882,80 @@ mod tests {
         let json = serde_json::to_string(cat).unwrap();
         let back: Catalog = serde_json::from_str(&json).unwrap();
         assert_eq!(cat, &back);
+    }
+
+    // ---- 物理删除对比校验（T-02：缓存防降级与发布校验共用） ----
+
+    /// 种子目录克隆（对比测试基座）。
+    fn seed_clone() -> Catalog {
+        bundled_catalog().clone()
+    }
+
+    /// 契约：同目录自比较通过；新增模型/平台放行。
+    #[test]
+    fn no_removal_accepts_same_or_superset() {
+        let seed = seed_clone();
+        assert!(validate_no_removal(&seed, &seed).is_ok());
+        // 新增模型（新平台 + 既有平台加模型）均放行
+        let mut sup = seed_clone();
+        sup.providers[0].suites[0].models.push(CatalogModel {
+            id: "brand-new".into(),
+            display: "Brand New".into(),
+            plan: PlanKind::PayAsYouGo,
+            windows: None,
+            peak: None,
+            off_peak: None,
+            status: ModelStatus::Active,
+            source_urls: vec![],
+            verified_at: None,
+            retired_at: None,
+        });
+        sup.revision += 1;
+        assert!(validate_no_removal(&sup, &seed).is_ok());
+    }
+
+    /// 契约：删除模型 / 删除币种套 / 删除平台均被拒绝并点名；
+    /// 模型 retired 化（保留记录）放行——下线的唯一合法路径。
+    #[test]
+    fn no_removal_rejects_physical_deletion() {
+        let seed = seed_clone();
+        // 删单个模型（deepseek CNY 的 flash）
+        let mut del_model = seed_clone();
+        del_model.providers[0].suites[0]
+            .models
+            .retain(|m| m.id != "flash");
+        let err = validate_no_removal(&del_model, &seed).unwrap_err();
+        assert!(err.to_string().contains("flash"), "{err}");
+        assert!(err.to_string().contains("retired"), "{err}");
+
+        // 删整币种套（deepseek USD）
+        let mut del_suite = seed_clone();
+        del_suite.providers[0]
+            .suites
+            .retain(|s| s.currency != "USD");
+        let err = validate_no_removal(&del_suite, &seed).unwrap_err();
+        assert!(err.to_string().contains("USD"), "{err}");
+
+        // 删整平台
+        let mut del_provider = seed_clone();
+        del_provider.providers.retain(|p| p.native_id != "zai");
+        let err = validate_no_removal(&del_provider, &seed).unwrap_err();
+        assert!(err.to_string().contains("zai"), "{err}");
+
+        // retired 化保留记录：放行（状态与日期由单包校验把关联字段）
+        let mut retired = seed_clone();
+        for suite in &mut retired.providers[0].suites {
+            for m in &mut suite.models {
+                if m.id == "flash" {
+                    m.status = ModelStatus::Retired;
+                    m.retired_at = Some("2026-09-10".into());
+                }
+            }
+            // flash 是默认模型，retired 后须换默认（单包校验约束）
+            if suite.default_model.as_deref() == Some("flash") {
+                suite.default_model = Some("pro".into());
+            }
+        }
+        assert!(validate_no_removal(&retired, &seed).is_ok());
     }
 }

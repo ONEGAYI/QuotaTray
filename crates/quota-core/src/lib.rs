@@ -42,13 +42,14 @@ pub use logging::EVENT_TARGET;
 pub use model::{QueryError, UsageData, used_percent};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
-    PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,
-    preset_with_currency, resolve, resolve_in_currency, resolve_with, validate,
-    validate_custom_model,
+    PricingSource, ResolvedModelStatus, ResolvedPricing, default_currency, format_price,
+    next_change, preset, preset_with_currency, resolve, resolve_in_catalog, resolve_in_currency,
+    resolve_with, validate, validate_custom_model,
 };
 pub use pricing_catalog::{
     CATALOG_SCHEMA_VERSION, Catalog, CatalogError, CatalogModel, CatalogProvider, CatalogSuite,
     MAX_REVISION, ModelStatus, bundled_catalog, find_suite, parse_catalog, validate_catalog,
+    validate_no_removal,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use runtime::{
