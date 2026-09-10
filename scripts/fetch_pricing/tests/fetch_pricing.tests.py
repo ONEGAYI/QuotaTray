@@ -207,6 +207,14 @@ class FailLoudTest(unittest.TestCase):
         with self.assertRaises(deepseek.ParseError):
             deepseek.parse_en_html(mutated)
 
+    def test_malformed_dollar_number_raises(self):
+        """畸形美元数字（$1.2.3）是改版/脏数据信号，必须以 ParseError 拦截，
+        而不是让 float() 的 ValueError 逃逸「结构漂移抛 ParseError」契约。"""
+        html = load_en_fixture()
+        mutated = html.replace("$0.006", "$1.2.3", 1)
+        with self.assertRaises(deepseek.ParseError):
+            deepseek.parse_en_html(mutated)
+
 
 class UsdChannelTest(unittest.TestCase):
     """英文页 2026-09-10 已从断供恢复：USD 通道经英文页快照产出候选；

@@ -53,7 +53,9 @@ SUPPORTED_CURRENCIES = ("CNY", "USD")
 _PEAK_DOUBLE_TOLERANCE = 1e-9
 
 _PRICE_CNY_RE = re.compile(r"^(\d+(?:\.\d+)?)元$")
-_PRICE_USD_RE = re.compile(r"^\$([\d.]+)$")
+# 数字形态与 CNY 侧同样严格：畸形数字（如 $1.2.3）不得进 float()，
+# 必须作为改版/脏数据信号走 ParseError
+_PRICE_USD_RE = re.compile(r"^\$(\d+(?:\.\d+)?)$")
 
 #: 表头/版本行尾部的脚注引用上标（形如 (1)、(2)），提取模型 ID 后剥离
 _FOOTNOTE_REF_RE = re.compile(r"\(\d+\)$")
