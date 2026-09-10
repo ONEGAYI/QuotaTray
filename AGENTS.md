@@ -249,6 +249,8 @@ QuotaTray/
 │           │   ├── mobile/        # 移动端规范域
 │           │   │   ├── interaction.md # 移动触摸交互规范
 │           │   │   └── layout.md      # 移动壳层布局规范
+│           │   ├── tray/          # 原生托盘样式域
+│           │   │   └── icon.md # 托盘细环大字规范
 │           │   └── usage-stats/   # 使用统计规范域
 │           │       └── comparison-chart.md # 多曲线比较规范
 │           └── SKILL.md    # 跨端前端规范索引
@@ -405,6 +407,11 @@ QuotaTray/
 │       │   ├── useCardDragSort.ts      # 卡片拖拽排序状态机
 │       │   └── vite-env.d.ts           # Vite 资源类型声明
 │       ├── src-tauri/          # Tauri Rust 后端
+│       │   ├── assets/                 # 原生桌面嵌入资源
+│       │   │   └── tray-font/ # 托盘数字字体资源
+│       │   │       ├── OFL.txt                      # 数字字体开源许可证
+│       │   │       ├── QuotaTrayTrayDigits-Bold.ttf # 托盘粗体数字子集
+│       │   │       └── README.md                    # 字体来源与子集制作说明
 │       │   ├── build.rs                # Tauri构建脚本
 │       │   ├── build_support.rs        # CLI产物路径纯函数
 │       │   ├── capabilities/           # 权限 ACL
@@ -426,7 +433,7 @@ QuotaTray/
 │       │   │   ├── lib.rs                  # 跨端Tauri装配
 │       │   │   ├── main.rs                 # 薄壳入口
 │       │   │   ├── notification_android.rs # 通知设置页JNI桥
-│       │   │   ├── ring.rs                 # 托盘圆环渲染
+│       │   │   ├── ring.rs                 # 托盘细环大字渲染
 │       │   │   ├── settings.rs             # settings.json 读写
 │       │   │   ├── snapshot.rs             # cache.json 快照
 │       │   │   ├── state.rs                # AppState
@@ -517,7 +524,7 @@ QuotaTray/
 │   │   └── bundle/ # 随应用打包的指引图片
 │   │       └── README.md # 图片资产目录说明
 │   ├── design/          # 设计文档
-│   │   └── tray-ring-demo.html # 圆环视觉规格
+│   │   └── tray-ring-demo.html # 托盘圆环交互演示
 │   ├── guide/           # 平台配置指引（zh/en 语言子目录）
 │   │   ├── en/ # 英文版配置指引
 │   │   │   └── aliyun-balance-setup-guide.md # 阿里云余额监控配置指引（英文版）

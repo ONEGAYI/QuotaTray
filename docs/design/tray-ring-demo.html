@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>托盘圆环图标 · 样式对齐演示（最终规则）</title>
 <style>
+  @font-face { font-family: TrayDigits; src: url("../../apps/quota-desktop/src-tauri/assets/tray-font/QuotaTrayTrayDigits-Bold.ttf") format("truetype"); font-weight: 700; }
   :root {
     --bg: #f8fafc;
     --panel: #ffffff;
@@ -69,7 +70,7 @@
 <body>
 
 <h1>托盘圆环图标 · 最终规则演示</h1>
-<p class="subtitle">颜色规则已定案：<b>多层时全部弧层走预设色循环（绿→蓝→紫→青→粉→靛）；只有余额消耗到最后一圈（&lt; 每圈单位）时，唯一弧才用绿→黄→红阈值色</b>。本页即实现规格。</p>
+<p class="subtitle">颜色规则已定案：<b>多层时全部弧层走预设色循环（绿→蓝→紫→青→粉→靛）；只有余额消耗到最后一圈（&lt; 每圈单位）时，唯一弧才用绿→黄→红阈值色</b>。本页为演示；样式规范见 <a href="../../.agents/skills/frontend-style-spec/references/tray/icon.md">T-015</a>。浏览器字体栅格化与 Rust 可能略有差异，验收以真实托盘与 Rust 预览为准。</p>
 
 <!-- ============ 实验台 ============ -->
 <h2>实验台<span class="tag">实时预览：改数值看效果</span></h2>
@@ -132,16 +133,16 @@
 </div>
 
 <!-- ============ 已定案 ============ -->
-<h2>已定案的对齐点</h2>
+<h2>已验收的对齐点（B 方案）</h2>
 <div class="panel">
   <ol class="qa">
-    <li><b>层结构</b>：方案A 单环叠弧——同一根环，满圈弧层层向上叠，16px 下可读性最好，层数再多环不挤细</li>
+    <li><b>层结构</b>：单环叠弧——同一根细环，满圈弧层层向上叠；保留原有数据与配色规则</li>
     <li><b>颜色规则</b>：多层时<b>全部弧层</b>用预设色循环（绿→蓝→紫→青→粉→靛，绿开头即您的 ¥180 例子）；只有<b>消耗到最后一圈</b>（余额 &lt; 每圈单位）时唯一弧用阈值色</li>
     <li><b>阈值色输入</b>：填充比例，连续渐变（≥60% 绿、30~60% 黄过渡、&lt;30% 红）</li>
     <li><b>溢出样式</b>：层数 &gt; 4 → 满环（第 4 层循环色）+ 中心缩写文字</li>
     <li><b>每圈单位</b>：全局设置，默认 100，设置页可调</li>
     <li><b>多 provider</b>：托盘单图标默认显示第一个启用条目；右键托盘菜单「图标显示」子菜单可切换，选择持久化</li>
-    <li><b>中心文字</b>：≤4 字符（45% / 180 / 1.2k / 311k）；16px 实际尺寸下偏小，文字以 32px 渲染尽力保证，悬停 tooltip 兜底</li>
+    <li><b>中心文字</b>：细环＋大字（45 / 180 / 1.2k / 311k）；图标省略百分号，余额从千位缩写；Windows 按托盘屏幕缩放选择目标尺寸直接绘制，完整单位由悬停详情展示</li>
     <li><b>空槽颜色</b>：分主题两套——dark <code>rgba(128,140,160,0.28)</code>、light <code>rgba(100,116,139,0.35)</code>（浅背景略加深以保证空环可见）</li>
     <li><b>告警红点</b>：any_alert（任一启用条目超低额度阈值）时在环右上角叠加直径 5px 红点（<code>#ef4444</code>，32px 画布上圆心 (26.5, 5.5)、半径 2.5），部分压环为 badge 惯例</li>
   </ol>
@@ -181,14 +182,14 @@ function layerColors(layers) {
   return layers.map((_, i) => PRESET[i % PRESET.length]);
 }
 
-// ============ 中心文字：单位+数字 ≤ 4 字符 ============
+// ============ 中心文字：百分号省略，余额千位起缩写 ============
 function centerText(value, type) {
   if (type === "percent") {
     const p = Math.round(value);
-    return p >= 100 ? "100%" : p + "%";
+    return String(Math.max(0, Math.min(100, p)));
   }
   const v = Math.round(value);
-  if (v < 10000) return String(v);
+  if (v < 1000) return String(v);
   if (v < 1e6) {
     const k = v / 1000;
     return k >= 10 ? Math.round(k) + "k" : (Math.floor(k * 10) / 10) + "k"; // 12k / 1.2k
@@ -211,7 +212,7 @@ function drawStack(size, layers, colors, text, overflow, slotColor) {
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("width", size); svg.setAttribute("height", size);
   svg.setAttribute("viewBox", "0 0 64 64");
-  const strokeW = 14, r = (64 - strokeW) / 2, C = 2 * Math.PI * r;
+  const strokeW = 4, r = (64 - strokeW) / 2, C = 2 * Math.PI * r;
   const cx = 32, cy = 32;
 
   function arc(frac, color) {
@@ -246,10 +247,10 @@ function drawStack(size, layers, colors, text, overflow, slotColor) {
     const t = document.createElementNS(svgNS, "text");
     t.setAttribute("x", cx); t.setAttribute("y", cy);
     t.setAttribute("text-anchor", "middle"); t.setAttribute("dominant-baseline", "central");
-    t.setAttribute("font-family", "Segoe UI, Arial, sans-serif");
+    t.setAttribute("font-family", "TrayDigits, Segoe UI, Arial, sans-serif");
     t.setAttribute("font-weight", "700");
     t.setAttribute("fill", "currentColor");
-    t.setAttribute("font-size", text.length >= 4 ? 17 : 20);
+    t.setAttribute("font-size", text.length >= 4 ? 25 : text.length === 3 ? 31 : 42);
     t.textContent = text;
     svg.appendChild(t);
   }

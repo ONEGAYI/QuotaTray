@@ -248,6 +248,23 @@
                         }
                       }
                     },
+                    "tray": {
+                      "kind": "dir",
+                      "desc": "原生托盘样式域",
+                      "children": {
+                        "icon.md": {
+                          "kind": "file",
+                          "desc": "托盘细环大字规范",
+                          "detail": [
+                            "T-015：已验收的托盘细环大字规范，定义数字缩写、尺寸适配、配色与像素验收。"
+                          ],
+                          "rel": [
+                            "apps/quota-desktop/src-tauri/src/ring.rs",
+                            "docs/design/tray-ring-demo.html"
+                          ]
+                        }
+                      }
+                    },
                     "usage-stats": {
                       "kind": "dir",
                       "desc": "使用统计规范域",
@@ -1945,6 +1962,43 @@
                 "Rust 后端（crate quota-desktop，入 workspace）"
               ],
               "children": {
+                "assets": {
+                  "kind": "dir",
+                  "desc": "原生桌面嵌入资源",
+                  "children": {
+                    "tray-font": {
+                      "kind": "dir",
+                      "desc": "托盘数字字体资源",
+                      "children": {
+                        "OFL.txt": {
+                          "kind": "file",
+                          "desc": "数字字体开源许可证",
+                          "detail": [
+                            "Noto 字体的 SIL Open Font License 1.1 版权与许可全文。"
+                          ]
+                        },
+                        "QuotaTrayTrayDigits-Bold.ttf": {
+                          "kind": "file",
+                          "desc": "托盘粗体数字子集",
+                          "detail": [
+                            "Noto Sans Bold 的 0-9/k/M/B/小数点子集；OFL 许可证嵌入 name 表，供 tiny-skia 目标尺寸栅格化。"
+                          ],
+                          "rel": [
+                            "apps/quota-desktop/src-tauri/assets/tray-font/OFL.txt",
+                            "apps/quota-desktop/src-tauri/assets/tray-font/README.md"
+                          ]
+                        },
+                        "README.md": {
+                          "kind": "file",
+                          "desc": "字体来源与子集制作说明",
+                          "detail": [
+                            "记录托盘字体来源、源文件校验值、FontTools 子集选项及改名/许可嵌入步骤。"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
                 "build.rs": {
                   "kind": "file",
                   "desc": "Tauri构建脚本",
@@ -2138,10 +2192,10 @@
                     },
                     "ring.rs": {
                       "kind": "file",
-                      "desc": "托盘圆环渲染",
+                      "desc": "托盘细环大字渲染",
                       "detail": [
-                        "托盘圆环渲染纯函数：分层叠弧/阈值色/预设色循环/溢出/",
-                        "4x6 字模中心文字（tiny-skia 32×32，像素级契约测试）"
+                        "托盘分层叠弧、阈值色与溢出逻辑；紧凑中心文字及嵌入粗体数字轮廓，按目标像素尺寸渲染细环。",
+                        "包含缩放选尺寸、像素契约测试及多尺寸明暗预览生成器。"
                       ],
                       "tags": [
                         "pure"
@@ -2176,14 +2230,7 @@
                       "kind": "file",
                       "desc": "托盘菜单与图标",
                       "detail": [
-                        "托盘：菜单文本（双语参数化）/圆环图标（数据源门控、",
-                        "「图标显示」子菜单、any_alert 红点、新版本信息行）",
-                        "/keep-last-good 窗口/峰谷两行（数据行只挂当前展示条目，",
-                        "其余条目不进菜单防信息行膨胀；峰谷行 resolve_in_currency",
-                        "接线自定义模型库/查询币种/订阅说明，pricing_lines 纯函数）",
-                        "+rebuild_on_peak_flip 每分钟翻转检测（peak_map 全启用",
-                        "条目快照比对，非仅图标条目；翻转时重建并向 WebView 广播",
-                        "peak-flip 事件，前端锚点重算 #15）"
+                        "托盘菜单构建/重建与事件处理；Windows 按托盘屏幕缩放选择图标像素尺寸，悬停详情与主窗交互入口。"
                       ]
                     },
                     "tray_mobile.rs": {
@@ -2933,9 +2980,9 @@
           "children": {
             "tray-ring-demo.html": {
               "kind": "file",
-              "desc": "圆环视觉规格",
+              "desc": "托盘圆环交互演示",
               "detail": [
-                "托盘圆环视觉规格（层结构/颜色/溢出/红点定案）"
+                "托盘分层配色与细环大字的浏览器演示；规范归 T-015，最终像素验收使用 Rust 预览及实机托盘。"
               ]
             }
           }
