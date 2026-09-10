@@ -440,21 +440,23 @@ QuotaTray/
 │   └── quota-core/ # 业务核心库（无 UI）
 │       ├── Cargo.toml # core crate 清单
 │       ├── src/       # core 源码
-│       │   ├── config/    # 配置层
+│       │   ├── config/          # 配置层
 │       │   │   ├── mod.rs      # AppConfig 原子读写
 │       │   │   ├── provider.rs # 凭据与条目类型
 │       │   │   └── transfer.rs # 配置迁移容器
-│       │   ├── history/   # 历史数据存储（M5）
+│       │   ├── history/         # 历史数据存储（M5）
 │       │   │   └── mod.rs # HistoryStore（SQLite）
-│       │   ├── http/      # HTTP 抽象
+│       │   ├── http/            # HTTP 抽象
 │       │   │   ├── mod.rs     # HttpClient trait 与错误
 │       │   │   ├── redact.rs  # 错误详情脱敏
 │       │   │   └── reqwest.rs # reqwest 生产实现
-│       │   ├── lib.rs     # 模块声明与 re-export
-│       │   ├── logging.rs # 结构化事件打点与滚动日志装配
-│       │   ├── model.rs   # 用量模型与错误分类
-│       │   ├── pricing.rs # 峰谷定价纯函数
-│       │   ├── provider/  # 预置平台查询
+│       │   ├── lib.rs           # 模块声明与 re-export
+│       │   ├── logging.rs       # 结构化事件打点与滚动日志装配
+│       │   ├── model.rs         # 用量模型与错误分类
+│       │   ├── pricing.rs       # 峰谷定价纯函数
+│       │   ├── pricing_catalog/ # 定价目录模块（T-01）
+│       │   │   └── mod.rs # 目录类型校验与种子装载
+│       │   ├── provider/        # 预置平台查询
 │       │   │   ├── aliyun_bss.rs    # 阿里云余额查询 provider
 │       │   │   ├── claude.rs        # Claude 订阅查询
 │       │   │   ├── codex.rs         # Codex 订阅查询
@@ -471,21 +473,25 @@ QuotaTray/
 │       │   │   ├── stepfun.rs       # /v1/accounts（CNY）
 │       │   │   ├── zhipu.rs         # GLM Coding Plan 用量
 │       │   │   └── zhipu_metered.rs # 智谱按量余额
-│       │   ├── query/     # 查询引擎
+│       │   ├── query/           # 查询引擎
 │       │   │   └── mod.rs # QueryEngine 路由
-│       │   ├── runtime.rs # 运行模式纯函数（安装/便携）
-│       │   ├── script/    # 脚本查询（M4）
+│       │   ├── runtime.rs       # 运行模式纯函数（安装/便携）
+│       │   ├── script/          # 脚本查询（M4）
 │       │   │   └── mod.rs # QuickJS 沙箱脚本查询
-│       │   ├── template/  # 声明式模板 DSL（M2a）
+│       │   ├── template/        # 声明式模板 DSL（M2a）
 │       │   │   ├── mod.rs  # DSL 结构与执行器
 │       │   │   └── path.rs # JSONPath 子集
-│       │   ├── update.rs  # 更新检测下载与清理判定
-│       │   └── vault/     # 凭据保险库
+│       │   ├── update.rs        # 更新检测下载与清理判定
+│       │   └── vault/           # 凭据保险库
 │       │       ├── cipher.rs # AES-256-GCM 密文格式
 │       │       ├── mod.rs    # Vault 门面
 │       │       └── store.rs  # 跨平台主密钥存储
 │       └── tests/     # core 集成测试目录
 │           └── logging_smoke.rs # 滚动日志装配端到端冒烟
+├── data/                   # 正式数据文件根
+│   └── pricing/ # 定价数据目录
+│       └── v1/ # 定价目录 v1 格式
+│           └── catalog.json # 预置定价目录数据源
 ├── docs/                   # 文档
 │   ├── Android端预览版说明.md # Android预览端说明
 │   ├── assets/          # 指引打包资产根目录

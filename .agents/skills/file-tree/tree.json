@@ -2415,6 +2415,27 @@
                     "pure"
                   ]
                 },
+                "pricing_catalog": {
+                  "kind": "dir",
+                  "desc": "定价目录模块（T-01）",
+                  "children": {
+                    "mod.rs": {
+                      "kind": "file",
+                      "desc": "目录类型校验与种子装载",
+                      "detail": [
+                        "owned 目录类型（Catalog/CatalogProvider/CatalogSuite/CatalogModel/ModelStatus）与完整校验：schema 版本、revision 范围、平台/套/模型重复与大小写碰撞、负价与非有限价、非法窗口/时区/默认模型引用、生命周期字段一致性。",
+                        "bundled_catalog() 经 include_str 嵌入仓库 data 种子；find_suite() 镜像旧 preset_with_currency 选套语义（多套按币种提示、单套忽略），preset 兼容入口由此构造。",
+                        "缓存同步与更新状态由 T-03 在本模块扩展。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/pricing.rs"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    }
+                  }
+                },
                 "provider": {
                   "kind": "dir",
                   "desc": "预置平台查询",
@@ -2695,6 +2716,36 @@
                   ],
                   "tags": [
                     "test"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "data": {
+      "kind": "dir",
+      "desc": "正式数据文件根",
+      "children": {
+        "pricing": {
+          "kind": "dir",
+          "desc": "定价数据目录",
+          "children": {
+            "v1": {
+              "kind": "dir",
+              "desc": "定价目录 v1 格式",
+              "children": {
+                "catalog.json": {
+                  "kind": "file",
+                  "desc": "预置定价目录数据源",
+                  "detail": [
+                    "预置平台定价的单一数据源：人工审核对象、客户端分发源与构建时嵌入种子三合一（spec §4.1）。",
+                    "schema_version=1，revision 单调递增；9 平台 10 币种套（DeepSeek 双币），模型携带状态/来源/核验日期，verified_at 无据可查时留 null。",
+                    "禁止借数据迁移顺便改价；改价须人工核对官网后提升 revision。"
+                  ],
+                  "rel": [
+                    "crates/quota-core/src/pricing_catalog/mod.rs"
                   ]
                 }
               }

@@ -82,16 +82,16 @@ pub struct PresetModelDto {
 impl PresetPricingDto {
     fn from_preset(p: &quota_core::pricing::PresetProvider) -> Self {
         Self {
-            currency: p.currency.into(),
+            currency: p.currency.clone(),
             timezone_offset_minutes: p.timezone_offset_minutes,
             windows: p.windows.clone(),
-            default_model: p.default_model.into(),
+            default_model: p.default_model.clone(),
             models: p
                 .models
                 .iter()
                 .map(|m| PresetModelDto {
-                    id: m.id.into(),
-                    display: m.display.into(),
+                    id: m.id.clone(),
+                    display: m.display.clone(),
                     plan: m.plan,
                     windows: m.windows.clone(),
                     peak: m.peak.clone(),

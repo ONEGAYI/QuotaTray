@@ -49,8 +49,8 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
     if let Some(p) = &preset {
         for m in &p.models {
             models.push(ModelRowJson {
-                id: m.id.into(),
-                display: m.display.into(),
+                id: m.id.clone(),
+                display: m.display.clone(),
                 source: "preset",
                 plan: plan_str(m.plan),
                 windows: m.windows.clone(),
@@ -76,9 +76,9 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
         provider: provider_id.into(),
         currency: preset
             .as_ref()
-            .map(|p| p.currency.into())
+            .map(|p| p.currency.clone())
             .unwrap_or_else(|| pricing::default_currency(provider_id).into()),
-        default_model: preset.as_ref().map(|p| p.default_model.into()),
+        default_model: preset.as_ref().map(|p| p.default_model.clone()),
         models,
     })
 }

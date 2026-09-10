@@ -335,13 +335,13 @@ pub enum PlanKind {
     Subscription,
 }
 
-/// 预置单模型价格档。
+/// 预置单模型价格档（owned：由定价目录种子构造，见 `pricing_catalog`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PresetModel {
     /// 模型 id（自定义配置的 `model` 匹配项，如 "flash"）。
-    pub id: &'static str,
+    pub id: String,
     /// 展示名（如 "V4 Flash"）。
-    pub display: &'static str,
+    pub display: String,
     /// 计费模式（订阅项价格档留空、窗口表达折扣时段）。
     pub plan: PlanKind,
     /// 模型级峰谷窗口覆盖：None = 继承平台级；Some(vec![]) = 该模型恒空闲。
@@ -352,17 +352,17 @@ pub struct PresetModel {
     pub off_peak: PriceTier,
 }
 
-/// 预置平台峰谷定价（owned：调用频率低，随取随构）。
+/// 预置平台峰谷定价（owned：由定价目录种子构造，调用频率低，随取随构）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PresetProvider {
-    pub native_id: &'static str,
-    pub currency: &'static str,
+    pub native_id: String,
+    pub currency: String,
     /// UTC 偏移（分钟）。
     pub timezone_offset_minutes: i32,
     /// 平台级高峰窗口（模型级 `windows` 为 None 时生效）。
     pub windows: Vec<PeakWindow>,
     pub models: Vec<PresetModel>,
-    pub default_model: &'static str,
+    pub default_model: String,
 }
 
 /// 平台的默认预置币种（条目未指定时 `preset` 取这套）。
@@ -377,252 +377,56 @@ pub fn default_currency(native_id: &str) -> &'static str {
 
 /// 按币种取预置套：DeepSeek 单站双币（余额 API `currency` 字段区分账户），
 /// 其余平台忽略 `currency` 返回唯一套。无预置 → None。
+///
+/// 数据源：内置定价目录种子（[`crate::pricing_catalog`]），
+/// 选套语义由 [`crate::pricing_catalog::find_suite`] 镜像锁定。
 pub fn preset_with_currency(native_id: &str, currency: &str) -> Option<PresetProvider> {
-    match native_id {
-        "deepseek" if currency.eq_ignore_ascii_case("USD") => Some(deepseek_preset("USD")),
-        "deepseek" => Some(deepseek_preset("CNY")),
-        _ => preset(native_id),
-    }
+    let catalog = crate::pricing_catalog::bundled_catalog();
+    let suite = crate::pricing_catalog::find_suite(catalog, native_id, Some(currency))?;
+    Some(suite_to_preset(native_id, suite))
 }
 
 /// 按 native id 取预置峰谷定价；无预置 → None。
 ///
-/// 数据抓取自各官网定价页：
-/// - DeepSeek：中文页 https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
-///   （2026-08-23 抓取、2026-09-09 按 Flash 系列降价公告更新 CNY 档；
-///   官方英文页路由故障，USD 档待修复后核实）。高峰 = 北京时间周一至
-///   周五 09:00–12:00、14:00–18:00，空闲价为高峰一半。
-/// - Kimi：https://platform.kimi.com/docs/pricing/chat （CNY）/
-///   platform.kimi.ai（USD），无峰谷（恒空闲，两档同价）。
-/// - 智谱/Z.ai（2026-09-09 经 `scripts/fetch_pricing` 脚本核实）：
-///   国内 open.bigmodel.cn（CNY，SPA 价格打包于 app.js）/ 国际
-///   docs.z.ai（USD，SSG 直出）。按量无峰谷；GLM-5.3-Flash 为限时
-///   促销新模型，预置取促销前原价档；国际站已无 GLM-5-Turbo（随官网
-///   撤除），国内 5-Turbo 为输入长度阶梯价、预置取基础档（<32K）。
-///   Coding Plan 订阅积分制高峰 = 工作日 14:00–18:00，其余时段（含
-///   周末全天）积分消耗更低——倍率口径以官网权益说明为准（Z.ai 为
-///   闲时 0.5×，智谱国内站倍率曾调整过，两站均非峰谷时段本身）。
+/// 数据源：内置定价目录种子 `data/pricing/v1/catalog.json`（随版本构建
+/// 嵌入，逐项等价提取自原硬编码预置）。口径备注（URL 与核验日期见种子）：
+/// - DeepSeek：CNY 档 2026-09-09 按 Flash 系列降价公告更新；USD 档因
+///   官方英文定价页路由故障暂维持 8·23 旧值，待修复后核实。
+/// - 智谱 GLM-5.3-Flash 为限时促销新模型，预置取促销前原价档；
+///   国际站已无 GLM-5-Turbo（随官网撤除），国内 5-Turbo 为输入长度
+///   阶梯价、预置取基础档（<32K）。Coding Plan 订阅积分制高峰 =
+///   工作日 14:00–18:00，倍率口径以官网权益说明为准。
 pub fn preset(native_id: &str) -> Option<PresetProvider> {
-    match native_id {
-        "deepseek" => Some(deepseek_preset("CNY")),
-        "kimi_cn" => Some(kimi_preset(
-            "kimi_cn",
-            "CNY",
-            &[
-                ("k3", "Kimi K3", 2.0, 20.0, 100.0),
-                ("k27-code", "Kimi K2.7 Code", 1.3, 6.5, 27.0),
-            ],
-            "k3",
-        )),
-        "kimi_global" => Some(kimi_preset(
-            "kimi_global",
-            "USD",
-            &[
-                ("k3", "Kimi K3", 0.30, 3.00, 15.00),
-                ("k26", "Kimi K2.6", 0.16, 0.95, 4.00),
-            ],
-            "k3",
-        )),
-        "kimi_code_cn" => Some(kimi_code_preset("kimi_code_cn", "CNY")),
-        "kimi_code_global" => Some(kimi_code_preset("kimi_code_global", "USD")),
-        "zhipu_api" => Some(zhipu_payg_preset(
-            "zhipu_api",
-            "CNY",
-            &[
-                ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
-                ("glm-5.3-flash", "GLM-5.3-Flash", 0.23, 0.8, 2.8),
-                ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
-                ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
-            ],
-        )),
-        "zhipu" => Some(zhipu_preset(
-            "zhipu",
-            "CNY",
-            &[
-                ("glm-5.3", "GLM-5.3", 2.0, 8.0, 28.0),
-                ("glm-5.3-flash", "GLM-5.3-Flash", 0.23, 0.8, 2.8),
-                ("glm-5.2", "GLM-5.2", 2.0, 8.0, 28.0),
-                ("glm-5-turbo", "GLM-5-Turbo", 1.2, 5.0, 22.0),
-            ],
-        )),
-        "zai_api" => Some(zhipu_payg_preset(
-            "zai_api",
-            "USD",
-            &[
-                ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
-                ("glm-5.3-flash", "GLM-5.3-Flash", 0.03, 0.15, 0.50),
-                ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
-            ],
-        )),
-        "zai" => Some(zhipu_preset(
-            "zai",
-            "USD",
-            &[
-                ("glm-5.3", "GLM-5.3", 0.26, 1.4, 4.4),
-                ("glm-5.3-flash", "GLM-5.3-Flash", 0.03, 0.15, 0.50),
-                ("glm-5.2", "GLM-5.2", 0.26, 1.4, 4.4),
-            ],
-        )),
-        _ => None,
-    }
+    let catalog = crate::pricing_catalog::bundled_catalog();
+    let suite = crate::pricing_catalog::find_suite(catalog, native_id, None)?;
+    Some(suite_to_preset(native_id, suite))
 }
 
-/// DeepSeek 预置（单站双币：账户币种由余额 API `currency` 字段返回）。
-///
-/// CNY 于 2026-09-09 更新：Flash 系列降价（官方调价通知经媒体转述，
-/// 北京时间 9 月 10 日 12:00 生效）——空闲档命中/未命中/输出
-/// 0.02/1/4 元，高峰 = 空闲 × 2；Vision Exp 与 Flash 历史同价、同属
-/// Flash 系列，随之更新；V4 Pro 不在降价范围。USD 档因官方英文定价页
-/// 路由故障（2026-09-09 实测）暂维持 8·23 旧值，待修复后经
-/// `scripts/fetch_pricing` 核实再同步。
-fn deepseek_preset(currency: &'static str) -> PresetProvider {
-    let (flash, pro): ((f64, f64, f64), (f64, f64, f64)) = if currency == "USD" {
-        ((0.014, 0.44, 1.32), (0.044, 1.32, 3.96))
-    } else {
-        ((0.04, 2.0, 8.0), (0.30, 9.0, 27.0))
-    };
-    let half = |(a, b, c): (f64, f64, f64)| (a / 2.0, b / 2.0, c / 2.0);
-    let (flash_off, pro_off) = (half(flash), half(pro));
-    PresetProvider {
-        native_id: "deepseek",
-        currency,
-        timezone_offset_minutes: 480,
-        windows: vec![
-            peak_window_workday("09:00", "12:00"),
-            peak_window_workday("14:00", "18:00"),
-        ],
-        models: vec![
-            payg_model("flash", "V4 Flash", flash, flash_off),
-            payg_model("pro", "V4 Pro", pro, pro_off),
-            payg_model("vision", "V4 Flash Vision Exp", flash, flash_off),
-        ],
-        default_model: "flash",
-    }
-}
-
-/// Kimi 预置：无峰谷（恒空闲，两档同价）。
-fn kimi_preset(
-    native_id: &'static str,
-    currency: &'static str,
-    models: &[(&'static str, &'static str, f64, f64, f64)],
-    default_model: &'static str,
+/// 目录套 → 兼容 `PresetProvider`。订阅项价格档 `null` 映射为空档；
+/// 无默认模型（全 retired 套）映射为空串——现有数据不出现该形状，
+/// 模型生命周期语义由后续票据在 resolve 链路引入。
+fn suite_to_preset(
+    native_id: &str,
+    suite: &crate::pricing_catalog::CatalogSuite,
 ) -> PresetProvider {
     PresetProvider {
-        native_id,
-        currency,
-        timezone_offset_minutes: 480,
-        windows: vec![],
-        models: models
+        native_id: native_id.into(),
+        currency: suite.currency.clone(),
+        timezone_offset_minutes: suite.timezone_offset_minutes,
+        windows: suite.windows.clone(),
+        default_model: suite.default_model.clone().unwrap_or_default(),
+        models: suite
+            .models
             .iter()
-            .map(|&(id, display, cache_hit, miss, output)| {
-                payg_model(
-                    id,
-                    display,
-                    (cache_hit, miss, output),
-                    (cache_hit, miss, output),
-                )
+            .map(|m| PresetModel {
+                id: m.id.clone(),
+                display: m.display.clone(),
+                plan: m.plan,
+                windows: m.windows.clone(),
+                peak: m.peak.clone().unwrap_or_default(),
+                off_peak: m.off_peak.clone().unwrap_or_default(),
             })
             .collect(),
-        default_model,
-    }
-}
-
-/// Kimi Code 预置：订阅额度模式，无每 token 三档价，也无峰谷折扣窗口。
-fn kimi_code_preset(native_id: &'static str, currency: &'static str) -> PresetProvider {
-    PresetProvider {
-        native_id,
-        currency,
-        timezone_offset_minutes: 480,
-        windows: vec![],
-        models: vec![PresetModel {
-            id: "coding-plan",
-            display: "Kimi Code（订阅额度）",
-            plan: PlanKind::Subscription,
-            windows: Some(vec![]),
-            peak: PriceTier::default(),
-            off_peak: PriceTier::default(),
-        }],
-        default_model: "coding-plan",
-    }
-}
-
-/// 智谱/Z.ai 预置：按量模型无峰谷（平台级恒空闲）+ Coding Plan 订阅项
-/// （模型级窗口覆盖：工作日 14:00–18:00 高峰，其余时段积分消耗更低，
-/// 倍率口径以官网权益说明为准——窗口结构是本预置锁定的部分）。
-/// GLM-5-Turbo 国内为输入长度阶梯价（<32K / ≥32K），预置取基础档（<32K）。
-fn zhipu_preset(
-    native_id: &'static str,
-    currency: &'static str,
-    models: &[(&'static str, &'static str, f64, f64, f64)],
-) -> PresetProvider {
-    let mut preset = zhipu_payg_preset(native_id, currency, models);
-    preset.models.push(PresetModel {
-        id: "coding-plan",
-        display: "GLM Coding Plan（订阅积分）",
-        plan: PlanKind::Subscription,
-        // 订阅项不继承平台级空窗口，显式携带积分折扣时段
-        windows: Some(vec![peak_window_workday("14:00", "18:00")]),
-        peak: PriceTier::default(),
-        off_peak: PriceTier::default(),
-    });
-    preset
-}
-
-/// 智谱/Z.ai 通用 API：只包含按量模型，不混入 Coding Plan 订阅项。
-fn zhipu_payg_preset(
-    native_id: &'static str,
-    currency: &'static str,
-    models: &[(&'static str, &'static str, f64, f64, f64)],
-) -> PresetProvider {
-    debug_assert!(!models.is_empty(), "按量模型列表为空则无默认模型");
-    PresetProvider {
-        native_id,
-        currency,
-        timezone_offset_minutes: 480,
-        windows: vec![],
-        models: models
-            .iter()
-            .map(|&(id, display, cache_hit, miss, output)| {
-                payg_model(
-                    id,
-                    display,
-                    (cache_hit, miss, output),
-                    (cache_hit, miss, output),
-                )
-            })
-            .collect(),
-        default_model: models[0].0,
-    }
-}
-
-/// 按量模型构造（无模型级窗口覆盖）。
-fn payg_model(
-    id: &'static str,
-    display: &'static str,
-    peak: (f64, f64, f64),
-    off_peak: (f64, f64, f64),
-) -> PresetModel {
-    PresetModel {
-        id,
-        display,
-        plan: PlanKind::PayAsYouGo,
-        windows: None,
-        peak: PriceTier::full(peak.0, peak.1, peak.2),
-        off_peak: PriceTier::full(off_peak.0, off_peak.1, off_peak.2),
-    }
-}
-
-fn peak_window_workday(start: &str, end: &str) -> PeakWindow {
-    PeakWindow {
-        days: vec![
-            Weekday::Mon,
-            Weekday::Tue,
-            Weekday::Wed,
-            Weekday::Thu,
-            Weekday::Fri,
-        ],
-        start: start.into(),
-        end: end.into(),
     }
 }
 
@@ -787,8 +591,8 @@ fn resolve_impl(
         from_lib: true,
     };
     let from_preset_model = |m: &PresetModel, p: &PresetProvider| Selected {
-        id: Some(m.id.into()),
-        label: m.display.into(),
+        id: Some(m.id.clone()),
+        label: m.display.clone(),
         plan: m.plan,
         windows: m.windows.clone(),
         timezone: Some(p.timezone_offset_minutes),
@@ -878,7 +682,7 @@ fn resolve_impl(
     let currency = custom
         .and_then(|c| c.currency.clone())
         .or_else(|| model.as_ref().and_then(|m| m.currency.clone()))
-        .or_else(|| preset.as_ref().map(|p| p.currency.into()));
+        .or_else(|| preset.as_ref().map(|p| p.currency.clone()));
 
     let any_custom = custom.is_some_and(|c| {
         c.windows.is_some()
@@ -890,11 +694,11 @@ fn resolve_impl(
     });
     let source = match (any_custom, preset.as_ref()) {
         (false, Some(p)) => PricingSource::Preset {
-            native_id: p.native_id.into(),
+            native_id: p.native_id.clone(),
             model: model
                 .as_ref()
                 .and_then(|m| m.id.clone())
-                .unwrap_or_else(|| p.default_model.into()),
+                .unwrap_or_else(|| p.default_model.clone()),
         },
         // 有自定义生效 / 无预置但自定义非空（is_empty 已在入口拦截空对象）
         _ => PricingSource::Custom,
@@ -931,6 +735,21 @@ mod tests {
 
     /// UTC+8 偏移。
     const BJ: Option<i32> = Some(480);
+
+    /// 工作日高峰窗口构造（快照与合并测试共用）。
+    fn peak_window_workday(start: &str, end: &str) -> PeakWindow {
+        PeakWindow {
+            days: vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+            ],
+            start: start.into(),
+            end: end.into(),
+        }
+    }
 
     fn deepseek_windows() -> Vec<PeakWindow> {
         preset("deepseek").unwrap().windows
@@ -1301,8 +1120,8 @@ mod tests {
     /// 无峰谷平台的按量模型构造（两档同价）。
     fn flat_payg(id: &'static str, display: &'static str, t: (f64, f64, f64)) -> PresetModel {
         PresetModel {
-            id,
-            display,
+            id: id.into(),
+            display: display.into(),
             plan: PlanKind::PayAsYouGo,
             windows: None,
             peak: PriceTier::full(t.0, t.1, t.2),
@@ -1463,24 +1282,24 @@ mod tests {
             usd.models,
             vec![
                 PresetModel {
-                    id: "flash",
-                    display: "V4 Flash",
+                    id: "flash".into(),
+                    display: "V4 Flash".into(),
                     plan: PlanKind::PayAsYouGo,
                     windows: None,
                     peak: PriceTier::full(0.014, 0.44, 1.32),
                     off_peak: PriceTier::full(0.007, 0.22, 0.66),
                 },
                 PresetModel {
-                    id: "pro",
-                    display: "V4 Pro",
+                    id: "pro".into(),
+                    display: "V4 Pro".into(),
                     plan: PlanKind::PayAsYouGo,
                     windows: None,
                     peak: PriceTier::full(0.044, 1.32, 3.96),
                     off_peak: PriceTier::full(0.022, 0.66, 1.98),
                 },
                 PresetModel {
-                    id: "vision",
-                    display: "V4 Flash Vision Exp",
+                    id: "vision".into(),
+                    display: "V4 Flash Vision Exp".into(),
                     plan: PlanKind::PayAsYouGo,
                     windows: None,
                     peak: PriceTier::full(0.014, 0.44, 1.32),

@@ -6,6 +6,7 @@
 //! - `template`：声明式模板 DSL（M2a，core 的 M2 API 面就此冻结）
 //! - `update`：GitHub release 检测更新与安装包下载（M4-b）
 //! - `pricing`：峰谷定价（时段判定、预置平台定价、自定义合并）
+//! - `pricing_catalog`：定价目录（JSON 类型、校验与内置种子；预置单一数据源）
 //! - `script`：QuickJS 沙箱脚本查询（M4，`{request, extractor}` 协议）
 //! - `history`：查询结果的历史存储（M5，SQLite + 版本化迁移）
 //! - `runtime`：安装态/便携态运行模式解析（Portable 方案 A，纯函数）
@@ -17,6 +18,7 @@ pub mod http;
 pub mod logging;
 pub mod model;
 pub mod pricing;
+pub mod pricing_catalog;
 pub mod provider;
 pub mod query;
 pub mod runtime;
@@ -43,6 +45,10 @@ pub use pricing::{
     PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,
     preset_with_currency, resolve, resolve_in_currency, resolve_with, validate,
     validate_custom_model,
+};
+pub use pricing_catalog::{
+    CATALOG_SCHEMA_VERSION, Catalog, CatalogError, CatalogModel, CatalogProvider, CatalogSuite,
+    MAX_REVISION, ModelStatus, bundled_catalog, find_suite, parse_catalog, validate_catalog,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use runtime::{

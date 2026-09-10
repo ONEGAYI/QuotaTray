@@ -1,0 +1,496 @@
+{
+  "schema_version": 1,
+  "revision": 1,
+  "published_at": "2026-09-10",
+  "providers": [
+    {
+      "native_id": "deepseek",
+      "default_currency": "CNY",
+      "suites": [
+        {
+          "currency": "CNY",
+          "timezone_offset_minutes": 480,
+          "windows": [
+            { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "12:00" },
+            { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "14:00", "end": "18:00" }
+          ],
+          "default_model": "flash",
+          "models": [
+            {
+              "id": "flash",
+              "display": "V4 Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.04, "cache_miss_input": 2.0, "output": 8.0 },
+              "off_peak": { "cache_hit_input": 0.02, "cache_miss_input": 1.0, "output": 4.0 },
+              "status": "active",
+              "source_urls": ["https://api-docs.deepseek.com/zh-cn/quick_start/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "pro",
+              "display": "V4 Pro",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.30, "cache_miss_input": 9.0, "output": 27.0 },
+              "off_peak": { "cache_hit_input": 0.15, "cache_miss_input": 4.5, "output": 13.5 },
+              "status": "active",
+              "source_urls": ["https://api-docs.deepseek.com/zh-cn/quick_start/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "vision",
+              "display": "V4 Flash Vision Exp",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.04, "cache_miss_input": 2.0, "output": 8.0 },
+              "off_peak": { "cache_hit_input": 0.02, "cache_miss_input": 1.0, "output": 4.0 },
+              "status": "active",
+              "source_urls": ["https://api-docs.deepseek.com/zh-cn/quick_start/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            }
+          ]
+        },
+        {
+          "currency": "USD",
+          "timezone_offset_minutes": 480,
+          "windows": [
+            { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "12:00" },
+            { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "14:00", "end": "18:00" }
+          ],
+          "default_model": "flash",
+          "models": [
+            {
+              "id": "flash",
+              "display": "V4 Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.014, "cache_miss_input": 0.44, "output": 1.32 },
+              "off_peak": { "cache_hit_input": 0.007, "cache_miss_input": 0.22, "output": 0.66 },
+              "status": "active",
+              "source_urls": [
+                "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+                "https://api-docs.deepseek.com/quick_start/pricing"
+              ],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            },
+            {
+              "id": "pro",
+              "display": "V4 Pro",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.044, "cache_miss_input": 1.32, "output": 3.96 },
+              "off_peak": { "cache_hit_input": 0.022, "cache_miss_input": 0.66, "output": 1.98 },
+              "status": "active",
+              "source_urls": [
+                "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+                "https://api-docs.deepseek.com/quick_start/pricing"
+              ],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            },
+            {
+              "id": "vision",
+              "display": "V4 Flash Vision Exp",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.014, "cache_miss_input": 0.44, "output": 1.32 },
+              "off_peak": { "cache_hit_input": 0.007, "cache_miss_input": 0.22, "output": 0.66 },
+              "status": "active",
+              "source_urls": [
+                "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+                "https://api-docs.deepseek.com/quick_start/pricing"
+              ],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "kimi_cn",
+      "default_currency": "CNY",
+      "suites": [
+        {
+          "currency": "CNY",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "k3",
+          "models": [
+            {
+              "id": "k3",
+              "display": "Kimi K3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 2.0, "cache_miss_input": 20.0, "output": 100.0 },
+              "off_peak": { "cache_hit_input": 2.0, "cache_miss_input": 20.0, "output": 100.0 },
+              "status": "active",
+              "source_urls": ["https://platform.kimi.com/docs/pricing/chat"],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            },
+            {
+              "id": "k27-code",
+              "display": "Kimi K2.7 Code",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 1.3, "cache_miss_input": 6.5, "output": 27.0 },
+              "off_peak": { "cache_hit_input": 1.3, "cache_miss_input": 6.5, "output": 27.0 },
+              "status": "active",
+              "source_urls": ["https://platform.kimi.com/docs/pricing/chat"],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "kimi_global",
+      "default_currency": "USD",
+      "suites": [
+        {
+          "currency": "USD",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "k3",
+          "models": [
+            {
+              "id": "k3",
+              "display": "Kimi K3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.30, "cache_miss_input": 3.00, "output": 15.00 },
+              "off_peak": { "cache_hit_input": 0.30, "cache_miss_input": 3.00, "output": 15.00 },
+              "status": "active",
+              "source_urls": ["https://platform.kimi.ai"],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            },
+            {
+              "id": "k26",
+              "display": "Kimi K2.6",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.16, "cache_miss_input": 0.95, "output": 4.00 },
+              "off_peak": { "cache_hit_input": 0.16, "cache_miss_input": 0.95, "output": 4.00 },
+              "status": "active",
+              "source_urls": ["https://platform.kimi.ai"],
+              "verified_at": "2026-08-23",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "kimi_code_cn",
+      "default_currency": "CNY",
+      "suites": [
+        {
+          "currency": "CNY",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "coding-plan",
+          "models": [
+            {
+              "id": "coding-plan",
+              "display": "Kimi Code（订阅额度）",
+              "plan": "subscription",
+              "windows": [],
+              "peak": null,
+              "off_peak": null,
+              "status": "active",
+              "source_urls": [],
+              "verified_at": null,
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "kimi_code_global",
+      "default_currency": "USD",
+      "suites": [
+        {
+          "currency": "USD",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "coding-plan",
+          "models": [
+            {
+              "id": "coding-plan",
+              "display": "Kimi Code（订阅额度）",
+              "plan": "subscription",
+              "windows": [],
+              "peak": null,
+              "off_peak": null,
+              "status": "active",
+              "source_urls": [],
+              "verified_at": null,
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "zhipu",
+      "default_currency": "CNY",
+      "suites": [
+        {
+          "currency": "CNY",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "glm-5.3",
+          "models": [
+            {
+              "id": "glm-5.3",
+              "display": "GLM-5.3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "off_peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.3-flash",
+              "display": "GLM-5.3-Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.23, "cache_miss_input": 0.8, "output": 2.8 },
+              "off_peak": { "cache_hit_input": 0.23, "cache_miss_input": 0.8, "output": 2.8 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.2",
+              "display": "GLM-5.2",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "off_peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5-turbo",
+              "display": "GLM-5-Turbo",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 1.2, "cache_miss_input": 5.0, "output": 22.0 },
+              "off_peak": { "cache_hit_input": 1.2, "cache_miss_input": 5.0, "output": 22.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "coding-plan",
+              "display": "GLM Coding Plan（订阅积分）",
+              "plan": "subscription",
+              "windows": [
+                { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "14:00", "end": "18:00" }
+              ],
+              "peak": null,
+              "off_peak": null,
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "zhipu_api",
+      "default_currency": "CNY",
+      "suites": [
+        {
+          "currency": "CNY",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "glm-5.3",
+          "models": [
+            {
+              "id": "glm-5.3",
+              "display": "GLM-5.3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "off_peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.3-flash",
+              "display": "GLM-5.3-Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.23, "cache_miss_input": 0.8, "output": 2.8 },
+              "off_peak": { "cache_hit_input": 0.23, "cache_miss_input": 0.8, "output": 2.8 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.2",
+              "display": "GLM-5.2",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "off_peak": { "cache_hit_input": 2.0, "cache_miss_input": 8.0, "output": 28.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5-turbo",
+              "display": "GLM-5-Turbo",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 1.2, "cache_miss_input": 5.0, "output": 22.0 },
+              "off_peak": { "cache_hit_input": 1.2, "cache_miss_input": 5.0, "output": 22.0 },
+              "status": "active",
+              "source_urls": ["https://open.bigmodel.cn/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "zai",
+      "default_currency": "USD",
+      "suites": [
+        {
+          "currency": "USD",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "glm-5.3",
+          "models": [
+            {
+              "id": "glm-5.3",
+              "display": "GLM-5.3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "off_peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.3-flash",
+              "display": "GLM-5.3-Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.03, "cache_miss_input": 0.15, "output": 0.50 },
+              "off_peak": { "cache_hit_input": 0.03, "cache_miss_input": 0.15, "output": 0.50 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.2",
+              "display": "GLM-5.2",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "off_peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "coding-plan",
+              "display": "GLM Coding Plan（订阅积分）",
+              "plan": "subscription",
+              "windows": [
+                { "days": ["mon", "tue", "wed", "thu", "fri"], "start": "14:00", "end": "18:00" }
+              ],
+              "peak": null,
+              "off_peak": null,
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "native_id": "zai_api",
+      "default_currency": "USD",
+      "suites": [
+        {
+          "currency": "USD",
+          "timezone_offset_minutes": 480,
+          "windows": [],
+          "default_model": "glm-5.3",
+          "models": [
+            {
+              "id": "glm-5.3",
+              "display": "GLM-5.3",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "off_peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.3-flash",
+              "display": "GLM-5.3-Flash",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.03, "cache_miss_input": 0.15, "output": 0.50 },
+              "off_peak": { "cache_hit_input": 0.03, "cache_miss_input": 0.15, "output": 0.50 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            },
+            {
+              "id": "glm-5.2",
+              "display": "GLM-5.2",
+              "plan": "pay_as_you_go",
+              "windows": null,
+              "peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "off_peak": { "cache_hit_input": 0.26, "cache_miss_input": 1.4, "output": 4.4 },
+              "status": "active",
+              "source_urls": ["https://docs.z.ai/guides/overview/pricing"],
+              "verified_at": "2026-09-09",
+              "retired_at": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
