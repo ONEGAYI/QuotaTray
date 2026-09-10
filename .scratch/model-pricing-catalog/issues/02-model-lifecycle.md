@@ -1,7 +1,7 @@
 # T-02 修正模型缺失与下架展示
 
-状态：blocked  
-Blocked by: T-01  
+状态：已完成（2026-09-10，待所有者验收；提交 113c8b8）  
+Blocked by: T-01（已合入同分支）  
 规格：[§5、§10 V-02/V-03/V-12](../spec.md)  
 解锁：T-03。
 
@@ -25,13 +25,36 @@ CLI pricing.rs、pricing_models.rs、render/texts 的必要输出与测试。
 
 ## 验收
 
-- [ ] A active → A retired 后，CLI 仍显示 A 的价格与“已下架”。
-- [ ] 明确选择缺失 A 且默认 B 存在时，结果不含 B 的价格、模型级时段或计费模式。
-- [ ] 没选模型时仍正确显示平台默认。
-- [ ] 用户手填整档优先；半档空项仍空；自定义库撞名优先且空价不借官方同名价。
-- [ ] 新安装目录直接包含 retired A 时，无旧缓存也能显示 A 的历史价格。
-- [ ] 未知模型不被错误标成已下架；订阅项无货币价格不被错误标为同步失败。
-- [ ] 中英文 CLI 文案和 JSON null/0 区分通过验证。
+- [x] A active → A retired 后，CLI 仍显示 A 的价格与“已下架”。
+- [x] 明确选择缺失 A 且默认 B 存在时，结果不含 B 的价格、模型级时段或计费模式。
+- [x] 没选模型时仍正确显示平台默认。
+- [x] 用户手填整档优先；半档空项仍空；自定义库撞名优先且空价不借官方同名价。
+- [x] 新安装目录直接包含 retired A 时，无旧缓存也能显示 A 的历史价格。
+- [x] 未知模型不被错误标成已下架；订阅项无货币价格不被错误标为同步失败。
+- [x] 中英文 CLI 文案和 JSON null/0 区分通过验证。
+
+## 实施记录（2026-09-10）
+
+- 提交 `113c8b8`（分支 feat/pricing-catalog-foundation）。门禁全绿：
+  fmt / clippy --workspace --all-targets -D warnings / cargo test --workspace
+  （core 398、CLI 135、桌面 126）/ 前端 tsc + eslint + vitest 229。
+- 行为差异：唯一语义变更是「显式指定模型未命中时不再回退默认模型定价」
+  （旧注释自认的缺陷，spec §2 已核实方向）；retired/missing 四态由
+  ResolvedPricing.model_status 透出（ResolvedModelStatus），source 口径不变。
+- 新接口：resolve_in_catalog(entry, custom, hint, catalog)（目录参数化，
+  旧三入口等价委托种子）；validate_no_removal(new, baseline)（物理删除
+  对比校验，T-03 缓存与 T-07 发布共用）；PresetModel/DTO/前端镜像 +status。
+- 已知分叉（T-05 收敛）：前端 providerPricing.ts 镜像仍持旧回退语义，
+  其「未知模型价格回退默认」测试仍锁定旧行为；GUI 生命周期展示未接。
+- 验收对照：A→retired 仍显示最后价+已下架（show_retired_model_last_known_with_hint）；
+  缺失 A 不含 B 价格/时段/计费（resolve_missing_model_keeps_name_and_unknown_prices、
+  resolve_missing_not_borrows_subscription_default）；未选模型仍平台默认
+  （resolve_unspecified_uses_active_default）；手填整档/半档/撞名/windows
+  语义保持（resolve_missing_model_manual_tier_wins、resolve_custom_shadows_
+  retired_official 及既有 V-03 测试全绿）；新装含 retired 直接展示
+  （resolve_retired_model_keeps_last_known，注入目录 = 新装无旧缓存同构）；
+  未知≠已下架、订阅 null≠失败（model_status 区分 + null 断言）；
+  中英双语与 null/0 区分（show_missing_model_status_and_hint 等双语断言）。
 
 ## 验证
 
