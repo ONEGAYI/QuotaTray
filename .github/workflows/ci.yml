@@ -75,6 +75,8 @@ jobs:
           pnpm test:dev
       - name: Lint
         run: pnpm lint
+      - name: 前端契约与组件渲染测试
+        run: pnpm test
       - name: 构建（tsc + vite）
         run: pnpm build
 
