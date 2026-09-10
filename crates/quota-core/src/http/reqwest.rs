@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use super::{HttpClient, HttpError, HttpRequest, HttpResponse};
 
 /// 基于 reqwest 的客户端（rustls，无 native-tls 依赖）。
+#[derive(Clone)]
 pub struct ReqwestHttpClient {
     client: reqwest::Client,
 }

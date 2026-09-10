@@ -11,8 +11,15 @@ import type {
 } from "../types";
 
 export interface ProviderPricingView {
+  sourceUrls: string[];
+  verifiedAt: string | null;
   modelId?: string;
   modelLabel?: string;
+  /** 生效模型生命周期（与 core ResolvedModelStatus 同口径）：
+   * active/retired = 命中官方模型（retired 显示最后已知价）；
+   * missing = 显式指定但未命中（价格未知，不借默认模型）；
+   * custom = 自定义库模型或无预置纯自定义。 */
+  modelStatus: "active" | "retired" | "missing" | "custom";
   period: "peak" | "off_peak";
   tier: PriceTier | null;
   currency?: string;
@@ -25,6 +32,8 @@ export interface PricingModelChoice {
   label: string;
   plan: PlanKind;
   source: "preset" | "custom";
+  /** retired = 已下架（列表默认不提供；仅当前值引用时保留并标注）。 */
+  status: "active" | "retired" | "custom";
 }
 
 const DAY_BY_INDEX: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -57,6 +66,9 @@ function presetForCurrency(nativeMeta: NativeMeta | undefined, currency: string 
 export function pricingModelChoices(
   preset: PresetPricing | null,
   customModels: CustomModelDef[],
+  /** 当前条目引用的模型 id（大小写不敏感）：retired 当前值保留在列表
+   * 尾部并标注已下架，避免打开编辑页即丢失配置（spec §5.2）。 */
+  currentModelId?: string,
 ): PricingModelChoice[] {
   const choices: PricingModelChoice[] = [];
   const defaultModel = preset?.models.find((model) => model.id === preset.default_model);
@@ -67,6 +79,7 @@ export function pricingModelChoices(
       label: defaultModel.display,
       plan: defaultModel.plan,
       source: "preset",
+      status: "active",
     });
   }
   for (const model of customModels) {
@@ -76,18 +89,40 @@ export function pricingModelChoices(
       label: model.display,
       plan: "pay_as_you_go",
       source: "custom",
+      status: "custom",
     });
   }
   const customIds = new Set(customModels.map((model) => model.id.toLowerCase()));
   for (const model of preset?.models ?? []) {
     if (model.id === preset?.default_model || customIds.has(model.id.toLowerCase())) continue;
+    // 新选择列表默认只提供 active 模型；retired 不主动列出
+    if (model.status === "retired") continue;
     choices.push({
       value: `model:${model.id}`,
       modelId: model.id,
       label: model.display,
       plan: model.plan,
       source: "preset",
+      status: "active",
     });
+  }
+  // 当前值引用的 retired 模型：追加保留（不丢配置），展示层标注已下架
+  if (currentModelId) {
+    const current = preset?.models.find(
+      (model) =>
+        model.status === "retired" &&
+        model.id.toLowerCase() === currentModelId.toLowerCase(),
+    );
+    if (current && !choices.some((c) => c.modelId?.toLowerCase() === current.id.toLowerCase())) {
+      choices.push({
+        value: `model:${current.id}`,
+        modelId: current.id,
+        label: current.display,
+        plan: current.plan,
+        source: "preset",
+        status: "retired",
+      });
+    }
   }
   return choices;
 }
@@ -147,6 +182,10 @@ export function resolveProviderPricingView(
   const custom = entry.pricing;
   if (!preset && (!custom || !pricingNotEmpty(custom))) return null;
 
+  // 模型选择链（与 core resolve_impl 同口径，T-02 语义）：
+  // 自定义库（撞名优先）→ active/retired 官方（数据照常生效）→
+  // 显式指定未命中 = missing（不借默认模型的价格/模型级时段/计费模式）；
+  // 只有未指定模型时才用 active 默认模型。
   const requestedModel = custom?.model;
   const libraryModel = requestedModel
     ? library.find((model) => model.id.toLowerCase() === requestedModel.toLowerCase())
@@ -155,7 +194,21 @@ export function resolveProviderPricingView(
     ? preset?.models.find((model) => model.id.toLowerCase() === requestedModel.toLowerCase())
     : undefined;
   const defaultModel = preset?.models.find((model) => model.id === preset.default_model);
-  const model = libraryModel ?? presetModel ?? defaultModel;
+  // 显式指定未命中 → 不选中任何模型（missing：价格/时段/计费不借默认）
+  const model = libraryModel
+    ?? presetModel
+    ?? (requestedModel ? undefined : defaultModel);
+  const modelStatus: ProviderPricingView["modelStatus"] = libraryModel
+    ? "custom"
+    : presetModel
+      ? presetModel.status === "retired"
+        ? "retired"
+        : "active"
+      : requestedModel
+        ? "missing"
+        : defaultModel
+          ? "active"
+          : "custom";
   const modelLabel = (libraryModel ?? presetModel)?.display ?? requestedModel ?? defaultModel?.display;
   const modelWindows = model?.windows ?? undefined;
   const windows = custom?.windows ?? modelWindows ?? preset?.windows ?? [];
@@ -169,13 +222,21 @@ export function resolveProviderPricingView(
   const tier = tierNotEmpty(customTier)
     ? customTier
     : tierNotEmpty(modelTier) ? modelTier : null;
-  const plan = libraryModel
+  // 计费模式只从命中的模型取（missing 不借默认的订阅计费）
+  const plan: PlanKind = libraryModel
     ? "pay_as_you_go"
-    : (presetModel ?? defaultModel)?.plan ?? "pay_as_you_go";
+    : presetModel
+    ? presetModel.plan
+    : !requestedModel && defaultModel
+      ? defaultModel.plan
+      : "pay_as_you_go";
 
   return {
     modelId: model?.id,
+    sourceUrls: libraryModel ? [] : (presetModel ?? (!requestedModel ? defaultModel : undefined))?.source_urls ?? [],
+    verifiedAt: libraryModel ? null : (presetModel ?? (!requestedModel ? defaultModel : undefined))?.verified_at ?? null,
     modelLabel,
+    modelStatus,
     period,
     tier,
     currency: custom?.currency ?? libraryModel?.currency ?? preset?.currency,

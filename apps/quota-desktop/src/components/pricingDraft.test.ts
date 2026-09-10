@@ -19,6 +19,7 @@ const preset: PresetPricing = {
       id: "flash",
       display: "V4 Flash",
       plan: "pay_as_you_go",
+    status: "active",
       windows: null,
       peak: { cache_hit_input: 0.1, cache_miss_input: 2, output: 3 },
       off_peak: { cache_hit_input: 0.1, cache_miss_input: 1, output: 2 },
@@ -27,6 +28,7 @@ const preset: PresetPricing = {
       id: "pro",
       display: "V4 Pro",
       plan: "pay_as_you_go",
+    status: "active",
       windows: null,
       peak: { cache_hit_input: 0.2, cache_miss_input: 3, output: 5 },
       off_peak: { cache_hit_input: 0.1, cache_miss_input: 1.5, output: 3 },
@@ -35,6 +37,11 @@ const preset: PresetPricing = {
 };
 
 describe("峰谷 GUI 草稿契约", () => {
+  it("显式缺失模型不使用默认模型作为编辑预览", () => {
+    expect(selectedPresetModel(preset, "missing-A")).toBeUndefined();
+    expect(selectedPresetModel(preset, "")).toMatchObject({ id: "flash" });
+    expect(selectedPresetModel(preset, " PRO ")).toMatchObject({ id: "pro" });
+  });
   it("无自定义时保持平台默认模型且不生成 pricing", () => {
     const draft = draftFrom(undefined, preset);
     expect(draft.custom).toBe(false);

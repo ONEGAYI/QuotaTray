@@ -337,6 +337,16 @@
                 "apps/quota-desktop/scripts/android-post-init.mjs"
               ]
             },
+            "catalog-data.yml": {
+              "kind": "file",
+              "desc": "定价目录数据校验工作流（T-07）",
+              "detail": [
+                "数据文件变化的 PR/push 触发：与运行时同一 core 校验器（quota pricing catalog validate），PR 对比 base 分支基线（revision 递增 + 物理删除 + 完整校验 + 审核差异报告）；push main 对比 HEAD~1。"
+              ],
+              "rel": [
+                "apps/quota-cli/src/cmd/pricing_catalog.rs"
+              ]
+            },
             "ci.yml": {
               "kind": "file",
               "desc": "桌面与Android CI",
@@ -354,6 +364,156 @@
       "detail": [
         "忽略本地密钥、target/前端/Tauri移动工程与schema构建物、generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
+    },
+    ".scratch": {
+      "kind": "dir",
+      "desc": "技能阶段文档",
+      "hidden": true,
+      "children": {
+        "model-pricing-catalog": {
+          "kind": "dir",
+          "desc": "模型定价更新任务包",
+          "children": {
+            "evidence": {
+              "kind": "dir",
+              "desc": "目录功能冒烟证据",
+              "children": {
+                "gui-catalog-section.jpg": {
+                  "kind": "file",
+                  "desc": "目录设置页冒烟截图",
+                  "detail": [
+                    "初次实现的目录状态区截图；后续修复结果以T-08新增验证记录为准。"
+                  ]
+                },
+                "gui-catalog-update-404.jpg": {
+                  "kind": "file",
+                  "desc": "目录404反馈冒烟截图",
+                  "detail": [
+                    "初次实现分发文件尚未入main时的404反馈截图，不作为正式发布已完成证据。"
+                  ]
+                }
+              }
+            },
+            "handoff.md": {
+              "kind": "file",
+              "desc": "模型定价更新交接",
+              "detail": [
+                "已确认约定、源码证据、工作树状态、技术默认值、技能与精确接手步骤；本轮不实现。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/README.md",
+                ".scratch/model-pricing-catalog/spec.md"
+              ]
+            },
+            "issues": {
+              "kind": "dir",
+              "desc": "依赖有序的本地票据",
+              "children": {
+                "01-catalog-foundation.md": {
+                  "kind": "file",
+                  "desc": "目录基础准备票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "02-model-lifecycle.md": {
+                  "kind": "file",
+                  "desc": "模型生命周期修正票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "03-catalog-sync.md": {
+                  "kind": "file",
+                  "desc": "目录同步与缓存票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "04-cli-catalog.md": {
+                  "kind": "file",
+                  "desc": "CLI目录接入票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "05-gui-catalog.md": {
+                  "kind": "file",
+                  "desc": "跨端目录界面接入票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "06-auto-sync.md": {
+                  "kind": "file",
+                  "desc": "自动同步与节流票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "07-reviewed-publication.md": {
+                  "kind": "file",
+                  "desc": "人工审核数据发布票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "08-convergence-acceptance.md": {
+                  "kind": "file",
+                  "desc": "目录更新整体验收票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                }
+              }
+            },
+            "README.md": {
+              "kind": "file",
+              "desc": "定价更新票据索引",
+              "detail": [
+                "八张本地票据的阅读入口、阻塞依赖图与共同完成条件。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/spec.md"
+              ]
+            },
+            "spec.md": {
+              "kind": "file",
+              "desc": "模型定价独立更新规格",
+              "detail": [
+                "人工审核与自动分发、模型下架保价、缓存并发和跨端同步实施规格。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/README.md"
+              ]
+            }
+          }
+        }
+      }
     },
     "AGENTS.md": {
       "kind": "file",
@@ -488,6 +648,17 @@
                         "时段聚合/下次翻转，now 注入纯函数；show 接线自定义模型库 +",
                         "条目 currency 币种 hint 选 DeepSeek 双币套 + plan 透出/订阅说明行）、",
                         "stdin JSON 校验写入、清除回退预置"
+                      ]
+                    },
+                    "pricing_catalog.rs": {
+                      "kind": "file",
+                      "desc": "目录状态与手动更新命令",
+                      "detail": [
+                        "quota pricing catalog status/update（--json 双形态）：status 只读本地（装载 + 磁盘信封元数据拼合，零网络零客户端构造）；update 显式联网，settings 代理端口构造双通道（与安装包更新检测同口径），run_update_with 可注入 mock。",
+                        "退出码：updated/unchanged/busy=0；网络/响应类失败=2（瞬时）；拒绝/IO=1（确定性）。show/model list 已改读 load_effective 有效目录（本票）。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/pricing_catalog/sync.rs"
                       ]
                     },
                     "pricing_models.rs": {
@@ -642,6 +813,28 @@
                   "detail": [
                     "双语文案表（TextKey exhaustive，漏译即编译错误）+",
                     "带参文案函数 + clap about/help 运行时翻译"
+                  ]
+                }
+              }
+            },
+            "tests": {
+              "kind": "dir",
+              "desc": "CLI端到端契约测试",
+              "children": {
+                "catalog_readonly.rs": {
+                  "kind": "file",
+                  "desc": "目录只读与来源端测",
+                  "detail": [
+                    "以真实 CLI 二进制和本地模拟代理验证定价 JSON/目录只读命令不触发升级请求，核验来源字段实际输出。"
+                  ],
+                  "rel": [
+                    "apps/quota-cli/src/cmd/pricing.rs",
+                    "apps/quota-cli/src/cmd/pricing_catalog.rs",
+                    "apps/quota-cli/src/cmd/pricing_models.rs",
+                    "apps/quota-cli/src/main.rs"
+                  ],
+                  "tags": [
+                    "test"
                   ]
                 }
               }
@@ -1285,12 +1478,37 @@
                         "pure"
                       ]
                     },
+                    "PricingProvenance.tsx": {
+                      "kind": "file",
+                      "desc": "官方模型资料披露",
+                      "detail": [
+                        "主卡/编辑页共享 details 披露：官方来源、核验日期和未知/陈旧提示，链接仅用户点击打开且不提交表单。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/PricingSection.tsx",
+                        "apps/quota-desktop/src/components/ProviderCard.tsx"
+                      ]
+                    },
                     "PricingSection.tsx": {
                       "kind": "file",
                       "desc": "峰谷编辑区块",
                       "detail": [
                         "峰谷区块：预置/库模型、模型级窗口、订阅说明、",
                         "时区与带说明的三档价格编辑（空字段按契约回退）"
+                      ]
+                    },
+                    "ProviderCard.test.tsx": {
+                      "kind": "file",
+                      "desc": "卡片定价渲染测试",
+                      "detail": [
+                        "ProviderCard SSR 契约：下架保价、价格未知、官方来源/核验日期与来源按钮非提交语义。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/PricingProvenance.tsx",
+                        "apps/quota-desktop/src/components/ProviderCard.tsx"
+                      ],
+                      "tags": [
+                        "test"
                       ]
                     },
                     "ProviderCard.tsx": {
@@ -1838,6 +2056,17 @@
                         "security"
                       ]
                     },
+                    "catalog_sched.rs": {
+                      "kind": "file",
+                      "desc": "跨端目录前台调度",
+                      "detail": [
+                        "桌面常驻、Android持续前台每分钟重读缓存并判断目录到期；后台跳过、回前台补检，注入时钟测试生命周期。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/src/commands.rs",
+                        "apps/quota-desktop/src-tauri/src/update_ctl.rs"
+                      ]
+                    },
                     "commands.rs": {
                       "kind": "file",
                       "desc": "跨端IPC命令集",
@@ -2285,6 +2514,40 @@
                     "pure"
                   ]
                 },
+                "pricing_catalog": {
+                  "kind": "dir",
+                  "desc": "定价目录模块（T-01）",
+                  "children": {
+                    "mod.rs": {
+                      "kind": "file",
+                      "desc": "目录类型校验与种子装载",
+                      "detail": [
+                        "owned 目录类型（Catalog/CatalogProvider/CatalogSuite/CatalogModel/ModelStatus）与完整校验：schema 版本、revision 范围、平台/套/模型重复与大小写碰撞、负价与非有限价、非法窗口/时区/默认模型引用、生命周期字段一致性。",
+                        "bundled_catalog() 经 include_str 嵌入仓库 data 种子；find_suite() 镜像旧 preset_with_currency 选套语义（多套按币种提示、单套忽略），preset 兼容入口由此构造。",
+                        "缓存同步与更新状态由 T-03 在本模块扩展。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/pricing.rs"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    },
+                    "sync.rs": {
+                      "kind": "file",
+                      "desc": "目录同步与持久缓存",
+                      "detail": [
+                        "完整目录装载、双通道获取、版本与模型保留校验；所有同步结果持跨进程锁重读后写信封，恢复历史同步元数据与失败回退。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/update.rs"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
+                    }
+                  }
+                },
                 "provider": {
                   "kind": "dir",
                   "desc": "预置平台查询",
@@ -2573,6 +2836,36 @@
         }
       }
     },
+    "data": {
+      "kind": "dir",
+      "desc": "正式数据文件根",
+      "children": {
+        "pricing": {
+          "kind": "dir",
+          "desc": "定价数据目录",
+          "children": {
+            "v1": {
+              "kind": "dir",
+              "desc": "定价目录 v1 格式",
+              "children": {
+                "catalog.json": {
+                  "kind": "file",
+                  "desc": "预置定价目录数据源",
+                  "detail": [
+                    "预置平台定价的单一数据源：人工审核对象、客户端分发源与构建时嵌入种子三合一（spec §4.1）。",
+                    "schema_version=1，revision 单调递增；9 平台 10 币种套（DeepSeek 双币），模型携带状态/来源/核验日期，verified_at 无据可查时留 null。",
+                    "禁止借数据迁移顺便改价；改价须人工核对官网后提升 revision。"
+                  ],
+                  "rel": [
+                    "crates/quota-core/src/pricing_catalog/mod.rs"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "docs": {
       "kind": "dir",
       "desc": "文档",
@@ -2683,6 +2976,16 @@
               ]
             }
           }
+        },
+        "定价目录维护指南.md": {
+          "kind": "file",
+          "desc": "定价目录数据维护指南",
+          "detail": [
+            "数据维护者手册：修改流程（抓取脚本=候选输入、人工核验信息）、revision 递增与 retired 化规则、更高 revision 回滚流程、人工审核责任与分支保护现状（未配置，如实口径）、客户端行为参考。"
+          ],
+          "rel": [
+            "data/pricing/v1/catalog.json"
+          ]
         },
         "测试单": {
           "kind": "dir",

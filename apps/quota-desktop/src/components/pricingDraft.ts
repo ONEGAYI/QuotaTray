@@ -130,10 +130,10 @@ export function selectedPresetModel(
   model: string,
 ): PresetModel | undefined {
   if (!preset) return undefined;
-  return (
-    preset.models.find((item) => item.id.toLowerCase() === model.trim().toLowerCase()) ??
-    preset.models.find((item) => item.id === preset.default_model)
-  );
+  const selected = model.trim();
+  return selected
+    ? preset.models.find((item) => item.id.toLowerCase() === selected.toLowerCase())
+    : preset.models.find((item) => item.id === preset.default_model);
 }
 
 /** 价格展示：镜像 core，小于 0.05 的非零价保留四位，其余两位并去尾零。 */

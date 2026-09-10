@@ -56,6 +56,11 @@ impl DataPaths {
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
     }
+
+    /// 数据根（定价目录缓存与写锁所在；与 config/history 同根）。
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
+    }
 }
 
 /// 错误信息（IPC 传输形状，kind 对齐 CLI `--json` 约定的小写字符串）。
@@ -136,6 +141,12 @@ pub struct AppState {
     /// 查询历史库（M5）。非关键数据：打开失败降级内存库（eprintln 告警），
     /// 查询主链路照常，仅历史不落盘。
     pub history: Mutex<HistoryStore>,
+    /// 有效定价目录快照（init 时 load_effective；目录更新成功后重载）。
+    /// native metas 与托盘定价消费同一快照，保证主窗/托盘 revision 一致。
+    pub catalog: RwLock<quota_core::EffectiveCatalog>,
+    /// 目录更新在途门（手动/自动共用；同一时刻至多一次网络更新，
+    /// RAII 复位；跨进程互斥由数据根锁文件兜底）。
+    pub catalog_updating: std::sync::atomic::AtomicBool,
 }
 
 /// 应用是否前台（Android 消息通知的发射条件：仅后台时补发系统通知，
@@ -345,6 +356,8 @@ impl AppState {
         // 启动惰性清理：删除下载目录中不新于当前版本的旧安装包/旧 zip
         // （安装成功后的回收路径；失败仅告警，见 update_ctl 契约）
         crate::update_ctl::cleanup_stale_installers();
+        // 有效定价目录（缓存 vs 内置种子；本地读取不联网）
+        let catalog = quota_core::load_effective(paths.root());
         // 启动事件：版本/运行形态/数据目录进日志（代理诊断的时间锚点）
         quota_core::qt_event!(
             info,
@@ -370,7 +383,27 @@ impl AppState {
             }),
             last_peak: RwLock::new(HashMap::new()),
             history: Mutex::new(history),
+            catalog: RwLock::new(catalog),
+            catalog_updating: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// 当前有效定价目录（克隆快照）。
+    pub fn catalog_effective(&self) -> quota_core::EffectiveCatalog {
+        self.catalog.read().unwrap().clone()
+    }
+
+    /// 磁盘目录重载：出现更高 revision（本进程更新落盘或他进程写入）时
+    /// 升级内存快照并返回 true（调用方据此广播目录变更事件）。
+    pub fn catalog_reload_if_newer(&self) -> bool {
+        let on_disk = quota_core::load_effective(self.paths.root());
+        let mut current = self.catalog.write().unwrap();
+        if on_disk.catalog.revision > current.catalog.revision {
+            *current = on_disk;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -475,6 +508,7 @@ mod tests {
     /// 与 update_ctl 测试的 sandbox_state 同款）。
     fn sandbox_state(dir: &std::path::Path) -> AppState {
         let paths = DataPaths::new(Some(dir.to_path_buf())).unwrap();
+        let catalog = quota_core::load_effective(paths.root());
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
@@ -489,6 +523,8 @@ mod tests {
             resolved_theme: RwLock::new(false),
             update_ctl: RwLock::new(crate::update_ctl::UpdateCtlState::default()),
             last_peak: RwLock::new(HashMap::new()),
+            catalog: RwLock::new(catalog),
+            catalog_updating: std::sync::atomic::AtomicBool::new(false),
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
         }
     }

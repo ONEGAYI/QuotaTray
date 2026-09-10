@@ -139,13 +139,39 @@ export type PlanKind = "pay_as_you_go" | "subscription";
 
 /** 预置单模型价格档（IPC 形状，来自 list_native_metas）。 */
 export interface PresetModel {
+  source_urls?: string[];
+  verified_at?: string | null;
   id: string;
   display: string;
   plan: PlanKind;
+  /** 生命周期：retired 保留最后已知价格（T-02；展示由 T-05 接入）。 */
+  status: "active" | "retired";
   /** 模型级窗口覆盖：null = 继承平台级（订阅项在此携带折扣时段）。 */
   windows: PeakWindow[] | null;
   peak: PriceTier;
   off_peak: PriceTier;
+}
+
+/** 定价目录状态（设置页展示；origin/fallback_reason 与 core 同名小写）。 */
+export interface CatalogStatus {
+  revision: number;
+  origin: "bundled" | "cached";
+  fallback_reason:
+    | "no_cache"
+    | "corrupted_cache"
+    | "incompatible_cache"
+    | "stale_cache"
+    | null;
+  last_attempt_ms: number | null;
+  last_success_ms: number | null;
+  last_error: string | null;
+}
+
+/** 定价目录手动更新结果（result 与 core CatalogUpdateOutcome 同名）。 */
+export interface CatalogUpdateResult {
+  result: "updated" | "unchanged" | "busy" | "failed";
+  revision: number | null;
+  error: string | null;
 }
 
 /** 峰谷定价预置（IPC 形状）。 */
@@ -203,6 +229,7 @@ export interface Settings {
   /** 使用统计定位线时刻（epoch 毫秒，最多 2 条，按写入顺序——拖动交叉后
    *  不保证时间有序）；null = 无。 */
   usage_marker_lines: number[] | null;
+  auto_update_pricing_catalog: boolean;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段

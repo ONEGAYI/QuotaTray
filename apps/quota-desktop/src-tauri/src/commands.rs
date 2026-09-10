@@ -24,6 +24,10 @@ const TEMPLATE_TEST_ID: &str = "template-test";
 const PROVIDERS_CHANGED_EVENT: &str = "providers-changed";
 /// 条目重排事件（与前端 queries.ts 同名常量成对）：只失效列表缓存——
 /// 各条目数据未变，派生缓存（查询/状态/历史/快照）不陪查。
+/// 定价目录更新成功（revision 升级）事件：前端失效 native-metas、
+/// 编辑页保留草稿仅提示；托盘在命令内直接重建。
+pub const CATALOG_CHANGED_EVENT: &str = "pricing-catalog-changed";
+
 const PROVIDERS_REORDERED_EVENT: &str = "providers-reordered";
 
 /// 校验错误的定位信息（前端按字段高亮展示）。
@@ -69,10 +73,15 @@ pub struct PresetPricingDto {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PresetModelDto {
+    pub source_urls: Vec<String>,
+    pub verified_at: Option<String>,
     pub id: String,
     pub display: String,
     /// 计费模式（订阅项无三档价、窗口表达折扣时段，前端据此切换文案）。
     pub plan: quota_core::PlanKind,
+    /// 生命周期（"active"/"retired"）：retired 保留最后已知价格，
+    /// 前端据此标注已下架（T-02；展示行为由 T-05 接入）。
+    pub status: quota_core::ModelStatus,
     /// 模型级窗口覆盖（None = 继承平台级）。
     pub windows: Option<Vec<quota_core::PeakWindow>>,
     pub peak: quota_core::PriceTier,
@@ -80,19 +89,29 @@ pub struct PresetModelDto {
 }
 
 impl PresetPricingDto {
-    fn from_preset(p: &quota_core::pricing::PresetProvider) -> Self {
+    fn from_preset(p: &quota_core::pricing::PresetProvider, catalog: &quota_core::Catalog) -> Self {
+        let suite =
+            quota_core::pricing_catalog::find_suite(catalog, &p.native_id, Some(&p.currency));
         Self {
-            currency: p.currency.into(),
+            currency: p.currency.clone(),
             timezone_offset_minutes: p.timezone_offset_minutes,
             windows: p.windows.clone(),
-            default_model: p.default_model.into(),
+            default_model: p.default_model.clone(),
             models: p
                 .models
                 .iter()
                 .map(|m| PresetModelDto {
-                    id: m.id.into(),
-                    display: m.display.into(),
+                    source_urls: suite
+                        .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                        .map(|model| model.source_urls.clone())
+                        .unwrap_or_default(),
+                    verified_at: suite
+                        .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                        .and_then(|model| model.verified_at.clone()),
+                    id: m.id.clone(),
+                    display: m.display.clone(),
                     plan: m.plan,
+                    status: m.status,
                     windows: m.windows.clone(),
                     peak: m.peak.clone(),
                     off_peak: m.off_peak.clone(),
@@ -189,7 +208,7 @@ fn snapshots_from_results(results: &std::collections::HashMap<String, EntryState
 /// 快照写盘前按当前 config 过滤：删除/编辑条目时在途查询的迟到结果
 /// 不会以孤儿身分落入 cache.json（托盘侧本就按 config 过滤，此处补齐
 /// 存储一致性）；config 读盘失败时跳过过滤（保留现状）。
-fn after_state_change(app: &AppHandle, state: &AppState) {
+pub(crate) fn after_state_change(app: &AppHandle, state: &AppState) {
     let mut snaps = snapshots_from_results(&state.results.read().unwrap());
     if let Ok(cfg) = AppConfig::load(&state.paths.config()) {
         let live: std::collections::HashSet<&str> =
@@ -621,23 +640,37 @@ pub fn reorder_providers(
     Ok(())
 }
 
-fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
+fn native_meta_dtos(cfg: &AppConfig, catalog: &quota_core::Catalog) -> Vec<NativeMetaDto> {
     quota_core::provider::metas()
         .into_iter()
         .map(|m| {
-            let pricing =
-                quota_core::pricing::preset(m.id).map(|p| PresetPricingDto::from_preset(&p));
-            let pricing_by_currency = if m.id == "deepseek" {
-                ["CNY", "USD"]
-                    .into_iter()
-                    .filter_map(|currency| {
-                        quota_core::pricing::preset_with_currency(m.id, currency)
-                            .map(|preset| (currency.into(), PresetPricingDto::from_preset(&preset)))
-                    })
-                    .collect()
-            } else {
-                BTreeMap::new()
-            };
+            let pricing = quota_core::pricing::preset_in_catalog(m.id, None, catalog)
+                .map(|p| PresetPricingDto::from_preset(&p, catalog));
+            // 币种套全量透出（目录化前仅 deepseek 双键；单套平台带单键
+            // 同样兼容前端 presetForCurrency 的查找回退链）
+            let pricing_by_currency: BTreeMap<String, PresetPricingDto> = catalog
+                .providers
+                .iter()
+                .find(|p| p.native_id == m.id)
+                .map(|p| {
+                    p.suites
+                        .iter()
+                        .filter_map(|suite| {
+                            quota_core::pricing::preset_in_catalog(
+                                m.id,
+                                Some(&suite.currency),
+                                catalog,
+                            )
+                            .map(|preset| {
+                                (
+                                    suite.currency.clone(),
+                                    PresetPricingDto::from_preset(&preset, catalog),
+                                )
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             NativeMetaDto {
                 id: m.id.into(),
                 name: m.name.into(),
@@ -655,9 +688,163 @@ fn native_meta_dtos(cfg: &AppConfig) -> Vec<NativeMetaDto> {
 
 #[tauri::command]
 pub fn list_native_metas(state: State<'_, AppState>) -> Result<Vec<NativeMetaDto>, String> {
+    let catalog = state.catalog_effective().catalog;
     AppConfig::load(&state.paths.config())
-        .map(|cfg| native_meta_dtos(&cfg))
+        .map(|cfg| native_meta_dtos(&cfg, &catalog))
         .map_err(|e| e.to_string())
+}
+
+// ---- 定价目录状态与手动更新（T-05） ------------------------------------------
+
+/// 目录状态 DTO（设置页展示：来源/版本/检查时间/错误）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CatalogStatusDto {
+    pub revision: u64,
+    /// "bundled" | "cached"
+    pub origin: &'static str,
+    /// "no_cache" | "corrupted_cache" | "incompatible_cache" | "stale_cache" | null
+    pub fallback_reason: Option<&'static str>,
+    pub last_attempt_ms: Option<u64>,
+    pub last_success_ms: Option<u64>,
+    pub last_error: Option<String>,
+}
+
+/// 目录更新结果 DTO（result 与 core CatalogUpdateOutcome 同名小写）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CatalogUpdateResultDto {
+    /// "updated" | "unchanged" | "busy" | "failed"
+    pub result: &'static str,
+    pub revision: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// 目录更新在途门的 RAII 复位（原子引用，await 安全）。
+struct CatalogGateGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for CatalogGateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// 读取目录状态：内存有效快照 + 磁盘信封同步元数据拼合（零网络）。
+#[tauri::command]
+pub fn catalog_status(state: State<'_, AppState>) -> CatalogStatusDto {
+    let effective = state.catalog_effective();
+    let meta = read_catalog_envelope_meta(state.paths.root());
+    CatalogStatusDto {
+        revision: effective.catalog.revision,
+        origin: match effective.origin {
+            quota_core::CatalogOrigin::Bundled => "bundled",
+            quota_core::CatalogOrigin::Cached => "cached",
+        },
+        fallback_reason: effective.fallback_reason.as_ref().map(|r| match r {
+            quota_core::FallbackReason::NoCache => "no_cache",
+            quota_core::FallbackReason::CorruptedCache => "corrupted_cache",
+            quota_core::FallbackReason::IncompatibleCache => "incompatible_cache",
+            quota_core::FallbackReason::StaleCache => "stale_cache",
+        }),
+        last_attempt_ms: meta.0,
+        last_success_ms: meta.1,
+        last_error: meta.2,
+    }
+}
+
+/// 读磁盘缓存信封的同步元数据（缺失/损坏 → 全空）。
+pub(crate) fn read_catalog_envelope_meta(
+    data_root: &std::path::Path,
+) -> (Option<u64>, Option<u64>, Option<String>) {
+    match std::fs::read_to_string(data_root.join(quota_core::CATALOG_CACHE_FILE)) {
+        Ok(text) => serde_json::from_str::<quota_core::CatalogCacheEnvelope>(&text)
+            .map(|e| (e.last_attempt_ms, e.last_success_ms, e.last_error))
+            .unwrap_or((None, None, None)),
+        Err(_) => (None, None, None),
+    }
+}
+
+/// 手动更新目录：显式联网（settings 代理双通道）；成功升级后重载内存
+/// 快照、广播目录变更事件并重建托盘定价。失败不清空已展示价格。
+#[tauri::command]
+pub async fn catalog_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<CatalogUpdateResultDto, String> {
+    run_catalog_update(&app, &state).await
+}
+
+/// 目录更新执行体（手动命令与自动调度共用；T-06 公共化）：
+/// 在途门 → settings 代理双通道 → CatalogSync.update → Updated 才
+/// 重载快照、广播事件并重建托盘。
+pub(crate) async fn run_catalog_update(
+    app: &AppHandle,
+    state: &AppState,
+) -> Result<CatalogUpdateResultDto, String> {
+    use std::sync::atomic::Ordering;
+    if state.catalog_updating.swap(true, Ordering::AcqRel) {
+        return Ok(CatalogUpdateResultDto {
+            result: "busy",
+            revision: Some(state.catalog_effective().catalog.revision),
+            error: None,
+        });
+    }
+    let _gate = CatalogGateGuard(&state.catalog_updating);
+
+    let (proxy_host, proxy_port) = {
+        let settings = state.settings.read().unwrap();
+        (
+            settings.update_proxy_host.clone(),
+            settings.update_proxy_port,
+        )
+    };
+    let proxy = quota_core::update::proxy_url_of_host(proxy_host.as_deref(), proxy_port);
+    let clients = quota_core::update::build_dual_http_clients(
+        std::time::Duration::from_secs(10),
+        proxy.as_deref(),
+    )
+    .map_err(|e| format!("目录更新客户端构造失败：{e}"))?;
+
+    let sync = quota_core::CatalogSync::new(
+        state.paths.root().to_path_buf(),
+        Box::new(clients.direct.clone()),
+        clients
+            .proxied
+            .clone()
+            .map(|c| Box::new(c) as Box<dyn quota_core::http::HttpClient>),
+        Box::new(crate::state::now_ms),
+    );
+    let outcome = sync.update().await;
+    let dto = match &outcome {
+        quota_core::CatalogUpdateOutcome::Updated { catalog } => CatalogUpdateResultDto {
+            result: "updated",
+            revision: Some(catalog.revision),
+            error: None,
+        },
+        quota_core::CatalogUpdateOutcome::Unchanged { revision } => CatalogUpdateResultDto {
+            result: "unchanged",
+            revision: Some(*revision),
+            error: None,
+        },
+        quota_core::CatalogUpdateOutcome::Busy => CatalogUpdateResultDto {
+            result: "busy",
+            revision: Some(state.catalog_effective().catalog.revision),
+            error: None,
+        },
+        quota_core::CatalogUpdateOutcome::Failed(e) => CatalogUpdateResultDto {
+            result: "failed",
+            revision: Some(state.catalog_effective().catalog.revision),
+            error: Some(e.to_string()),
+        },
+    };
+    // Updated 才重载快照与广播（unchanged/busy/failed 不触发变更信号）
+    if matches!(outcome, quota_core::CatalogUpdateOutcome::Updated { .. })
+        && state.catalog_reload_if_newer()
+    {
+        if let Err(e) = app.emit(CATALOG_CHANGED_EVENT, ()) {
+            eprintln!("目录变更事件发送失败：{e}");
+        }
+        after_state_change(app, state);
+    }
+    Ok(dto)
 }
 
 /// 静态校验模板 JSON 文本（结构错误与校验错误统一为字段定位 Dto）。
@@ -1137,6 +1324,7 @@ pub struct SettingsPatch {
     #[serde(default, with = "double_option")]
     pub update_proxy_host: Option<Option<String>>,
     pub update_auto_download: Option<bool>,
+    pub auto_update_pricing_catalog: Option<bool>,
     pub notifications_enabled: Option<bool>,
     pub background_refresh_enabled: Option<bool>,
     pub background_refresh_interval_minutes: Option<u32>,
@@ -1193,6 +1381,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.update_auto_download {
         base.update_auto_download = v;
+    }
+    if let Some(v) = patch.auto_update_pricing_catalog {
+        base.auto_update_pricing_catalog = v;
     }
     if let Some(v) = patch.notifications_enabled {
         base.notifications_enabled = v;
@@ -1899,9 +2090,14 @@ pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, St
 /// 首次调用同时置校准位——WorkManager 冷启动（无前端）据此把未校准
 /// 的乐观初值视为后台，否则冷启动通知恒不发。
 #[tauri::command]
-pub fn set_app_foreground(foreground: bool, _state: State<'_, AppState>) {
+pub fn set_app_foreground(foreground: bool, app: AppHandle, _state: State<'_, AppState>) {
     crate::state::APP_FOREGROUND.store(foreground, std::sync::atomic::Ordering::Relaxed);
     crate::state::APP_FOREGROUND_CALIBRATED.store(true, std::sync::atomic::Ordering::Relaxed);
+    // 回前台补检（T-06）：磁盘重载（接收 CLI 写入）+ 到期网络检查；
+    // 后台任务不阻塞命令返回。退后台不触发。
+    if foreground {
+        crate::catalog_sched::on_foreground(app);
+    }
 }
 
 // ---- 契约测试 -------------------------------------------------------------
@@ -2393,7 +2589,7 @@ mod tests {
     /// 前端据此渲染「访问控制台」入口。
     #[test]
     fn native_metas_carry_console_url() {
-        let metas = native_meta_dtos(&AppConfig::default());
+        let metas = native_meta_dtos(&AppConfig::default(), quota_core::bundled_catalog());
         let find = |id: &str| metas.iter().find(|m| m.id == id).unwrap();
         assert_eq!(
             find("siliconflow").console_url.as_deref(),
@@ -2404,6 +2600,38 @@ mod tests {
             Some("https://cloud.siliconflow.com/")
         );
         assert!(metas.iter().all(|m| m.console_url.is_some()));
+    }
+
+    #[test]
+    fn native_metas_preserve_official_model_provenance() {
+        let mut catalog = quota_core::bundled_catalog().clone();
+        let provider = catalog
+            .providers
+            .iter_mut()
+            .find(|p| p.native_id == "deepseek")
+            .unwrap();
+        let suite = provider
+            .suites
+            .iter_mut()
+            .find(|s| s.currency == "CNY")
+            .unwrap();
+        let model = suite.models.iter_mut().find(|m| m.id == "flash").unwrap();
+        model.source_urls = vec!["https://example.com/official-pricing".into()];
+        model.verified_at = Some("2026-09-10T00:00:00Z".into());
+        let metas = native_meta_dtos(&AppConfig::default(), &catalog);
+        let meta = metas.iter().find(|m| m.id == "deepseek").unwrap();
+        let json = serde_json::to_value(meta).unwrap();
+        let model = json["pricing"]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "flash")
+            .unwrap();
+        assert_eq!(
+            model["source_urls"][0],
+            "https://example.com/official-pricing"
+        );
+        assert_eq!(model["verified_at"], "2026-09-10T00:00:00Z");
     }
 
     /// 契约：open_console_url 的 scheme 白名单——仅 http/https 放行
@@ -2422,6 +2650,65 @@ mod tests {
         // 裸 scheme（无 ://）与单斜杠畸形形态拒绝
         assert!(console_url_rejected_reason("https").is_some());
         assert!(console_url_rejected_reason("https:/example.com").is_some());
+    }
+
+    /// 契约（T-05）：native metas 走有效目录——注入 rev2 目录后透出
+    /// 新价与 retired 状态；单套平台的 by_currency 亦带单键（全量套透出）。
+    #[test]
+    fn native_metas_from_effective_catalog() {
+        let mut catalog = quota_core::bundled_catalog().clone();
+        catalog.revision = 2;
+        for provider in &mut catalog.providers {
+            for suite in &mut provider.suites {
+                for model in &mut suite.models {
+                    if model.id == "flash" {
+                        model.peak = Some(quota_core::PriceTier::full(0.99, 0.99, 0.99));
+                    }
+                }
+                // deepseek 追加 retired 模型（保留最后已知价）
+                if provider.native_id == "deepseek" && suite.currency == "CNY" {
+                    suite.models.push(quota_core::CatalogModel {
+                        id: "old".into(),
+                        display: "V3 Old".into(),
+                        plan: quota_core::PlanKind::PayAsYouGo,
+                        windows: None,
+                        peak: Some(quota_core::PriceTier::full(1.0, 2.0, 3.0)),
+                        off_peak: None,
+                        status: quota_core::ModelStatus::Retired,
+                        source_urls: vec![],
+                        verified_at: None,
+                        retired_at: Some("2026-09-05".into()),
+                    });
+                }
+            }
+        }
+        let metas = native_meta_dtos(&AppConfig::default(), &catalog);
+        let ds = metas.iter().find(|m| m.id == "deepseek").unwrap();
+        let flash = ds
+            .pricing
+            .as_ref()
+            .unwrap()
+            .models
+            .iter()
+            .find(|m| m.id == "flash")
+            .unwrap();
+        assert_eq!(flash.peak.cache_hit_input, Some(0.99), "目录新价透出");
+        let old = ds
+            .pricing
+            .as_ref()
+            .unwrap()
+            .models
+            .iter()
+            .find(|m| m.id == "old")
+            .unwrap();
+        assert_eq!(old.status, quota_core::ModelStatus::Retired, "retired 透出");
+        assert_eq!(old.peak.output, Some(3.0), "最后已知价保留");
+        assert_eq!(ds.pricing_by_currency.len(), 2, "双币全量");
+        let kimi = metas.iter().find(|m| m.id == "kimi_cn").unwrap();
+        assert!(
+            kimi.pricing_by_currency.contains_key("CNY"),
+            "单套平台带单键（全量套透出）"
+        );
     }
 
     /// 契约：list_native_metas 携带峰谷预置——deepseek 有（三模型/默认 flash/
@@ -2443,7 +2730,7 @@ mod tests {
                 ..Default::default()
             }],
         );
-        let metas = native_meta_dtos(&cfg);
+        let metas = native_meta_dtos(&cfg, quota_core::bundled_catalog());
         let ds = metas.iter().find(|m| m.id == "deepseek").unwrap();
         let p = ds.pricing.as_ref().expect("deepseek 应有峰谷预置");
         assert_eq!(p.currency, "CNY");

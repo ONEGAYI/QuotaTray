@@ -11,6 +11,7 @@ pub mod history;
 pub mod list;
 pub mod natives;
 pub mod pricing;
+pub mod pricing_catalog;
 pub mod pricing_models;
 pub mod query;
 pub mod remove;

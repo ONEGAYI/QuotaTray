@@ -38,6 +38,10 @@ pub struct UpdatePrefs {
     /// 更新通道代理端口（GUI 设置页写入；None = 直连/环境变量）。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
+    /// 自动更新模型与价格目录（与 GUI 同键；CLI 定价命令到期补检
+    /// 消费，关闭后仅显式 catalog update 联网）。
+    #[serde(default = "default_enabled")]
+    pub auto_update_pricing_catalog: bool,
 }
 
 fn default_enabled() -> bool {
@@ -50,6 +54,7 @@ impl Default for UpdatePrefs {
             update_check_enabled: true,
             update_last_check: None,
             update_proxy_port: None,
+            auto_update_pricing_catalog: default_enabled(),
         }
     }
 }

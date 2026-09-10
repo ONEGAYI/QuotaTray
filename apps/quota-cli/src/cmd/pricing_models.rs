@@ -18,10 +18,15 @@ use crate::texts::{self, T, t};
 /// 单模型行的统一视图（预置/自定义同构，list --json 输出形状）。
 #[derive(Serialize)]
 pub struct ModelRowJson {
+    pub source_urls: Vec<String>,
+    pub verified_at: Option<String>,
     pub id: String,
     pub display: String,
     /// "preset" | "custom"
     pub source: &'static str,
+    /// "active" | "retired" | "custom"——预置模型生命周期（retired 保留
+    /// 最后已知价格）、自定义模型恒 custom（T-02）。
+    pub status: &'static str,
     /// "pay_as_you_go" | "subscription"
     pub plan: &'static str,
     /// 模型级窗口覆盖（预置订阅项在此携带折扣时段；null = 继承平台级）。
@@ -41,17 +46,35 @@ pub struct ModelListJson {
     pub models: Vec<ModelRowJson>,
 }
 
-/// 汇总平台预置与自定义模型（纯函数；provider 未注册返回 None）。
-pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<ModelListJson> {
+/// 汇总平台预置与自定义模型（纯函数；预置行来自传入目录——run_list
+/// 传 [`quota_core::load_effective`] 有效目录，测试可传内置种子；
+/// provider 未注册返回 None）。
+pub fn models_json_with(
+    provider_id: &str,
+    custom: &[CustomModelDef],
+    catalog: &quota_core::Catalog,
+) -> Option<ModelListJson> {
     provider::find(provider_id)?; // 未注册平台无库语义
-    let preset = pricing::preset(provider_id);
+    let preset = pricing::preset_in_catalog(provider_id, None, catalog);
+    let suite = quota_core::pricing_catalog::find_suite(catalog, provider_id, None);
     let mut models = Vec::new();
     if let Some(p) = &preset {
         for m in &p.models {
             models.push(ModelRowJson {
-                id: m.id.into(),
-                display: m.display.into(),
+                source_urls: suite
+                    .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                    .map(|model| model.source_urls.clone())
+                    .unwrap_or_default(),
+                verified_at: suite
+                    .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                    .and_then(|model| model.verified_at.clone()),
+                id: m.id.clone(),
+                display: m.display.clone(),
                 source: "preset",
+                status: match m.status {
+                    quota_core::pricing_catalog::ModelStatus::Active => "active",
+                    quota_core::pricing_catalog::ModelStatus::Retired => "retired",
+                },
                 plan: plan_str(m.plan),
                 windows: m.windows.clone(),
                 peak: m.peak.clone(),
@@ -61,9 +84,12 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
     }
     for m in custom {
         models.push(ModelRowJson {
+            source_urls: vec![],
+            verified_at: None,
             id: m.id.clone(),
             display: m.display.clone(),
             source: "custom",
+            status: "custom",
             // CustomModelDef 暂无 plan 字段（core from_lib_model 同口径硬编码
             // payg，放开时两处同步）
             plan: plan_str(PlanKind::PayAsYouGo),
@@ -76,9 +102,9 @@ pub fn models_json(provider_id: &str, custom: &[CustomModelDef]) -> Option<Model
         provider: provider_id.into(),
         currency: preset
             .as_ref()
-            .map(|p| p.currency.into())
+            .map(|p| p.currency.clone())
             .unwrap_or_else(|| pricing::default_currency(provider_id).into()),
-        default_model: preset.as_ref().map(|p| p.default_model.into()),
+        default_model: preset.as_ref().map(|p| p.default_model.clone()),
         models,
     })
 }
@@ -117,8 +143,14 @@ pub fn render_models_table(list: &ModelListJson, lang: Lang) -> String {
         t(lang, T::ColOffPeakPrice),
     ]);
     for m in &list.models {
+        // retired 模型：模型名后缀「已下架」，价格列仍显示最后已知值
+        let display = if m.status == "retired" {
+            format!("{}（{}）", m.display, t(lang, T::PricingModelRetiredTag))
+        } else {
+            m.display.clone()
+        };
         table.add_row(vec![
-            Cell::new(&m.display),
+            Cell::new(display),
             Cell::new(&m.id),
             Cell::new(t(
                 lang,
@@ -140,7 +172,25 @@ pub fn render_models_table(list: &ModelListJson, lang: Lang) -> String {
             Cell::new(tier_cell(&m.off_peak)),
         ]);
     }
-    table.to_string()
+    let mut text = table.to_string();
+    for model in list.models.iter().filter(|m| m.source == "preset") {
+        text.push_str(&format!(
+            "\n{} · {}: {}\n{}: {}",
+            model.display,
+            t(lang, T::PricingVerifiedAt),
+            model
+                .verified_at
+                .as_deref()
+                .unwrap_or(t(lang, T::PricingVerificationUnknown)),
+            t(lang, T::PricingOfficialSources),
+            if model.source_urls.is_empty() {
+                "—".into()
+            } else {
+                model.source_urls.join(" · ")
+            }
+        ));
+    }
+    text
 }
 
 /// 添加/覆盖自定义模型（纯函数；同 id 大小写不敏感覆盖，与 resolve 匹配口径一致）。
@@ -187,7 +237,7 @@ fn ensure_provider(ctx: &Ctx, provider_id: &str) -> bool {
 }
 
 /// `pricing model list`：未知平台 → 1。
-pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
+pub async fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
     let lang = ctx.lang;
     if !ensure_provider(ctx, provider_id) {
         return 1;
@@ -204,9 +254,15 @@ pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
         .get(provider_id)
         .cloned()
         .unwrap_or_default();
+    // 到期补检（非 JSON 模式；5 秒预算，失败不影响本地结果）
+    if !json {
+        super::pricing_catalog::maybe_auto_check(ctx).await;
+    }
+    // 有效目录（本地读取；JSON 模式零隐式网络）
+    let catalog = quota_core::load_effective(&ctx.catalog_dir());
     // ensure_provider 已拦截未注册 id，此处 None 仅剩注册表竞争修改的
     // 理论路径，防御回退到与入口同一双语文案
-    let Some(list) = models_json(provider_id, &custom) else {
+    let Some(list) = models_json_with(provider_id, &custom, &catalog.catalog) else {
         eprintln!(
             "{}{}",
             t(lang, T::Err),
@@ -320,11 +376,63 @@ mod tests {
         }
     }
 
+    /// 契约（T-02）：模型行携带生命周期 status——预置 active（bundled
+    /// 种子全 active）、自定义恒 custom；retired 行在表格模型名后缀标注
+    /// 且价格列仍显示最后已知值。
+    #[test]
+    fn model_rows_carry_lifecycle_status() {
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("flash")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
+        for m in &list.models {
+            if m.source == "preset" {
+                assert_eq!(m.status, "active", "{}", m.id);
+            } else {
+                assert_eq!(m.status, "custom", "{}", m.id);
+                assert_eq!(m.id, "flash", "同 id 自定义行仍在");
+            }
+        }
+        // retired 行表格后缀（手工构造行，不依赖 bundled 数据形态）
+        let retired_list = ModelListJson {
+            provider: "deepseek".into(),
+            currency: "CNY".into(),
+            default_model: Some("flash".into()),
+            models: vec![ModelRowJson {
+                source_urls: vec![],
+                verified_at: None,
+                id: "old".into(),
+                display: "V3 Old".into(),
+                source: "preset",
+                status: "retired",
+                plan: "pay_as_you_go",
+                windows: None,
+                peak: PriceTier::full(1.0, 2.0, 3.0),
+                off_peak: PriceTier::default(),
+            }],
+        };
+        for (lang, tag) in [(Lang::Zh, "已下架"), (Lang::En, "retired")] {
+            let out = render_models_table(&retired_list, lang);
+            assert!(out.contains("V3 Old"), "{out}");
+            assert!(out.contains(tag), "{lang:?}: {out}");
+        }
+        // JSON 序列化含 status 字段
+        let j = serde_json::to_value(&retired_list).unwrap();
+        assert_eq!(j["models"][0]["status"], "retired");
+    }
+
     /// 契约：list 汇总——预置在前自定义在后，source/plan 字段正确，
     /// 无预置平台（siliconflow）仅有自定义行且币种走 default_currency。
     #[test]
     fn models_json_merges_preset_and_custom() {
-        let list = models_json("deepseek", &[custom_model("flash")]).unwrap();
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("flash")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         assert_eq!(list.currency, "CNY");
         assert_eq!(list.default_model.as_deref(), Some("flash"));
         assert_eq!(list.models.len(), 4);
@@ -332,27 +440,37 @@ mod tests {
         assert_eq!(list.models[3].source, "custom");
         assert_eq!(list.models[3].id, "flash");
 
-        let list = models_json("siliconflow", &[custom_model("glm-5.2")]).unwrap();
+        let list = models_json_with(
+            "siliconflow",
+            &[custom_model("glm-5.2")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         assert_eq!(list.default_model, None);
         assert_eq!(list.currency, "CNY");
         assert_eq!(list.models.len(), 1);
         assert_eq!(list.models[0].source, "custom");
 
         // 智谱订阅项：plan=subscription 且携带模型级窗口
-        let list = models_json("zhipu", &[]).unwrap();
+        let list = models_json_with("zhipu", &[], quota_core::bundled_catalog()).unwrap();
         let coding = list.models.iter().find(|m| m.id == "coding-plan").unwrap();
         assert_eq!(coding.plan, "subscription");
         assert_eq!(coding.windows.as_ref().map(Vec::len), Some(1));
         assert!(coding.peak.is_empty());
 
         // 未注册平台 → None
-        assert!(models_json("no-such", &[]).is_none());
+        assert!(models_json_with("no-such", &[], quota_core::bundled_catalog()).is_none());
     }
 
     /// 契约：表格含模型 id、双语表头、来源与模式标签、紧凑三档价。
     #[test]
     fn table_renders_sources_and_prices() {
-        let list = models_json("deepseek", &[custom_model("night-x")]).unwrap();
+        let list = models_json_with(
+            "deepseek",
+            &[custom_model("night-x")],
+            quota_core::bundled_catalog(),
+        )
+        .unwrap();
         for lang in [Lang::Zh, Lang::En] {
             let table = render_models_table(&list, lang);
             assert!(table.contains("night-x"), "{lang:?}: {table}");
@@ -389,8 +507,8 @@ mod tests {
     }
 
     /// 契约：add 端到端——stdin JSON 校验入库、非法模型（跨日窗口）拦截。
-    #[test]
-    fn run_add_end_to_end() {
+    #[tokio::test]
+    async fn run_add_end_to_end() {
         let path =
             std::env::temp_dir().join(format!("quotatray-model-add-{}.json", std::process::id()));
         AppConfig::default().save(&path).unwrap();
@@ -407,7 +525,7 @@ mod tests {
         );
 
         // 未知平台：run 层拦截
-        assert_eq!(run_list(&ctx, "no-such", false), 1);
+        assert_eq!(run_list(&ctx, "no-such", false).await, 1);
         assert_eq!(run_remove(&ctx, "no-such", "x"), 1);
         let _ = std::fs::remove_file(&path);
     }

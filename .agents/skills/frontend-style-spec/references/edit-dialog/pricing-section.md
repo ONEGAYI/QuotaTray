@@ -20,3 +20,9 @@
   复用同组合，不另调色。
 
 **代码锚点**：`PricingSection.tsx` 的 WindowEditor / PriceTierEditor / ModeButton。
+
+**官方资料披露**（2026-09-10，目录验收修复）：`PricingProvenance` 供编辑页和主窗卡片复用。
+以原生 details/summary 点击展开来源、核验日期和超过 30 天的未核验提示；summary 复用
+`qt-btn qt-btn-ghost`，来源动作复用 Button ghost 且显式 type=button，避免编辑表单误提交；
+移动端由 `.qt-pricing-provenance .qt-btn` 覆盖到至少 44×44px（T-010）。正文使用 text-soft、
+12px 字与网格 4px 间距，URL 允许换行。模型下架标记常显，不收进披露内容；自定义模型不标为官方核验。

@@ -12,6 +12,7 @@ mod apk_install;
 /// 才是 cfg android——lib 级门禁会让测试门（not android）与模块门
 /// （android）交集为空，纯函数测试变死代码，审查 M2）。
 mod background;
+pub(crate) mod catalog_sched;
 
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -110,6 +111,8 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
         // 更新检测轮询调度：spawn 后立即首次判定，「启动时检测」由首判覆盖
         update_ctl::spawn_scheduler(app.clone());
     }
+    // 定价目录跨端共用周期入口；移动端在后台不执行 tick。
+    catalog_sched::spawn(app.clone());
     // Android：创建系统通知渠道（消息中心二阶）。渠道名用户可见（系统
     // 设置里展示），按当前语言取文案；创建幂等（Android 同 id 渠道
     // 重复创建即更新名称）。语言后续变更不改已建渠道名（重建需卸载重装，
@@ -310,6 +313,8 @@ pub fn run() {
             commands::reorder_providers,
             commands::clear_all_data,
             commands::list_native_metas,
+            commands::catalog_status,
+            commands::catalog_update,
             commands::validate_template,
             commands::test_template,
             commands::validate_script,

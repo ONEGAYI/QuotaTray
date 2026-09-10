@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
-import { useSettings, useUpdateState } from "../queries";
+import { useCatalogStatus, useSettings, useUpdateState } from "../queries";
 import type { DownloadProgress, Settings } from "../types";
 import {
   backgroundIntervalOptions,
@@ -57,11 +57,22 @@ interface Props {
 type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
+/** 目录状态行：revision · 来源 · 最近检查（后端 CatalogStatusDto）。 */
+function catalogDescription(
+  status: { revision: number; origin: "bundled" | "cached"; last_attempt_ms: number | null } | undefined,
+): string {
+  if (!status) return "";
+  return `revision ${status.revision} · ${status.origin}`;
+}
+
 export function SettingsDialog({ open, onClose, mobile = false, initialTab = "general" }: Props) {
   const qc = useQueryClient();
   const { t, lang } = useLang();
   const settings = useSettings();
   const updateState = useUpdateState();
+  const catalog = useCatalogStatus();
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("general");
   useEffect(() => {
     setTab((current) => resolveTabOnOpen(open, initialTab, current));
@@ -768,6 +779,56 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   />
                 </SettingRow>
               )}
+              {/* 模型与价格目录：状态展示 + 立即更新（触摸可达，不依赖
+                  hover；Android 同一数据与状态） */}
+              <SettingRow
+                title={t("settings.catalogAutoUpdateTitle")}
+                description={t("settings.catalogAutoUpdateHint")}
+              >
+                <Switch
+                  label={t("settings.catalogAutoUpdateTitle")}
+                  checked={draft.auto_update_pricing_catalog}
+                  onChange={(auto_update_pricing_catalog) =>
+                    setDraft({ ...draft, auto_update_pricing_catalog })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title={t("settings.catalogTitle")}
+                description={catalogDescription(catalog.data)}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+<Button
+                    type="button"
+                    variant="secondary"
+                    disabled={catalogBusy}
+                    onClick={() => {
+                      setCatalogBusy(true);
+                      setCatalogMessage(null);
+                      void api
+                        .catalogUpdate()
+                        .then((result) => {
+                          if (result.result === "updated") {
+                            setCatalogMessage(t("settings.catalogResultUpdated", { revision: String(result.revision) }));
+                          } else if (result.result === "unchanged") {
+                            setCatalogMessage(t("settings.catalogResultUnchanged", { revision: String(result.revision) }));
+                          } else if (result.result === "busy") {
+                            setCatalogMessage(t("settings.catalogResultBusy"));
+                          } else {
+                            setCatalogMessage(t("settings.catalogResultFailed", { msg: result.error ?? "" }));
+                          }
+                        })
+                        .catch((e: unknown) => {
+                          setCatalogMessage(t("settings.catalogResultFailed", { msg: String(e) }));
+                        })
+                        .finally(() => setCatalogBusy(false));
+                    }}
+                  >
+                    {catalogBusy ? t("settings.catalogUpdating") : t("settings.catalogUpdateNow")}
+                  </Button>
+                  {catalogMessage && <span className="qt-hint">{catalogMessage}</span>}
+                </div>
+              </SettingRow>
               <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
                 <input
                   className="qt-input"

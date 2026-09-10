@@ -43,6 +43,10 @@ pub struct Settings {
     /// CLI 读同一 settings.json 自动生效。
     #[serde(default)]
     pub update_proxy_port: Option<u16>,
+    /// 自动更新模型与价格目录（独立于安装包自动更新；关闭后仍可手动
+    /// 更新。默认开启）。
+    #[serde(default = "default_true")]
+    pub auto_update_pricing_catalog: bool,
     /// 更新通道代理主机（IP 或域名；None/空白 = 127.0.0.1 本机代理，
     /// 桌面既有语义不变）。Android 上 127.0.0.1 指向手机自身——要经
     /// 电脑代理时在此填其局域网 IP，且代理软件需允许局域网连接。
@@ -139,8 +143,13 @@ impl Default for Settings {
             background_refresh_interval_minutes: default_background_interval(),
             usage_comparison_series: None,
             usage_marker_lines: None,
+            auto_update_pricing_catalog: default_true(),
         }
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Settings {
@@ -316,6 +325,7 @@ mod tests {
             update_check_enabled: false,
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
+            auto_update_pricing_catalog: true,
             update_proxy_host: Some("192.168.1.5".into()),
             update_auto_download: true,
             notifications_enabled: false,
@@ -534,6 +544,7 @@ mod tests {
             update_check_enabled: true,
             update_last_check: None,
             update_proxy_port: Some(7897),
+            auto_update_pricing_catalog: true,
             update_proxy_host: None,
             update_auto_download: false,
             notifications_enabled: true,

@@ -1187,3 +1187,6 @@ body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-usage-manage-row { min-he
 body.qt-mobile-runtime .qt-usage-chart-wrap { min-width: 0; padding: 0 2px; }
 body.qt-mobile-runtime .qt-usage-chart-card { overflow: hidden; }
 body.qt-mobile-runtime .qt-usage-chart-head { flex-direction: row; align-items: center; }
+
+/* 官方模型资料：卡片正文与编辑页均提供完整触摸命中区。 */
+body.qt-mobile-runtime .qt-pricing-provenance .qt-btn { min-height: 44px; min-width: 44px; }

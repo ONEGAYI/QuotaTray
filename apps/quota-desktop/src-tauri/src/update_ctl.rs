@@ -704,6 +704,7 @@ mod tests {
     /// 手工组装最小 AppState（AppState 依赖 keyring，测试绕开生产构造）。
     fn sandbox_state(dir: &Path) -> AppState {
         let paths = crate::state::DataPaths::new(Some(dir.to_path_buf())).unwrap();
+        let catalog = quota_core::load_effective(paths.root());
         let vault = quota_core::Vault::open(&quota_core::InMemoryStore::new()).unwrap();
         let engine = quota_core::QueryEngine::with_default_client().unwrap();
         AppState {
@@ -718,6 +719,8 @@ mod tests {
             resolved_theme: std::sync::RwLock::new(false),
             update_ctl: std::sync::RwLock::new(UpdateCtlState::default()),
             last_peak: std::sync::RwLock::new(HashMap::new()),
+            catalog: std::sync::RwLock::new(catalog),
+            catalog_updating: std::sync::atomic::AtomicBool::new(false),
             // 更新调度测试不消费历史，内存库即可
             history: std::sync::Mutex::new(quota_core::HistoryStore::open_in_memory().unwrap()),
         }

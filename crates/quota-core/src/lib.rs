@@ -6,6 +6,7 @@
 //! - `template`：声明式模板 DSL（M2a，core 的 M2 API 面就此冻结）
 //! - `update`：GitHub release 检测更新与安装包下载（M4-b）
 //! - `pricing`：峰谷定价（时段判定、预置平台定价、自定义合并）
+//! - `pricing_catalog`：定价目录（JSON 类型、校验与内置种子；预置单一数据源）
 //! - `script`：QuickJS 沙箱脚本查询（M4，`{request, extractor}` 协议）
 //! - `history`：查询结果的历史存储（M5，SQLite + 版本化迁移）
 //! - `runtime`：安装态/便携态运行模式解析（Portable 方案 A，纯函数）
@@ -17,6 +18,7 @@ pub mod http;
 pub mod logging;
 pub mod model;
 pub mod pricing;
+pub mod pricing_catalog;
 pub mod provider;
 pub mod query;
 pub mod runtime;
@@ -40,9 +42,21 @@ pub use logging::EVENT_TARGET;
 pub use model::{QueryError, UsageData, used_percent};
 pub use pricing::{
     CustomModelDef, PeakKind, PeakWindow, PlanKind, PriceTier, PricingConfig, PricingError,
-    PricingSource, ResolvedPricing, default_currency, format_price, next_change, preset,
-    preset_with_currency, resolve, resolve_in_currency, resolve_with, validate,
-    validate_custom_model,
+    PricingSource, ResolvedModelStatus, ResolvedPricing, default_currency, format_price,
+    next_change, preset, preset_in_catalog, preset_with_currency, resolve, resolve_in_catalog,
+    resolve_in_currency, resolve_with, validate, validate_custom_model,
+};
+pub use pricing_catalog::sync::{
+    AUTO_CHECK_BACKOFF_MS, AUTO_CHECK_INTERVAL_MS, CATALOG_CACHE_FILE, CATALOG_LOCK_FILE,
+    CATALOG_MAX_BYTES, CATALOG_URL, CatalogCacheEnvelope, CatalogDecision, CatalogOrigin,
+    CatalogStatusView, CatalogSync, CatalogSyncError, CatalogUpdateOutcome, EffectiveCatalog,
+    FallbackReason, catalog_should_auto_check, decide_between, effective_from_envelope_json,
+    evaluate_incoming, load_effective,
+};
+pub use pricing_catalog::{
+    CATALOG_SCHEMA_VERSION, Catalog, CatalogDiff, CatalogError, CatalogModel, CatalogProvider,
+    CatalogSuite, MAX_REVISION, ModelStatus, bundled_catalog, catalog_diff, find_suite,
+    parse_catalog, validate_catalog, validate_no_removal,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use runtime::{

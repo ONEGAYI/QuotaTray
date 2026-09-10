@@ -26,6 +26,7 @@
 | 统计定位线（2026-09-05，所有者确认） | 卡头模式按钮放置（吸附最近样本、满两条退出）+ 手柄拖动微调 + 图表上方常驻读数行（时刻/时间差/聚焦值，预留高度防跳变）；持久化 settings.json 仅本机、不进迁移包 | 普通单击直放（与平移/游标 tap 冲突）；会话级不持久化；定位线信息进悬浮气泡 |
 | CLI 凭据快照（2026-09-05，所有者确认） | 四家 CLI 凭据 provider 读取经进程内快照缓存：能读就更新快照；被环境性拦截（权限拒绝/共享冲突——实证：鸣潮 ACE 反作弊游戏运行期内核级全局拒绝读 `~/.codex/auth.json`，退出自恢复）回退旧快照继续查询；NotFound 仍报安装引导。IO 错误按 kind 分类透出真实原因，不再统一误报「未找到」 | 凭据读取失败即红卡（游戏窗口期打断刷新）；PermissionDenied 归 transient 走重试；按进程特征探测拦截（实证为全局文件级） |
 | 更新检测双通道（2026-09-07，所有者确认） | 检测串行双通道：直连优先（配代理时直连通道 `no_proxy` 真直连，防系统代理静默劫持），直连成功即用且不发代理请求；直连任何失败且配了代理时经代理重试一次，代理结果为最终结果；未配置代理维持单通道现状。下载继续经代理。动机：匿名 GitHub API 按 IP 限额，代理共享出口额度易耗尽 | 检测并行双发（必然消耗代理共享额度，违背目的）；下载也改直连优先 |
+| 模型与定价目录数据更新链（2026-09-10） | 价格数据独立于应用版本：`data/pricing/v1/catalog.json` 为单一数据源（构建时 include_str! 嵌入种子），人工审核数据 PR 合并 main 即经 raw.githubusercontent 分发；客户端双通道同步（直连优先，同更新检测口径）、revision 单调不降级、坏包不落盘、跨进程锁防 CLI/GUI 互覆；下架模型 retired 保留最后已知价、missing 不借默认模型价格；桌面 6h 自动检查/30min 失败退避，CLI 仅非 JSON 模式 5s 预算补检 | 每次改价发应用版本；第三方定价源接入；retired 物理删除 |
 
 **并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
@@ -253,42 +254,46 @@ QuotaTray/
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
 │       ├── android-release.yml # Android签名发布链
+│       ├── catalog-data.yml    # 定价目录数据校验工作流（T-07）
 │       └── ci.yml              # 桌面与Android CI
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
 ├── apps/                   # 应用层（CLI 与桌面端）
 │   ├── quota-cli/     # CLI 前端（bin 名 quota）
 │   │   ├── Cargo.toml # CLI crate 清单
-│   │   └── src/       # CLI 源码
-│   │       ├── cmd/           # 子命令实现（每命令一模块）
-│   │       │   ├── add.rs            # 交互添加向导
-│   │       │   ├── assist.rs         # Agent 无凭据调试
-│   │       │   ├── clear.rs          # 清空全部用户数据命令
-│   │       │   ├── config.rs         # 配置导入导出
-│   │       │   ├── devsmoke.rs       # 开发冒烟（仅 debug）
-│   │       │   ├── edit.rs           # 编辑向导与启停
-│   │       │   ├── history.rs        # history 命令（M5）
-│   │       │   ├── list.rs           # 条目列表
-│   │       │   ├── mod.rs            # 子模块声明
-│   │       │   ├── natives.rs        # 预置平台表
-│   │       │   ├── pricing.rs        # 定价查看/写入
-│   │       │   ├── pricing_models.rs # 自定义模型库管理
-│   │       │   ├── query.rs          # 并行查询与 watch
-│   │       │   ├── remove.rs         # 确认删除
-│   │       │   ├── script.rs         # 脚本试查
-│   │       │   ├── setkey.rs         # 写入 API key
-│   │       │   ├── template.rs       # 模板试查
-│   │       │   ├── update.rs         # 更新检测/下载命令
-│   │       │   └── vault.rs          # vault 健康检查
-│   │       ├── ctx.rs         # CLI 上下文
-│   │       ├── exit.rs        # 退出码三分约定
-│   │       ├── idgen.rs       # 随机 id 生成
-│   │       ├── io.rs          # 交互 IO 薄层
-│   │       ├── lang.rs        # 语言三态与检测
-│   │       ├── main.rs        # clap 定义与 dispatch
-│   │       ├── render.rs      # 表格与 JSON 渲染
-│   │       ├── settings_io.rs # CLI 设置读改写
-│   │       └── texts.rs       # 双语文案表
+│   │   ├── src/       # CLI 源码
+│   │   │   ├── cmd/           # 子命令实现（每命令一模块）
+│   │   │   │   ├── add.rs             # 交互添加向导
+│   │   │   │   ├── assist.rs          # Agent 无凭据调试
+│   │   │   │   ├── clear.rs           # 清空全部用户数据命令
+│   │   │   │   ├── config.rs          # 配置导入导出
+│   │   │   │   ├── devsmoke.rs        # 开发冒烟（仅 debug）
+│   │   │   │   ├── edit.rs            # 编辑向导与启停
+│   │   │   │   ├── history.rs         # history 命令（M5）
+│   │   │   │   ├── list.rs            # 条目列表
+│   │   │   │   ├── mod.rs             # 子模块声明
+│   │   │   │   ├── natives.rs         # 预置平台表
+│   │   │   │   ├── pricing.rs         # 定价查看/写入
+│   │   │   │   ├── pricing_catalog.rs # 目录状态与手动更新命令
+│   │   │   │   ├── pricing_models.rs  # 自定义模型库管理
+│   │   │   │   ├── query.rs           # 并行查询与 watch
+│   │   │   │   ├── remove.rs          # 确认删除
+│   │   │   │   ├── script.rs          # 脚本试查
+│   │   │   │   ├── setkey.rs          # 写入 API key
+│   │   │   │   ├── template.rs        # 模板试查
+│   │   │   │   ├── update.rs          # 更新检测/下载命令
+│   │   │   │   └── vault.rs           # vault 健康检查
+│   │   │   ├── ctx.rs         # CLI 上下文
+│   │   │   ├── exit.rs        # 退出码三分约定
+│   │   │   ├── idgen.rs       # 随机 id 生成
+│   │   │   ├── io.rs          # 交互 IO 薄层
+│   │   │   ├── lang.rs        # 语言三态与检测
+│   │   │   ├── main.rs        # clap 定义与 dispatch
+│   │   │   ├── render.rs      # 表格与 JSON 渲染
+│   │   │   ├── settings_io.rs # CLI 设置读改写
+│   │   │   └── texts.rs       # 双语文案表
+│   │   └── tests/     # CLI端到端契约测试
+│   │       └── catalog_readonly.rs # 目录只读与来源端测
 │   └── quota-desktop/ # 桌面端（M3 完成）
 │       ├── eslint.config.js    # ESLint 扁平配置
 │       ├── index.html          # Vite HTML 入口
@@ -351,7 +356,9 @@ QuotaTray/
 │       │   │   ├── presetTemplates.ts           # 模板预设库
 │       │   │   ├── pricingDraft.test.ts         # 定价草稿测试
 │       │   │   ├── pricingDraft.ts              # 定价草稿纯逻辑
+│       │   │   ├── PricingProvenance.tsx        # 官方模型资料披露
 │       │   │   ├── PricingSection.tsx           # 峰谷编辑区块
+│       │   │   ├── ProviderCard.test.tsx        # 卡片定价渲染测试
 │       │   │   ├── ProviderCard.tsx             # 余额卡片
 │       │   │   ├── providerCardView.test.ts     # 卡片视图测试
 │       │   │   ├── providerCardView.ts          # 卡片视图纯逻辑
@@ -405,6 +412,7 @@ QuotaTray/
 │       │   ├── src/                    # 后端源码
 │       │   │   ├── apk_install.rs          # APK安装JNI桥
 │       │   │   ├── background.rs           # Android 后台刷新编排核
+│       │   │   ├── catalog_sched.rs        # 跨端目录前台调度
 │       │   │   ├── commands.rs             # 跨端IPC命令集
 │       │   │   ├── hover_panel.rs          # 悬停窗口状态机
 │       │   │   ├── hover_panel_mobile.rs   # 移动悬停面板空实现
@@ -440,21 +448,24 @@ QuotaTray/
 │   └── quota-core/ # 业务核心库（无 UI）
 │       ├── Cargo.toml # core crate 清单
 │       ├── src/       # core 源码
-│       │   ├── config/    # 配置层
+│       │   ├── config/          # 配置层
 │       │   │   ├── mod.rs      # AppConfig 原子读写
 │       │   │   ├── provider.rs # 凭据与条目类型
 │       │   │   └── transfer.rs # 配置迁移容器
-│       │   ├── history/   # 历史数据存储（M5）
+│       │   ├── history/         # 历史数据存储（M5）
 │       │   │   └── mod.rs # HistoryStore（SQLite）
-│       │   ├── http/      # HTTP 抽象
+│       │   ├── http/            # HTTP 抽象
 │       │   │   ├── mod.rs     # HttpClient trait 与错误
 │       │   │   ├── redact.rs  # 错误详情脱敏
 │       │   │   └── reqwest.rs # reqwest 生产实现
-│       │   ├── lib.rs     # 模块声明与 re-export
-│       │   ├── logging.rs # 结构化事件打点与滚动日志装配
-│       │   ├── model.rs   # 用量模型与错误分类
-│       │   ├── pricing.rs # 峰谷定价纯函数
-│       │   ├── provider/  # 预置平台查询
+│       │   ├── lib.rs           # 模块声明与 re-export
+│       │   ├── logging.rs       # 结构化事件打点与滚动日志装配
+│       │   ├── model.rs         # 用量模型与错误分类
+│       │   ├── pricing.rs       # 峰谷定价纯函数
+│       │   ├── pricing_catalog/ # 定价目录模块（T-01）
+│       │   │   ├── mod.rs  # 目录类型校验与种子装载
+│       │   │   └── sync.rs # 目录同步与持久缓存
+│       │   ├── provider/        # 预置平台查询
 │       │   │   ├── aliyun_bss.rs    # 阿里云余额查询 provider
 │       │   │   ├── claude.rs        # Claude 订阅查询
 │       │   │   ├── codex.rs         # Codex 订阅查询
@@ -471,21 +482,25 @@ QuotaTray/
 │       │   │   ├── stepfun.rs       # /v1/accounts（CNY）
 │       │   │   ├── zhipu.rs         # GLM Coding Plan 用量
 │       │   │   └── zhipu_metered.rs # 智谱按量余额
-│       │   ├── query/     # 查询引擎
+│       │   ├── query/           # 查询引擎
 │       │   │   └── mod.rs # QueryEngine 路由
-│       │   ├── runtime.rs # 运行模式纯函数（安装/便携）
-│       │   ├── script/    # 脚本查询（M4）
+│       │   ├── runtime.rs       # 运行模式纯函数（安装/便携）
+│       │   ├── script/          # 脚本查询（M4）
 │       │   │   └── mod.rs # QuickJS 沙箱脚本查询
-│       │   ├── template/  # 声明式模板 DSL（M2a）
+│       │   ├── template/        # 声明式模板 DSL（M2a）
 │       │   │   ├── mod.rs  # DSL 结构与执行器
 │       │   │   └── path.rs # JSONPath 子集
-│       │   ├── update.rs  # 更新检测下载与清理判定
-│       │   └── vault/     # 凭据保险库
+│       │   ├── update.rs        # 更新检测下载与清理判定
+│       │   └── vault/           # 凭据保险库
 │       │       ├── cipher.rs # AES-256-GCM 密文格式
 │       │       ├── mod.rs    # Vault 门面
 │       │       └── store.rs  # 跨平台主密钥存储
 │       └── tests/     # core 集成测试目录
 │           └── logging_smoke.rs # 滚动日志装配端到端冒烟
+├── data/                   # 正式数据文件根
+│   └── pricing/ # 定价数据目录
+│       └── v1/ # 定价目录 v1 格式
+│           └── catalog.json # 预置定价目录数据源
 ├── docs/                   # 文档
 │   ├── Android端预览版说明.md # Android预览端说明
 │   ├── assets/          # 指引打包资产根目录
@@ -503,6 +518,7 @@ QuotaTray/
 │   │   ├── console-link-spec.md # 控制台直达规格（#59）
 │   │   ├── GUI-spec.md          # GUI 规格（M3）
 │   │   └── history-spec.md      # 历史存储规格（M5）
+│   ├── 定价目录维护指南.md      # 定价目录数据维护指南
 │   ├── 测试单/             # 真机端测执行清单目录
 │   │   └── 2026-08-29 安卓端端测清单.md # 安卓真机端测清单（更新链/升级/通用）
 │   ├── 移动端能力缺口追踪.md     # Android 能力缺口活追踪
