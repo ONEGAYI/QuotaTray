@@ -13,6 +13,8 @@
 //! - retired 模型保留最后已知价格并记录 `retired_at`（物理删除由
 //!   发布侧对比校验拦截，见 T-07；客户端侧缓存防降级见 T-03）。
 
+pub mod sync;
+
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};

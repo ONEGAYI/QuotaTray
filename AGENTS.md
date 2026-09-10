@@ -455,7 +455,8 @@ QuotaTray/
 │       │   ├── model.rs         # 用量模型与错误分类
 │       │   ├── pricing.rs       # 峰谷定价纯函数
 │       │   ├── pricing_catalog/ # 定价目录模块（T-01）
-│       │   │   └── mod.rs # 目录类型校验与种子装载
+│       │   │   ├── mod.rs  # 目录类型校验与种子装载
+│       │   │   └── sync.rs # 目录同步与持久缓存
 │       │   ├── provider/        # 预置平台查询
 │       │   │   ├── aliyun_bss.rs    # 阿里云余额查询 provider
 │       │   │   ├── claude.rs        # Claude 订阅查询

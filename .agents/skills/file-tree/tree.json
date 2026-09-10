@@ -2433,6 +2433,21 @@
                       "tags": [
                         "pure"
                       ]
+                    },
+                    "sync.rs": {
+                      "kind": "file",
+                      "desc": "目录同步与持久缓存",
+                      "detail": [
+                        "CatalogSync 同步服务：双通道获取（真直连优先、失败且配置代理才兜底、拒绝类坏包同样走兜底）、完整校验与版本判定（单调不降级、同版本异内容拒绝、物理删除拒绝、人工回滚以更高 revision 重发）、数据根级跨进程写锁（锁内重读防互相覆盖、不删他人锁、网络期不持锁）、缓存信封（目录+last_attempt/last_success/last_error 一体原子落盘）。",
+                        "load_effective 装载：缓存与内置种子取 revision 较高者，回退原因四态（NoCache/CorruptedCache/IncompatibleCache/StaleCache）；reload_from_disk_if_newer 供 GUI 感知他进程写入；进程内在途用原子标志（await 安全）。",
+                        "常量 CATALOG_URL/CATALOG_CACHE_FILE/CATALOG_LOCK_FILE/CATALOG_MAX_BYTES(2MiB)；结果 Updated/Unchanged/Busy/Failed——Updated 是应用端目录变更事件的唯一依据。"
+                      ],
+                      "rel": [
+                        "crates/quota-core/src/update.rs"
+                      ],
+                      "tags": [
+                        "pure"
+                      ]
                     }
                   }
                 },

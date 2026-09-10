@@ -46,6 +46,12 @@ pub use pricing::{
     next_change, preset, preset_with_currency, resolve, resolve_in_catalog, resolve_in_currency,
     resolve_with, validate, validate_custom_model,
 };
+pub use pricing_catalog::sync::{
+    CATALOG_CACHE_FILE, CATALOG_LOCK_FILE, CATALOG_MAX_BYTES, CATALOG_URL, CatalogCacheEnvelope,
+    CatalogDecision, CatalogOrigin, CatalogStatusView, CatalogSync, CatalogSyncError,
+    CatalogUpdateOutcome, EffectiveCatalog, FallbackReason, decide_between,
+    effective_from_envelope_json, evaluate_incoming, load_effective,
+};
 pub use pricing_catalog::{
     CATALOG_SCHEMA_VERSION, Catalog, CatalogError, CatalogModel, CatalogProvider, CatalogSuite,
     MAX_REVISION, ModelStatus, bundled_catalog, find_suite, parse_catalog, validate_catalog,
