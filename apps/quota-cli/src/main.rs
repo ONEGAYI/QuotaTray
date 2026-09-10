@@ -572,11 +572,13 @@ async fn run(cli: Cli) -> i32 {
         Command::Clear { yes } => cmd::clear::run(&ctx, yes),
         Command::SetKey { id, slot } => cmd::setkey::run(&ctx, id, slot),
         Command::Natives => cmd::natives::run(ctx.lang),
-        Command::Pricing(PricingCmd::Show { id, json }) => cmd::pricing::run_show(&ctx, &id, json),
+        Command::Pricing(PricingCmd::Show { id, json }) => {
+            cmd::pricing::run_show(&ctx, &id, json).await
+        }
         Command::Pricing(PricingCmd::Set { id }) => cmd::pricing::run_set(&ctx, &id),
         Command::Pricing(PricingCmd::Clear { id }) => cmd::pricing::run_clear(&ctx, &id),
         Command::Pricing(PricingCmd::Model(ModelCmd::List { provider, json })) => {
-            cmd::pricing_models::run_list(&ctx, &provider, json)
+            cmd::pricing_models::run_list(&ctx, &provider, json).await
         }
         Command::Pricing(PricingCmd::Model(ModelCmd::Add { provider })) => {
             cmd::pricing_models::run_add(&ctx, &provider)

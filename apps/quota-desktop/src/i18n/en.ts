@@ -379,6 +379,8 @@ export const en: Record<TextKey, string> = {
   "settings.checking": "Checking…",
   "settings.upToDate": "Up to date",
   "settings.updateCheckFailed": "Update operation failed",
+  "settings.catalogAutoUpdateTitle": "Auto-update models & pricing",
+  "settings.catalogAutoUpdateHint": "Periodically check pricing catalog updates while running (every 6 hours; retry no sooner than 30 minutes after a failure); manual update still works when off",
   "settings.catalogTitle": "Model & pricing catalog",
   "settings.catalogUpdateNow": "Update now",
   "settings.catalogUpdating": "Updating…",

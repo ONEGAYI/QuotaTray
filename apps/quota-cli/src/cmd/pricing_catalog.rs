@@ -179,6 +179,44 @@ pub fn render_outcome(outcome: &CatalogUpdateOutcome, lang: Lang) -> String {
     }
 }
 
+/// 普通定价命令的到期补检预算（spec §7：含两通道；到时取消用本地目录）。
+pub const AUTO_CHECK_BUDGET: Duration = Duration::from_secs(5);
+
+/// 普通定价展示命令（非 JSON 模式）的到期自动补检：判定经磁盘信封
+/// 元数据（与 GUI 共享节流状态）；开关关闭或未到期零网络；联网部分
+/// 受 5 秒总预算约束，超时/失败静默——本地业务结果不受影响（成功则
+/// 本次命令继续用装载前快照，下次命令读新目录）。
+pub async fn maybe_auto_check(ctx: &Ctx) {
+    let dir = ctx.catalog_dir();
+    let (attempt, success, _) = envelope_meta(&dir);
+    let prefs = crate::settings_io::load_prefs(&ctx.config_path);
+    if !quota_core::catalog_should_auto_check(
+        prefs.auto_update_pricing_catalog,
+        attempt,
+        success,
+        crate::settings_io::now_ms(),
+    ) {
+        return;
+    }
+    let proxy = quota_core::update::proxy_url_of(prefs.update_proxy_port);
+    let Ok(clients) =
+        quota_core::update::build_dual_http_clients(Duration::from_secs(10), proxy.as_deref())
+    else {
+        return;
+    };
+    let sync = CatalogSync::new(
+        dir,
+        Box::new(clients.direct.clone()),
+        clients
+            .proxied
+            .clone()
+            .map(|c| Box::new(c) as Box<dyn quota_core::http::HttpClient>),
+        Box::new(crate::settings_io::now_ms),
+    );
+    // 短命进程不做退出后仍需完成的任务：预算内未完成即放弃
+    let _ = tokio::time::timeout(AUTO_CHECK_BUDGET, sync.update()).await;
+}
+
 /// `pricing catalog status`：只读本地（零网络）。
 pub fn run_status(ctx: &Ctx, json: bool) -> i32 {
     let effective = quota_core::load_effective(&ctx.catalog_dir());

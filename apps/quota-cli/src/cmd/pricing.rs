@@ -180,7 +180,7 @@ pub fn render_show(
 /// `pricing show`：条目不存在 → 1；无定价 → 提示后 0（查看类，非错误）。
 /// 预置选套带币种 hint：条目 `pricing.currency`（DeepSeek 单站双币时
 /// 数字与标签一起切到 USD 套）；自定义模型库同链生效。
-pub fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
+pub async fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
     let lang = ctx.lang;
     let cfg = match AppConfig::load(&ctx.config_path) {
         Ok(c) => c,
@@ -193,8 +193,13 @@ pub fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
         eprintln!("{}{}", t(lang, T::Err), texts::entry_not_found(lang, id));
         return 1;
     };
+    // 到期补检（非 JSON 模式；5 秒预算，失败不影响后续本地结果——
+    // JSON 模式默认零隐式网络，spec §7）
+    if !json {
+        super::pricing_catalog::maybe_auto_check(ctx).await;
+    }
     let hint = entry.pricing.as_ref().and_then(|p| p.currency.as_deref());
-    // 有效目录：缓存与内置种子取高（本地读取，无网络；JSON 模式亦然）
+    // 有效目录：缓存与内置种子取高（本地读取；补检成功后本次即新数据）
     let catalog = quota_core::load_effective(&ctx.catalog_dir());
     let Some(resolved) =
         pricing::resolve_in_catalog(entry, &cfg.custom_models, hint, &catalog.catalog)
@@ -623,8 +628,8 @@ mod tests {
     }
 
     /// 契约：show 对无定价条目（无预置 native）返回 0 并走未配置提示。
-    #[test]
-    fn run_show_without_pricing_is_zero_exit() {
+    #[tokio::test]
+    async fn run_show_without_pricing_is_zero_exit() {
         let path = std::env::temp_dir().join(format!(
             "quotatray-pricing-none-{}.json",
             std::process::id()
@@ -651,8 +656,8 @@ mod tests {
         .save(&path)
         .unwrap();
         let ctx = Ctx::with_store(path.clone(), Arc::new(quota_core::InMemoryStore::new()));
-        assert_eq!(run_show(&ctx, "s1", false), 0);
-        assert_eq!(run_show(&ctx, "missing", false), 1);
+        assert_eq!(run_show(&ctx, "s1", false).await, 0);
+        assert_eq!(run_show(&ctx, "missing", false).await, 1);
         let _ = std::fs::remove_file(&path);
     }
 

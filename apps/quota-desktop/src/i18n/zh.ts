@@ -378,6 +378,8 @@ export const zh = {
   "settings.checking": "检测中…",
   "settings.upToDate": "已是最新",
   "settings.updateCheckFailed": "更新操作失败",
+  "settings.catalogAutoUpdateTitle": "自动更新模型与价格",
+  "settings.catalogAutoUpdateHint": "应用运行期间定期检查定价目录更新（每 6 小时；失败至少 30 分钟后重试）；关闭后仍可手动更新",
   "settings.catalogTitle": "模型与价格目录",
   "settings.catalogUpdateNow": "立即更新",
   "settings.catalogUpdating": "正在更新…",

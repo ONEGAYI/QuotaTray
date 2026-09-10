@@ -43,6 +43,32 @@ pub const CATALOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 /// 缓存信封格式版本（与目录 `schema_version` 相互独立）。
 const ENVELOPE_SCHEMA_VERSION: u32 = 1;
 
+/// 自动检查成功间隔（spec §7：距上次成功检查 ≥6 小时到期）。
+pub const AUTO_CHECK_INTERVAL_MS: u64 = 6 * 60 * 60 * 1000;
+
+/// 自动检查失败退避（spec §7：失败后至少 30 分钟再自动尝试）。
+pub const AUTO_CHECK_BACKOFF_MS: u64 = 30 * 60 * 1000;
+
+/// 目录自动检查到期判定（纯函数，时钟注入）：开关关闭恒否；失败退避
+/// （距最近一次尝试不足 30 分钟）优先拦截；到期 = 从未成功或距上次
+/// 成功 ≥6 小时。时钟回退 saturating 归零（视为未到期，不 panic）。
+pub fn catalog_should_auto_check(
+    enabled: bool,
+    last_attempt_ms: Option<u64>,
+    last_success_ms: Option<u64>,
+    now_ms: u64,
+) -> bool {
+    if !enabled {
+        return false;
+    }
+    if let Some(attempt) = last_attempt_ms
+        && now_ms.saturating_sub(attempt) < AUTO_CHECK_BACKOFF_MS
+    {
+        return false;
+    }
+    last_success_ms.is_none_or(|success| now_ms.saturating_sub(success) >= AUTO_CHECK_INTERVAL_MS)
+}
+
 // ---- 候选包判定（纯函数） -----------------------------------------------------
 
 /// 候选包相对当前目录的判定结果。
@@ -1020,6 +1046,61 @@ mod tests {
         for banned in ["api_key", "custom_models"] {
             assert!(!text.contains(banned), "信封不应含 {banned}");
         }
+    }
+
+    /// 契约（V-09）：自动检查到期判定矩阵——开关关闭恒否；从未检查到期；
+    /// 成功 6h 间隔；失败 30min 退避优先于到期；时钟回退不 panic 视为未到期。
+    #[test]
+    fn catalog_should_auto_check_matrix() {
+        use super::{AUTO_CHECK_BACKOFF_MS, AUTO_CHECK_INTERVAL_MS, catalog_should_auto_check};
+        let now = 1_789_000_000_000u64;
+        assert!(!catalog_should_auto_check(false, None, None, now));
+        assert!(catalog_should_auto_check(true, None, None, now));
+        assert!(!catalog_should_auto_check(
+            true,
+            Some(now - AUTO_CHECK_INTERVAL_MS + 1),
+            Some(now - AUTO_CHECK_INTERVAL_MS + 1),
+            now
+        ));
+        assert!(catalog_should_auto_check(
+            true,
+            Some(now - AUTO_CHECK_INTERVAL_MS),
+            Some(now - AUTO_CHECK_INTERVAL_MS),
+            now
+        ));
+        // 失败退避：距最近尝试不足 30min → 否（即使 6h 已满）
+        assert!(!catalog_should_auto_check(
+            true,
+            Some(now - AUTO_CHECK_BACKOFF_MS + 1),
+            Some(now - AUTO_CHECK_INTERVAL_MS),
+            now
+        ));
+        // 退避期满 + 6h 已满 → 到期（失败重试）
+        assert!(catalog_should_auto_check(
+            true,
+            Some(now - AUTO_CHECK_BACKOFF_MS),
+            Some(now - AUTO_CHECK_INTERVAL_MS),
+            now
+        ));
+        assert!(!catalog_should_auto_check(
+            true,
+            Some(now - 1_000),
+            None,
+            now
+        ));
+        assert!(catalog_should_auto_check(
+            true,
+            Some(now - AUTO_CHECK_BACKOFF_MS),
+            None,
+            now
+        ));
+        // 时钟回退：saturating 归零 → 视为未到期，不 panic
+        assert!(!catalog_should_auto_check(
+            true,
+            Some(now),
+            Some(now - 1),
+            now - 100
+        ));
     }
 
     /// 契约：本地重载——磁盘出现更高 revision（他进程写入）时升级并返回

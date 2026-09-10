@@ -197,7 +197,7 @@ fn snapshots_from_results(results: &std::collections::HashMap<String, EntryState
 /// 快照写盘前按当前 config 过滤：删除/编辑条目时在途查询的迟到结果
 /// 不会以孤儿身分落入 cache.json（托盘侧本就按 config 过滤，此处补齐
 /// 存储一致性）；config 读盘失败时跳过过滤（保留现状）。
-fn after_state_change(app: &AppHandle, state: &AppState) {
+pub(crate) fn after_state_change(app: &AppHandle, state: &AppState) {
     let mut snaps = snapshots_from_results(&state.results.read().unwrap());
     if let Ok(cfg) = AppConfig::load(&state.paths.config()) {
         let live: std::collections::HashSet<&str> =
@@ -740,7 +740,7 @@ pub fn catalog_status(state: State<'_, AppState>) -> CatalogStatusDto {
 }
 
 /// 读磁盘缓存信封的同步元数据（缺失/损坏 → 全空）。
-fn read_catalog_envelope_meta(
+pub(crate) fn read_catalog_envelope_meta(
     data_root: &std::path::Path,
 ) -> (Option<u64>, Option<u64>, Option<String>) {
     match std::fs::read_to_string(data_root.join(quota_core::CATALOG_CACHE_FILE)) {
@@ -757,6 +757,16 @@ fn read_catalog_envelope_meta(
 pub async fn catalog_update(
     app: AppHandle,
     state: State<'_, AppState>,
+) -> Result<CatalogUpdateResultDto, String> {
+    run_catalog_update(&app, &state).await
+}
+
+/// 目录更新执行体（手动命令与自动调度共用；T-06 公共化）：
+/// 在途门 → settings 代理双通道 → CatalogSync.update → Updated 才
+/// 重载快照、广播事件并重建托盘。
+pub(crate) async fn run_catalog_update(
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<CatalogUpdateResultDto, String> {
     use std::sync::atomic::Ordering;
     if state.catalog_updating.swap(true, Ordering::AcqRel) {
@@ -821,7 +831,7 @@ pub async fn catalog_update(
         if let Err(e) = app.emit(CATALOG_CHANGED_EVENT, ()) {
             eprintln!("目录变更事件发送失败：{e}");
         }
-        after_state_change(&app, &state);
+        after_state_change(app, state);
     }
     Ok(dto)
 }
@@ -1303,6 +1313,7 @@ pub struct SettingsPatch {
     #[serde(default, with = "double_option")]
     pub update_proxy_host: Option<Option<String>>,
     pub update_auto_download: Option<bool>,
+    pub auto_update_pricing_catalog: Option<bool>,
     pub notifications_enabled: Option<bool>,
     pub background_refresh_enabled: Option<bool>,
     pub background_refresh_interval_minutes: Option<u32>,
@@ -1359,6 +1370,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.update_auto_download {
         base.update_auto_download = v;
+    }
+    if let Some(v) = patch.auto_update_pricing_catalog {
+        base.auto_update_pricing_catalog = v;
     }
     if let Some(v) = patch.notifications_enabled {
         base.notifications_enabled = v;
@@ -2065,9 +2079,14 @@ pub fn open_notification_settings(state: State<'_, AppState>) -> Result<bool, St
 /// 首次调用同时置校准位——WorkManager 冷启动（无前端）据此把未校准
 /// 的乐观初值视为后台，否则冷启动通知恒不发。
 #[tauri::command]
-pub fn set_app_foreground(foreground: bool, _state: State<'_, AppState>) {
+pub fn set_app_foreground(foreground: bool, app: AppHandle, _state: State<'_, AppState>) {
     crate::state::APP_FOREGROUND.store(foreground, std::sync::atomic::Ordering::Relaxed);
     crate::state::APP_FOREGROUND_CALIBRATED.store(true, std::sync::atomic::Ordering::Relaxed);
+    // 回前台补检（T-06）：磁盘重载（接收 CLI 写入）+ 到期网络检查；
+    // 后台任务不阻塞命令返回。退后台不触发。
+    if foreground {
+        crate::catalog_sched::on_foreground(app);
+    }
 }
 
 // ---- 契约测试 -------------------------------------------------------------

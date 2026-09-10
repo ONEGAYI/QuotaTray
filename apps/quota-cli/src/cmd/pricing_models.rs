@@ -207,7 +207,7 @@ fn ensure_provider(ctx: &Ctx, provider_id: &str) -> bool {
 }
 
 /// `pricing model list`：未知平台 → 1。
-pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
+pub async fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
     let lang = ctx.lang;
     if !ensure_provider(ctx, provider_id) {
         return 1;
@@ -224,7 +224,11 @@ pub fn run_list(ctx: &Ctx, provider_id: &str, json: bool) -> i32 {
         .get(provider_id)
         .cloned()
         .unwrap_or_default();
-    // 有效目录（本地读取，无网络；JSON 模式亦不联网）
+    // 到期补检（非 JSON 模式；5 秒预算，失败不影响本地结果）
+    if !json {
+        super::pricing_catalog::maybe_auto_check(ctx).await;
+    }
+    // 有效目录（本地读取；JSON 模式零隐式网络）
     let catalog = quota_core::load_effective(&ctx.catalog_dir());
     // ensure_provider 已拦截未注册 id，此处 None 仅剩注册表竞争修改的
     // 理论路径，防御回退到与入口同一双语文案
@@ -471,8 +475,8 @@ mod tests {
     }
 
     /// 契约：add 端到端——stdin JSON 校验入库、非法模型（跨日窗口）拦截。
-    #[test]
-    fn run_add_end_to_end() {
+    #[tokio::test]
+    async fn run_add_end_to_end() {
         let path =
             std::env::temp_dir().join(format!("quotatray-model-add-{}.json", std::process::id()));
         AppConfig::default().save(&path).unwrap();
@@ -489,7 +493,7 @@ mod tests {
         );
 
         // 未知平台：run 层拦截
-        assert_eq!(run_list(&ctx, "no-such", false), 1);
+        assert_eq!(run_list(&ctx, "no-such", false).await, 1);
         assert_eq!(run_remove(&ctx, "no-such", "x"), 1);
         let _ = std::fs::remove_file(&path);
     }

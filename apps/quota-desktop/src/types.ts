@@ -227,6 +227,7 @@ export interface Settings {
   /** 使用统计定位线时刻（epoch 毫秒，最多 2 条，按写入顺序——拖动交叉后
    *  不保证时间有序）；null = 无。 */
   usage_marker_lines: number[] | null;
+  auto_update_pricing_catalog: boolean;
 }
 
 /** 设置局部更新形状（与 Rust 侧 SettingsPatch 对应）：仅提交的字段

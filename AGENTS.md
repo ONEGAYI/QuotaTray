@@ -406,6 +406,7 @@ QuotaTray/
 │       │   ├── src/                    # 后端源码
 │       │   │   ├── apk_install.rs          # APK安装JNI桥
 │       │   │   ├── background.rs           # Android 后台刷新编排核
+│       │   │   ├── catalog_sched.rs        # 定价目录调度器（T-06）
 │       │   │   ├── commands.rs             # 跨端IPC命令集
 │       │   │   ├── hover_panel.rs          # 悬停窗口状态机
 │       │   │   ├── hover_panel_mobile.rs   # 移动悬停面板空实现

@@ -1979,6 +1979,18 @@
                         "security"
                       ]
                     },
+                    "catalog_sched.rs": {
+                      "kind": "file",
+                      "desc": "定价目录调度器（T-06）",
+                      "detail": [
+                        "每分钟 tick：①磁盘 revision 重载（接收 CLI 等他进程写入，零网络，升级即广播+重建托盘）②到期自动检查（6h 成功间隔/30min 失败退避，catalog_should_auto_check 纯函数判定，开关关闭仅保留磁盘重载）。",
+                        "无独立后台服务：循环随进程生命周期（Android 后台被杀即停）；回前台经 set_app_foreground → on_foreground 补检；复用 run_catalog_update 公共体（手动/自动同门互斥）。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src-tauri/src/commands.rs",
+                        "apps/quota-desktop/src-tauri/src/update_ctl.rs"
+                      ]
+                    },
                     "commands.rs": {
                       "kind": "file",
                       "desc": "跨端IPC命令集",

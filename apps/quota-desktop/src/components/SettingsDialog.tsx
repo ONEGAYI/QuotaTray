@@ -782,6 +782,18 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               {/* 模型与价格目录：状态展示 + 立即更新（触摸可达，不依赖
                   hover；Android 同一数据与状态） */}
               <SettingRow
+                title={t("settings.catalogAutoUpdateTitle")}
+                description={t("settings.catalogAutoUpdateHint")}
+              >
+                <Switch
+                  label={t("settings.catalogAutoUpdateTitle")}
+                  checked={draft.auto_update_pricing_catalog}
+                  onChange={(auto_update_pricing_catalog) =>
+                    setDraft({ ...draft, auto_update_pricing_catalog })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
                 title={t("settings.catalogTitle")}
                 description={catalogDescription(catalog.data)}
               >

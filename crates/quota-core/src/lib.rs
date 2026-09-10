@@ -47,10 +47,11 @@ pub use pricing::{
     resolve_in_currency, resolve_with, validate, validate_custom_model,
 };
 pub use pricing_catalog::sync::{
-    CATALOG_CACHE_FILE, CATALOG_LOCK_FILE, CATALOG_MAX_BYTES, CATALOG_URL, CatalogCacheEnvelope,
-    CatalogDecision, CatalogOrigin, CatalogStatusView, CatalogSync, CatalogSyncError,
-    CatalogUpdateOutcome, EffectiveCatalog, FallbackReason, decide_between,
-    effective_from_envelope_json, evaluate_incoming, load_effective,
+    AUTO_CHECK_BACKOFF_MS, AUTO_CHECK_INTERVAL_MS, CATALOG_CACHE_FILE, CATALOG_LOCK_FILE,
+    CATALOG_MAX_BYTES, CATALOG_URL, CatalogCacheEnvelope, CatalogDecision, CatalogOrigin,
+    CatalogStatusView, CatalogSync, CatalogSyncError, CatalogUpdateOutcome, EffectiveCatalog,
+    FallbackReason, catalog_should_auto_check, decide_between, effective_from_envelope_json,
+    evaluate_incoming, load_effective,
 };
 pub use pricing_catalog::{
     CATALOG_SCHEMA_VERSION, Catalog, CatalogError, CatalogModel, CatalogProvider, CatalogSuite,

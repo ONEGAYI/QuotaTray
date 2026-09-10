@@ -12,6 +12,7 @@ mod apk_install;
 /// 才是 cfg android——lib 级门禁会让测试门（not android）与模块门
 /// （android）交集为空，纯函数测试变死代码，审查 M2）。
 mod background;
+pub(crate) mod catalog_sched;
 
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -109,6 +110,8 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
         tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
         // 更新检测轮询调度：spawn 后立即首次判定，「启动时检测」由首判覆盖
         update_ctl::spawn_scheduler(app.clone());
+        // 定价目录调度（跨端：分钟磁盘重载 + 到期自动检查；无独立后台服务）
+        catalog_sched::spawn(app.clone());
     }
     // Android：创建系统通知渠道（消息中心二阶）。渠道名用户可见（系统
     // 设置里展示），按当前语言取文案；创建幂等（Android 同 id 渠道
