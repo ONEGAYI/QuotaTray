@@ -2,6 +2,33 @@
 
 本项目所有显著变更记录于此文件。格式基于 [Keep a CHANGELOG](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.12.0] - 2026-09-10
+
+本版本交付模型与定价目录独立更新链：价格与模型变更自此只需合并人工审核的数据包即可发布，客户端自动接收，不再要求升级应用版本；首发数据包（revision 2）已同步 DeepSeek V4.1-Flash 发布当日的新模型阵容。
+
+### 新功能
+
+**模型与定价目录独立更新链（桌面 / Android / CLI）（#107）**
+
+- `data/pricing/v1/catalog.json` 成为预置定价单一数据源：构建时嵌入应用作离线种子，人工审核数据 PR 合并 main 后经 raw.githubusercontent 分发；数据与代码解耦，改价不再发应用版本
+- 客户端目录同步：直连优先、代理兜底的串行双通道（同更新检测口径）；revision 单调不降级、坏包不落盘、跨进程锁防 CLI 与 GUI 互覆（#107）
+- 桌面端 6 小时自动检查、失败 30 分钟退避，回前台补检；设置页可看目录状态与最近核验时间、手动检查更新（#107）
+- CLI 新增 `pricing catalog status` / `pricing catalog update`（非 JSON 模式附带 5 秒预算的启动补检）（#107）
+- 模型生命周期语义：下架模型保留最后已知价格并标注「已下架」；显式选择的缺失模型显示价格未知，绝不借用默认模型价格（#107）
+- 卡片与编辑页可展开「官方模型资料」查看来源 URL 与人工核验日期；CLI `pricing show` / `model list --json` 同样透出（#107）
+- CI 新增 catalog-data 工作流：数据 PR 自动执行结构校验、revision 递增与物理删除检查，与本地校验器同一 core 解析器（#107）
+
+**首发目录数据包：DeepSeek V4.1-Flash 阵容（revision 2，#112）**
+
+- DeepSeek 2026-09-10 发布 V4.1-Flash（模型名 `deepseek-flash`）并下线 V4-Flash / V4-Flash-Vision-Exp（旧模型名保留兼容路由、按 Flash 价计费）：目录当日收录——Flash 展示名更新、USD 档核实为官方新价（$0.006/$0.30/$1.20 高峰、空闲减半），0.11.0 因官方英文页故障遗留的 USD 旧值就此闭环（#112）
+- Vision Exp 转为已下架状态，保留其真实生效期最后价格供历史花费估算（#112）
+- V4 Pro 价格不变；官方预告 09-14 起其请求路由至 V4.1-Flash 计费，届时以后续数据包跟进（#112）
+
+### 其他改进
+
+- 定价抓取脚本适配 DeepSeek 新版两列定价页：表头脚注清理、恢复英文页 USD 候选产出（0.11.0 断供遗留），离线契约测试扩至 45 项（#112）
+- 数据维护流程补全量测试门禁：种子字面断言散布三端测试，数据 PR 须跑 `cargo test --workspace`（#112）
+
 ## [0.11.0] - 2026-09-09
 
 本版本将更新检测改为直连优先、代理兜底的串行双通道（匿名 GitHub API 按出口 IP 限额，代理共享额度易耗尽），并刷新预置定价：DeepSeek Flash 系列按 9·10 调价更新、智谱/Z.ai 新增 GLM-5.3-Flash 模型档、国际站随官网撤除 GLM-5-Turbo；预置价格自此经仓库内确定性抓取脚本核实维护。
@@ -641,6 +668,7 @@
 - CLI 中 clap 内置的错误骨架文案（`error:` / `Usage:`）为库英文原文，无法翻译（生态限制）（#4）
 
 <!-- 变更链接 -->
+[0.12.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ONEGAYI/QuotaTray/compare/v0.10.2...v0.11.0
 [0.10.2]: https://github.com/ONEGAYI/QuotaTray/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/ONEGAYI/QuotaTray/compare/v0.10.0...v0.10.1

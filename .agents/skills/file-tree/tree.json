@@ -3386,7 +3386,14 @@
                   "desc": "官网页 HTML 固化快照",
                   "collapsed": true,
                   "children": {
-                    "deepseek_zh_2026-09-09.html": {
+                    "deepseek_en_2026-09-10.html": {
+                      "kind": "file",
+                      "desc": "英文定价页快照 09-10",
+                      "detail": [
+                        "[英文页 2026-09-10 实抓快照：两列结构，驱动 USD 通道契约测试。]"
+                      ]
+                    },
+                    "deepseek_zh_2026-09-10.html": {
                       "kind": "file",
                       "desc": "中文定价页快照（8·17 价）",
                       "detail": [
