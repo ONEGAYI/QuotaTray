@@ -355,6 +355,136 @@
         "忽略本地密钥、target/前端/Tauri移动工程与schema构建物、generated CLI 暂存、编辑器目录与 Python 字节码"
       ]
     },
+    ".scratch": {
+      "kind": "dir",
+      "desc": "技能阶段文档",
+      "hidden": true,
+      "children": {
+        "model-pricing-catalog": {
+          "kind": "dir",
+          "desc": "模型定价更新任务包",
+          "children": {
+            "handoff.md": {
+              "kind": "file",
+              "desc": "模型定价更新交接",
+              "detail": [
+                "已确认约定、源码证据、工作树状态、技术默认值、技能与精确接手步骤；本轮不实现。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/README.md",
+                ".scratch/model-pricing-catalog/spec.md"
+              ]
+            },
+            "issues": {
+              "kind": "dir",
+              "desc": "依赖有序的本地票据",
+              "children": {
+                "01-catalog-foundation.md": {
+                  "kind": "file",
+                  "desc": "目录基础准备票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "02-model-lifecycle.md": {
+                  "kind": "file",
+                  "desc": "模型生命周期修正票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "03-catalog-sync.md": {
+                  "kind": "file",
+                  "desc": "目录同步与缓存票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "04-cli-catalog.md": {
+                  "kind": "file",
+                  "desc": "CLI目录接入票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "05-gui-catalog.md": {
+                  "kind": "file",
+                  "desc": "跨端目录界面接入票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "06-auto-sync.md": {
+                  "kind": "file",
+                  "desc": "自动同步与节流票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "07-reviewed-publication.md": {
+                  "kind": "file",
+                  "desc": "人工审核数据发布票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                },
+                "08-convergence-acceptance.md": {
+                  "kind": "file",
+                  "desc": "目录更新整体验收票",
+                  "detail": [
+                    "模型定价目录更新的实施票据：范围、依赖、二元验收条件及验证入口。"
+                  ],
+                  "rel": [
+                    ".scratch/model-pricing-catalog/spec.md"
+                  ]
+                }
+              }
+            },
+            "README.md": {
+              "kind": "file",
+              "desc": "定价更新票据索引",
+              "detail": [
+                "八张本地票据的阅读入口、阻塞依赖图与共同完成条件。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/spec.md"
+              ]
+            },
+            "spec.md": {
+              "kind": "file",
+              "desc": "模型定价独立更新规格",
+              "detail": [
+                "人工审核与自动分发、模型下架保价、缓存并发和跨端同步实施规格。"
+              ],
+              "rel": [
+                ".scratch/model-pricing-catalog/README.md"
+              ]
+            }
+          }
+        }
+      }
+    },
     "AGENTS.md": {
       "kind": "file",
       "desc": "项目规则单一事实源",
