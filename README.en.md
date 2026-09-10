@@ -42,6 +42,7 @@ The key difference from other balance tools is **credential security**:
 - Tray menu lists balance / usage percentage and last-updated time per entry, plus two lines for off-peak pricing
 - Hover detail panel: balance-first summary with quick switching of the ring data-source account and pricing model
 - Main window with card list: add/edit entries, template editor (with validation and live test), structured off-peak pricing editor
+- Model & pricing catalog: price data ships as `data/pricing/v1/catalog.json` and updates independently (merging a reviewed data PR publishes it); clients pick up the new catalog automatically — no app upgrade needed — and retired models keep their last known prices
 - Usage stats page: balance/quota trend charts with up to four provider+window comparison curves, zoom/pan and click-to-focus legends
 - Settings → Data management: cross-machine configuration export/import (with sensitive-file confirmation) and one-click clear of all user data (5-second countdown double confirmation)
 - Theme tri-state (light/dark/system), bilingual UI tri-state, custom title bar
@@ -66,6 +67,8 @@ quota add                      # interactive wizard (masked key input)
 quota query                    # query all enabled entries in parallel
 quota query --watch            # polling mode
 quota pricing show <id>        # effective off-peak pricing & current period verdict
+quota pricing catalog status   # pricing catalog origin / revision / last check
+quota pricing catalog update   # manually pull pricing catalog updates
 quota template test --json     # template validation + live query
 quota config export <path>     # export a complete transfer package (asks for confirmation)
 quota config import <path>     # replace all and re-encrypt with this machine's key
@@ -80,7 +83,7 @@ quota update --check           # check for new releases
 **Off-peak pricing**
 
 - Peak/off-peak windows by weekday + time of day, three prices per tier: cache-hit / cache-miss / output (per MTokens)
-- DeepSeek's official pricing ships built-in; entries can override field by field (empty fields fall back to preset)
+- Official platform prices (DeepSeek etc.) ship as a built-in seed and update via the catalog data file — price fixes need no app release (see the Chinese [catalog maintenance guide](docs/定价目录维护指南.md)); entries can override field by field (empty fields fall back to preset)
 - Custom model library: add models and prices per platform; entry pricing can opt in
 - Both tray and CLI show the current period verdict and the next flip time
 

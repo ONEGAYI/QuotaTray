@@ -583,7 +583,7 @@ async fn run(cli: Cli) -> i32 {
         Command::Remove { id, yes } => cmd::remove::run(&ctx, id, yes),
         Command::Clear { yes } => cmd::clear::run(&ctx, yes),
         Command::SetKey { id, slot } => cmd::setkey::run(&ctx, id, slot),
-        Command::Natives => cmd::natives::run(ctx.lang),
+        Command::Natives => cmd::natives::run(&ctx),
         Command::Pricing(PricingCmd::Show { id, json }) => {
             cmd::pricing::run_show(&ctx, &id, json).await
         }

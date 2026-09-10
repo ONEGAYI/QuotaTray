@@ -215,18 +215,21 @@ pub fn list_table(entries: &[ProviderEntry], lang: Lang) -> String {
     table.to_string()
 }
 
-/// `quota natives` 表格：id / 名称 / 峰谷预置。
-pub fn natives_table(metas: &[NativeMeta], lang: Lang) -> String {
+/// `quota natives` 表格：id / 名称 / 峰谷预置（预置判定走有效目录，
+/// T-08 收敛——远程新增平台预置后随目录刷新）。
+pub fn natives_table(metas: &[NativeMeta], catalog: &quota_core::Catalog, lang: Lang) -> String {
     let mut table = new_table(&["id", t(lang, T::ColName), t(lang, T::ColPricing)]);
     for m in metas {
         table.add_row(vec![
             Cell::new(m.id),
             Cell::new(m.name),
-            Cell::new(if quota_core::pricing::preset(m.id).is_some() {
-                "✓"
-            } else {
-                "-"
-            })
+            Cell::new(
+                if quota_core::pricing::preset_in_catalog(m.id, None, catalog).is_some() {
+                    "✓"
+                } else {
+                    "-"
+                },
+            )
             .set_alignment(CellAlignment::Center),
         ]);
     }
@@ -744,7 +747,7 @@ mod tests {
     fn natives_table_headers() {
         let metas = quota_core::provider::metas();
         for lang in [Lang::Zh, Lang::En] {
-            let table = natives_table(&metas, lang);
+            let table = natives_table(&metas, quota_core::bundled_catalog(), lang);
             assert!(table.contains(t(lang, T::ColName)), "{lang:?}: {table}");
             assert!(table.contains("id"), "{lang:?}: {table}");
         }
