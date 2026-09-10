@@ -448,6 +448,361 @@ pub fn validate_no_removal(new: &Catalog, baseline: &Catalog) -> Result<(), Cata
     Ok(())
 }
 
+// ---- 目录差异报告（T-07：数据 PR 人工审核输入） -----------------------------
+
+/// 单条差异（人工审核的报告行；`removed` 类是非法形状的显式报告，
+/// 会被 validate_no_removal 拒绝，报告便于审核者定位）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum CatalogDiff {
+    RevisionChanged {
+        from: u64,
+        to: u64,
+    },
+    ProviderAdded {
+        native_id: String,
+    },
+    ProviderRemoved {
+        native_id: String,
+    },
+    SuiteAdded {
+        native_id: String,
+        currency: String,
+    },
+    SuiteRemoved {
+        native_id: String,
+        currency: String,
+    },
+    ModelAdded {
+        native_id: String,
+        currency: String,
+        id: String,
+    },
+    ModelRemoved {
+        native_id: String,
+        currency: String,
+        id: String,
+    },
+    ModelRetired {
+        native_id: String,
+        currency: String,
+        id: String,
+        retired_at: String,
+    },
+    ModelReactivated {
+        native_id: String,
+        currency: String,
+        id: String,
+    },
+    PriceChanged {
+        native_id: String,
+        currency: String,
+        id: String,
+        /// "peak.cache_hit_input" 形式的字段定位。
+        field: String,
+        from: Option<f64>,
+        to: Option<f64>,
+    },
+    DefaultModelChanged {
+        native_id: String,
+        currency: String,
+        from: Option<String>,
+        to: Option<String>,
+    },
+    WindowsChanged {
+        native_id: String,
+        /// "suite:CNY" 或 "model:CNY/flash"（平台级或模型级时段）。
+        scope: String,
+    },
+}
+
+impl CatalogDiff {
+    /// 审核报告行（CLI/CI 输出；确定性文本）。
+    pub fn report_line(&self) -> String {
+        match self {
+            CatalogDiff::RevisionChanged { from, to } => format!("revision: {from} → {to}"),
+            CatalogDiff::ProviderAdded { native_id } => format!("新增平台 {native_id}"),
+            CatalogDiff::ProviderRemoved { native_id } => {
+                format!("平台 {native_id} 被删除（非法：不得物理删除）")
+            }
+            CatalogDiff::SuiteAdded {
+                native_id,
+                currency,
+            } => {
+                format!("{native_id} 新增币种套 {currency}")
+            }
+            CatalogDiff::SuiteRemoved {
+                native_id,
+                currency,
+            } => {
+                format!("{native_id} 币种套 {currency} 被删除（非法）")
+            }
+            CatalogDiff::ModelAdded {
+                native_id,
+                currency,
+                id,
+            } => {
+                format!("{native_id}[{currency}] 新增模型 {id}")
+            }
+            CatalogDiff::ModelRemoved {
+                native_id,
+                currency,
+                id,
+            } => {
+                format!("{native_id}[{currency}] 模型 {id} 被物理删除（非法：应 retired 化保留）")
+            }
+            CatalogDiff::ModelRetired {
+                native_id,
+                currency,
+                id,
+                retired_at,
+            } => {
+                format!(
+                    "{native_id}[{currency}] 模型 {id} 下架（retired_at={retired_at}，保留最后已知价）"
+                )
+            }
+            CatalogDiff::ModelReactivated {
+                native_id,
+                currency,
+                id,
+            } => {
+                format!("{native_id}[{currency}] 模型 {id} 重新上架")
+            }
+            CatalogDiff::PriceChanged {
+                native_id,
+                currency,
+                id,
+                field,
+                from,
+                to,
+            } => {
+                let fmt =
+                    |v: Option<f64>| v.map(|x| x.to_string()).unwrap_or_else(|| "null".into());
+                format!(
+                    "{native_id}[{currency}] {id}.{field}: {} → {}",
+                    fmt(*from),
+                    fmt(*to)
+                )
+            }
+            CatalogDiff::DefaultModelChanged {
+                native_id,
+                currency,
+                from,
+                to,
+            } => {
+                let fmt = |v: &Option<String>| v.clone().unwrap_or_else(|| "（空）".into());
+                format!(
+                    "{native_id}[{currency}] 默认模型: {} → {}",
+                    fmt(from),
+                    fmt(to)
+                )
+            }
+            CatalogDiff::WindowsChanged { native_id, scope } => {
+                format!("{native_id} 时段窗口变更（{scope}）")
+            }
+        }
+    }
+}
+
+/// 生成候选目录相对基线的差异报告（纯函数；按稳定顺序输出）。
+/// 物理删除在报告中显式列出（非法形状由 [`validate_no_removal`] 拒绝）。
+pub fn catalog_diff(baseline: &Catalog, candidate: &Catalog) -> Vec<CatalogDiff> {
+    let mut diffs = vec![CatalogDiff::RevisionChanged {
+        from: baseline.revision,
+        to: candidate.revision,
+    }];
+    let base_providers: Vec<&CatalogProvider> = baseline.providers.iter().collect();
+    let new_providers: Vec<&CatalogProvider> = candidate.providers.iter().collect();
+
+    for new_p in &new_providers {
+        let Some(base_p) = base_providers
+            .iter()
+            .find(|p| p.native_id == new_p.native_id)
+        else {
+            diffs.push(CatalogDiff::ProviderAdded {
+                native_id: new_p.native_id.clone(),
+            });
+            for suite in &new_p.suites {
+                diffs.push(CatalogDiff::SuiteAdded {
+                    native_id: new_p.native_id.clone(),
+                    currency: suite.currency.clone(),
+                });
+                for m in &suite.models {
+                    diffs.push(CatalogDiff::ModelAdded {
+                        native_id: new_p.native_id.clone(),
+                        currency: suite.currency.clone(),
+                        id: m.id.clone(),
+                    });
+                }
+            }
+            continue;
+        };
+        diff_provider(&mut diffs, base_p, new_p);
+    }
+    for base_p in &base_providers {
+        if !new_providers
+            .iter()
+            .any(|p| p.native_id == base_p.native_id)
+        {
+            diffs.push(CatalogDiff::ProviderRemoved {
+                native_id: base_p.native_id.clone(),
+            });
+        }
+    }
+    diffs
+}
+
+fn diff_provider(diffs: &mut Vec<CatalogDiff>, base_p: &CatalogProvider, new_p: &CatalogProvider) {
+    for new_s in &new_p.suites {
+        let Some(base_s) = base_p
+            .suites
+            .iter()
+            .find(|s| s.currency.eq_ignore_ascii_case(&new_s.currency))
+        else {
+            diffs.push(CatalogDiff::SuiteAdded {
+                native_id: new_p.native_id.clone(),
+                currency: new_s.currency.clone(),
+            });
+            for m in &new_s.models {
+                diffs.push(CatalogDiff::ModelAdded {
+                    native_id: new_p.native_id.clone(),
+                    currency: new_s.currency.clone(),
+                    id: m.id.clone(),
+                });
+            }
+            continue;
+        };
+        diff_suite(diffs, &new_p.native_id, base_s, new_s);
+    }
+    for base_s in &base_p.suites {
+        if !new_p
+            .suites
+            .iter()
+            .any(|s| s.currency.eq_ignore_ascii_case(&base_s.currency))
+        {
+            diffs.push(CatalogDiff::SuiteRemoved {
+                native_id: base_p.native_id.clone(),
+                currency: base_s.currency.clone(),
+            });
+        }
+    }
+}
+
+fn diff_suite(
+    diffs: &mut Vec<CatalogDiff>,
+    native_id: &str,
+    base_s: &CatalogSuite,
+    new_s: &CatalogSuite,
+) {
+    if base_s.windows != new_s.windows {
+        diffs.push(CatalogDiff::WindowsChanged {
+            native_id: native_id.into(),
+            scope: format!("suite:{}", new_s.currency),
+        });
+    }
+    if base_s.default_model != new_s.default_model {
+        diffs.push(CatalogDiff::DefaultModelChanged {
+            native_id: native_id.into(),
+            currency: new_s.currency.clone(),
+            from: base_s.default_model.clone(),
+            to: new_s.default_model.clone(),
+        });
+    }
+    for new_m in &new_s.models {
+        let Some(base_m) = base_s
+            .models
+            .iter()
+            .find(|m| m.id.eq_ignore_ascii_case(&new_m.id))
+        else {
+            diffs.push(CatalogDiff::ModelAdded {
+                native_id: native_id.into(),
+                currency: new_s.currency.clone(),
+                id: new_m.id.clone(),
+            });
+            continue;
+        };
+        diff_model(diffs, native_id, &new_s.currency, base_m, new_m);
+    }
+    for base_m in &base_s.models {
+        if !new_s
+            .models
+            .iter()
+            .any(|m| m.id.eq_ignore_ascii_case(&base_m.id))
+        {
+            diffs.push(CatalogDiff::ModelRemoved {
+                native_id: native_id.into(),
+                currency: new_s.currency.clone(),
+                id: base_m.id.clone(),
+            });
+        }
+    }
+}
+
+fn diff_model(
+    diffs: &mut Vec<CatalogDiff>,
+    native_id: &str,
+    currency: &str,
+    base_m: &CatalogModel,
+    new_m: &CatalogModel,
+) {
+    match (base_m.status, new_m.status) {
+        (ModelStatus::Active, ModelStatus::Retired) => {
+            diffs.push(CatalogDiff::ModelRetired {
+                native_id: native_id.into(),
+                currency: currency.into(),
+                id: new_m.id.clone(),
+                retired_at: new_m.retired_at.clone().unwrap_or_default(),
+            });
+        }
+        (ModelStatus::Retired, ModelStatus::Active) => {
+            diffs.push(CatalogDiff::ModelReactivated {
+                native_id: native_id.into(),
+                currency: currency.into(),
+                id: new_m.id.clone(),
+            });
+        }
+        _ => {}
+    }
+    if base_m.windows != new_m.windows {
+        diffs.push(CatalogDiff::WindowsChanged {
+            native_id: native_id.into(),
+            scope: format!("model:{currency}/{}", new_m.id),
+        });
+    }
+    for (name, (from, to)) in [
+        ("peak", (&base_m.peak, &new_m.peak)),
+        ("off_peak", (&base_m.off_peak, &new_m.off_peak)),
+    ] {
+        for (field, from_v, to_v) in [
+            (
+                "cache_hit_input",
+                from.as_ref().and_then(|t| t.cache_hit_input),
+                to.as_ref().and_then(|t| t.cache_hit_input),
+            ),
+            (
+                "cache_miss_input",
+                from.as_ref().and_then(|t| t.cache_miss_input),
+                to.as_ref().and_then(|t| t.cache_miss_input),
+            ),
+            (
+                "output",
+                from.as_ref().and_then(|t| t.output),
+                to.as_ref().and_then(|t| t.output),
+            ),
+        ] {
+            if from_v != to_v {
+                diffs.push(CatalogDiff::PriceChanged {
+                    native_id: native_id.into(),
+                    currency: currency.into(),
+                    id: new_m.id.clone(),
+                    field: format!("{name}.{field}"),
+                    from: from_v,
+                    to: to_v,
+                });
+            }
+        }
+    }
+}
+
 // ---- 装载与选套 --------------------------------------------------------------
 
 /// 内置种子目录（进程内单例）。种子随版本构建且由测试锁定，
@@ -884,6 +1239,112 @@ mod tests {
         let json = serde_json::to_string(cat).unwrap();
         let back: Catalog = serde_json::from_str(&json).unwrap();
         assert_eq!(cat, &back);
+    }
+
+    // ---- 差异报告（T-07：数据 PR 审核输入） --------------------------------------
+
+    /// 种子变异 helper：克隆种子并应用改动。
+    fn seed_variant(revision: u64, f: impl FnOnce(&mut Catalog)) -> Catalog {
+        let mut cat = bundled_catalog().clone();
+        cat.revision = revision;
+        f(&mut cat);
+        cat
+    }
+
+    /// 契约：差异报告覆盖审核所需维度——价格变化、下架、新增模型、
+    /// 默认模型变更、时段变更、物理删除（显式列出，非法由 no_removal 拒）。
+    #[test]
+    fn catalog_diff_reports_review_dimensions() {
+        let base = bundled_catalog().clone();
+        let candidate = seed_variant(2, |cat| {
+            for provider in &mut cat.providers {
+                if provider.native_id != "deepseek" {
+                    continue;
+                }
+                for suite in &mut provider.suites {
+                    // CNY：flash 涨价 + old 下架 + 新模型 + 换默认 + 平台窗口变
+                    if suite.currency == "CNY" {
+                        for m in &mut suite.models {
+                            if m.id == "flash" {
+                                m.peak = Some(PriceTier::full(0.99, 0.99, 0.99));
+                            }
+                            if m.id == "vision" {
+                                m.status = ModelStatus::Retired;
+                                m.retired_at = Some("2026-09-10".into());
+                            }
+                        }
+                        suite.models.push(CatalogModel {
+                            id: "brand-new".into(),
+                            display: "Brand New".into(),
+                            plan: PlanKind::PayAsYouGo,
+                            windows: None,
+                            peak: None,
+                            off_peak: None,
+                            status: ModelStatus::Active,
+                            source_urls: vec![],
+                            verified_at: None,
+                            retired_at: None,
+                        });
+                        suite.default_model = Some("pro".into());
+                        suite.windows.clear();
+                    }
+                }
+            }
+        });
+        let lines: Vec<String> = catalog_diff(&base, &candidate)
+            .iter()
+            .map(|d| d.report_line())
+            .collect();
+        let joined = lines.join("\n");
+        assert!(joined.contains("revision: 1 → 2"), "{joined}");
+        assert!(
+            joined.contains("deepseek[CNY] flash.peak.cache_hit_input: 0.04 → 0.99"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("vision 下架（retired_at=2026-09-10"),
+            "{joined}"
+        );
+        assert!(joined.contains("新增模型 brand-new"), "{joined}");
+        assert!(joined.contains("默认模型: flash → pro"), "{joined}");
+        assert!(joined.contains("时段窗口变更（suite:CNY）"), "{joined}");
+    }
+
+    /// 契约：物理删除在差异中显式报告（供审核定位；合法性由
+    /// validate_no_removal 拒绝——两者职责分离）。
+    #[test]
+    fn catalog_diff_lists_physical_removal() {
+        let base = bundled_catalog().clone();
+        let candidate = seed_variant(2, |cat| {
+            cat.providers[0].suites[0]
+                .models
+                .retain(|m| m.id != "flash");
+        });
+        let lines: Vec<String> = catalog_diff(&base, &candidate)
+            .iter()
+            .map(|d| d.report_line())
+            .collect();
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("flash 被物理删除（非法：应 retired 化保留）"),
+            "{joined}"
+        );
+    }
+
+    /// 契约：无变化目录的差异仅含 revision 行（同内容重发的审核噪声为零）。
+    #[test]
+    fn catalog_diff_same_content_only_revision() {
+        let base = bundled_catalog().clone();
+        let candidate = seed_variant(base.revision, |_| {});
+        let diffs = catalog_diff(&base, &candidate);
+        assert_eq!(diffs.len(), 1, "{diffs:?}");
+        assert_eq!(
+            diffs[0],
+            CatalogDiff::RevisionChanged {
+                from: base.revision,
+                to: candidate.revision
+            }
+        );
     }
 
     // ---- 物理删除对比校验（T-02：缓存防降级与发布校验共用） ----

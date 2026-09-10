@@ -337,6 +337,16 @@
                 "apps/quota-desktop/scripts/android-post-init.mjs"
               ]
             },
+            "catalog-data.yml": {
+              "kind": "file",
+              "desc": "定价目录数据校验工作流（T-07）",
+              "detail": [
+                "数据文件变化的 PR/push 触发：与运行时同一 core 校验器（quota pricing catalog validate），PR 对比 base 分支基线（revision 递增 + 物理删除 + 完整校验 + 审核差异报告）；push main 对比 HEAD~1。"
+              ],
+              "rel": [
+                "apps/quota-cli/src/cmd/pricing_catalog.rs"
+              ]
+            },
             "ci.yml": {
               "kind": "file",
               "desc": "桌面与Android CI",
@@ -2902,6 +2912,16 @@
               ]
             }
           }
+        },
+        "定价目录维护指南.md": {
+          "kind": "file",
+          "desc": "定价目录数据维护指南",
+          "detail": [
+            "数据维护者手册：修改流程（抓取脚本=候选输入、人工核验信息）、revision 递增与 retired 化规则、更高 revision 回滚流程、人工审核责任与分支保护现状（未配置，如实口径）、客户端行为参考。"
+          ],
+          "rel": [
+            "data/pricing/v1/catalog.json"
+          ]
         },
         "测试单": {
           "kind": "dir",

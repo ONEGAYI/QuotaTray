@@ -244,6 +244,18 @@ enum CatalogCmd {
         #[arg(long)]
         json: bool,
     },
+    /// 离线校验数据文件（与运行时同一 core 校验器；--baseline 附审核
+    /// 差异报告与 revision 递增 / 物理删除检查）
+    Validate {
+        /// 候选 catalog.json 路径
+        path: String,
+        /// 基线（main 版本）路径，省略则仅单包校验
+        #[arg(long)]
+        baseline: Option<String>,
+        /// 输出 JSON（供脚本消费）
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -589,6 +601,11 @@ async fn run(cli: Cli) -> i32 {
         Command::Pricing(PricingCmd::Catalog(CatalogCmd::Update { json })) => {
             cmd::pricing_catalog::run_update(&ctx, json).await
         }
+        Command::Pricing(PricingCmd::Catalog(CatalogCmd::Validate {
+            path,
+            baseline,
+            json,
+        })) => cmd::pricing_catalog::run_validate(&path, baseline.as_deref(), json),
         Command::Pricing(PricingCmd::Model(ModelCmd::Remove { provider, id })) => {
             cmd::pricing_models::run_remove(&ctx, &provider, &id)
         }

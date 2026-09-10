@@ -253,6 +253,7 @@ QuotaTray/
 ├── .github/                # GitHub 配置
 │   └── workflows/ # CI 工作流
 │       ├── android-release.yml # Android签名发布链
+│       ├── catalog-data.yml    # 定价目录数据校验工作流（T-07）
 │       └── ci.yml              # 桌面与Android CI
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
@@ -512,6 +513,7 @@ QuotaTray/
 │   │   ├── console-link-spec.md # 控制台直达规格（#59）
 │   │   ├── GUI-spec.md          # GUI 规格（M3）
 │   │   └── history-spec.md      # 历史存储规格（M5）
+│   ├── 定价目录维护指南.md      # 定价目录数据维护指南
 │   ├── 测试单/             # 真机端测执行清单目录
 │   │   └── 2026-08-29 安卓端端测清单.md # 安卓真机端测清单（更新链/升级/通用）
 │   ├── 移动端能力缺口追踪.md     # Android 能力缺口活追踪

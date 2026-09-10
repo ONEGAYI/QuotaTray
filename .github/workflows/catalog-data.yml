@@ -1,0 +1,58 @@
+name: catalog-data
+
+# 定价目录数据校验（T-07）：仅数据文件变化的 PR/push 触发；使用与
+# 运行时同一 core 解析器（quota pricing catalog validate），拒绝
+# 非法数据、revision 不递增与物理删除。路径过滤只作用于本工作流——
+# 若分支保护要求本检查为必需，"数据 PR 之外的 PR 不触发"不会造成
+# 永久 Pending（必需检查按 check 名匹配，非数据 PR 不需要它放行）。
+
+on:
+  pull_request:
+    paths:
+      - "data/pricing/v1/catalog.json"
+  push:
+    branches: [main]
+    paths:
+      - "data/pricing/v1/catalog.json"
+
+env:
+  RUST_TOOLCHAIN: "1.98.0"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 完整历史：取基线（PR 对 base 分支；push 对上一提交）
+          fetch-depth: 0
+      - name: 校验 Rust 工具链锁定
+        shell: bash
+        run: grep -Fqx "channel = \"${RUST_TOOLCHAIN}\"" rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+      - name: 导出基线目录
+        shell: bash
+        run: |
+          mkdir -p /tmp/catalog-baseline
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+          else
+            BASE_REF="HEAD~1"
+          fi
+          if git show "${BASE_REF}:data/pricing/v1/catalog.json" > /tmp/catalog-baseline/baseline.json 2>/dev/null; then
+            echo "HAS_BASELINE=1" >> "$GITHUB_ENV"
+          else
+            echo "HAS_BASELINE=0" >> "$GITHUB_ENV"
+          fi
+      - name: 单包完整校验（无基线：数据文件首次入库）
+        if: env.HAS_BASELINE == '0'
+        run: cargo run -p quota-cli -- pricing catalog validate data/pricing/v1/catalog.json
+      - name: 对比校验与审核差异报告
+        if: env.HAS_BASELINE == '1'
+        run: |
+          cargo run -p quota-cli -- pricing catalog validate \
+            data/pricing/v1/catalog.json \
+            --baseline /tmp/catalog-baseline/baseline.json

@@ -307,6 +307,99 @@ pub async fn run_update_with(
     code
 }
 
+/// `pricing catalog validate`：离线校验数据文件（使用与运行时相同的
+/// core 解析器与校验规则，无第二套 schema 解释）。仅传候选路径时做
+/// 单包完整校验；附 `--baseline` 时额外生成审核差异报告并执行
+/// revision 递增与物理删除检查（数据 PR / CI 共用入口）。
+pub fn run_validate(path: &str, baseline: Option<&str>, json: bool) -> i32 {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("读取 {path} 失败：{e}");
+            return 1;
+        }
+    };
+    let candidate = match quota_core::parse_catalog(&text) {
+        Ok(c) => c,
+        Err(e) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"valid": false, "error": e.to_string()})
+                );
+            } else {
+                eprintln!("校验失败：{e}");
+            }
+            return 1;
+        }
+    };
+    let Some(baseline_path) = baseline else {
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({"valid": true, "revision": candidate.revision})
+            );
+        } else {
+            println!("校验通过：revision {}", candidate.revision);
+        }
+        return 0;
+    };
+    let base_text = match std::fs::read_to_string(baseline_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("读取基线 {baseline_path} 失败：{e}");
+            return 1;
+        }
+    };
+    let base = match quota_core::parse_catalog(&base_text) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("基线校验失败（基线本身必须合法）：{e}");
+            return 1;
+        }
+    };
+    // 物理删除 / revision 不递增 / 同版本异内容：确定性拒绝
+    let mut failures: Vec<String> = Vec::new();
+    if let Err(e) = quota_core::validate_no_removal(&candidate, &base) {
+        failures.push(e.to_string());
+    }
+    if candidate.revision <= base.revision {
+        failures.push(format!(
+            "revision 须严格递增：基线 {}，候选 {}",
+            base.revision, candidate.revision
+        ));
+    }
+    let diffs = quota_core::catalog_diff(&base, &candidate);
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "valid": failures.is_empty(),
+                "revision": candidate.revision,
+                "baseline_revision": base.revision,
+                "failures": failures,
+                "diffs": diffs.iter().map(|d| d.report_line()).collect::<Vec<_>>(),
+            })
+        );
+    } else {
+        println!(
+            "审核差异（基线 rev{} → 候选 rev{}）：",
+            base.revision, candidate.revision
+        );
+        for d in &diffs {
+            println!("  - {}", d.report_line());
+        }
+        if failures.is_empty() {
+            println!("对比校验通过");
+        } else {
+            for f in &failures {
+                eprintln!("拒绝：{f}");
+            }
+        }
+    }
+    if failures.is_empty() { 0 } else { 1 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

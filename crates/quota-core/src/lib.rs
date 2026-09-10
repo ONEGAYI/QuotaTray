@@ -54,9 +54,9 @@ pub use pricing_catalog::sync::{
     evaluate_incoming, load_effective,
 };
 pub use pricing_catalog::{
-    CATALOG_SCHEMA_VERSION, Catalog, CatalogError, CatalogModel, CatalogProvider, CatalogSuite,
-    MAX_REVISION, ModelStatus, bundled_catalog, find_suite, parse_catalog, validate_catalog,
-    validate_no_removal,
+    CATALOG_SCHEMA_VERSION, Catalog, CatalogDiff, CatalogError, CatalogModel, CatalogProvider,
+    CatalogSuite, MAX_REVISION, ModelStatus, bundled_catalog, catalog_diff, find_suite,
+    parse_catalog, validate_catalog, validate_no_removal,
 };
 pub use query::{DEFAULT_TIMEOUT, QueryEngine};
 pub use runtime::{
