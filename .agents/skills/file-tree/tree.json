@@ -2870,6 +2870,37 @@
       "kind": "dir",
       "desc": "文档",
       "children": {
+        "agents": {
+          "kind": "dir",
+          "desc": "工程技能配置文档",
+          "children": {
+            "domain.md": {
+              "kind": "file",
+              "desc": "工程技能领域文档消费规则",
+              "detail": [
+                "工程技能探索代码前的领域文档消费规则：单一上下文布局，词汇基准指向",
+                "AGENTS.md 术语表与设计决策快照，与既有决策冲突时显式标注。"
+              ]
+            },
+            "issue-tracker.md": {
+              "kind": "file",
+              "desc": "工程技能 issue 约定",
+              "detail": [
+                "任务包（spec+工单）以 GitHub Issues 为唯一载体的操作约定：gh CLI 命令、",
+                "sub-issues 与 blocked-by 原生依赖、frontier 查询口径、PR closing 语义；",
+                "setup-matt-pocock-skills 于 2026-09-10 生成，含本地化裁剪（任务包编号 T-NN 延续）。"
+              ]
+            },
+            "triage-labels.md": {
+              "kind": "file",
+              "desc": "分诊标签角色映射表",
+              "detail": [
+                "五个规范分诊角色（needs-triage/needs-info/ready-for-agent/ready-for-human/wontfix）",
+                "到本仓库标签字符串的映射；ready-for-agent 仅表示无前置依赖且规格完备。"
+              ]
+            }
+          }
+        },
         "Android端预览版说明.md": {
           "kind": "file",
           "desc": "Android预览端说明",
@@ -3076,6 +3107,19 @@
               "detail": [
                 "结论：百炼无 OAuth 余额通道（Qwen OAuth 已于 2026-04-15 停摆且从不覆盖余额），sk- model key 实测无余额端点；可行路径为 BssOpenApi QueryAccountBalance + AK/SK，RPC V1 签名官方向量双重验证、实测打通。",
                 "Coding Plan 配额无查询 API 搁置；含 provider 接入建议与 guide 渲染器 Markdown 子集约定。"
+              ]
+            },
+            "2026-09-10 DeepSeek新模型定价调研.md": {
+              "kind": "file",
+              "desc": "DeepSeek V4.1 定价调研",
+              "detail": [
+                "2026-09-10 官网实抓调研：V4.1-Flash 发布、V4-Flash/Vision-Exp 下线（旧名兼容路由）、",
+                "V4 Pro 预告 09-14 路由计费；含中英价格表、与目录 revision 1 差异清单、时间线、",
+                "抓取组件影响评估与三项待决口径。数据 PR（issues #109/#111）的审核依据。"
+              ],
+              "rel": [
+                "data/pricing/v1/catalog.json",
+                "scripts/fetch_pricing/providers/deepseek.py"
               ]
             }
           }
