@@ -563,8 +563,13 @@ async fn run(cli: Cli) -> i32 {
             | Command::Add { json: true }
             | Command::History(HistoryCmd::Show { json: true, .. })
             | Command::Assist(_)
+            | Command::Pricing(PricingCmd::Show { json: true, .. })
+            | Command::Pricing(PricingCmd::Model(ModelCmd::List { json: true, .. }))
     );
-    let is_update_cmd = matches!(&cli.command, Command::Update { .. });
+    let is_update_cmd = matches!(
+        &cli.command,
+        Command::Update { .. } | Command::Pricing(PricingCmd::Catalog(_))
+    );
 
     let code = match cli.command {
         Command::List { json } => cmd::list::run(&ctx, json),

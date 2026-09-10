@@ -186,17 +186,26 @@ pub fn entry_lines(
 /// 未配置峰谷定价（无预置且未自定义）返回空——不追加任何行。
 #[cfg(test)]
 pub fn pricing_lines(entry: &ProviderEntry, now_ms: u64, lang: Lang) -> Vec<String> {
-    pricing_lines_with(entry, &Default::default(), None, now_ms, lang)
+    pricing_lines_with(
+        quota_core::bundled_catalog(),
+        entry,
+        &Default::default(),
+        None,
+        now_ms,
+        lang,
+    )
 }
 
 fn pricing_lines_with(
+    catalog: &quota_core::Catalog,
     entry: &ProviderEntry,
     custom_models: &BTreeMap<String, Vec<CustomModelDef>>,
     currency_hint: Option<&str>,
     now_ms: u64,
     lang: Lang,
 ) -> Vec<String> {
-    let Some(resolved) = pricing::resolve_in_currency(entry, custom_models, currency_hint) else {
+    let Some(resolved) = pricing::resolve_in_catalog(entry, custom_models, currency_hint, catalog)
+    else {
         return vec![];
     };
     let kind = resolved.kind(now_ms);
@@ -413,6 +422,7 @@ fn pricing_currency_hint<'a>(
 /// 仅收录 resolve 出生效峰谷配置的条目——禁用或无峰谷配置的条目
 /// 无标签可翻转，不参与 [`rebuild_on_peak_flip`] 的缓存比对。
 fn peak_map(
+    catalog: &quota_core::Catalog,
     cfg: &AppConfig,
     results: &HashMap<String, EntryState>,
     now: u64,
@@ -422,7 +432,7 @@ fn peak_map(
         .filter(|entry| entry.enabled)
         .filter_map(|entry| {
             let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
-            pricing::resolve_in_currency(entry, &cfg.custom_models, currency_hint)
+            pricing::resolve_in_catalog(entry, &cfg.custom_models, currency_hint, catalog)
                 .map(|resolved| (entry.id.clone(), resolved.kind(now)))
         })
         .collect()
@@ -438,7 +448,7 @@ pub fn rebuild_on_peak_flip(app: &AppHandle, state: &AppState) {
         return;
     };
     let now = now_ms();
-    let current = peak_map(&cfg, &results, now);
+    let current = peak_map(&state.catalog_effective().catalog, &cfg, &results, now);
     let mut last = state.last_peak.write().unwrap();
     if *last == current {
         return;
@@ -461,6 +471,7 @@ fn build_menu(
     let t = lang.texts();
     let now = now_ms();
     let menu = Menu::new(app)?;
+    let catalog = app.state::<AppState>().catalog_effective().catalog;
     // 数据/峰谷行只挂「当前展示条目」（圆环数据源，与「图标显示」子菜单
     // 同一回退语义）：托盘菜单是快捷入口，其余条目在主窗口查看，
     // 避免灰色信息行随条目数线性膨胀
@@ -487,9 +498,16 @@ fn build_menu(
             }
             // 峰谷行（disabled，id 独立前缀避免与数据行混同）
             let currency_hint = pricing_currency_hint(entry, results.get(&entry.id));
-            for (i, line) in pricing_lines_with(entry, &cfg.custom_models, currency_hint, now, lang)
-                .iter()
-                .enumerate()
+            for (i, line) in pricing_lines_with(
+                &catalog,
+                entry,
+                &cfg.custom_models,
+                currency_hint,
+                now,
+                lang,
+            )
+            .iter()
+            .enumerate()
             {
                 menu.append(&MenuItem::with_id(
                     app,
@@ -720,6 +738,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tray_prices_and_peak_map_use_effective_catalog() {
+        let mut catalog = quota_core::bundled_catalog().clone();
+        let suite = &mut catalog
+            .providers
+            .iter_mut()
+            .find(|p| p.native_id == "deepseek")
+            .unwrap()
+            .suites[0];
+        suite.windows.clear();
+        for model in &mut suite.models {
+            model.windows = Some(vec![]);
+            model.off_peak = Some(quota_core::PriceTier::full(1.0, 2.0, 77.0));
+        }
+        let e = entry_with(None);
+        let lines = pricing_lines_with(&catalog, &e, &Default::default(), None, PEAK_NOW, Lang::Zh);
+        assert!(lines.iter().any(|line| line.contains("77")), "{lines:?}");
+        let mut cfg = AppConfig::default();
+        cfg.providers.push(e);
+        let peaks = peak_map(&catalog, &cfg, &HashMap::new(), PEAK_NOW);
+        assert_eq!(peaks["p1"], PeakKind::OffPeak);
+    }
+
     // ---- 峰谷信息行（与 core pricing 测试同款时间锚点） ----
 
     /// 北京时间 2026-08-19（周三）09:30（DeepSeek 高峰内）。
@@ -789,7 +830,14 @@ mod tests {
     fn pricing_lines_follow_currency_and_custom_model_library() {
         let e = entry_with(None);
         assert_eq!(
-            pricing_lines_with(&e, &Default::default(), Some("USD"), OFF_NOW, Lang::Zh),
+            pricing_lines_with(
+                quota_core::bundled_catalog(),
+                &e,
+                &Default::default(),
+                Some("USD"),
+                OFF_NOW,
+                Lang::Zh
+            ),
             vec![
                 "空闲 · V4 Flash",
                 "命中 0.007 · 未命中 0.22 · 输出 0.66 USD/Mtok"
@@ -814,7 +862,14 @@ mod tests {
             ..Default::default()
         }));
         assert_eq!(
-            pricing_lines_with(&e, &models, None, PEAK_NOW, Lang::Zh),
+            pricing_lines_with(
+                quota_core::bundled_catalog(),
+                &e,
+                &models,
+                None,
+                PEAK_NOW,
+                Lang::Zh
+            ),
             vec!["⚡ 高峰 · V4 Flash（自算）", "输出 9.1 CNY/Mtok"]
         );
     }
@@ -841,7 +896,14 @@ mod tests {
         };
         let wed_1500_bj = 1_787_122_800_000;
         assert_eq!(
-            pricing_lines_with(&e, &Default::default(), Some("%"), wed_1500_bj, Lang::Zh,),
+            pricing_lines_with(
+                quota_core::bundled_catalog(),
+                &e,
+                &Default::default(),
+                Some("%"),
+                wed_1500_bj,
+                Lang::Zh,
+            ),
             vec!["⚡ 高峰 · GLM Coding Plan（订阅积分）", "订阅积分制"]
         );
     }
@@ -876,12 +938,22 @@ mod tests {
             ..Default::default()
         };
 
-        let map = peak_map(&cfg, &HashMap::new(), PEAK_NOW);
+        let map = peak_map(
+            quota_core::bundled_catalog(),
+            &cfg,
+            &HashMap::new(),
+            PEAK_NOW,
+        );
         assert_eq!(map.len(), 1, "只有带峰谷配置的启用条目参与（p1）：{map:?}");
         assert_eq!(map.get("p1"), Some(&PeakKind::Peak));
 
         // 同一条目跨过翻转边界 → 判定翻转（调用方据比对结果广播+重建）
-        let map_off = peak_map(&cfg, &HashMap::new(), OFF_NOW);
+        let map_off = peak_map(
+            quota_core::bundled_catalog(),
+            &cfg,
+            &HashMap::new(),
+            OFF_NOW,
+        );
         assert_eq!(map_off.get("p1"), Some(&PeakKind::OffPeak));
 
         // 条目清空 → 空 map（条目增删触发一次比对差异，无害）
@@ -889,7 +961,15 @@ mod tests {
             providers: vec![],
             ..Default::default()
         };
-        assert!(peak_map(&empty, &HashMap::new(), PEAK_NOW).is_empty());
+        assert!(
+            peak_map(
+                quota_core::bundled_catalog(),
+                &empty,
+                &HashMap::new(),
+                PEAK_NOW
+            )
+            .is_empty()
+        );
     }
 
     /// 契约：当前档价格全缺时只显示类型行；部分缺价跳过该字段。

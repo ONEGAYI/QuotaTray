@@ -39,6 +39,7 @@ import {
   withProviderModel,
 } from "./providerPricing";
 import { formatPrice } from "./pricingDraft";
+import { PricingProvenance } from "./PricingProvenance";
 import { Badge, Button, ConfirmDialog, DropdownMenu, IconButton, MenuItem, Tooltip } from "./ui";
 
 interface Props {
@@ -172,6 +173,7 @@ export const ProviderCard = memo(function ProviderCard({
   const modelChoices = pricingModelChoices(
     nativeMeta?.pricing ?? null,
     nativeMeta?.custom_models ?? [],
+    entry.pricing?.model,
   );
   const platformName = kindLabel(entry.kind, nativeMeta?.name, lang);
   const platformIconUrl =
@@ -193,7 +195,8 @@ export const ProviderCard = memo(function ProviderCard({
     `${platformName} · ${choice.label}` +
     (choice.value === "default" ? t("pricing.presetDefault") : "") +
     (choice.source === "custom" ? ` · ${t("pricing.libraryModel")}` : "") +
-    (choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : "");
+    (choice.plan === "subscription" ? ` · ${t("pricing.subscriptionShort")}` : "") +
+    (choice.status === "retired" ? ` · ${t("pricing.retiredTag")}` : "");
   // 收起态 select 只显示截断文字，悬停以选中项全文作 title
   const selectedTitle = explicitModelChoice
     ? optionText(explicitModelChoice)
@@ -470,6 +473,9 @@ export const ProviderCard = memo(function ProviderCard({
             </div>
           ) : pricingView ? (
             <>
+              {pricingView.modelStatus === "retired" && (
+                <Badge tone="warning">{t("pricing.retiredNote")}</Badge>
+              )}
               <div className="qt-pricing-context">
                 <span className={`qt-period-dot ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`} />
                 <span className={`qt-period-text ${pricingView.period === "peak" ? "is-peak" : "is-offpeak"}`}>
@@ -490,12 +496,17 @@ export const ProviderCard = memo(function ProviderCard({
                   <Badge tone="accent">{t("pricing.subscriptionShort")}</Badge>
                   <span>{t("pricing.subscriptionHint")}</span>
                 </div>
-              ) : pricingView.tier && (
+              ) : pricingView.tier ? (
                 <dl className="qt-provider-prices">
                   <div><dt>{t("pricing.hit")}</dt><dd>{formatPrice(pricingView.tier.cache_hit_input)}</dd></div>
                   <div><dt>{t("pricing.miss")}</dt><dd>{formatPrice(pricingView.tier.cache_miss_input)}</dd></div>
                   <div><dt>{t("pricing.out")}</dt><dd>{formatPrice(pricingView.tier.output)}</dd></div>
                 </dl>
+              ) : (
+                <span>{t("pricing.unknownPrice")}</span>
+              )}
+              {(pricingView.modelStatus === "active" || pricingView.modelStatus === "retired") && (
+                <PricingProvenance sourceUrls={pricingView.sourceUrls} verifiedAt={pricingView.verifiedAt} />
               )}
             </>
           ) : (

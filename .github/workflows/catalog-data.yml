@@ -3,8 +3,8 @@ name: catalog-data
 # 定价目录数据校验（T-07）：仅数据文件变化的 PR/push 触发；使用与
 # 运行时同一 core 解析器（quota pricing catalog validate），拒绝
 # 非法数据、revision 不递增与物理删除。路径过滤只作用于本工作流——
-# 若分支保护要求本检查为必需，"数据 PR 之外的 PR 不触发"不会造成
-# 永久 Pending（必需检查按 check 名匹配，非数据 PR 不需要它放行）。
+# 若将本工作流设为必需检查，须先取消路径过滤或提供始终运行的汇总检查，
+# 否则非数据 PR 可能因等待未触发的检查而无法合并。
 
 on:
   pull_request:
@@ -26,6 +26,10 @@ jobs:
         with:
           # 完整历史：取基线（PR 对 base 分支；push 对上一提交）
           fetch-depth: 0
+      - name: 安装 CLI 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
       - name: 校验 Rust 工具链锁定
         shell: bash
         run: grep -Fqx "channel = \"${RUST_TOOLCHAIN}\"" rust-toolchain.toml

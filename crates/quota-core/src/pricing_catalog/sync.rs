@@ -270,6 +270,42 @@ struct SharedState {
     last_error: Option<String>,
 }
 
+impl SharedState {
+    fn load(data_root: &Path) -> Self {
+        let text = std::fs::read_to_string(data_root.join(CATALOG_CACHE_FILE)).ok();
+        let effective = text
+            .as_deref()
+            .map(effective_from_envelope_json)
+            .unwrap_or_else(|| bundled_effective(FallbackReason::NoCache));
+        let envelope = text
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<CatalogCacheEnvelope>(text).ok())
+            .filter(|e| {
+                e.schema_version == ENVELOPE_SCHEMA_VERSION
+                    && crate::pricing_catalog::validate_catalog(&e.catalog).is_ok()
+            });
+        Self {
+            effective,
+            last_attempt_ms: envelope.as_ref().and_then(|e| e.last_attempt_ms),
+            last_success_ms: envelope.as_ref().and_then(|e| e.last_success_ms),
+            last_error: envelope.and_then(|e| e.last_error),
+        }
+    }
+
+    fn reconcile(&mut self, disk: Self) -> bool {
+        let changed = disk.effective.catalog.revision > self.effective.catalog.revision;
+        if changed {
+            self.effective = disk.effective;
+        }
+        self.last_success_ms = self.last_success_ms.max(disk.last_success_ms);
+        if disk.last_attempt_ms > self.last_attempt_ms {
+            self.last_attempt_ms = disk.last_attempt_ms;
+            self.last_error = disk.last_error;
+        }
+        changed
+    }
+}
+
 impl CatalogSync {
     /// 构造并装载初始有效目录（缓存 vs 种子）。
     pub fn new(
@@ -279,19 +315,14 @@ impl CatalogSync {
         now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
     ) -> Self {
         let data_root = data_root.into();
-        let effective = load_effective(&data_root);
+        let shared = SharedState::load(&data_root);
         Self {
             data_root,
             direct,
             proxied,
             now_ms,
             in_flight: std::sync::atomic::AtomicBool::new(false),
-            shared: RwLock::new(SharedState {
-                effective,
-                last_attempt_ms: None,
-                last_success_ms: None,
-                last_error: None,
-            }),
+            shared: RwLock::new(shared),
         }
     }
 
@@ -318,14 +349,9 @@ impl CatalogSync {
     /// 高于内存时重新装载（本地读取，不产生网络请求；不降级）。
     /// 返回 true 表示发生了升级（应用端据此广播目录变更）。
     pub fn reload_from_disk_if_newer(&self) -> bool {
-        let on_disk = load_effective(&self.data_root);
+        let on_disk = SharedState::load(&self.data_root);
         let mut s = self.shared.write().unwrap();
-        if on_disk.catalog.revision > s.effective.catalog.revision {
-            s.effective = on_disk;
-            true
-        } else {
-            false
-        }
+        s.reconcile(on_disk)
     }
 
     /// 执行一次更新（到期判定由调用方负责；手动更新直接调用）。
@@ -352,86 +378,71 @@ impl CatalogSync {
         };
 
         let now = (self.now_ms)();
-        let incoming = match fetched {
-            Ok((incoming, CatalogDecision::Apply)) => incoming,
-            Ok((_, CatalogDecision::Unchanged { .. })) => {
-                self.note_attempt(now, None, true);
-                return CatalogUpdateOutcome::Unchanged {
-                    revision: self.effective().catalog.revision,
-                };
-            }
-            Ok((_, reject)) => {
-                let msg = reject_message(&reject);
-                self.note_attempt(now, Some(&msg), true);
-                return CatalogUpdateOutcome::Failed(CatalogSyncError::Rejected(msg));
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                self.note_attempt(now, Some(&msg), true);
-                return CatalogUpdateOutcome::Failed(e);
-            }
-        };
-
-        // 跨进程写锁：存在即忙碌，不删他人锁文件强抢
+        // 所有结果都可能写同步元数据，因此所有信封写入必须使用同一把锁。
+        if let Err(e) = std::fs::create_dir_all(&self.data_root) {
+            return self.io_failure(now, e);
+        }
         let lock_path = self.data_root.join(CATALOG_LOCK_FILE);
         let _lock = match FileLock::acquire(&lock_path) {
-            Some(lock) => lock,
-            None => {
-                // 锁忙：只更新内存元数据（不写盘，避免互踩）
-                self.note_attempt(now, Some("跨进程写锁被其他进程持有"), false);
+            Ok(Some(lock)) => lock,
+            Ok(None) => {
+                self.note_attempt(now, Some("跨进程写锁被其他进程持有"));
                 return CatalogUpdateOutcome::Busy;
             }
+            Err(e) => return self.io_failure(now, e),
         };
 
-        // 锁内重读磁盘信封：另一进程可能已写入更高版本（比内存新即先升级
-        // 基准），再与候选包比较，防止旧包覆盖他进程的新版本
-        let mut baseline = self.effective();
-        let disk = load_effective(&self.data_root);
-        if disk.catalog.revision > baseline.catalog.revision {
-            baseline = disk;
-        }
-        match decide_between(&baseline.catalog, &incoming) {
-            CatalogDecision::Apply => {
-                let envelope = CatalogCacheEnvelope {
-                    schema_version: ENVELOPE_SCHEMA_VERSION,
-                    catalog: incoming.clone(),
-                    last_attempt_ms: Some(now),
-                    last_success_ms: Some(now),
-                    last_error: None,
-                };
-                let json = serde_json::to_string(&envelope).expect("信封序列化不失败");
-                let cache_path = self.data_root.join(CATALOG_CACHE_FILE);
-                if let Err(e) = write_atomic_bytes(&cache_path, json.as_bytes()) {
-                    // 写入失败：沿用当前内存快照，如实报告失败
-                    let msg = format!("缓存写入失败：{e}");
-                    self.note_attempt(now, Some(&msg), false);
-                    return CatalogUpdateOutcome::Failed(CatalogSyncError::Io(msg));
+        let mut snapshot = self.shared.read().unwrap().clone();
+        snapshot.reconcile(SharedState::load(&self.data_root));
+        // 网络期间基线可能已经变化，锁内必须重新比较并校验模型保留约束。
+        let outcome = match fetched {
+            Err(e) => CatalogUpdateOutcome::Failed(e),
+            Ok((incoming, _)) => match decide_between(&snapshot.effective.catalog, &incoming) {
+                CatalogDecision::Apply => {
+                    match validate_no_removal(&incoming, &snapshot.effective.catalog) {
+                        Err(e) => {
+                            CatalogUpdateOutcome::Failed(CatalogSyncError::Rejected(e.to_string()))
+                        }
+                        Ok(()) => {
+                            snapshot.effective = EffectiveCatalog {
+                                catalog: incoming.clone(),
+                                origin: CatalogOrigin::Cached,
+                                fallback_reason: None,
+                            };
+                            CatalogUpdateOutcome::Updated { catalog: incoming }
+                        }
+                    }
                 }
-                // 替换成功才发布新内存快照（spec §6 步骤 6）
-                let applied = EffectiveCatalog {
-                    catalog: incoming,
-                    origin: CatalogOrigin::Cached,
-                    fallback_reason: None,
-                };
-                {
-                    let mut s = self.shared.write().unwrap();
-                    s.effective = applied;
-                    s.last_attempt_ms = Some(now);
-                    s.last_success_ms = Some(now);
-                    s.last_error = None;
-                }
-                CatalogUpdateOutcome::Updated {
-                    catalog: self.effective().catalog,
-                }
-            }
-            // 锁内重读后基线不低于候选（他进程已更新）：作无变化处理
+                CatalogDecision::Unchanged { .. } => CatalogUpdateOutcome::Unchanged {
+                    revision: snapshot.effective.catalog.revision,
+                },
+                reject => CatalogUpdateOutcome::Failed(CatalogSyncError::Rejected(reject_message(
+                    &reject,
+                ))),
+            },
+        };
+        snapshot.last_attempt_ms = Some(now);
+        snapshot.last_error = match &outcome {
+            CatalogUpdateOutcome::Failed(error) => Some(error.to_string()),
             _ => {
-                self.note_attempt(now, None, true);
-                CatalogUpdateOutcome::Unchanged {
-                    revision: baseline.catalog.revision,
-                }
+                snapshot.last_success_ms = Some(now);
+                None
             }
+        };
+        let envelope = CatalogCacheEnvelope {
+            schema_version: ENVELOPE_SCHEMA_VERSION,
+            catalog: snapshot.effective.catalog.clone(),
+            last_attempt_ms: snapshot.last_attempt_ms,
+            last_success_ms: snapshot.last_success_ms,
+            last_error: snapshot.last_error.clone(),
+        };
+        let json = serde_json::to_vec(&envelope).expect("信封序列化不失败");
+        if let Err(e) = write_atomic_bytes(&self.data_root.join(CATALOG_CACHE_FILE), &json) {
+            return self.io_failure(now, e);
         }
+        // 完整信封替换成功后，才发布对应快照和元数据。
+        *self.shared.write().unwrap() = snapshot;
+        outcome
     }
 
     /// 获取并判定（单通道半程）：网络 → 状态/体积 → 解析校验 → 版本判定。
@@ -475,32 +486,17 @@ impl CatalogSync {
         }
     }
 
-    /// 更新内存元数据；`persist` 时把（目录不变、元数据更新）的信封落盘，
-    /// 落盘失败仅保留内存侧记录（目录数据不受影响）。
-    fn note_attempt(&self, now_ms: u64, error: Option<&str>, persist: bool) {
-        let snapshot = {
-            let mut s = self.shared.write().unwrap();
-            s.last_attempt_ms = Some(now_ms);
-            s.last_error = error.map(str::to_string);
-            if error.is_none() {
-                s.last_success_ms = Some(now_ms);
-            }
-            s.clone()
-        };
-        if persist {
-            let envelope = CatalogCacheEnvelope {
-                schema_version: ENVELOPE_SCHEMA_VERSION,
-                catalog: snapshot.effective.catalog,
-                last_attempt_ms: snapshot.last_attempt_ms,
-                last_success_ms: snapshot.last_success_ms,
-                last_error: snapshot.last_error,
-            };
-            if let Ok(json) = serde_json::to_string(&envelope) {
-                // 元数据写入失败不影响结果分类（磁盘留着旧信封，下次覆盖）
-                let _ =
-                    write_atomic_bytes(&self.data_root.join(CATALOG_CACHE_FILE), json.as_bytes());
-            }
-        }
+    /// 未能持锁或写盘失败时，只记录内存状态，绝不旁路写缓存。
+    fn note_attempt(&self, now_ms: u64, error: Option<&str>) {
+        let mut s = self.shared.write().unwrap();
+        s.last_attempt_ms = Some(now_ms);
+        s.last_error = error.map(str::to_string);
+    }
+
+    fn io_failure(&self, now_ms: u64, error: std::io::Error) -> CatalogUpdateOutcome {
+        let error = CatalogSyncError::Io(format!("缓存写入失败：{error}"));
+        self.note_attempt(now_ms, Some(&error.to_string()));
+        CatalogUpdateOutcome::Failed(error)
     }
 }
 
@@ -536,7 +532,7 @@ struct FileLock {
 }
 
 impl FileLock {
-    fn acquire(path: &Path) -> Option<Self> {
+    fn acquire(path: &Path) -> std::io::Result<Option<Self>> {
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -545,11 +541,12 @@ impl FileLock {
             Ok(mut file) => {
                 use std::io::Write;
                 let _ = writeln!(file, "pid={}", std::process::id());
-                Some(FileLock {
+                Ok(Some(FileLock {
                     path: path.to_path_buf(),
-                })
+                }))
             }
-            Err(_) => None,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(None),
+            Err(e) => Err(e),
         }
     }
 }
@@ -628,6 +625,18 @@ mod tests {
     }
 
     // ---- V-04 装载：缓存 vs 种子 ----
+
+    #[tokio::test]
+    async fn restarted_sync_preserves_last_success_after_failure() {
+        let dir = TempDir::new("metadata-restart");
+        let first = sync_with(&dir, MockHttp::ok(&pkg(3)));
+        first.update().await;
+        let restarted = sync_with(&dir, MockHttp::seq_of(&[MockResp::Fail]));
+        assert_eq!(restarted.status().last_success_ms, Some(NOW));
+        restarted.update().await;
+        assert_eq!(envelope_on_disk(&dir).last_success_ms, Some(NOW));
+        assert!(restarted.status().last_error.is_some());
+    }
 
     /// 契约：初装离线（无缓存）→ 内置种子，回退原因 NoCache。
     #[test]
@@ -790,6 +799,44 @@ mod tests {
     }
 
     // ---- V-06 版本单调 / 并发 / 写入 ----
+
+    #[tokio::test]
+    async fn stale_instance_attempt_preserves_other_process_newer_catalog() {
+        for response in [
+            MockHttp::seq_of(&[MockResp::Fail]),
+            MockHttp::ok(&pkg(1)),
+            MockHttp::ok(&pkg(2)),
+            MockHttp::ok(&pkg(3)),
+        ] {
+            let dir = TempDir::new("stale-instance");
+            let stale = sync_with(&dir, response);
+            let writer = sync_with(&dir, MockHttp::ok(&pkg(3)));
+            assert!(matches!(
+                writer.update().await,
+                CatalogUpdateOutcome::Updated { .. }
+            ));
+            stale.update().await;
+            assert_eq!(envelope_on_disk(&dir).catalog.revision, 3);
+            assert_eq!(stale.effective().catalog.revision, 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_attempt_respects_foreign_write_lock() {
+        let dir = TempDir::new("failure-lock");
+        let stale = sync_with(&dir, MockHttp::seq_of(&[MockResp::Fail]));
+        let writer = sync_with(&dir, MockHttp::ok(&pkg(3)));
+        writer.update().await;
+        let before = std::fs::read(dir.0.join(CATALOG_CACHE_FILE)).unwrap();
+        let lock = dir.0.join(CATALOG_LOCK_FILE);
+        std::fs::write(&lock, "another process").unwrap();
+        stale.update().await;
+        assert_eq!(
+            std::fs::read(dir.0.join(CATALOG_CACHE_FILE)).unwrap(),
+            before
+        );
+        assert!(lock.exists());
+    }
 
     /// 契约：先 rev3 后 rev2（先发后到）→ revision 不倒退；重复同包 →
     /// Unchanged（不发变更信号）；人工回滚（更高 rev 携带旧价）→ Apply。

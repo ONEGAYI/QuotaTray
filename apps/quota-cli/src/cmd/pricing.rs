@@ -27,6 +27,9 @@ pub fn kind_label(lang: Lang, kind: PeakKind) -> &'static str {
 /// `pricing show --json` 的输出结构（生效定价 + 当前判定 + 下次切换）。
 #[derive(Serialize)]
 pub struct PricingShowJson {
+    /// 官方模型资料；用户覆盖价格仍以 source=custom 标识。
+    pub source_urls: Vec<String>,
+    pub verified_at: Option<String>,
     pub id: String,
     pub name: String,
     /// "peak" | "off_peak"
@@ -90,6 +93,8 @@ pub fn show_json(id: &str, name: &str, resolved: &ResolvedPricing, now_ms: u64) 
         PricingSource::Custom => ("custom", None),
     };
     PricingShowJson {
+        source_urls: vec![],
+        verified_at: None,
         id: id.into(),
         name: name.into(),
         kind: kind_str(resolved.kind(now_ms)),
@@ -208,8 +213,31 @@ pub async fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
         return 0;
     };
     let now = settings_io::now_ms();
+    let evidence = match &entry.kind {
+        quota_core::ProviderKind::Native { provider }
+            if matches!(
+                resolved.model_status,
+                pricing::ResolvedModelStatus::Active | pricing::ResolvedModelStatus::Retired
+            ) =>
+        {
+            quota_core::pricing_catalog::find_suite(&catalog.catalog, provider, hint).and_then(
+                |suite| {
+                    let id = entry
+                        .pricing
+                        .as_ref()
+                        .and_then(|p| p.model.as_deref())
+                        .or(suite.default_model.as_deref())?;
+                    suite.models.iter().find(|m| m.id.eq_ignore_ascii_case(id))
+                },
+            )
+        }
+        _ => None,
+    };
     if json {
-        match serde_json::to_string_pretty(&show_json(&entry.id, &entry.name, &resolved, now)) {
+        let mut value = show_json(&entry.id, &entry.name, &resolved, now);
+        value.source_urls = evidence.map(|m| m.source_urls.clone()).unwrap_or_default();
+        value.verified_at = evidence.and_then(|m| m.verified_at.clone());
+        match serde_json::to_string_pretty(&value) {
             Ok(s) => println!("{s}"),
             Err(e) => {
                 eprintln!("{}{e}", t(lang, T::Err));
@@ -221,6 +249,25 @@ pub async fn run_show(ctx: &Ctx, id: &str, json: bool) -> i32 {
             "{}",
             render_show(&entry.id, &entry.name, &resolved, now, lang)
         );
+        if let Some(model) = evidence {
+            println!(
+                "{}: {}",
+                t(lang, T::PricingVerifiedAt),
+                model
+                    .verified_at
+                    .as_deref()
+                    .unwrap_or(t(lang, T::PricingVerificationUnknown))
+            );
+            println!(
+                "{}: {}",
+                t(lang, T::PricingOfficialSources),
+                if model.source_urls.is_empty() {
+                    "—".into()
+                } else {
+                    model.source_urls.join(" · ")
+                }
+            );
+        }
     }
     0
 }

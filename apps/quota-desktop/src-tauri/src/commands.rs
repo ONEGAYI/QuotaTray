@@ -73,6 +73,8 @@ pub struct PresetPricingDto {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PresetModelDto {
+    pub source_urls: Vec<String>,
+    pub verified_at: Option<String>,
     pub id: String,
     pub display: String,
     /// 计费模式（订阅项无三档价、窗口表达折扣时段，前端据此切换文案）。
@@ -87,7 +89,9 @@ pub struct PresetModelDto {
 }
 
 impl PresetPricingDto {
-    fn from_preset(p: &quota_core::pricing::PresetProvider) -> Self {
+    fn from_preset(p: &quota_core::pricing::PresetProvider, catalog: &quota_core::Catalog) -> Self {
+        let suite =
+            quota_core::pricing_catalog::find_suite(catalog, &p.native_id, Some(&p.currency));
         Self {
             currency: p.currency.clone(),
             timezone_offset_minutes: p.timezone_offset_minutes,
@@ -97,6 +101,13 @@ impl PresetPricingDto {
                 .models
                 .iter()
                 .map(|m| PresetModelDto {
+                    source_urls: suite
+                        .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                        .map(|model| model.source_urls.clone())
+                        .unwrap_or_default(),
+                    verified_at: suite
+                        .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                        .and_then(|model| model.verified_at.clone()),
                     id: m.id.clone(),
                     display: m.display.clone(),
                     plan: m.plan,
@@ -634,7 +645,7 @@ fn native_meta_dtos(cfg: &AppConfig, catalog: &quota_core::Catalog) -> Vec<Nativ
         .into_iter()
         .map(|m| {
             let pricing = quota_core::pricing::preset_in_catalog(m.id, None, catalog)
-                .map(|p| PresetPricingDto::from_preset(&p));
+                .map(|p| PresetPricingDto::from_preset(&p, catalog));
             // 币种套全量透出（目录化前仅 deepseek 双键；单套平台带单键
             // 同样兼容前端 presetForCurrency 的查找回退链）
             let pricing_by_currency: BTreeMap<String, PresetPricingDto> = catalog
@@ -653,7 +664,7 @@ fn native_meta_dtos(cfg: &AppConfig, catalog: &quota_core::Catalog) -> Vec<Nativ
                             .map(|preset| {
                                 (
                                     suite.currency.clone(),
-                                    PresetPricingDto::from_preset(&preset),
+                                    PresetPricingDto::from_preset(&preset, catalog),
                                 )
                             })
                         })
@@ -2589,6 +2600,38 @@ mod tests {
             Some("https://cloud.siliconflow.com/")
         );
         assert!(metas.iter().all(|m| m.console_url.is_some()));
+    }
+
+    #[test]
+    fn native_metas_preserve_official_model_provenance() {
+        let mut catalog = quota_core::bundled_catalog().clone();
+        let provider = catalog
+            .providers
+            .iter_mut()
+            .find(|p| p.native_id == "deepseek")
+            .unwrap();
+        let suite = provider
+            .suites
+            .iter_mut()
+            .find(|s| s.currency == "CNY")
+            .unwrap();
+        let model = suite.models.iter_mut().find(|m| m.id == "flash").unwrap();
+        model.source_urls = vec!["https://example.com/official-pricing".into()];
+        model.verified_at = Some("2026-09-10T00:00:00Z".into());
+        let metas = native_meta_dtos(&AppConfig::default(), &catalog);
+        let meta = metas.iter().find(|m| m.id == "deepseek").unwrap();
+        let json = serde_json::to_value(meta).unwrap();
+        let model = json["pricing"]["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "flash")
+            .unwrap();
+        assert_eq!(
+            model["source_urls"][0],
+            "https://example.com/official-pricing"
+        );
+        assert_eq!(model["verified_at"], "2026-09-10T00:00:00Z");
     }
 
     /// 契约：open_console_url 的 scheme 白名单——仅 http/https 放行

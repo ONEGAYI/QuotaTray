@@ -374,6 +374,26 @@
           "kind": "dir",
           "desc": "模型定价更新任务包",
           "children": {
+            "evidence": {
+              "kind": "dir",
+              "desc": "目录功能冒烟证据",
+              "children": {
+                "gui-catalog-section.jpg": {
+                  "kind": "file",
+                  "desc": "目录设置页冒烟截图",
+                  "detail": [
+                    "初次实现的目录状态区截图；后续修复结果以T-08新增验证记录为准。"
+                  ]
+                },
+                "gui-catalog-update-404.jpg": {
+                  "kind": "file",
+                  "desc": "目录404反馈冒烟截图",
+                  "detail": [
+                    "初次实现分发文件尚未入main时的404反馈截图，不作为正式发布已完成证据。"
+                  ]
+                }
+              }
+            },
             "handoff.md": {
               "kind": "file",
               "desc": "模型定价更新交接",
@@ -793,6 +813,28 @@
                   "detail": [
                     "双语文案表（TextKey exhaustive，漏译即编译错误）+",
                     "带参文案函数 + clap about/help 运行时翻译"
+                  ]
+                }
+              }
+            },
+            "tests": {
+              "kind": "dir",
+              "desc": "CLI端到端契约测试",
+              "children": {
+                "catalog_readonly.rs": {
+                  "kind": "file",
+                  "desc": "目录只读与来源端测",
+                  "detail": [
+                    "以真实 CLI 二进制和本地模拟代理验证定价 JSON/目录只读命令不触发升级请求，核验来源字段实际输出。"
+                  ],
+                  "rel": [
+                    "apps/quota-cli/src/cmd/pricing.rs",
+                    "apps/quota-cli/src/cmd/pricing_catalog.rs",
+                    "apps/quota-cli/src/cmd/pricing_models.rs",
+                    "apps/quota-cli/src/main.rs"
+                  ],
+                  "tags": [
+                    "test"
                   ]
                 }
               }
@@ -1436,12 +1478,37 @@
                         "pure"
                       ]
                     },
+                    "PricingProvenance.tsx": {
+                      "kind": "file",
+                      "desc": "官方模型资料披露",
+                      "detail": [
+                        "主卡/编辑页共享 details 披露：官方来源、核验日期和未知/陈旧提示，链接仅用户点击打开且不提交表单。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/PricingSection.tsx",
+                        "apps/quota-desktop/src/components/ProviderCard.tsx"
+                      ]
+                    },
                     "PricingSection.tsx": {
                       "kind": "file",
                       "desc": "峰谷编辑区块",
                       "detail": [
                         "峰谷区块：预置/库模型、模型级窗口、订阅说明、",
                         "时区与带说明的三档价格编辑（空字段按契约回退）"
+                      ]
+                    },
+                    "ProviderCard.test.tsx": {
+                      "kind": "file",
+                      "desc": "卡片定价渲染测试",
+                      "detail": [
+                        "ProviderCard SSR 契约：下架保价、价格未知、官方来源/核验日期与来源按钮非提交语义。"
+                      ],
+                      "rel": [
+                        "apps/quota-desktop/src/components/PricingProvenance.tsx",
+                        "apps/quota-desktop/src/components/ProviderCard.tsx"
+                      ],
+                      "tags": [
+                        "test"
                       ]
                     },
                     "ProviderCard.tsx": {
@@ -1991,10 +2058,9 @@
                     },
                     "catalog_sched.rs": {
                       "kind": "file",
-                      "desc": "定价目录调度器（T-06）",
+                      "desc": "跨端目录前台调度",
                       "detail": [
-                        "每分钟 tick：①磁盘 revision 重载（接收 CLI 等他进程写入，零网络，升级即广播+重建托盘）②到期自动检查（6h 成功间隔/30min 失败退避，catalog_should_auto_check 纯函数判定，开关关闭仅保留磁盘重载）。",
-                        "无独立后台服务：循环随进程生命周期（Android 后台被杀即停）；回前台经 set_app_foreground → on_foreground 补检；复用 run_catalog_update 公共体（手动/自动同门互斥）。"
+                        "桌面常驻、Android持续前台每分钟重读缓存并判断目录到期；后台跳过、回前台补检，注入时钟测试生命周期。"
                       ],
                       "rel": [
                         "apps/quota-desktop/src-tauri/src/commands.rs",
@@ -2471,9 +2537,7 @@
                       "kind": "file",
                       "desc": "目录同步与持久缓存",
                       "detail": [
-                        "CatalogSync 同步服务：双通道获取（真直连优先、失败且配置代理才兜底、拒绝类坏包同样走兜底）、完整校验与版本判定（单调不降级、同版本异内容拒绝、物理删除拒绝、人工回滚以更高 revision 重发）、数据根级跨进程写锁（锁内重读防互相覆盖、不删他人锁、网络期不持锁）、缓存信封（目录+last_attempt/last_success/last_error 一体原子落盘）。",
-                        "load_effective 装载：缓存与内置种子取 revision 较高者，回退原因四态（NoCache/CorruptedCache/IncompatibleCache/StaleCache）；reload_from_disk_if_newer 供 GUI 感知他进程写入；进程内在途用原子标志（await 安全）。",
-                        "常量 CATALOG_URL/CATALOG_CACHE_FILE/CATALOG_LOCK_FILE/CATALOG_MAX_BYTES(2MiB)；结果 Updated/Unchanged/Busy/Failed——Updated 是应用端目录变更事件的唯一依据。"
+                        "完整目录装载、双通道获取、版本与模型保留校验；所有同步结果持跨进程锁重读后写信封，恢复历史同步元数据与失败回退。"
                       ],
                       "rel": [
                         "crates/quota-core/src/update.rs"

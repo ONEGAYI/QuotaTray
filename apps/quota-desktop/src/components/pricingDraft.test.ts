@@ -37,6 +37,11 @@ const preset: PresetPricing = {
 };
 
 describe("峰谷 GUI 草稿契约", () => {
+  it("显式缺失模型不使用默认模型作为编辑预览", () => {
+    expect(selectedPresetModel(preset, "missing-A")).toBeUndefined();
+    expect(selectedPresetModel(preset, "")).toMatchObject({ id: "flash" });
+    expect(selectedPresetModel(preset, " PRO ")).toMatchObject({ id: "pro" });
+  });
   it("无自定义时保持平台默认模型且不生成 pricing", () => {
     const draft = draftFrom(undefined, preset);
     expect(draft.custom).toBe(false);

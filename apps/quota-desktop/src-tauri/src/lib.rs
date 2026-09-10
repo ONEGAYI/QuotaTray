@@ -110,9 +110,9 @@ fn setup_surfaces(app: &tauri::AppHandle) -> Result<(), String> {
         tray::create(app, &state).map_err(|e| format!("托盘初始化失败：{e}"))?;
         // 更新检测轮询调度：spawn 后立即首次判定，「启动时检测」由首判覆盖
         update_ctl::spawn_scheduler(app.clone());
-        // 定价目录调度（跨端：分钟磁盘重载 + 到期自动检查；无独立后台服务）
-        catalog_sched::spawn(app.clone());
     }
+    // 定价目录跨端共用周期入口；移动端在后台不执行 tick。
+    catalog_sched::spawn(app.clone());
     // Android：创建系统通知渠道（消息中心二阶）。渠道名用户可见（系统
     // 设置里展示），按当前语言取文案；创建幂等（Android 同 id 渠道
     // 重复创建即更新名称）。语言后续变更不改已建渠道名（重建需卸载重装，

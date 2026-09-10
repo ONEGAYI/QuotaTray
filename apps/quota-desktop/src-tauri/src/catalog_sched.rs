@@ -14,21 +14,38 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::commands;
 use crate::state::{AppState, now_ms};
 
-/// 启动分钟调度（setup 阶段调用一次；仅桌面——Android 无常驻循环，
-/// 回前台经 `set_app_foreground` → [`on_foreground`] 补检）。
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub fn spawn(app: AppHandle) {
-    use std::time::Duration;
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tick(&app).await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
+async fn run_polling<F, Fut>(mobile: bool, foreground: impl Fn() -> bool, mut action: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    loop {
+        if !mobile || foreground() {
+            action().await;
         }
-    });
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    }
+}
+
+/// 桌面常驻检查；Android 仅在前台时执行本地重载和到期联网。
+pub fn spawn(app: AppHandle) {
+    tauri::async_runtime::spawn(run_polling(
+        cfg!(any(target_os = "android", target_os = "ios")),
+        || crate::state::APP_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed),
+        move || {
+            let app = app.clone();
+            async move { tick(&app).await }
+        },
+    ));
 }
 
 /// 单次判定与执行（调度循环与回前台补检共用）。
 pub async fn tick(app: &AppHandle) {
+    if cfg!(any(target_os = "android", target_os = "ios"))
+        && !crate::state::APP_FOREGROUND.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return;
+    }
     let state = app.state::<AppState>();
     // ① 磁盘重载：他进程写入更高 revision → 广播 + 托盘重建（零网络）
     if state.catalog_reload_if_newer() {
@@ -51,4 +68,43 @@ pub fn on_foreground(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tick(&app).await;
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    #[tokio::test(start_paused = true)]
+    async fn mobile_polls_while_foreground_and_pauses_in_background() {
+        let foreground = Arc::new(AtomicBool::new(true));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let gate = foreground.clone();
+        let task = tokio::spawn(run_polling(
+            true,
+            move || gate.load(Ordering::Relaxed),
+            move || {
+                observed.fetch_add(1, Ordering::Relaxed);
+                std::future::ready(())
+            },
+        ));
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        tokio::time::advance(std::time::Duration::from_secs(6 * 3600)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        foreground.store(false, Ordering::Relaxed);
+        tokio::time::advance(std::time::Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        foreground.store(true, Ordering::Relaxed);
+        tokio::time::advance(std::time::Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::Relaxed), 3);
+        task.abort();
+    }
 }

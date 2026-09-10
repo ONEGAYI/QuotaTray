@@ -211,6 +211,14 @@ export const en: Record<TextKey, string> = {
   "edit.guideDocMissing": "Guide document is missing. Please update to the latest version and retry.",
   "edit.catalogUpdatedHint": "Pricing catalog updated; this editor keeps the data from when it opened. Reopen to use the new data.",
   "pricing.retiredTag": "retired",
+  "pricing.unknownPrice": "Price unknown",
+  "pricing.officialInfo": "Official model information",
+  "pricing.verifiedAt": "Verified at",
+  "pricing.verificationUnknown": "Verification date unknown",
+  "pricing.verificationStale": "Not verified recently",
+  "pricing.sourceMissing": "Source not provided",
+  "pricing.referenceOnly": "Official model information only; excludes custom prices.",
+  "pricing.sourceOpenFailed": "Unable to open source link",
   "pricing.retiredNote": "Model retired: showing last known prices.",
 
   // ---- Template sub-tabs and presets ----

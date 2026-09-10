@@ -798,9 +798,9 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 description={catalogDescription(catalog.data)}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-                  <button
+<Button
                     type="button"
-                    className="qt-button"
+                    variant="secondary"
                     disabled={catalogBusy}
                     onClick={() => {
                       setCatalogBusy(true);
@@ -825,7 +825,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     }}
                   >
                     {catalogBusy ? t("settings.catalogUpdating") : t("settings.catalogUpdateNow")}
-                  </button>
+                  </Button>
                   {catalogMessage && <span className="qt-hint">{catalogMessage}</span>}
                 </div>
               </SettingRow>

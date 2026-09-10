@@ -18,6 +18,8 @@ use crate::texts::{self, T, t};
 /// 单模型行的统一视图（预置/自定义同构，list --json 输出形状）。
 #[derive(Serialize)]
 pub struct ModelRowJson {
+    pub source_urls: Vec<String>,
+    pub verified_at: Option<String>,
     pub id: String,
     pub display: String,
     /// "preset" | "custom"
@@ -54,10 +56,18 @@ pub fn models_json_with(
 ) -> Option<ModelListJson> {
     provider::find(provider_id)?; // 未注册平台无库语义
     let preset = pricing::preset_in_catalog(provider_id, None, catalog);
+    let suite = quota_core::pricing_catalog::find_suite(catalog, provider_id, None);
     let mut models = Vec::new();
     if let Some(p) = &preset {
         for m in &p.models {
             models.push(ModelRowJson {
+                source_urls: suite
+                    .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                    .map(|model| model.source_urls.clone())
+                    .unwrap_or_default(),
+                verified_at: suite
+                    .and_then(|s| s.models.iter().find(|model| model.id == m.id))
+                    .and_then(|model| model.verified_at.clone()),
                 id: m.id.clone(),
                 display: m.display.clone(),
                 source: "preset",
@@ -74,6 +84,8 @@ pub fn models_json_with(
     }
     for m in custom {
         models.push(ModelRowJson {
+            source_urls: vec![],
+            verified_at: None,
             id: m.id.clone(),
             display: m.display.clone(),
             source: "custom",
@@ -160,7 +172,25 @@ pub fn render_models_table(list: &ModelListJson, lang: Lang) -> String {
             Cell::new(tier_cell(&m.off_peak)),
         ]);
     }
-    table.to_string()
+    let mut text = table.to_string();
+    for model in list.models.iter().filter(|m| m.source == "preset") {
+        text.push_str(&format!(
+            "\n{} · {}: {}\n{}: {}",
+            model.display,
+            t(lang, T::PricingVerifiedAt),
+            model
+                .verified_at
+                .as_deref()
+                .unwrap_or(t(lang, T::PricingVerificationUnknown)),
+            t(lang, T::PricingOfficialSources),
+            if model.source_urls.is_empty() {
+                "—".into()
+            } else {
+                model.source_urls.join(" · ")
+            }
+        ));
+    }
+    text
 }
 
 /// 添加/覆盖自定义模型（纯函数；同 id 大小写不敏感覆盖，与 resolve 匹配口径一致）。
@@ -371,6 +401,8 @@ mod tests {
             currency: "CNY".into(),
             default_model: Some("flash".into()),
             models: vec![ModelRowJson {
+                source_urls: vec![],
+                verified_at: None,
                 id: "old".into(),
                 display: "V3 Old".into(),
                 source: "preset",

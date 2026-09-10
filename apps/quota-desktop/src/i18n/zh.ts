@@ -214,6 +214,14 @@ export const zh = {
   "edit.guideDocMissing": "指引文档缺失，请更新到最新版本后再试。",
   "edit.catalogUpdatedHint": "定价目录已更新；当前编辑沿用打开时的数据，重新打开编辑页可使用新数据。",
   "pricing.retiredTag": "已下架",
+  "pricing.unknownPrice": "价格未知",
+  "pricing.officialInfo": "官方模型资料",
+  "pricing.verifiedAt": "核验时间",
+  "pricing.verificationUnknown": "核验时间未知",
+  "pricing.verificationStale": "较久未核验",
+  "pricing.sourceMissing": "来源未提供",
+  "pricing.referenceOnly": "仅为官方模型资料，不包含用户自定义价格。",
+  "pricing.sourceOpenFailed": "无法打开来源链接",
   "pricing.retiredNote": "该模型已下架：显示最后已知价格。",
 
   // ---- 模板分支二级子页与预设 ----

@@ -53,6 +53,15 @@ const entry: ProviderEntry = {
 };
 
 describe("Provider 卡片定价视图", () => {
+  it("自定义模型与官方订阅同名仍按量显示自定义价格", () => {
+    const collision: NativeMeta = {
+      ...meta,
+      pricing: { ...meta.pricing!, models: meta.pricing!.models.map((m) => ({ ...m, plan: "subscription" })) },
+      custom_models: [{ id: "flash", display: "我的计费", off_peak: { output: 9 } }],
+    };
+    const view = resolveProviderPricingView({ ...entry, pricing: { model: "flash" } }, collision, Date.UTC(2026, 7, 19, 6));
+    expect(view).toMatchObject({ modelStatus: "custom", plan: "pay_as_you_go", tier: { output: 9 } });
+  });
   it("默认模型在高峰窗口内解析高峰三档价格", () => {
     const now = Date.UTC(2026, 7, 19, 1, 30); // 周三，北京 09:30
     expect(resolveProviderPricingView(entry, meta, now)).toMatchObject({
@@ -231,6 +240,8 @@ describe("Provider 卡片定价视图", () => {
       modelId: "pro",
       modelLabel: "V4 Pro",
       modelStatus: "active",
+      sourceUrls: [],
+      verifiedAt: null,
       period: "peak",
       tier: { output: 20 },
       currency: "CNY",

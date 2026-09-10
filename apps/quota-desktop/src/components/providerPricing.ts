@@ -11,6 +11,8 @@ import type {
 } from "../types";
 
 export interface ProviderPricingView {
+  sourceUrls: string[];
+  verifiedAt: string | null;
   modelId?: string;
   modelLabel?: string;
   /** 生效模型生命周期（与 core ResolvedModelStatus 同口径）：
@@ -221,7 +223,9 @@ export function resolveProviderPricingView(
     ? customTier
     : tierNotEmpty(modelTier) ? modelTier : null;
   // 计费模式只从命中的模型取（missing 不借默认的订阅计费）
-  const plan: PlanKind = presetModel
+  const plan: PlanKind = libraryModel
+    ? "pay_as_you_go"
+    : presetModel
     ? presetModel.plan
     : !requestedModel && defaultModel
       ? defaultModel.plan
@@ -229,6 +233,8 @@ export function resolveProviderPricingView(
 
   return {
     modelId: model?.id,
+    sourceUrls: libraryModel ? [] : (presetModel ?? (!requestedModel ? defaultModel : undefined))?.source_urls ?? [],
+    verifiedAt: libraryModel ? null : (presetModel ?? (!requestedModel ? defaultModel : undefined))?.verified_at ?? null,
     modelLabel,
     modelStatus,
     period,

@@ -10,6 +10,7 @@ import type {
   PricingConfig,
   Weekday,
 } from "../types";
+import { PricingProvenance } from "./PricingProvenance";
 import {
   buildPricing,
   draftFrom,
@@ -212,6 +213,9 @@ export function PricingSection(props: Props) {
           </select>
           {selectedRetired && (
             <span className={`${subduedTextCls} sm:text-right`}>{t("pricing.retiredNote")}</span>
+          )}
+          {presetModel && (
+            <PricingProvenance sourceUrls={presetModel.source_urls ?? []} verifiedAt={presetModel.verified_at ?? null} />
           )}
           <span className={`${subduedTextCls} sm:text-right`}>
             {selectedChoice?.source === "custom"

@@ -139,6 +139,8 @@ export type PlanKind = "pay_as_you_go" | "subscription";
 
 /** 预置单模型价格档（IPC 形状，来自 list_native_metas）。 */
 export interface PresetModel {
+  source_urls?: string[];
+  verified_at?: string | null;
   id: string;
   display: string;
   plan: PlanKind;

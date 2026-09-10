@@ -53,3 +53,6 @@ windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging", # 悬停面板 show 后重插 topmost 组顶（压过隐藏托盘 flyout）
   "Win32_Foundation",
 ] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
