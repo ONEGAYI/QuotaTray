@@ -39,6 +39,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tiny-skia = "0.11" # 托盘圆环图标抗锯齿绘制
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] } # 嵌入粗体数字轮廓，按托盘像素尺寸绘制
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-fs = "2.5.1"

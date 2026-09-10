@@ -1,6 +1,6 @@
-//! 托盘圆环图标：层计算与中心文字纯函数 + tiny-skia 绘制（32x32 RGBA）。
+//! 托盘圆环图标：层计算与中心文字纯函数 + 按目标像素尺寸绘制的细环大字。
 //!
-//! 视觉规格与 `docs/design/tray-ring-demo.html` 定案一致：
+//! 视觉规范：frontend-style-spec/references/tray/icon.md（T-015）。
 //! - 百分比型（unit="%" 或 used/total 可算）→ 永远单弧，fill = 剩余比例；
 //! - 不定额余额型 → `remaining / 每圈单位` 分层：整数部分逐层满圈、
 //!   余数顶层弧；余额消耗到最后一圈（单层）才用阈值色；
@@ -17,10 +17,20 @@ use quota_core::{AppConfig, UsageData};
 use crate::settings::Settings;
 use crate::state::{EntryState, now_ms};
 
-/// 图标画布边长（像素）。
+/// 非 Windows 桌面平台的默认图标边长；Windows 按托盘屏幕缩放选尺寸。
+#[cfg(any(not(windows), test))]
 pub const ICON_SIZE: u32 = 32;
 /// 层数上限：需要第 5 层即溢出（满环 + 中心缩写）。
 pub const MAX_LAYERS: usize = 4;
+
+/// Windows 通知区域以 16px 为 100% 缩放基准。
+#[cfg(any(windows, test))]
+pub fn icon_size_for_scale(scale: f64) -> u32 {
+    if !scale.is_finite() || scale <= 0.0 {
+        return 16;
+    }
+    (16.0 * scale).round().clamp(16.0, 128.0) as u32
+}
 
 // ---- 层计算（纯函数） -------------------------------------------------------
 
@@ -191,14 +201,14 @@ pub fn layer_color(spec: &RingSpec, idx: usize) -> (u8, u8, u8) {
 
 // ---- 中心文字（纯函数） -----------------------------------------------------
 
-/// 余额中心文字（≤4 字符）：<10000 直接整数；k/M/B 缩写，≥10 取整、
+/// 余额中心文字：<1000 直接整数；k/M/B 缩写，≥10 取整、
 /// <10 保留 1 位小数（向下截断，与 demo `centerText` 一致）。
 pub fn center_text_balance(value: f64) -> String {
     let v = value.round();
     if !v.is_finite() || v <= 0.0 {
         return "0".into();
     }
-    if v < 10_000.0 {
+    if v < 1_000.0 {
         return format!("{v:.0}");
     }
     if v < 1e6 {
@@ -226,48 +236,22 @@ fn scaled(v: f64, unit: f64, suffix: char) -> String {
     }
 }
 
-/// 百分比中心文字：`45%`（round 后 0-100 封顶）。
+/// 百分比中心文字：只写 `45`（round 后 0-100 封顶），完整单位由悬停面板展示。
 pub fn center_text_percent(remaining_pct: f64) -> String {
-    format!("{}%", remaining_pct.round().clamp(0.0, 100.0) as u32)
+    format!("{}", remaining_pct.round().clamp(0.0, 100.0) as u32)
 }
 
-// ---- 绘制（32x32 RGBA 直通） -----------------------------------------------
+// ---- 绘制（目标尺寸 RGBA 直通） --------------------------------------------
 
-/// 环几何参数（与 demo 的 viewBox64/stroke14 等比缩放到 32px）。
-const CENTER: f32 = 16.0;
-const RADIUS: f32 = 12.5; // (32 - 7) / 2，环宽 7px
-const STROKE: f32 = 7.0;
+/// Noto Sans Bold 的数字子集（SIL OFL 1.1，许可证也保留在字体 name 表中）。
+const DIGIT_FONT: &[u8] = include_bytes!("../assets/tray-font/QuotaTrayTrayDigits-Bold.ttf");
 
-/// 4x6 位图字模（每行 4 bit，MSB 在左）：0-9 k M B % . 共 15 字形。
-/// 不引入字体库——32px 图标中心区约 18px 宽，1x 像素字模刚好容纳 4 字符。
-const GLYPHS: [(char, [u8; 6]); 15] = [
-    ('0', [0b0110, 0b1001, 0b1001, 0b1001, 0b1001, 0b0110]),
-    ('1', [0b0010, 0b0110, 0b0010, 0b0010, 0b0010, 0b0110]),
-    ('2', [0b0110, 0b1001, 0b0001, 0b0010, 0b0100, 0b1111]),
-    ('3', [0b1110, 0b0001, 0b0010, 0b0001, 0b0001, 0b1110]),
-    ('4', [0b0001, 0b0010, 0b0100, 0b1111, 0b0001, 0b0001]),
-    ('5', [0b1111, 0b1000, 0b1110, 0b0001, 0b1001, 0b0110]),
-    ('6', [0b0110, 0b1000, 0b1110, 0b1001, 0b1001, 0b0110]),
-    ('7', [0b1111, 0b0001, 0b0010, 0b0100, 0b0100, 0b0100]),
-    ('8', [0b0110, 0b1001, 0b0110, 0b1001, 0b1001, 0b0110]),
-    ('9', [0b0110, 0b1001, 0b1001, 0b0111, 0b0001, 0b0110]),
-    ('k', [0b1000, 0b1000, 0b1001, 0b1010, 0b1100, 0b1001]),
-    ('M', [0b1001, 0b1111, 0b1111, 0b1001, 0b1001, 0b1001]),
-    ('B', [0b1110, 0b1001, 0b1110, 0b1001, 0b1001, 0b1110]),
-    ('%', [0b1001, 0b0010, 0b0100, 0b1000, 0b0100, 0b1001]),
-    ('.', [0b0000, 0b0000, 0b0000, 0b0000, 0b0000, 0b0110]),
-];
-
-fn glyph(ch: char) -> Option<&'static [u8; 6]> {
-    GLYPHS.iter().find(|(c, _)| *c == ch).map(|(_, rows)| rows)
-}
-
-/// 渲染为 32x32 直通 RGBA 字节（长度 32*32*4）。
+/// 渲染为目标尺寸的直通 RGBA；调用方提供 16–128px 的有效托盘尺寸。
 ///
 /// 颜色按解析后主题取两套：dark 用浅色文字（浅任务栏反之）；
 /// 底槽两套灰度均来自 demo 的 rgba(128,140,160,0.28) 量级。
-pub fn render_rgba(spec: &RingSpec, dark: bool, alert: bool) -> Vec<u8> {
-    let mut pm = tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).expect("32x32 画布分配失败");
+pub fn render_rgba(spec: &RingSpec, dark: bool, alert: bool, size: u32) -> Vec<u8> {
+    let mut pm = tiny_skia::Pixmap::new(size, size).expect("托盘画布分配失败");
 
     // 1. 环底槽（未填充部分）：分主题两套（已回写 demo「已定案」清单）——
     //    light 略加深以保证浅背景上的空环可见
@@ -290,12 +274,7 @@ pub fn render_rgba(spec: &RingSpec, dark: bool, alert: bool) -> Vec<u8> {
         }
     }
 
-    // 3. 告警红点（badge 惯例：压在环右上角）
-    if alert {
-        fill_alert_dot(&mut pm);
-    }
-
-    // 4. 中心文字（1x 字模像素，不抗锯齿）
+    // 3. 中心文字：直接在目标像素画布栅格化粗体轮廓，不缩放旧小字位图。
     if let Some(text) = &spec.center {
         let color = if dark {
             (0xe6, 0xea, 0xf2) // demo dark: #e6eaf2
@@ -303,6 +282,11 @@ pub fn render_rgba(spec: &RingSpec, dark: bool, alert: bool) -> Vec<u8> {
             (0x1e, 0x29, 0x3b) // demo light: #1e293b
         };
         draw_center_text(&mut pm, text, color);
+    }
+
+    // 4. 告警红点最后画，避免长缩写覆盖告警。
+    if alert {
+        fill_alert_dot(&mut pm);
     }
 
     premultiplied_to_straight(pm.data())
@@ -322,13 +306,17 @@ fn solid_paint(color: tiny_skia::Color) -> tiny_skia::Paint<'static> {
 
 /// 从 12 点顺时针画 `frac` 比例的弧（frac=1 即整圆）。
 fn stroke_circle(pm: &mut tiny_skia::Pixmap, frac: f32, color: tiny_skia::Color) {
+    let size = pm.width() as f32;
+    let width = (size / 16.0).max(1.0);
+    let center = size / 2.0;
+    let radius = (size - width) / 2.0;
     let mut pb = tiny_skia::PathBuilder::new();
     let steps = (frac * 96.0).ceil().max(2.0) as usize;
     for i in 0..=steps {
         let theta =
             -std::f32::consts::FRAC_PI_2 + (i as f32 / steps as f32) * frac * std::f32::consts::TAU;
         let (sin, cos) = theta.sin_cos();
-        let (x, y) = (CENTER + RADIUS * cos, CENTER + RADIUS * sin);
+        let (x, y) = (center + radius * cos, center + radius * sin);
         if i == 0 {
             pb.move_to(x, y);
         } else {
@@ -337,7 +325,7 @@ fn stroke_circle(pm: &mut tiny_skia::Pixmap, frac: f32, color: tiny_skia::Color)
     }
     let Some(path) = pb.finish() else { return };
     let stroke = tiny_skia::Stroke {
-        width: STROKE,
+        width,
         ..Default::default()
     };
     pm.stroke_path(
@@ -350,7 +338,8 @@ fn stroke_circle(pm: &mut tiny_skia::Pixmap, frac: f32, color: tiny_skia::Color)
 }
 
 fn fill_alert_dot(pm: &mut tiny_skia::Pixmap) {
-    let (cx, cy, r) = (26.5f32, 5.5f32, 2.5f32);
+    let scale = pm.width() as f32 / 32.0;
+    let (cx, cy, r) = (26.5 * scale, 5.5 * scale, 2.5 * scale);
     let mut pb = tiny_skia::PathBuilder::new();
     for i in 0..=24 {
         let theta = (i as f32 / 24.0) * std::f32::consts::TAU;
@@ -373,30 +362,67 @@ fn fill_alert_dot(pm: &mut tiny_skia::Pixmap) {
     );
 }
 
-/// 中心文字：1x 像素字模逐点覆盖（不透明，无字模的字符跳过）。
-fn draw_center_text(pm: &mut tiny_skia::Pixmap, text: &str, (r, g, b): (u8, u8, u8)) {
-    let chars: Vec<char> = text.chars().collect();
-    let n = chars.len();
-    let total_w = 4 * n + n.saturating_sub(1);
-    let x0 = ICON_SIZE as i32 - total_w as i32;
-    let x0 = (x0 / 2).max(0) as u32;
-    let y0 = 13u32; // 6 行高，中心 16 → 顶行 13
-    let px =
-        tiny_skia::PremultipliedColorU8::from_rgba(r, g, b, 255).expect("不透明色的预乘形式恒合法");
-    for (ci, ch) in chars.iter().enumerate() {
-        let Some(rows) = glyph(*ch) else { continue };
-        for (row, bits) in rows.iter().enumerate() {
-            for col in 0..4u32 {
-                if bits & (0b1000 >> col) != 0 {
-                    let x = x0 + ci as u32 * 5 + col;
-                    let y = y0 + row as u32;
-                    if x < ICON_SIZE && y < ICON_SIZE {
-                        pm.pixels_mut()[(y * ICON_SIZE + x) as usize] = px;
-                    }
-                }
-            }
-        }
+/// 字体轮廓桥接到 tiny-skia；字体坐标 y 向上，画布 y 向下。
+#[derive(Default)]
+struct GlyphOutline {
+    path: tiny_skia::PathBuilder,
+    x: f32,
+}
+
+impl ttf_parser::OutlineBuilder for GlyphOutline {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.path.move_to(self.x + x, -y);
     }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.path.line_to(self.x + x, -y);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.path.quad_to(self.x + x1, -y1, self.x + x, -y);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.path
+            .cubic_to(self.x + x1, -y1, self.x + x2, -y2, self.x + x, -y);
+    }
+    fn close(&mut self) {
+        self.path.close();
+    }
+}
+
+/// 依真实字形边界等比放大、居中；限制边界框对角线，保证不碰内环。
+fn draw_center_text(pm: &mut tiny_skia::Pixmap, text: &str, (r, g, b): (u8, u8, u8)) {
+    let font = ttf_parser::Face::parse(DIGIT_FONT, 0).expect("内嵌数字字体必须可解析");
+    let mut outline = GlyphOutline::default();
+    for ch in text.chars() {
+        let Some(id) = font.glyph_index(ch) else {
+            continue;
+        };
+        font.outline_glyph(id, &mut outline);
+        outline.x += f32::from(font.glyph_hor_advance(id).unwrap_or(0));
+    }
+    let Some(path) = outline.path.finish() else {
+        return;
+    };
+    let bounds = path.bounds();
+    let size = pm.width() as f32;
+    let inner_diameter = size - 2.0 * (size / 16.0).max(1.0) - 2.0;
+    let scale = (size * 0.54 / bounds.height())
+        .min(size * 0.76 / bounds.width())
+        .min(inner_diameter / bounds.width().hypot(bounds.height()));
+    let transform = tiny_skia::Transform::from_row(
+        scale,
+        0.0,
+        0.0,
+        scale,
+        size / 2.0 - (bounds.left() + bounds.width() / 2.0) * scale,
+        ((size - bounds.height() * scale) / 2.0).round() - bounds.top() * scale,
+    );
+    pm.fill_path(
+        &path,
+        &solid_paint(opaque((r, g, b))),
+        tiny_skia::FillRule::Winding,
+        transform,
+        None,
+    );
 }
 
 /// tiny-skia 输出预乘 RGBA，托盘 Image 需要直通：逐像素除回 alpha。
@@ -442,6 +468,7 @@ pub fn icon_image(
     settings: &Settings,
     dark: bool,
     alert: bool,
+    size: u32,
 ) -> tauri::image::Image<'static> {
     let now = now_ms();
     let input = icon_entry(cfg, settings)
@@ -449,8 +476,8 @@ pub fn icon_image(
         .map(|st| entry_ring_input(st, now))
         .unwrap_or(RingInput::Empty);
     let spec = ring_spec(input, settings.ring_units_per_circle);
-    let rgba = render_rgba(&spec, dark, alert);
-    tauri::image::Image::new_owned(rgba, ICON_SIZE, ICON_SIZE)
+    let rgba = render_rgba(&spec, dark, alert, size);
+    tauri::image::Image::new_owned(rgba, size, size)
 }
 
 // ---- 契约测试 ---------------------------------------------------------------
@@ -536,7 +563,7 @@ mod tests {
         assert!(s.single);
         assert!(!s.overflow);
         assert_layers(&s.layers, &[0.55]);
-        assert_eq!(s.center.as_deref(), Some("55%"));
+        assert_eq!(s.center.as_deref(), Some("55"));
     }
 
     /// 契约：颜色规则——单层阈值色随 fill 变化、多层预设循环、溢出青。
@@ -578,25 +605,24 @@ mod tests {
     /// 契约：中心文字缩写全分支（demo 数值例）。
     #[test]
     fn center_text_abbreviations() {
-        assert_eq!(center_text_balance(9999.0), "9999");
+        assert_eq!(center_text_balance(9999.0), "9.9k");
         assert_eq!(center_text_balance(10000.0), "10k");
         assert_eq!(center_text_balance(12499.0), "12k", "12.499k ≥10 取整");
         assert_eq!(
             center_text_balance(1250.0),
-            "1250",
-            "<10000 直接整数（4 字符内）"
+            "1.2k",
+            "千位起缩写，为托盘数字让出空间"
         );
-        // 注：demo 的 "1.2k" 分支（k<10）实际不可达——该值域已走 <10000 整数档；
-        // 一位小数缩写只在 M/B 档出现（1.2M 等），下方断言覆盖。
+        assert_eq!(center_text_balance(3800.0), "3.8k");
         assert_eq!(center_text_balance(311_000.0), "311k");
         assert_eq!(center_text_balance(1.2e6), "1.2M");
         assert_eq!(center_text_balance(2e9), "2B");
         assert_eq!(center_text_balance(62.97), "63", "四舍五入为整数");
         assert_eq!(center_text_balance(0.0), "0");
-        assert_eq!(center_text_percent(45.4), "45%");
-        assert_eq!(center_text_percent(100.0), "100%");
-        assert_eq!(center_text_percent(120.0), "100%", "封顶 100");
-        assert_eq!(center_text_percent(-3.0), "0%");
+        assert_eq!(center_text_percent(45.4), "45");
+        assert_eq!(center_text_percent(100.0), "100");
+        assert_eq!(center_text_percent(120.0), "100", "封顶 100");
+        assert_eq!(center_text_percent(-3.0), "0");
     }
 
     /// 契约：数据 → 圆环输入分类（百分比优先、余额兜底、失效窗口跳过）。
@@ -693,10 +719,95 @@ mod tests {
     #[test]
     fn render_theme_variants() {
         let spec = ring_spec(RingInput::Balance { remaining: 60.0 }, 100.0);
-        let dark = render_rgba(&spec, true, false);
-        let light = render_rgba(&spec, false, false);
+        let dark = render_rgba(&spec, true, false, ICON_SIZE);
+        let light = render_rgba(&spec, false, false, ICON_SIZE);
         assert_eq!(dark.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
         assert_ne!(dark, light, "明暗主题应产出不同像素");
+    }
+
+    /// B 方案：32px 图标的两位数字至少 14px 高，环内侧留空给大字。
+    #[test]
+    fn render_large_digits_inside_thin_ring() {
+        let spec = ring_spec(
+            RingInput::Percent {
+                remaining_pct: 38.0,
+            },
+            100.0,
+        );
+        let image = render_rgba(&spec, true, false, ICON_SIZE);
+        let text_rows: Vec<_> = (0..32)
+            .filter(|y| {
+                (0..32).any(|x| {
+                    let p = &image[((y * 32 + x) * 4) as usize..][..4];
+                    p[0] > 210 && p[1] > 210 && p[2] > 210 && p[3] > 128
+                })
+            })
+            .collect();
+        assert!(
+            text_rows.len() >= 14,
+            "两位数字不能再只有 6px 高：{text_rows:?}"
+        );
+        let empty = render_rgba(&ring_spec(RingInput::Empty, 100.0), true, false, ICON_SIZE);
+        assert_eq!(
+            empty[((4 * 32 + 16) * 4 + 3) as usize],
+            0,
+            "细环不能占据顶部内侧文字空间"
+        );
+    }
+
+    #[test]
+    fn windows_icon_size_follows_monitor_scale() {
+        for (scale, expected) in [(1.0, 16), (1.25, 20), (1.5, 24), (2.0, 32), (3.0, 48)] {
+            assert_eq!(icon_size_for_scale(scale), expected);
+        }
+        for invalid in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(icon_size_for_scale(invalid), 16, "无效缩放回退 100%");
+        }
+        assert_eq!(icon_size_for_scale(1000.0), 128, "限制异常缩放的画布分配");
+    }
+
+    /// 所有尺寸直接绘制；文字不能压到环上，也不能退化为旧的小字高度。
+    #[test]
+    fn render_sizes_keep_digits_clear_of_ring() {
+        for size in [16, 20, 24, 32, 48] {
+            for text in ["0", "38", "88", "100", "3.8k", "311k", "1.2M", "2B"] {
+                let ring = RingSpec {
+                    layers: vec![1.0],
+                    overflow: false,
+                    single: true,
+                    center: None,
+                };
+                let plain = render_rgba(&ring, true, false, size);
+                let spec = RingSpec {
+                    center: Some(text.into()),
+                    ..ring
+                };
+                let with_text = render_rgba(&spec, true, false, size);
+                assert_eq!(with_text.len(), (size * size * 4) as usize);
+                let mut rows = std::collections::BTreeSet::new();
+                for (i, (a, b)) in plain
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(with_text.as_chunks::<4>().0.iter())
+                    .enumerate()
+                {
+                    if a != b {
+                        assert!(a[3] < 16, "{size}px / {text}：文字不能盖住圆环，像素 {i}");
+                        if b[3] >= 128 {
+                            rows.insert(i / size as usize);
+                        }
+                    }
+                }
+                assert!(!rows.is_empty(), "{size}px / {text} 必须有可见文字");
+                if text == "38" {
+                    assert!(
+                        rows.len() >= (size * 7 / 16) as usize,
+                        "{size}px 两位数字高度不足：{rows:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// 契约：RGBA 输出形状——32*32*4、非全透明（弧/槽可见）。
@@ -711,7 +822,7 @@ mod tests {
             RingInput::Empty, // 灰空环：槽仍可见
         ] {
             let spec = ring_spec(input, 100.0);
-            let rgba = render_rgba(&spec, true, false);
+            let rgba = render_rgba(&spec, true, false, ICON_SIZE);
             assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
             assert!(
                 rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 0),
@@ -730,8 +841,8 @@ mod tests {
     #[test]
     fn render_alert_dot() {
         let spec = ring_spec(RingInput::Balance { remaining: 60.0 }, 100.0);
-        let plain = render_rgba(&spec, true, false);
-        let alert = render_rgba(&spec, true, true);
+        let plain = render_rgba(&spec, true, false, ICON_SIZE);
+        let alert = render_rgba(&spec, true, true, ICON_SIZE);
         assert_ne!(plain, alert);
         // 红点中心 (26.5, 5.5) → 像素 (26, 5) 应为红色系
         let idx = ((5 * ICON_SIZE + 26) * 4) as usize;
@@ -795,7 +906,7 @@ mod tests {
     #[test]
     fn render_layer_stack_reveals_lower_layer() {
         let spec = ring_spec(RingInput::Balance { remaining: 380.0 }, 100.0);
-        let rgba = render_rgba(&spec, true, false);
+        let rgba = render_rgba(&spec, true, false, ICON_SIZE);
         let px = |x: u32, y: u32| -> (i32, i32, i32) {
             let i = ((y * ICON_SIZE + x) * 4) as usize;
             (rgba[i] as i32, rgba[i + 1] as i32, rgba[i + 2] as i32)
@@ -807,12 +918,12 @@ mod tests {
                 "{what}：got {got:?} want {want:?}（抗锯齿容差 40）"
             );
         };
-        // 12 点方向（青弧起点）：像素 (16, 4) ≈ (16, 16-12.5)
-        near(px(16, 4), (0x06, 0xb6, 0xd4), "顶层青应覆盖弧区");
-        // 3 点方向（弧中段）：像素 (28, 16) ≈ (16+12.5, 16)
-        near(px(28, 16), (0x06, 0xb6, 0xd4), "弧中段应为顶层青");
-        // 尾部中点（θ=234°）：像素 ≈ (16-7.35, 16-10.11) = (8.65, 5.89)
-        near(px(9, 6), (0x8b, 0x5c, 0xf6), "尾部应露出下层紫");
+        // 细环中心半径 15px：顶部与右侧取弧内像素
+        near(px(16, 1), (0x06, 0xb6, 0xd4), "顶层青应覆盖弧区");
+        // 3 点方向（弧中段）
+        near(px(30, 16), (0x06, 0xb6, 0xd4), "弧中段应为顶层青");
+        // 尾部中点（θ=234°），取左上细环内像素
+        near(px(7, 4), (0x8b, 0x5c, 0xf6), "尾部应露出下层紫");
     }
 
     /// 手动视觉检查工具（默认 ignore）：把多组余额/百分比在明暗两种主题下的
@@ -822,83 +933,125 @@ mod tests {
     #[test]
     #[ignore = "手动视觉检查工具，CI 不跑"]
     fn render_ring_preview_png() {
-        const CELL: u32 = 44; // 32 图标 + 12 边距
-        let balance_cases = [60.0, 30.0, 80.0, 180.0, 250.0, 380.0, 1250.0, 311_000.0];
-        let percent_cases = [85.0, 45.0, 12.0];
-        let cols = (balance_cases.len() + percent_cases.len()) as u32;
-        let width = CELL * cols;
-        let height = CELL * 2; // 两行：dark / light 任务栏底色
-        let mut canvas = tiny_skia::Pixmap::new(width, height).expect("预览画布分配失败");
-        let fill_bg = |pm: &mut tiny_skia::Pixmap, dark: bool| {
-            let (r, g, b) = if dark {
-                (0x1b, 0x1f, 0x27)
-            } else {
-                (0xee, 0xf1, 0xf6)
-            };
-            pm.fill(tiny_skia::Color::from_rgba8(r, g, b, 255));
-        };
-        for (row, dark) in [true, false].into_iter().enumerate() {
-            fill_bg(&mut canvas, dark);
-            let mut draw = |col: usize, input: RingInput| {
-                let spec = ring_spec(input, 100.0);
-                let rgba = render_rgba(&spec, dark, false);
-                // 直通 → 预乘（Pixmap::from_vec 要求）
-                let mut premult = rgba.clone();
-                let (premult_pixels, _) = premult.as_chunks_mut::<4>();
-                let (rgba_pixels, _) = rgba.as_chunks::<4>();
-                for (d, s) in premult_pixels.iter_mut().zip(rgba_pixels.iter()) {
-                    let a = u32::from(s[3]);
-                    d[0] = ((u32::from(s[0]) * a + 127) / 255) as u8;
-                    d[1] = ((u32::from(s[1]) * a + 127) / 255) as u8;
-                    d[2] = ((u32::from(s[2]) * a + 127) / 255) as u8;
-                    d[3] = s[3];
-                }
-                let icon = tiny_skia::Pixmap::from_vec(
-                    premult,
-                    tiny_skia::IntSize::from_wh(ICON_SIZE, ICON_SIZE).expect("尺寸合法"),
-                )
-                .expect("图标画布重建失败");
-                let x = (col as u32 * CELL + (CELL - ICON_SIZE) / 2) as i32;
-                let y = (row as u32 * CELL + (CELL - ICON_SIZE) / 2) as i32;
-                canvas.draw_pixmap(
-                    x,
-                    y,
-                    icon.as_ref(),
-                    &tiny_skia::PixmapPaint::default(),
+        const CELL: u32 = 52;
+        let cases = [
+            (
+                RingInput::Percent {
+                    remaining_pct: 38.0,
+                },
+                false,
+            ),
+            (
+                RingInput::Percent {
+                    remaining_pct: 88.0,
+                },
+                false,
+            ),
+            (
+                RingInput::Percent {
+                    remaining_pct: 100.0,
+                },
+                false,
+            ),
+            (RingInput::Percent { remaining_pct: 0.0 }, false),
+            (RingInput::Balance { remaining: 3800.0 }, false),
+            (
+                RingInput::Balance {
+                    remaining: 311_000.0,
+                },
+                false,
+            ),
+            (
+                RingInput::Balance {
+                    remaining: 1_200_000.0,
+                },
+                false,
+            ),
+            (
+                RingInput::Balance {
+                    remaining: 2_000_000_000.0,
+                },
+                false,
+            ),
+            (RingInput::Balance { remaining: 380.0 }, false),
+            (RingInput::Empty, false),
+            (
+                RingInput::Percent {
+                    remaining_pct: 12.0,
+                },
+                true,
+            ),
+        ];
+        let width = CELL * cases.len() as u32;
+        let mut canvas = tiny_skia::Pixmap::new(width, CELL * 8).unwrap();
+        let output = std::env::temp_dir().join("quotatray-ring-preview");
+        std::fs::create_dir_all(&output).unwrap();
+        for (theme, dark) in [true, false].into_iter().enumerate() {
+            for (si, size) in [16, 20, 24, 32].into_iter().enumerate() {
+                let row = (theme * 4 + si) as u32;
+                let bg = if dark {
+                    (0x41, 0x48, 0x4e)
+                } else {
+                    (0xee, 0xf1, 0xf6)
+                };
+                canvas.fill_rect(
+                    tiny_skia::Rect::from_xywh(0.0, (row * CELL) as f32, width as f32, CELL as f32)
+                        .unwrap(),
+                    &solid_paint(opaque(bg)),
                     tiny_skia::Transform::identity(),
                     None,
                 );
-            };
-            for (col, v) in balance_cases.iter().enumerate() {
-                draw(col, RingInput::Balance { remaining: *v });
-            }
-            for (col, p) in percent_cases.iter().enumerate() {
-                draw(
-                    balance_cases.len() + col,
-                    RingInput::Percent { remaining_pct: *p },
-                );
+                for (col, (input, alert)) in cases.iter().enumerate() {
+                    let spec = ring_spec(*input, 100.0);
+                    let mut rgba = render_rgba(&spec, dark, *alert, size);
+                    for p in rgba.as_chunks_mut::<4>().0 {
+                        let a = u32::from(p[3]);
+                        for c in &mut p[..3] {
+                            *c = ((u32::from(*c) * a + 127) / 255) as u8;
+                        }
+                    }
+                    let icon = tiny_skia::Pixmap::from_vec(
+                        rgba,
+                        tiny_skia::IntSize::from_wh(size, size).unwrap(),
+                    )
+                    .unwrap();
+                    icon.save_png(output.join(format!(
+                        "{size}-{}-{col}.png",
+                        if dark { "dark" } else { "light" }
+                    )))
+                    .unwrap();
+                    canvas.draw_pixmap(
+                        (col as u32 * CELL + (CELL - size) / 2) as i32,
+                        (row * CELL + (CELL - size) / 2) as i32,
+                        icon.as_ref(),
+                        &tiny_skia::PixmapPaint::default(),
+                        tiny_skia::Transform::identity(),
+                        None,
+                    );
+                }
             }
         }
-        let png = canvas.encode_png().expect("预览 PNG 编码失败");
-        let path = std::env::temp_dir().join("quotatray-ring-preview.png");
-        std::fs::write(&path, png).expect("预览 PNG 写盘失败");
-        println!("圆环预览已输出：{}", path.display());
+        let path = output.join("gallery.png");
+        canvas.save_png(&path).unwrap();
+        println!(
+            "圆环预览：{}；深浅主题各 16/20/24/32px 四行",
+            path.display()
+        );
     }
 
-    /// 契约：字模表覆盖 15 字形且中心文字只含字模字符。
+    /// 契约：内嵌字体覆盖全部可能的中心文字字符。
     #[test]
     fn glyph_table_covers_center_texts() {
-        let chars: Vec<char> = GLYPHS.iter().map(|(c, _)| *c).collect();
-        assert_eq!(chars.len(), 15);
+        let font = ttf_parser::Face::parse(DIGIT_FONT, 0).expect("内嵌字体可解析");
         for text in [
             center_text_balance(9999.0),
             center_text_balance(12_499.0),
             center_text_balance(1.2e6),
             center_text_percent(45.0),
-            "0123456789kMB%.".to_string(),
+            "0123456789kMB.".to_string(),
         ] {
             for ch in text.chars() {
-                assert!(glyph(ch).is_some(), "字模缺字符 {ch:?}");
+                assert!(font.glyph_index(ch).is_some(), "字模缺字符 {ch:?}");
             }
         }
     }

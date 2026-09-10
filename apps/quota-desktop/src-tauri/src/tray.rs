@@ -273,6 +273,31 @@ pub fn any_alert(
 
 // ---- Tauri 交互 -----------------------------------------------------------
 
+/// Windows 图标像素尺寸取托盘所在屏幕的缩放；不能用主窗口屏幕，二者可能不同。
+/// 图标矩形是含交互留白的区域，仅用来定位屏幕，不把矩形宽度当图标宽度。
+fn icon_size(app: &AppHandle) -> u32 {
+    #[cfg(windows)]
+    {
+        let monitor = app
+            .tray_by_id(TRAY_ID)
+            .and_then(|tray| tray.rect().ok().flatten())
+            .and_then(|rect| {
+                let pos = rect.position.to_physical::<f64>(1.0);
+                let size = rect.size.to_physical::<f64>(1.0);
+                app.monitor_from_point(pos.x + size.width / 2.0, pos.y + size.height / 2.0)
+                    .ok()
+                    .flatten()
+            })
+            .or_else(|| app.primary_monitor().ok().flatten());
+        ring::icon_size_for_scale(monitor.map(|m| m.scale_factor()).unwrap_or(1.0))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        ring::ICON_SIZE
+    }
+}
+
 /// 创建托盘（setup 阶段调用一次）。
 ///
 /// 首次启动配置文件不存在是正常路径（load 返回空配置，非 Err）；
@@ -322,10 +347,11 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
     };
     // 首屏图标：无数据时为灰空环（快照数据由后续 rebuild 反映）
     let dark = *state.resolved_theme.read().unwrap();
+    let size = icon_size(app);
     let icon = match snapshot_views(state) {
         Some((cfg, results, settings)) => {
             let alert = any_alert(&cfg, &results, &settings, now_ms());
-            ring::icon_image(&cfg, &results, &settings, dark, alert)
+            ring::icon_image(&cfg, &results, &settings, dark, alert, size)
         }
         None => ring::icon_image(
             &AppConfig::default(),
@@ -333,6 +359,7 @@ pub fn create(app: &AppHandle, state: &AppState) -> tauri::Result<()> {
             &Settings::default(),
             dark,
             false,
+            size,
         ),
     };
     tauri::tray::TrayIconBuilder::with_id(TRAY_ID)
@@ -385,7 +412,7 @@ pub fn rebuild(app: &AppHandle, state: &AppState) {
     }
     let dark = *state.resolved_theme.read().unwrap();
     let alert = any_alert(&cfg, &results, &settings, now_ms());
-    let icon = ring::icon_image(&cfg, &results, &settings, dark, alert);
+    let icon = ring::icon_image(&cfg, &results, &settings, dark, alert, icon_size(app));
     if let Err(e) = tray.set_icon(Some(icon)) {
         eprintln!("托盘图标切换失败：{e}");
     }
