@@ -459,10 +459,10 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             >
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
-              {consoleUrlField}
-              {pricingSection}
               {credentialField}
               {credential2Field}
+              {consoleUrlField}
+              {pricingSection}
             </div>
             {/* 子页「设置模板」：条件渲染——内部校验/试查结论允许丢失，
                 避免 CodeMirror 挂在隐藏容器的测量问题 */}
@@ -488,10 +488,10 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             >
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
-              {consoleUrlField}
-              {pricingSection}
               {credentialField}
               {credential2Field}
+              {consoleUrlField}
+              {pricingSection}
             </div>
             {/* 子页「查询脚本」：条件渲染——校验/试查结论允许丢失，
                 避免 CodeMirror 挂在隐藏容器的测量问题 */}
@@ -561,12 +561,12 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               )}
             </div>
 
-            {consoleUrlField}
-            {pricingSection}
             {selectedNativeMeta?.uses_cli_credentials
               ? cliCredentialField
               : credentialField}
             {nativeKey2Required && credential2Field}
+            {consoleUrlField}
+            {pricingSection}
           </>
         )}
 

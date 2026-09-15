@@ -67,3 +67,19 @@ test("脚本形态效仿模板二级子页分栏", () => {
   assert.match(editDialog, /setScriptSub\("script"\)/);
   assert.match(editDialog, /setScriptSub\("provider"\)/);
 });
+
+test("三形态字段序：凭据（key）优先，控制台地址次之，峰谷定价殿后", () => {
+  // template/script 两个 provider 子页：baseUrl → 凭据 → 控制台 → 定价
+  const providerSeq =
+    /baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}\s*\{consoleUrlField\}\s*\{pricingSection\}/g;
+  assert.equal(
+    (editDialog.match(providerSeq) ?? []).length,
+    2,
+    "模板与脚本的 provider 子页应为 baseUrl→凭据→控制台→定价",
+  );
+  // native 分支：凭据（CLI/普通 + 第二槽）→ 控制台 → 定价
+  assert.match(
+    editDialog,
+    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*\{consoleUrlField\}\s*\{pricingSection\}/,
+  );
+});
