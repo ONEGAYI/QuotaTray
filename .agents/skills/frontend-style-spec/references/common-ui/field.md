@@ -26,3 +26,12 @@ text-soft 13px 与 label 风格同档，checkbox 走 `accent-color: var(--qt-acc
 凡与按钮同行的开关型选项用行内形态。移动端命中区 44px（T-010 全量口径，
 视觉保持 13px 行高不放大）。代码锚点：`EditDialog.tsx` ScriptForm 的
 allowInsecure 开关；契约测试 `scripts/edit-dialog-style.contract.mjs`。
+
+**关键字段卡片**（`qt-field-card`，2026-09-15 草案）：surface-soft 底 + border
+边 + md 圆角 + 13px 内边距的字段分组容器，套用于编辑弹窗的必填字段——
+名称、baseUrl（模板/脚本）或平台选择（预置）、主/第二凭据（含 CLI 凭据）。
+原 `qt-credential-field` 仅用于凭据（承载提示行与「不回显」安全语义），
+扩散后抽为通用类；凭据字段的提示行样式随类迁移（`.qt-field-card small`）。
+控制台直达、套餐变体、定价区及编辑器区块不套卡片（非清单字段）。
+代码锚点：`EditDialog.tsx` 六处 `qt-field-card`；契约测试
+`scripts/edit-dialog-style.contract.mjs`。

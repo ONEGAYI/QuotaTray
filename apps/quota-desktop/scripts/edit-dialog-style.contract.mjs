@@ -83,3 +83,15 @@ test("三形态字段序：凭据（key）优先，控制台地址次之，峰�
     /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*\{consoleUrlField\}\s*\{pricingSection\}/,
   );
 });
+
+test("关键字段卡片底座覆盖必填字段（名称/baseUrl/运营商/双凭据）", () => {
+  // 凭据卡片的底座样式抽为通用 qt-field-card，并扩散到全部必填字段；
+  // 旧类名 qt-credential-field 不再存在（语义从凭据专区演变为关键字段卡片）
+  assert.doesNotMatch(editDialog, /qt-credential-field/);
+  assert.doesNotMatch(css, /qt-credential-field/);
+  assert.match(css, /\.qt-field-card\s*\{[^}]*background:\s*var\(--qt-surface-soft\);/s);
+  assert.match(css, /\.qt-field-card small\s*\{/);
+  // 底座套用清单：name / baseUrl / native 平台选择 / 三处凭据字段
+  const cards = (editDialog.match(/qt-field-card/g) ?? []).length;
+  assert.equal(cards, 6, "name+baseUrl+平台选择+三个凭据字段均应带卡片底座");
+});
