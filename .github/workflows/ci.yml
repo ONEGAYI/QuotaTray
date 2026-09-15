@@ -94,6 +94,10 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: android-actions/setup-android@v3
+        with:
+          # Google 仓库已下架旧 tools 包（2026-09-15 起默认 packages 含 tools 必失败），
+          # 显式只装 platform-tools；其余组件由下方 sdkmanager 按需安装
+          packages: platform-tools
       - name: 安装 Android SDK 与 NDK
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"

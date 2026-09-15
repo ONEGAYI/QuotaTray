@@ -220,13 +220,21 @@ QuotaTray/
 ├── .agents/                # Agent 技能库（项目级）
 │   └── skills/ # 技能目录
 │       ├── file-tree/           # 文件树技能
-│       │   ├── agents/   # Codex 元数据目录
+│       │   ├── agents/     # Codex 元数据目录
 │       │   │   └── openai.yaml # Codex 技能元数据
-│       │   ├── scripts/  # 技能脚本
-│       │   │   ├── tree_tool.py      # 文件树唯一维护脚本
-│       │   │   └── tree_tool_test.py # 脚本契约测试
-│       │   ├── SKILL.md  # 技能主入口
-│       │   └── tree.json # 文件树唯一数据源
+│       │   ├── references/ # 技能参考文档目录
+│       │   │   └── views.md # 查看器视图规格文档
+│       │   ├── scripts/    # 技能脚本
+│       │   │   ├── bench_viewer.py      # 查看器服务端性能基准
+│       │   │   ├── gen_viewer_sample.py # 大样本合成生成器
+│       │   │   ├── tree_tool.py         # 文件树唯一维护脚本
+│       │   │   ├── tree_tool_test.py    # 脚本契约测试
+│       │   │   ├── viewer.py            # 只读查看器 HTTP 入口
+│       │   │   ├── viewer_core.py       # 查看器内存快照模型
+│       │   │   └── viewer_test.py       # 查看器契约测试
+│       │   ├── SKILL.md    # 技能主入口
+│       │   ├── tree.json   # 文件树唯一数据源
+│       │   └── viewer/     # 查看器发行静态资源
 │       └── frontend-style-spec/ # 前端样式规范技能
 │           ├── agents/     # Codex 元数据目录
 │           │   └── openai.yaml # Codex 技能元数据

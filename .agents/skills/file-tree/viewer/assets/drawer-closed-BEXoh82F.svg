@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="474" height="474" viewBox="0 0 474 474" fill="none">
+  <title>透明线稿四层抽屉柜 · 关闭版</title>
+  <desc>手绘线条的四层抽屉柜，四层抽屉全部关闭。透明背景，无底部投影，无水印。</desc>
+  <defs>
+
+
+    <g id="pull" stroke="#889183" stroke-linejoin="round" stroke-linecap="round">
+      <ellipse cx="0" cy="-17.7" rx="4.7" ry="3.6" fill="none" stroke-width="1.9"/>
+      <path d="M-2.3-19.2 1.8-19" stroke="#889183" stroke-width="1.1"/>
+      <path d="M-21.4-2.6-26.4-2.1-27.1 3.3-21.3 4.1M21.5-2.5 26.6-2 26.9 3.4 22.2 4.1" fill="none" stroke-width="1.6"/>
+      <path d="M-15 8.6-14.1 14.2Q.7 16.2 13.7 14.1L15.2 8.1" fill="none" stroke-width="1.9"/>
+      <path d="M-10.5 9.1-9.8 11.2 9.9 11.1 10.5 8.8" fill="none" stroke-width="1.1"/>
+      <path d="M-22.1-10.2 21.9-9.8 23 7.8-22.2 8.1Z" fill="none" stroke-width="2"/>
+      <path d="M-18.5-7.1 18.6-6.8 19 4.3-18.7 4.8Z" fill="none" stroke-width="1.3"/>
+      <path d="M-15.8-4.5 16.1-4.3 16.5 1.8-15.8 2.2Z" fill="none" stroke-width="1.15"/>
+      <path d="M-19.6-8.1 19.2-7.9M-19.7 6.2 19.5 5.9" stroke="#889183" stroke-width="1"/>
+      <path d="M-28.3 7.9-23.9 8.2M25.1 7.4 30.7 7.5M-27.6-10.8-23.9-10.5M23.8-8.7 28.7-8.6" stroke-width=".9"/>
+    </g>
+  </defs>
+  <g stroke="#889183" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 柜体、顶沿与内部空间 -->
+    <path d="M181.9 98.1 324.1 107.5 323 352.6 182.9 371.2 110.9 340.1 110.5 126.1Z" fill="none"/>
+    <path d="M184.4 108.6 318.9 117.8 318.9 353.9 184.5 364.4Z" fill="none"/>
+    <path d="M195.1 117.4 200.1 117.9 198.8 349.1 192.4 351.2Z" fill="none" stroke-width="1.5"/>
+    <path d="M183.3 98.4 324.1 107.5 324.2 116 183.7 106.2 110.6 133.3 110.5 126.1Z" fill="none"/>
+    <path d="M189.3 102.4 317.9 111.2M236.7 106.9 293.1 110.4" stroke="#889183" stroke-width="1.1"/>
+    <path d="M198.7 103.2 231.6 105.2M188.5 101.2 191.4 101.3" stroke="#889183" stroke-width="1.25"/>
+    <path d="M111 133 179 107.9 179.5 356 111.1 328.8Z" fill="none"/>
+    <path d="M179 107.9 184.1 105.8 184.6 365.6 179.6 362.8Z" fill="none" stroke-width="1.5"/>
+    <path d="M174.8 111 175.3 344.8" stroke="#889183" stroke-width="1.4"/>
+    <path d="M111.4 324.6 179.4 349.8 183.5 364.7 111.1 340.3Z" fill="none" stroke-width="2"/>
+    <path d="M113.5 327.7 174.5 350.3" stroke="#889183" stroke-width="1.1"/>
+    <!-- 柜脚，没有地面投影 -->
+    <path d="M111.2 340.7 124.6 345.8 124.8 364.5 111 359.6Z" fill="none" stroke-width="2"/>
+    <path d="M124.6 345.8 135.5 350.4 133.8 361.7 124.8 364.5Z" fill="none" stroke-width="1.8"/>
+    <path d="M115.2 347.4 115.8 357.7M120.4 348.5 121 361.1M128.1 350.6 128.1 358.9" stroke="#889183" stroke-width="1.1"/>
+    <path d="M299.9 355.5 322.4 353 322.5 371.4 307.5 373.6 299.6 369.7Z" fill="none" stroke-width="2"/>
+    <path d="M307.5 357 307.5 373.6M312 357.1 312.3 369.7M316.2 356.2 316.8 368.5M320 356.1 320.2 367.3" stroke="#889183" stroke-width="1.1"/>
+    <path d="M166.9 359.9 183.3 364.7 199.8 366.9 199.1 386.3 178.1 388 166.7 382.3Z" fill="none" stroke-width="2.2"/>
+    <path d="M178.2 367.9 178.1 388 199.1 386.3 199.8 366.9 185.3 369.2Z" fill="none" stroke-width="1.8"/>
+    <path d="M171 365.3 171.4 379.3M175 368.2 175.1 383.6M183.6 373.2 183.7 384.2M188.2 372.2 188.9 385.8M192.8 374 193 382.1" stroke="#889183" stroke-width="1.15"/>
+    <!-- 关闭后的柜底前沿 -->
+    <path d="M185 362.4 322.8 347.1 322.8 356.7 185 371.2Z" fill="none" stroke-width="2"/>
+    <path d="M193 365.3 318 352.1" stroke="#889183" stroke-width="1.1"/>
+    <!-- 第一层 -->
+    <path d="M198.6 116.1 317.8 122 318.1 174.3 198.2 170.4Z" fill="none"/>
+    <path d="M199 116.5 203 117.5 202.5 169.6 198.3 170.2Z" fill="none" stroke-width="1.15"/>
+    <path d="M207.7 119.9 311.9 125.1" stroke="#889183" stroke-width="1.3"/>
+    <path d="M203.3 168.2 314.9 171.4" stroke="#889183" stroke-width="1.2"/>
+    <path d="M211.8 124.2 216.1 124.4M219.7 123.7 222.7 124.1M299.4 167.7 306.4 168" stroke="#889183" stroke-width="1"/>
+    <use xlink:href="#pull" transform="translate(261 146.1)"/>
+    <!-- 第二层 -->
+    <path d="M198.3 178 317.9 181.2 318 232 198.1 233Z" fill="none"/>
+    <path d="M198.8 178.4 203 179 202.5 231.1 198.4 232.8Z" fill="none" stroke-width="1.2"/>
+    <path d="M207.4 181.8 312.8 184.4" stroke="#889183" stroke-width="1.25"/>
+    <path d="M204 230.2 314.7 229.4" stroke="#889183" stroke-width="1.1"/>
+    <path d="M211.1 186.6 213.8 186.8M221.2 186.8 225.3 187M296.2 222.3 299.6 222.1M304 222.1 306.2 222M311.3 221.9 313.3 222" stroke="#889183" stroke-width="1.05"/>
+    <use xlink:href="#pull" transform="translate(261 206.5)"/>
+    <!-- 第三层 -->
+    <path d="M198.2 240.2 318 238.9 317.8 289.7 198.1 296Z" fill="none"/>
+    <path d="M198.7 240.6 202.9 241 202.4 293.6 198.5 295.6Z" fill="none" stroke-width="1.2"/>
+    <path d="M207.5 243.8 313 242.3" stroke="#889183" stroke-width="1.15"/>
+    <path d="M203.9 293.1 314.2 287" stroke="#889183" stroke-width="1.1"/>
+    <path d="M211.2 248.2 214.7 248.2M222.6 247.7 226 247.8M296.7 281 299.5 280.7M304.3 280.2 307.9 280M313 279.4 314.4 279.4" stroke="#889183" stroke-width="1"/>
+    <use xlink:href="#pull" transform="matrix(1 -.025 0 1 261 265.8)"/>
+    <!-- 第四层 -->
+    <path d="M198.1 303.3 317.9 296.9 317.7 347.8 198.2 361.1Z" fill="none"/>
+    <path d="M198.6 303.7 202.8 303.9 202.9 358 198.5 360.7Z" fill="none" stroke-width="1.25"/>
+    <path d="M207.3 306.5 313 300.6" stroke="#889183" stroke-width="1.3"/>
+    <path d="M204 357.7 313.8 345.3" stroke="#889183" stroke-width="1.1"/>
+    <path d="M211.8 312.2 215.9 311.9M222.4 311.6 224.9 311.3M298.1 338.8 301.2 338.5" stroke="#889183" stroke-width="1.05"/>
+    <use xlink:href="#pull" transform="matrix(1 -.065 0 1 261 327.1)"/>
+    <!-- 侧板的疏落划痕，保留手绘质感 -->
+    <path d="M119.6 136.6 121.6 173 124 183.5 123.1 159.4Z" fill="none" stroke="none"/>
+    <path d="M139.3 132.1 141.2 188.7 144.5 233.2 143.1 192.7Z" fill="none" stroke="none"/>
+    <path d="M127.4 235.3 126.8 259.4 129.2 269.4Z" fill="none" stroke="none"/>
+    <path d="M160.7 284 160.5 326 162.4 338.7 162.3 310.4Z" fill="none" stroke="none"/>
+    <path d="M164.4 164.2 163.9 193.2M168.2 170.3 167.4 214.2M147.4 246.5 148.1 264.2M144.4 281.6 146 295.1M148.7 288.7 149 316.2M130.7 281 130.3 299.1" stroke="#889183" stroke-width="1.15" opacity=".8"/>
+    <path d="M182.4 114 183.1 219.8M182.5 271.5 183.1 350.1" stroke="#889183" stroke-width=".85"/>
+  </g>
+</svg>
