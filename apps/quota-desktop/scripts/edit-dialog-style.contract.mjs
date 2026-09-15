@@ -18,10 +18,11 @@ test("模板与脚本的 CodeMirror 编辑器跟随明暗主题", () => {
 
 test("allowInsecure 复选框内联于脚本操作行而非独立字段行", () => {
   const scriptForm = editDialog.slice(editDialog.indexOf("function ScriptForm"));
+  // 复选框须在 qt-template-actions 容器内部、AI 调试按钮之后、容器闭合之前
   assert.match(
     scriptForm,
-    /qt-template-actions[\s\S]*?qt-check-inline/,
-    "复选框应位于 qt-template-actions 操作行内（AI 调试按钮之后）",
+    /qt-template-actions">[\s\S]*?qt-ai-placeholder-icon[\s\S]*?qt-check-inline[\s\S]*?<\/div>/,
+    "复选框应在操作行 div 内、AI 按钮之后",
   );
   assert.match(
     scriptForm,
@@ -63,9 +64,20 @@ test("脚本形态效仿模板二级子页分栏", () => {
   const scriptForm = editDialog.slice(editDialog.indexOf("function ScriptForm"));
   assert.doesNotMatch(scriptForm, /edit\.baseUrl/);
   assert.doesNotMatch(scriptForm, /setBaseUrl/);
-  // 保存失败带回现场：脚本校验失败跳 script 子页、consoleUrl 失败跳 provider 子页
-  assert.match(editDialog, /setScriptSub\("script"\)/);
-  assert.match(editDialog, /setScriptSub\("provider"\)/);
+  // 保存失败带回现场：跳转绑定各自触发上下文——
+  // 脚本校验 catch → script 子页；名称/consoleUrl 校验（字段在 provider 子页）→ provider 子页
+  assert.match(
+    editDialog,
+    /validateScript\(configJson\);[\s\S]{0,120}catch \(e\) \{[^}]*setScriptSub\("script"\)/,
+  );
+  assert.match(
+    editDialog,
+    /isValidConsoleUrlInput\(consoleUrl\)\) \{[^}]*setScriptSub\("provider"\)/,
+  );
+  assert.match(
+    editDialog,
+    /!trimmedName\) \{[^}]*setScriptSub\("provider"\)/,
+  );
 });
 
 test("三形态字段序：凭据（key）优先，控制台地址次之，峰谷定价殿后", () => {

@@ -158,7 +158,12 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     mutationFn: async () => {
       setError(null);
       const trimmedName = name.trim();
-      if (!trimmedName) throw new Error(t("edit.nameRequired"));
+      // 名称字段在「运营商与模型」子页，停留编辑子页时校验失败带回现场
+      if (!trimmedName) {
+        if (tab === "template") setTemplateSub("provider");
+        if (tab === "script") setScriptSub("provider");
+        throw new Error(t("edit.nameRequired"));
+      }
       if (mobileCliUnsupported) throw new Error(t("edit.mobileCliUnsupported"));
       // 控制台直达覆盖：scheme 校验与后端 open_console_url 白名单同口径；
       // 字段渲染在「运营商与模型」子页，停留编辑子页时校验失败带回现场
@@ -458,10 +463,10 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               className={`qt-edit-subpage ${templateSub === "provider" ? "" : "qt-hidden"}`}
             >
               <div className="qt-field-card">
-              <div className="qt-edit-basics">{nameField}</div>
-              {baseUrlField}
-              {credentialField}
-              {credential2Field}
+                <div className="qt-edit-basics">{nameField}</div>
+                {baseUrlField}
+                {credentialField}
+                {credential2Field}
               </div>
               {consoleUrlField}
               {pricingSection}
@@ -489,10 +494,10 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               className={`qt-edit-subpage ${scriptSub === "provider" ? "" : "qt-hidden"}`}
             >
               <div className="qt-field-card">
-              <div className="qt-edit-basics">{nameField}</div>
-              {baseUrlField}
-              {credentialField}
-              {credential2Field}
+                <div className="qt-edit-basics">{nameField}</div>
+                {baseUrlField}
+                {credentialField}
+                {credential2Field}
               </div>
               {consoleUrlField}
               {pricingSection}
@@ -517,59 +522,59 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         ) : (
           <>
             <div className="qt-field-card">
-            <div className="qt-edit-basics">
-              {nameField}
+              <div className="qt-edit-basics">
+                {nameField}
 
-              <div className="qt-field">
-                <span>{t("edit.platform")}</span>
-                <NativeProviderPicker
-                  metas={availableNativeMetas}
-                  value={nativeProvider}
-                  ariaLabel={t("edit.platform")}
-                  placeholder={t("edit.platformPlaceholder")}
-                  groupLabels={{
-                    deepseek: "DeepSeek",
-                    siliconflow: "SiliconFlow",
-                    openrouter: "OpenRouter",
-                    kimi: "Kimi",
-                    zhipu: t("edit.platformGroupZhipu"),
-                    zai: "Z.ai",
-                    stepfun: "StepFun",
-                    novita: "Novita AI",
-                    minimax: "MiniMax",
-                    aliyun: t("edit.platformGroupAliyun"),
-                    claude: "Claude",
-                    codex: "Codex",
-                    gemini: "Gemini",
-                    grok: "Grok",
-                  }}
-                  onChange={setNativeProvider}
-                />
-                {mobileCliUnsupported && (
-                  <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
+                <div className="qt-field">
+                  <span>{t("edit.platform")}</span>
+                  <NativeProviderPicker
+                    metas={availableNativeMetas}
+                    value={nativeProvider}
+                    ariaLabel={t("edit.platform")}
+                    placeholder={t("edit.platformPlaceholder")}
+                    groupLabels={{
+                      deepseek: "DeepSeek",
+                      siliconflow: "SiliconFlow",
+                      openrouter: "OpenRouter",
+                      kimi: "Kimi",
+                      zhipu: t("edit.platformGroupZhipu"),
+                      zai: "Z.ai",
+                      stepfun: "StepFun",
+                      novita: "Novita AI",
+                      minimax: "MiniMax",
+                      aliyun: t("edit.platformGroupAliyun"),
+                      claude: "Claude",
+                      codex: "Codex",
+                      gemini: "Gemini",
+                      grok: "Grok",
+                    }}
+                    onChange={setNativeProvider}
+                  />
+                  {mobileCliUnsupported && (
+                    <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
+                  )}
+                </div>
+
+                {selectedNativeMeta?.supports_plan_variant && (
+                  <label className="qt-field">
+                    <span>{t("edit.planVariant")}</span>
+                    <select
+                      value={planVariant}
+                      onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
+                      className={`${inputCls} qt-select`}
+                    >
+                      <option value="auto">{t("edit.planVariantAuto")}</option>
+                      <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
+                      <option value="weekly">{t("edit.planVariantWeekly")}</option>
+                    </select>
+                  </label>
                 )}
               </div>
 
-              {selectedNativeMeta?.supports_plan_variant && (
-                <label className="qt-field">
-                  <span>{t("edit.planVariant")}</span>
-                  <select
-                    value={planVariant}
-                    onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
-                    className={`${inputCls} qt-select`}
-                  >
-                    <option value="auto">{t("edit.planVariantAuto")}</option>
-                    <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
-                    <option value="weekly">{t("edit.planVariantWeekly")}</option>
-                  </select>
-                </label>
-              )}
-            </div>
-
-            {selectedNativeMeta?.uses_cli_credentials
-              ? cliCredentialField
-              : credentialField}
-            {nativeKey2Required && credential2Field}
+              {selectedNativeMeta?.uses_cli_credentials
+                ? cliCredentialField
+                : credentialField}
+              {nativeKey2Required && credential2Field}
             </div>
             {consoleUrlField}
             {pricingSection}
