@@ -218,50 +218,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 <!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->
 QuotaTray/
 ├── .agents/                # Agent 技能库（项目级）
-│   └── skills/ # 技能目录
-│       ├── file-tree/           # 文件树技能
-│       │   ├── agents/     # Codex 元数据目录
-│       │   │   └── openai.yaml # Codex 技能元数据
-│       │   ├── references/ # 技能参考文档目录
-│       │   │   └── views.md # 查看器视图规格文档
-│       │   ├── scripts/    # 技能脚本
-│       │   │   ├── bench_viewer.py      # 查看器服务端性能基准
-│       │   │   ├── gen_viewer_sample.py # 大样本合成生成器
-│       │   │   ├── tree_tool.py         # 文件树唯一维护脚本
-│       │   │   ├── tree_tool_test.py    # 脚本契约测试
-│       │   │   ├── viewer.py            # 只读查看器 HTTP 入口
-│       │   │   ├── viewer_core.py       # 查看器内存快照模型
-│       │   │   └── viewer_test.py       # 查看器契约测试
-│       │   ├── SKILL.md    # 技能主入口
-│       │   ├── tree.json   # 文件树唯一数据源
-│       │   └── viewer/     # 查看器发行静态资源
-│       └── frontend-style-spec/ # 前端样式规范技能
-│           ├── agents/     # Codex 元数据目录
-│           │   └── openai.yaml # Codex 技能元数据
-│           ├── references/ # 规范正文目录
-│           │   ├── common-ui/     # 通用 UI 组件域
-│           │   │   ├── button.md          # 按钮规范
-│           │   │   ├── card.md            # 余额卡片 hover 反馈规范
-│           │   │   ├── empty-state.md     # 空态卡规范
-│           │   │   ├── feedback-banner.md # 反馈块规范
-│           │   │   ├── field.md           # 表单字段规范
-│           │   │   ├── focus.md           # 焦点环规范
-│           │   │   ├── guide-viewer.md    # 指引渲染器样式规范
-│           │   │   ├── message-center.md  # 消息中心组件规范
-│           │   │   ├── segmented.md       # 分段控件规范
-│           │   │   └── tooltip.md         # 悬停气泡组件规范
-│           │   ├── design-tokens/ # 设计令牌域目录
-│           │   │   └── tokens.md # 设计令牌规范
-│           │   ├── edit-dialog/   # 编辑弹窗域目录
-│           │   │   └── pricing-section.md # 定价编辑区规范
-│           │   ├── mobile/        # 移动端规范域
-│           │   │   ├── interaction.md # 移动触摸交互规范
-│           │   │   └── layout.md      # 移动壳层布局规范
-│           │   ├── tray/          # 原生托盘样式域
-│           │   │   └── icon.md # 托盘细环大字规范
-│           │   └── usage-stats/   # 使用统计规范域
-│           │       └── comparison-chart.md # 多曲线比较规范
-│           └── SKILL.md    # 跨端前端规范索引
+│   └── skills/… # 技能目录
 ├── .DevApiKey.json.example # 本地密钥文件模板
 ├── .gitattributes          # 行尾规则（技能 LF）
 ├── .githooks/              # Git hooks 本地门禁
@@ -548,16 +505,7 @@ QuotaTray/
 │   ├── 测试单/             # 真机端测执行清单目录
 │   │   └── 2026-08-29 安卓端端测清单.md # 安卓真机端测清单（更新链/升级/通用）
 │   ├── 移动端能力缺口追踪.md     # Android 能力缺口活追踪
-│   └── 预研文档/            # 立项前调研与预研报告
-│       ├── 2026-08-22 项目方案预研.md          # 项目方案预研
-│       ├── 2026-08-23 CC-Switch调研报告.md   # cc-switch 调研
-│       ├── 2026-08-25 预置Provider缺口预研.md  # 预置缺口预研
-│       ├── 2026-08-27 WoA与便携版预研报告.md     # WoA 与便携版预研
-│       ├── 2026-08-28 自动更新预研报告.md        # 自动更新静默与双目录预研
-│       ├── 2026-08-29 安卓更新与下载预研报告.md     # 安卓更新下载预研
-│       ├── 2026-08-29 安卓缺口调研报告.md        # 安卓缺口八项现状盘点（移动端计划底稿）
-│       ├── 2026-08-30 百炼余额查询预研.md        # 百炼余额查询预研报告
-│       └── 2026-09-10 DeepSeek新模型定价调研.md # DeepSeek V4.1 定价调研
+│   └── 预研文档/…           # 立项前调研与预研报告
 ├── examples/               # 可运行示例
 │   ├── scripts/   # 脚本查询示例
 │   │   ├── basic.js        # 最小闭环脚本示例
