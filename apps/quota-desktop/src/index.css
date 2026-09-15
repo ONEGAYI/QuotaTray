@@ -878,9 +878,9 @@ ol.qt-guide-list { list-style: decimal; }
    需自带同尺寸行距（否则退化为零间距块堆叠） */
 .qt-edit-subpage { display: grid; gap: 16px; }
 .qt-edit-basics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-/* 关键字段卡片（T-005）：surface-soft 底座分组必填字段（名称/baseUrl/运营商/凭据），
-   凭据字段借此承载提示行与「不回显」安全语义 */
-.qt-field-card { padding: 13px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); background: var(--qt-surface-soft); }
+/* 关键字段卡片（T-005）：单一容器收纳必填字段（名称/baseUrl 或平台选择/凭据），
+   字段本身退裸 qt-field；凭据提示行样式经容器选择器 .qt-field-card small 生效 */
+.qt-field-card { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); background: var(--qt-surface-soft); }
 .qt-field-card small { display: block; margin: -1px 0 8px; color: var(--qt-text-faint); font-size: 11px; }
 .qt-field-card small.qt-cli-bridge-hint { color: var(--qt-warning); margin-top: -6px; }
 .qt-template-form { display: grid; gap: 12px; }

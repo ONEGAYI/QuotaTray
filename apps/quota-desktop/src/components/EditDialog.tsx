@@ -260,7 +260,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
 
   // 以下字段/区块被 template 与 native/script 两类分支复用，抽出避免重复
   const nameField = (
-    <label className="qt-field qt-field-card">
+    <label className="qt-field">
       <span>{t("edit.name")}</span>
       <input
         value={name}
@@ -271,7 +271,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     </label>
   );
   const baseUrlField = (
-    <label className="qt-field qt-field-card">
+    <label className="qt-field">
       <span className={labelCls}>{t("edit.baseUrl")}</span>
       <input
         value={baseUrl}
@@ -297,7 +297,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     </label>
   );
   const credentialField = (
-    <label className="qt-field qt-field-card">
+    <label className="qt-field">
       <span>{t("edit.apiKey")}</span>
       <small>{t("edit.apiKeyHint")}</small>
       <input
@@ -315,7 +315,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   // 内提供「配置指引」行内链接（指引正是教如何配这对凭据）。
   // 与主 key 同红线——空 = 保持不变，永不回显
   const credential2Field = (
-    <label className="qt-field qt-field-card">
+    <label className="qt-field">
       <span>{t("edit.apiKey2")}</span>
       <small>{t("edit.apiKey2Hint")}</small>
       {tab === "native" && guideDoc && (
@@ -350,7 +350,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   // 桥接警示：本方案只统计官方端点订阅用量，CC-Switch 等桥接到
   // 非官方端点的流量须走「请求模板」——文案见 cliCredentialBridgeHint
   const cliCredentialField = (
-    <label className="qt-field qt-field-card">
+    <label className="qt-field">
       <span>{t("edit.apiKey")}</span>
       <small>{t("edit.cliCredentialHint")}</small>
       <small className="qt-cli-bridge-hint">{t("edit.cliCredentialBridgeHint")}</small>
@@ -457,10 +457,12 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             <div
               className={`qt-edit-subpage ${templateSub === "provider" ? "" : "qt-hidden"}`}
             >
+              <div className="qt-field-card">
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
               {credentialField}
               {credential2Field}
+              </div>
               {consoleUrlField}
               {pricingSection}
             </div>
@@ -486,10 +488,12 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             <div
               className={`qt-edit-subpage ${scriptSub === "provider" ? "" : "qt-hidden"}`}
             >
+              <div className="qt-field-card">
               <div className="qt-edit-basics">{nameField}</div>
               {baseUrlField}
               {credentialField}
               {credential2Field}
+              </div>
               {consoleUrlField}
               {pricingSection}
             </div>
@@ -512,10 +516,11 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
           </>
         ) : (
           <>
+            <div className="qt-field-card">
             <div className="qt-edit-basics">
               {nameField}
 
-              <div className="qt-field qt-field-card">
+              <div className="qt-field">
                 <span>{t("edit.platform")}</span>
                 <NativeProviderPicker
                   metas={availableNativeMetas}
@@ -565,6 +570,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               ? cliCredentialField
               : credentialField}
             {nativeKey2Required && credential2Field}
+            </div>
             {consoleUrlField}
             {pricingSection}
           </>

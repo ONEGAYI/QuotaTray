@@ -69,9 +69,9 @@ test("脚本形态效仿模板二级子页分栏", () => {
 });
 
 test("三形态字段序：凭据（key）优先，控制台地址次之，峰谷定价殿后", () => {
-  // template/script 两个 provider 子页：baseUrl → 凭据 → 控制台 → 定价
+  // template/script 两个 provider 子页：baseUrl → 凭据 →（卡片闭合）→ 控制台 → 定价
   const providerSeq =
-    /baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}\s*\{consoleUrlField\}\s*\{pricingSection\}/g;
+    /baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{pricingSection\}/g;
   assert.equal(
     (editDialog.match(providerSeq) ?? []).length,
     2,
@@ -80,18 +80,30 @@ test("三形态字段序：凭据（key）优先，控制台地址次之，峰�
   // native 分支：凭据（CLI/普通 + 第二槽）→ 控制台 → 定价
   assert.match(
     editDialog,
-    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*\{consoleUrlField\}\s*\{pricingSection\}/,
+    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{pricingSection\}/,
   );
 });
 
-test("关键字段卡片底座覆盖必填字段（名称/baseUrl/运营商/双凭据）", () => {
-  // 凭据卡片的底座样式抽为通用 qt-field-card，并扩散到全部必填字段；
-  // 旧类名 qt-credential-field 不再存在（语义从凭据专区演变为关键字段卡片）
-  assert.doesNotMatch(editDialog, /qt-credential-field/);
-  assert.doesNotMatch(css, /qt-credential-field/);
-  assert.match(css, /\.qt-field-card\s*\{[^}]*background:\s*var\(--qt-surface-soft\);/s);
+test("必填字段合并为单一卡片容器", () => {
+  // 独立字段底座合并：template/script 子页与 native 分支各一个 qt-field-card
+  // 大容器收纳全部必填字段，内部字段退回裸 qt-field（不再每字段各自带底座）
+  const containers = (editDialog.match(/<div className="qt-field-card">/g) ?? []).length;
+  assert.equal(containers, 3, "模板/脚本子页与 native 分支各一个必填卡片容器");
+  assert.doesNotMatch(editDialog, /qt-field qt-field-card/);
+  // 容器收纳清单：basics（名称/平台选择）+ baseUrl + 双凭据（template/script）
+  assert.match(
+    editDialog,
+    /qt-field-card">\s*<div className="qt-edit-basics">\{nameField\}<\/div>\s*\{baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}/,
+  );
+  // native 容器收纳凭据（CLI/普通 + 条件第二槽）后收尾
+  assert.match(
+    editDialog,
+    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*<\/div>/,
+  );
+  // 容器样式：grid 行距 + surface-soft 底；small 提示行样式随容器选择器生效
+  assert.match(
+    css,
+    /\.qt-field-card\s*\{[^}]*display:\s*grid;[^}]*gap:\s*12px;[^}]*background:\s*var\(--qt-surface-soft\);/s,
+  );
   assert.match(css, /\.qt-field-card small\s*\{/);
-  // 底座套用清单：name / baseUrl / native 平台选择 / 三处凭据字段
-  const cards = (editDialog.match(/qt-field-card/g) ?? []).length;
-  assert.equal(cards, 6, "name+baseUrl+平台选择+三个凭据字段均应带卡片底座");
 });
