@@ -317,6 +317,7 @@ QuotaTray/
 │       │   ├── build-hook.mjs                 # 跨目标Tauri构建钩子
 │       │   ├── dev.contract.mjs               # dev端口探测避让契约测试
 │       │   ├── dev.mjs                        # dev端口探测避让入口
+│       │   ├── edit-dialog-style.contract.mjs # 编辑弹窗样式契约测试
 │       │   └── mobile-style.contract.mjs      # 移动样式契约测试
 │       ├── src/                # React 前端源码
 │       │   ├── api.ts                  # invoke 封装

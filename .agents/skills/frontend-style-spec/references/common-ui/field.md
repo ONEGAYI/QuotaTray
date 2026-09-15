@@ -18,3 +18,11 @@ sm 圆角 + 36px 高；紧凑场景（嵌卡片行）加 `qt-input-compact`（32
 
 **label 风格**：主窗表单 `qt-field > span`（text-soft 13px）；托盘悬停窗等紧凑域
 允许 11px 缩档；图表工具栏 eyebrow（10px 大写字距）是独立风格，勿混用于普通表单。
+
+**行内复选框**（`qt-check-inline`，2026-09-15 草案）：嵌在操作行
+（`qt-template-actions` 等 flex 容器）内联使用的带文字复选框——inline-flex +
+text-soft 13px 与 label 风格同档，checkbox 走 `accent-color: var(--qt-accent)`，
+不使用原生默认蓝。与 `qt-field`（label 独占行、checkbox 换行堆叠）互斥使用：
+凡与按钮同行的开关型选项用行内形态。移动端命中区 44px（T-010 全量口径，
+视觉保持 13px 行高不放大）。代码锚点：`EditDialog.tsx` ScriptForm 的
+allowInsecure 开关；契约测试 `scripts/edit-dialog-style.contract.mjs`。

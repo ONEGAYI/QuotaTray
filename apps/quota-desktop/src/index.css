@@ -900,7 +900,10 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-template-help-tip { margin: 0; color: var(--qt-text-faint); font-size: 11px; }
 .qt-inline-warning { margin: 0; border-radius: var(--qt-radius-md); padding: 11px 13px; background: var(--qt-warning-soft); color: var(--qt-warning); font-size: 12px; }
 .qt-code-editor { overflow: hidden; border: 1px solid var(--qt-border-strong); border-radius: var(--qt-radius-sm); }
-.qt-template-actions { display: flex; align-items: center; gap: 8px; }
+.qt-template-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 行内复选框（T-005 草案）：嵌在 qt-template-actions 操作行内，checkbox 走 accent 令牌 */
+.qt-check-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--qt-text-soft); font-size: 13px; cursor: pointer; }
+.qt-check-inline input { margin: 0; accent-color: var(--qt-accent); }
 .qt-template-result { border-radius: var(--qt-radius-sm); padding: 11px; background: var(--qt-surface-soft); font-size: 13px; }
 .qt-text-success { color: var(--qt-success); font-size: 12px; }
 .qt-text-danger { color: var(--qt-danger); }
@@ -1155,6 +1158,7 @@ body.qt-mobile-runtime .qt-usage-reset { min-height: 44px; }
 body.qt-mobile-runtime .qt-usage-head-actions .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-settings-content .qt-btn { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-actions .qt-btn { min-height: 44px; }
+body.qt-mobile-runtime .qt-check-inline { min-height: 44px; }
 body.qt-mobile-runtime .qt-pricing-day-chip { min-height: 44px; }
 body.qt-mobile-runtime .qt-touch-inline { position: relative; }
 body.qt-mobile-runtime .qt-touch-inline::before { position: absolute; inset: -15px -8px; content: ""; }
