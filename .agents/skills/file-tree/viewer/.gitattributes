@@ -1,0 +1,4 @@
+# 发行静态资源为内容寻址的受控快照（hash 文件名、逐字节镜像契约）：
+# 禁用一切行尾转换，保证入库与检出字节一致（Windows checkout 不改 LF）。
+# 经 Vite public 约定随构建产物复制，由 assemble_viewer.py 组装进 dist/viewer/。
+* -text
