@@ -1,6 +1,7 @@
 // 添加/编辑对话框：native / template / script 三形态。
 // 红线 3：key 框初始为空（占位符「已配置/未配置」），空 = 保持不变，永不回显明文。
-// CodeMirror 编辑器为第三方亮色主题，dark 模式下仅调整容器边框（后续版本可换主题）。
+// CodeMirror 编辑器经 theme prop 跟随主题三态解析结果（useTheme），
+// 明暗两档由 @uiw/react-codemirror 内置主题提供。
 import CodeMirror from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
@@ -10,6 +11,7 @@ import { api, newEntryId } from "../api";
 import { dataSummary } from "../display";
 import { useLang, type TextKey } from "../i18n";
 import { invalidateProviderCaches, useNativeMetas } from "../queries";
+import { useTheme } from "../theme";
 import type {
   NativeMeta,
   PlanVariant,
@@ -53,6 +55,8 @@ function extract(resp) {
 type Tab = "native" | "template" | "script";
 /** template 分支的二级子页：运营商信息/计价模型 与 模板编辑。 */
 type TemplateSub = "provider" | "template";
+/** script 分支的二级子页：与 template 同构（运营商信息/计价模型 与 脚本编辑）。 */
+type ScriptSub = "provider" | "script";
 
 /** invoke 抛出的错误若为后端 reject 的 TemplateErrorDto 则还原形状，否则 null。 */
 function toTemplateError(e: unknown): TemplateErrorDto | null {
@@ -86,6 +90,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   );
   // template 分支二级子页（切换一级页签不重置；默认先填运营商信息）
   const [templateSub, setTemplateSub] = useState<TemplateSub>("provider");
+  // script 分支二级子页（语义同 template；默认先填运营商信息）
+  const [scriptSub, setScriptSub] = useState<ScriptSub>("provider");
   const [name, setName] = useState(initial?.name ?? "");
   const [nativeProvider, setNativeProvider] = useState(
     initial?.kind.type === "native" ? initial.kind.provider : "",
@@ -152,12 +158,18 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     mutationFn: async () => {
       setError(null);
       const trimmedName = name.trim();
-      if (!trimmedName) throw new Error(t("edit.nameRequired"));
+      // 名称字段在「运营商与模型」子页，停留编辑子页时校验失败带回现场
+      if (!trimmedName) {
+        if (tab === "template") setTemplateSub("provider");
+        if (tab === "script") setScriptSub("provider");
+        throw new Error(t("edit.nameRequired"));
+      }
       if (mobileCliUnsupported) throw new Error(t("edit.mobileCliUnsupported"));
       // 控制台直达覆盖：scheme 校验与后端 open_console_url 白名单同口径；
-      // 字段渲染在「运营商与模型」子页，停留「设置模板」时校验失败带回现场
+      // 字段渲染在「运营商与模型」子页，停留编辑子页时校验失败带回现场
       if (!isValidConsoleUrlInput(consoleUrl)) {
         if (tab === "template") setTemplateSub("provider");
+        if (tab === "script") setScriptSub("provider");
         throw new Error(t("edit.consoleUrlInvalid"));
       }
       let kind: ProviderKind;
@@ -173,6 +185,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         try {
           await api.validateScript(configJson);
         } catch (e) {
+          // 脚本错误属「查询脚本」子页，把用户带过去看现场
+          setScriptSub("script");
           const dto = toTemplateError(e);
           throw new Error(
             dto
@@ -288,7 +302,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
     </label>
   );
   const credentialField = (
-    <label className="qt-field qt-credential-field">
+    <label className="qt-field">
       <span>{t("edit.apiKey")}</span>
       <small>{t("edit.apiKeyHint")}</small>
       <input
@@ -306,7 +320,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   // 内提供「配置指引」行内链接（指引正是教如何配这对凭据）。
   // 与主 key 同红线——空 = 保持不变，永不回显
   const credential2Field = (
-    <label className="qt-field qt-credential-field">
+    <label className="qt-field">
       <span>{t("edit.apiKey2")}</span>
       <small>{t("edit.apiKey2Hint")}</small>
       {tab === "native" && guideDoc && (
@@ -341,7 +355,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   // 桥接警示：本方案只统计官方端点订阅用量，CC-Switch 等桥接到
   // 非官方端点的流量须走「请求模板」——文案见 cliCredentialBridgeHint
   const cliCredentialField = (
-    <label className="qt-field qt-credential-field">
+    <label className="qt-field">
       <span>{t("edit.apiKey")}</span>
       <small>{t("edit.cliCredentialHint")}</small>
       <small className="qt-cli-bridge-hint">{t("edit.cliCredentialBridgeHint")}</small>
@@ -425,6 +439,20 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
           </div>
         )}
 
+        {tab === "script" && (
+          <div className="qt-edit-subtabs">
+            <SegmentedControl
+              value={scriptSub}
+              compact
+              options={[
+                { value: "provider", label: t("edit.subProvider") },
+                { value: "script", label: t("edit.subScript") },
+              ]}
+              onChange={setScriptSub}
+            />
+          </div>
+        )}
+
         {tab === "template" ? (
           <>
             {/* 子页「运营商与模型」：CSS 隐藏切换（不卸载）——
@@ -434,12 +462,14 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
             <div
               className={`qt-edit-subpage ${templateSub === "provider" ? "" : "qt-hidden"}`}
             >
-              <div className="qt-edit-basics">{nameField}</div>
-              {baseUrlField}
+              <div className="qt-field-card">
+                <div className="qt-edit-basics">{nameField}</div>
+                {baseUrlField}
+                {credentialField}
+                {credential2Field}
+              </div>
               {consoleUrlField}
               {pricingSection}
-              {credentialField}
-              {credential2Field}
             </div>
             {/* 子页「设置模板」：条件渲染——内部校验/试查结论允许丢失，
                 避免 CodeMirror 挂在隐藏容器的测量问题 */}
@@ -456,12 +486,45 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               />
             )}
           </>
+        ) : tab === "script" ? (
+          <>
+            {/* 子页「运营商与模型」：与 template 同构——CSS 隐藏切换（不卸载）
+                保住 PricingSection 草稿态；容器自带 grid gap（qt-edit-subpage） */}
+            <div
+              className={`qt-edit-subpage ${scriptSub === "provider" ? "" : "qt-hidden"}`}
+            >
+              <div className="qt-field-card">
+                <div className="qt-edit-basics">{nameField}</div>
+                {baseUrlField}
+                {credentialField}
+                {credential2Field}
+              </div>
+              {consoleUrlField}
+              {pricingSection}
+            </div>
+            {/* 子页「查询脚本」：条件渲染——校验/试查结论允许丢失，
+                避免 CodeMirror 挂在隐藏容器的测量问题 */}
+            {scriptSub === "script" && (
+              <ScriptForm
+                providerName={name}
+                code={scriptCode}
+                setCode={setScriptCode}
+                allowInsecure={scriptInsecure}
+                setAllowInsecure={setScriptInsecure}
+                baseUrl={baseUrl}
+                apiKey={apiKey}
+                apiKey2={apiKey2}
+                entryId={initial?.id ?? null}
+                mobile={mobile}
+              />
+            )}
+          </>
         ) : (
           <>
-            <div className="qt-edit-basics">
-              {nameField}
+            <div className="qt-field-card">
+              <div className="qt-edit-basics">
+                {nameField}
 
-              {tab === "native" && (
                 <div className="qt-field">
                   <span>{t("edit.platform")}</span>
                   <NativeProviderPicker
@@ -491,46 +554,30 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                     <p className="qt-inline-warning">{t("edit.mobileCliUnsupported")}</p>
                   )}
                 </div>
-              )}
 
-              {tab === "native" && selectedNativeMeta?.supports_plan_variant && (
-                <label className="qt-field">
-                  <span>{t("edit.planVariant")}</span>
-                  <select
-                    value={planVariant}
-                    onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
-                    className={`${inputCls} qt-select`}
-                  >
-                    <option value="auto">{t("edit.planVariantAuto")}</option>
-                    <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
-                    <option value="weekly">{t("edit.planVariantWeekly")}</option>
-                  </select>
-                </label>
-              )}
+                {selectedNativeMeta?.supports_plan_variant && (
+                  <label className="qt-field">
+                    <span>{t("edit.planVariant")}</span>
+                    <select
+                      value={planVariant}
+                      onChange={(event) => setPlanVariant(event.target.value as PlanVariant)}
+                      className={`${inputCls} qt-select`}
+                    >
+                      <option value="auto">{t("edit.planVariantAuto")}</option>
+                      <option value="no_weekly">{t("edit.planVariantNoWeekly")}</option>
+                      <option value="weekly">{t("edit.planVariantWeekly")}</option>
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {selectedNativeMeta?.uses_cli_credentials
+                ? cliCredentialField
+                : credentialField}
+              {nativeKey2Required && credential2Field}
             </div>
-
-            {tab === "script" && (
-              <ScriptForm
-                providerName={name}
-                code={scriptCode}
-                setCode={setScriptCode}
-                allowInsecure={scriptInsecure}
-                setAllowInsecure={setScriptInsecure}
-                baseUrl={baseUrl}
-                setBaseUrl={setBaseUrl}
-                apiKey={apiKey}
-                apiKey2={apiKey2}
-                entryId={initial?.id ?? null}
-                mobile={mobile}
-              />
-            )}
-
             {consoleUrlField}
             {pricingSection}
-            {tab === "native" && selectedNativeMeta?.uses_cli_credentials
-              ? cliCredentialField
-              : credentialField}
-            {(tab !== "native" || nativeKey2Required) && credential2Field}
           </>
         )}
 
@@ -557,6 +604,7 @@ function TemplateForm(props: {
   mobile: boolean;
 }) {
   const { t, lang } = useLang();
+  const theme = useTheme();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
@@ -654,6 +702,7 @@ function TemplateForm(props: {
             }}
             extensions={[json()]}
             height="180px"
+            theme={theme}
             basicSetup={{ foldGutter: false, autocompletion: false }}
           />
         </div>
@@ -715,7 +764,8 @@ function TemplateForm(props: {
   );
 }
 
-/** 脚本形态：JS 编辑器 + baseUrl + allowInsecure + 校验/试查（镜像 TemplateForm 骨架）。 */
+/** 脚本形态：JS 编辑器 + allowInsecure + 校验/试查（镜像 TemplateForm 骨架；
+ *  baseUrl 输入框在「运营商与模型」子页，此处只读接收）。 */
 function ScriptForm(props: {
   providerName: string;
   code: string;
@@ -723,7 +773,6 @@ function ScriptForm(props: {
   allowInsecure: boolean;
   setAllowInsecure: (v: boolean) => void;
   baseUrl: string;
-  setBaseUrl: (v: string) => void;
   apiKey: string;
   apiKey2: string;
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
@@ -731,6 +780,7 @@ function ScriptForm(props: {
   mobile: boolean;
 }) {
   const { t, lang } = useLang();
+  const theme = useTheme();
   const [validateMsg, setValidateMsg] = useState<string | null>(null);
   const [validateOk, setValidateOk] = useState(false);
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
@@ -803,28 +853,10 @@ function ScriptForm(props: {
             }}
             extensions={[javascript()]}
             height="180px"
+            theme={theme}
             basicSetup={{ foldGutter: false, autocompletion: false }}
           />
         </div>
-      </label>
-
-      <label className="qt-field">
-        <span className={labelCls}>{t("edit.baseUrl")}</span>
-        <input
-          value={props.baseUrl}
-          onChange={(e) => props.setBaseUrl(e.target.value)}
-          placeholder="https://api.example.com"
-          className={inputCls}
-        />
-      </label>
-
-      <label className="qt-field">
-        <span className={labelCls}>{t("edit.allowInsecure")}</span>
-        <input
-          type="checkbox"
-          checked={props.allowInsecure}
-          onChange={(e) => props.setAllowInsecure(e.target.checked)}
-        />
       </label>
 
       <div className="qt-template-actions">
@@ -838,6 +870,14 @@ function ScriptForm(props: {
           <span className="qt-ai-placeholder-icon" aria-hidden="true">AI</span>
           {t("edit.ai.open")}
         </Button>}
+        <label className="qt-check-inline">
+          <input
+            type="checkbox"
+            checked={props.allowInsecure}
+            onChange={(e) => props.setAllowInsecure(e.target.checked)}
+          />
+          <span>{t("edit.allowInsecure")}</span>
+        </label>
         {validateOk && !validateMsg && (
           <span className="qt-text-success">{t("edit.validated")}</span>
         )}

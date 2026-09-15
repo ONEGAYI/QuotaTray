@@ -224,6 +224,7 @@ export const en: Record<TextKey, string> = {
   // ---- Template sub-tabs and presets ----
   "edit.subProvider": "Provider & model",
   "edit.subTemplate": "Template",
+  "edit.subScript": "Script",
   "edit.presetLabel": "Preset templates",
   "edit.presetHint": "Click to load this preset into the editor, replacing current content",
   "edit.preset.custom": "Generic",

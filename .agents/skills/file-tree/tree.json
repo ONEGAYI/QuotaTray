@@ -1004,6 +1004,20 @@
                     "apps/quota-desktop/scripts/dev.contract.mjs"
                   ]
                 },
+                "edit-dialog-style.contract.mjs": {
+                  "kind": "file",
+                  "desc": "编辑弹窗样式契约测试",
+                  "detail": [
+                    "编辑弹窗样式与结构契约：模板/脚本 CodeMirror 编辑器跟随明暗主题（theme prop）；allowInsecure 复选框内联于操作行（qt-check-inline）且移动端 44px 命中区；脚本形态二级子页分栏（qt-edit-subtabs）与 baseUrl 移位；三形态字段序（凭据→控制台→定价）；必填字段单一卡片容器（qt-field-card）；保存失败跳转子页的触发上下文绑定。"
+                  ],
+                  "rel": [
+                    "apps/quota-desktop/src/components/EditDialog.tsx",
+                    "apps/quota-desktop/src/index.css"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
                 "mobile-style.contract.mjs": {
                   "kind": "file",
                   "desc": "移动样式契约测试",

@@ -227,6 +227,7 @@ export const zh = {
   // ---- 模板分支二级子页与预设 ----
   "edit.subProvider": "运营商与模型",
   "edit.subTemplate": "设置模板",
+  "edit.subScript": "查询脚本",
   "edit.presetLabel": "预设模板",
   "edit.presetHint": "点击将预设填入编辑器（覆盖当前内容）",
   "edit.preset.custom": "通用示例",
