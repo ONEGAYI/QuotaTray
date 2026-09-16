@@ -277,6 +277,8 @@ describe("使用统计图表纯逻辑", () => {
 
   it("定位线按钮：满两条后再点清空两条并从头定位", () => {
     expect(pressUsageMarkerToggle(false, [100, 300])).toEqual({ mode: true, markers: [], cleared: true });
+    // 超限输入（正常交互不可达）走同一清空路径，纯函数防御分支
+    expect(pressUsageMarkerToggle(false, [100, 200, 300])).toEqual({ mode: true, markers: [], cleared: true });
   });
 
   it("定位线按钮：保留路径返回副本，不改动入参数组", () => {

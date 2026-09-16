@@ -104,4 +104,13 @@ describe("聚焦平台取数（卡头药丸内下陷显示窗）", () => {
       metric: "absolute",
     });
   });
+
+  it("行列表有该项但 scopes 暂缺（聚焦切换瞬态）时值为空、度量回退 percent", () => {
+    expect(focusPlatformInfo(JSON.stringify(["p1", "w1"]), items, [])).toEqual({
+      name: "P1 · 窗口 1",
+      colorSlot: 0,
+      value: null,
+      metric: "percent",
+    });
+  });
 });

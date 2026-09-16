@@ -39,7 +39,7 @@
   （路由标签气泡在窄屏媒体查询下可悬停触发，非死代码）
 - 定价三档解释（PricingSection，英文 47-51 字符）
 - 错误详情（ProviderCard / SettingsDialog，headline + 脱敏 detail）
-- 使用统计卡头「定位线」放置提示（中 >28 汉字、英文约 120 字符，`Tooltip multiline`）
+- 使用统计卡头「定位线」放置提示（中 >28 汉字、英文 143 字符（实测），`Tooltip multiline`）
 
 **禁止**：原生 `title=` 属性——系统默认样式不可定制、出现有延迟、观感与标准气泡不一致。
 

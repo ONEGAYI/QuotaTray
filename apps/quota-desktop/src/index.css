@@ -374,9 +374,12 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-focus-platform::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   border-radius: 0 999px 999px 0;
-  /* 固定 18px 凹弧深度，不随组合名长度横向拉伸。两条窄色带描出垂直井壁。 */
+  /* 固定 18px 凹弧深度，不随组合名长度横向拉伸。两条窄色带描出垂直井壁。
+     遮罩带 -webkit- 前缀兜底旧 WebView（无前缀 mask 失效时月牙退化为平直左缘）。 */
+  -webkit-mask-image: radial-gradient(ellipse 18px 50% at 0 50%, transparent calc(100% - .5px), #000 100%);
   mask-image: radial-gradient(ellipse 18px 50% at 0 50%, transparent calc(100% - .5px), #000 100%);
-  /* 渐变半径不混算百分比与 px；底色独立声明，避免装饰层解析失败时一并丢失。 */
+  /* 渐变半径避免 calc 混算（曾致整条 background 简写解析失败）；底色独立
+     background-color 声明兜底，装饰层失效不连带丢底色。 */
   background-color: color-mix(in srgb, var(--qt-accent) 20%, var(--qt-surface));
   background-image:
     radial-gradient(ellipse 19px 50% at 0 50%, var(--qt-border-strong) calc(100% - 1px), transparent 100%),
@@ -395,9 +398,9 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-legend-focus:hover, .qt-usage-legend-focus[aria-pressed="true"] { border-color: var(--qt-border); background: var(--qt-surface-soft); color: var(--qt-text); }
 .qt-usage-legend-focus > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-usage-legend-focus strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
-.qt-usage-legend-offline { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border-radius: var(--qt-radius-sm); padding: 6px 8px; color: var(--qt-text-faint); }
+.qt-usage-legend-offline { position: relative; display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border-radius: var(--qt-radius-sm); padding: 6px 8px; color: var(--qt-text-faint); }
 .qt-usage-legend-offline > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qt-usage-legend-remove { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: var(--qt-radius-sm); background: transparent; color: var(--qt-text-faint); cursor: pointer; }
+.qt-usage-legend-remove { position: relative; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: var(--qt-radius-sm); background: transparent; color: var(--qt-text-faint); cursor: pointer; }
 .qt-usage-legend-remove:hover { background: var(--qt-surface-soft); color: var(--qt-text); }
 .qt-usage-legend-remove.is-armed { background: var(--qt-danger-soft); color: var(--qt-danger); }
 .qt-usage-legend-remove:disabled { opacity: .45; cursor: default; }
