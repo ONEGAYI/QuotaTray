@@ -300,6 +300,54 @@ export function usageMarkerBurnRate(
   return (from.value - to.value) / (spanMs / 3_600_000);
 }
 
+/** 定位线区间内最陡消耗段的每小时速率与段端样本。 */
+export interface UsagePeakBurn {
+  ratePerHour: number;
+  from: UsageSample;
+  to: UsageSample;
+}
+
+/**
+ * 定位线区间内最陡消耗段（每小时）：两端按读数同口径取容差内最近
+ * 样本，区间内相邻样本对按（前值-后值）/真实时长换算每小时斜率
+ * （与 usageMarkerBurnRate 同口径：曲线值是剩余量，正=消耗），取
+ * 最大消耗段，斜率相同取较早段。只计算消耗方向——回升（充值/额度
+ * 重置）是瞬间跳变而非连续过程，跨桶斜率无测量意义（2026-09-16
+ * 所有者裁定不展示）。区间内不足两个样本、无消耗段、端点样本缺失、
+ * markers 不足或时间差不足 1 分钟（与平均速率守卫对齐）时返回
+ * null（无可测值）。
+ */
+export function usageMarkerPeakBurn(
+  scope: { samples: UsageSample[]; bucketMs: number },
+  markers: number[],
+): UsagePeakBurn | null {
+  if (markers.length < 2) return null;
+  const [early, late] = [...markers].sort((a, b) => a - b);
+  if (late - early < 60_000) return null;
+  const from = nearestUsageSample(scope.samples, early, scope.bucketMs);
+  const to = nearestUsageSample(scope.samples, late, scope.bucketMs);
+  if (!from || !to) return null;
+  const rangeStart = Math.min(from.timestamp, to.timestamp);
+  const rangeEnd = Math.max(from.timestamp, to.timestamp);
+  const sorted = scope.samples
+    .filter((sample) => sample.timestamp >= rangeStart && sample.timestamp <= rangeEnd)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  if (sorted.length < 2) return null;
+
+  let peak: UsagePeakBurn | null = null;
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const spanMs = current.timestamp - previous.timestamp;
+    if (spanMs <= 0) continue;
+    const ratePerHour = (previous.value - current.value) / (spanMs / 3_600_000);
+    if (ratePerHour > 0 && (!peak || ratePerHour > peak.ratePerHour)) {
+      peak = { ratePerHour, from: previous, to: current };
+    }
+  }
+  return peak;
+}
+
 const NICE_FACTORS = [1, 2, 2.5, 5, 10];
 
 function niceStep(rawStep: number): number {

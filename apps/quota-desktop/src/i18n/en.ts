@@ -88,6 +88,7 @@ export const en: Record<TextKey, string> = {
   "usage.markerOffscreen": "Marker is outside the current view (pan or zoom to see it)",
   "usage.markerDelta": "Span {span}",
   "usage.markerRate": "Avg. burn {rate}",
+  "usage.markerPeakBurn": "Peak burn {rate} ({at})",
 
   // ---- 供应商卡片 ----
   "card.disabled": "Disabled",

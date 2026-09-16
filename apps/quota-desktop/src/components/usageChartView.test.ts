@@ -13,6 +13,7 @@ import {
   snapUsageMarkerTimestamp,
   splitUsageSeries,
   usageMarkerBurnRate,
+  usageMarkerPeakBurn,
   USAGE_MARKER_LIMIT,
   USAGE_RANGES,
   USAGE_TOOLTIP_GAP,
@@ -320,6 +321,56 @@ describe("使用统计图表纯逻辑", () => {
 
   it("定位线平均消耗速率：两条线落在同一样本容差内时速率为零（合法读数）", () => {
     expect(usageMarkerBurnRate({ samples: [point(0, 10)], bucketMs: HOUR }, [0.2 * HOUR, 0.8 * HOUR])).toBe(0);
+  });
+
+  it("定位线峰值消耗：区间内相邻段取最陡消耗段，乱序 markers 同结果", () => {
+    const scope = {
+      samples: [point(0, 100), point(1, 96), point(2, 80), point(3, 92), point(4, 90), point(5, 50)],
+      bucketMs: HOUR,
+    };
+    // markers [1h,4h] → 端点样本 96/90，区间段斜率 16/h、-12/h（回升）、2/h；
+    // 区间外段（90→50 = 40/h）更陡但必须排除
+    expect(usageMarkerPeakBurn(scope, [HOUR, 4 * HOUR]))
+      .toEqual({ ratePerHour: 16, from: point(1, 96), to: point(2, 80) });
+    // markers 乱序传入（拖动交叉后的真实形态）与升序同结果，且不突变入参
+    const shuffled = [4 * HOUR, HOUR];
+    expect(usageMarkerPeakBurn(scope, shuffled)).toEqual({ ratePerHour: 16, from: point(1, 96), to: point(2, 80) });
+    expect(shuffled).toEqual([4 * HOUR, HOUR]);
+  });
+
+  it("定位线峰值消耗：回升与平段不算消耗极值，区间无消耗段时为空", () => {
+    // 纯回升（充值/额度重置是瞬间跳变，跨桶斜率无测量意义，不展示）与
+    // 全平区间均无可测消耗段
+    const recoveryOnly = { samples: [point(0, 80), point(1, 92), point(2, 94)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(recoveryOnly, [0, 2 * HOUR])).toBeNull();
+    const flat = { samples: [point(0, 50), point(1, 50), point(2, 50)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(flat, [0, 2 * HOUR])).toBeNull();
+  });
+
+  it("定位线峰值消耗：斜率相同取较早段，非均匀间隔按真实时长归一", () => {
+    const tie = { samples: [point(0, 100), point(1, 90), point(2, 80)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(tie, [0, 2 * HOUR]))
+      .toEqual({ ratePerHour: 10, from: point(0, 100), to: point(1, 90) });
+    // 相邻样本间隔 2.5 小时：斜率按真实 Δt 归一（20 / 2.5 = 8/h）
+    const sparse = { samples: [point(0, 100), point(2.5, 80)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(sparse, [0.2 * HOUR, 2.5 * HOUR]))
+      .toEqual({ ratePerHour: 8, from: point(0, 100), to: point(2.5, 80) });
+  });
+
+  it("定位线峰值消耗：无可测区间或含不可测段时返回空", () => {
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(scope, [0])).toBeNull();
+    // 20h 处无容差内样本（端点缺失）
+    expect(usageMarkerPeakBurn(scope, [0, 20 * HOUR])).toBeNull();
+    expect(usageMarkerPeakBurn({ samples: [], bucketMs: HOUR }, [0, HOUR])).toBeNull();
+    // 时间差不足 1 分钟：与平均速率口径对齐
+    expect(usageMarkerPeakBurn(scope, [0, 30_000])).toBeNull();
+    // 两条线落在同一样本容差内：区间仅单样本，无段可测
+    expect(usageMarkerPeakBurn({ samples: [point(0, 10)], bucketMs: HOUR }, [0.2 * HOUR, 0.8 * HOUR])).toBeNull();
+    // 重复时间戳样本（Δt=0 防御）：零时长段必须跳过而非算出无穷斜率
+    const duplicated = { samples: [point(0, 100), point(0, 60), point(1, 55)], bucketMs: HOUR };
+    expect(usageMarkerPeakBurn(duplicated, [0, HOUR]))
+      .toEqual({ ratePerHour: 5, from: point(0, 60), to: point(1, 55) });
   });
 
   it("容差内最近样本取值：等距取先遍历到的较早样本，恰一个桶宽仍命中，容差外为空", () => {
