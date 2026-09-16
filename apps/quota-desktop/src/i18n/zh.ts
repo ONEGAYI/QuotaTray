@@ -91,6 +91,7 @@ export const zh = {
   "usage.markerOffscreen": "定位线在当前视图外（平移或缩放图表可见）",
   "usage.markerDelta": "时间差 {span}",
   "usage.markerRate": "平均消耗 {rate}",
+  "usage.markerPeakBurn": "峰值消耗 {rate}（{at}）",
 
   // ---- 供应商卡片 ----
   "card.disabled": "已停用",
