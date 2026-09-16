@@ -264,6 +264,51 @@ test("Android 使用统计组合为居中 82dvh 浮窗并虚化背景（T-013）
   );
 });
 
+test("聚焦组合入口全平台统一药丸，移动端为点击开合的模态窗（T-013/T-010）", () => {
+  // 2026-09-16 所有者裁决：移动端 chips 路径退役，与桌面统一药丸样式
+  assert.doesNotMatch(usageStats, /qt-usage-mobile-focus/);
+  assert.doesNotMatch(css, /qt-usage-mobile-focus/);
+  // 悬停驱动退役：点击 toggle 为全平台唯一开合路径（触屏无悬停），
+  // enter/leave/focus/blur 四类处理器一并封禁
+  assert.doesNotMatch(usageStats, /onMouseEnter|onMouseLeave|onFocus|onBlur/);
+  // 桌面浮层关闭途径对齐触屏：outside-tap（DropdownMenu 同款 mousedown 模式）
+  assert.match(usageStats, /document\.addEventListener\("mousedown", onDocMouseDown\)/);
+  // 触发钮关闭必须走 closeLegend（复位 armed 删除态与陈旧错误，不能只翻 legendOpen）
+  assert.match(usageStats, /legendOpen \? closeLegend\(\) : setLegendOpen\(true\)/);
+  // 移动端聚焦组合为 DialogShell 模态窗（返回键/Esc/遮罩关闭走既有机制）
+  assert.match(usageStats, /qt-dialog-usage-legend/);
+  // 模态/浮层共用行满足 44px 触控行；行尾删除钮图标 22px 视觉直接加高命中
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-legend-row\s*\{[^}]*min-height:\s*44px;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-legend-remove\s*\{[^}]*min-height:\s*44px;/s,
+  );
+});
+
+test("统计页工具栏移动端两行收拢：时间尺度并入添加行靠右，药丸独占次行（T-013）", () => {
+  // 2026-09-17 所有者反馈：窄屏列排三行占高，时间尺度上提到添加组合同一行；
+  // comparison-actions 以 display: contents 把三控件交给工具栏统一 wrap 排版
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-toolbar\s*\{[^}]*flex-flow:\s*row wrap;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-comparison-actions\s*\{[^}]*display:\s*contents;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-range-switch\s*\{[^}]*order:\s*1;/s,
+  );
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-legend\s*\{[^}]*order:\s*2;/s,
+  );
+});
+
 test("DialogShell 仅在启用时点击遮罩关闭，内部点击不关闭", () => {
   assert.match(
     ui,

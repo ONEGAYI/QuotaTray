@@ -2,17 +2,13 @@ import { describe, expect, it } from "vitest";
 import { buildLegendItems, focusPlatformInfo, legendTriggerVisible, pressLegendRemove, toggleSeriesFocus } from "./usageLegendView";
 
 describe("使用统计聚焦组合 popover 逻辑", () => {
-  it("桌面端且已有组合时显示入口", () => {
-    expect(legendTriggerVisible(1, false)).toBe(true);
-    expect(legendTriggerVisible(4, false)).toBe(true);
-  });
-
-  it("移动端不显示入口（移动端保留横向 chips）", () => {
-    expect(legendTriggerVisible(3, true)).toBe(false);
+  it("已有组合时显示入口（全平台统一药丸，移动端开模态窗）", () => {
+    expect(legendTriggerVisible(1)).toBe(true);
+    expect(legendTriggerVisible(4)).toBe(true);
   });
 
   it("没有可比组合时不显示入口", () => {
-    expect(legendTriggerVisible(0, false)).toBe(false);
+    expect(legendTriggerVisible(0)).toBe(false);
   });
 
   it("单击未聚焦组合时切换为聚焦（含从其他组合转移）", () => {
