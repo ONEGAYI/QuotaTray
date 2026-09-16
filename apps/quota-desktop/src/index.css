@@ -392,7 +392,6 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-focus-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-usage-focus-value { flex: none; color: var(--qt-series-color, var(--qt-text)); font-variant-numeric: tabular-nums; }
 .qt-usage-legend-popover { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: grid; min-width: 232px; max-width: 300px; gap: 2px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); padding: 8px 9px; background: color-mix(in srgb, var(--qt-surface) 94%, transparent); box-shadow: 0 12px 30px var(--qt-shadow); backdrop-filter: blur(12px); }
-.qt-usage-legend-popover::before { content: ""; position: absolute; left: 0; right: 0; top: -7px; height: 7px; }
 .qt-usage-legend-row { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px; }
 .qt-usage-legend-focus { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: var(--qt-radius-sm); padding: 6px 8px; background: transparent; color: var(--qt-text-soft); text-align: left; cursor: pointer; }
 .qt-usage-legend-focus:hover, .qt-usage-legend-focus[aria-pressed="true"] { border-color: var(--qt-border); background: var(--qt-surface-soft); color: var(--qt-text); }
@@ -417,16 +416,6 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-tooltip-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 11px; }
 .qt-usage-tooltip-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-usage-tooltip-row strong { color: var(--qt-text); font-size: 12px; font-variant-numeric: tabular-nums; }
-.qt-usage-mobile-focus { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; scrollbar-width: none; }
-.qt-usage-mobile-focus::-webkit-scrollbar { display: none; }
-.qt-usage-mobile-focus-item { display: flex; flex: none; align-items: stretch; overflow: hidden; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-sm); background: var(--qt-surface); }
-.qt-usage-mobile-focus-item.is-focused { border-color: var(--qt-series-color); }
-.qt-usage-mobile-focus-toggle { min-height: 44px; border: 0; padding: 7px 10px; background: transparent; color: var(--qt-text-soft); cursor: pointer; }
-.qt-usage-mobile-focus-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--qt-series-color) 10%, var(--qt-surface)); color: var(--qt-text); }
-.qt-usage-mobile-focus-remove { display: grid; place-items: center; width: 34px; border: 0; background: transparent; color: var(--qt-text-faint); cursor: pointer; }
-.qt-usage-mobile-focus-remove.is-armed { background: var(--qt-danger-soft); color: var(--qt-danger); }
-.qt-usage-mobile-focus-remove:disabled { opacity: .45; }
-.qt-usage-mobile-focus-offline { display: flex; align-items: center; min-height: 44px; padding: 7px 10px; color: var(--qt-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qt-usage-mobile-readout { display: grid; gap: 8px; border-top: 1px solid var(--qt-border); padding: 11px 13px 13px; background: var(--qt-surface-soft); }
 .qt-usage-mobile-readout > span { color: var(--qt-text-faint); font-size: 11px; }
 .qt-usage-mobile-readout > div { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; color: var(--qt-text-soft); font-size: 12px; }
@@ -1193,6 +1182,16 @@ body.qt-mobile-runtime .qt-error-detail-toggle { min-height: 44px; min-width: 44
 body.qt-mobile-runtime .qt-inline-link { position: relative; }
 body.qt-mobile-runtime .qt-inline-link::before { position: absolute; inset: -15px -8px; content: ""; }
 
+/* 统计页工具栏窄屏两行收拢（2026-09-17 所有者反馈）：620px 媒体查询的列排把
+   添加/药丸/时间尺度拆成三行占高，改为添加组合+时间尺度同行（space-between
+   靠右）、聚焦药丸次行；comparison-actions 以 display: contents 把三控件
+   上交工具栏统一 wrap 排版（order 定序：添加→时间尺度→药丸）。药丸次行是
+   宽度不足时的 wrap 涌现结果，宽视口三控件同行 space-between 排开。 */
+body.qt-mobile-runtime .qt-usage-toolbar { flex-flow: row wrap; align-items: center; justify-content: space-between; row-gap: 8px; }
+body.qt-mobile-runtime .qt-usage-comparison-actions { display: contents; }
+body.qt-mobile-runtime .qt-usage-range-switch { order: 1; align-self: center; }
+body.qt-mobile-runtime .qt-usage-legend { order: 2; }
+
 /* 审查轮补齐（同日）：统计页组合工具栏与重置钮、设置迁移区/模板试查区正文按钮、
    峰谷周几切换钮（挂语义类 qt-pricing-day-chip
    直接加高）；峰谷行内文字钮（清除覆盖/添加时段/移除时段/重置档位）沿用
@@ -1229,6 +1228,23 @@ body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-body { padding: 14
 body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-dialog-footer { min-height: 64px; padding-bottom: 0; }
 body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-select,
 body.qt-mobile-runtime .qt-dialog-usage-comparison .qt-btn { min-height: 44px; }
+/* 聚焦组合模态窗（2026-09-16 重写）：与桌面浮层共用 qt-usage-legend-* 行列表。
+   移动端默认弹窗为全屏页（本文件 qt-dialog 移动段），此处按 T-013 组合浮窗
+   特例同口径恢复居中卡片、高度随内容自适应（最多四行，无需全屏）。 */
+body.qt-mobile-runtime .qt-dialog.qt-dialog-usage-legend {
+  width: calc(100% - 20px);
+  height: auto;
+  max-height: calc(100dvh - max(24px, env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+  border: 1px solid var(--qt-border-strong);
+  border-radius: var(--qt-radius-xl);
+  box-shadow: 0 22px 64px var(--qt-shadow);
+}
+body.qt-mobile-runtime .qt-dialog-usage-legend .qt-dialog-header { min-height: 56px; padding-top: 0; }
+body.qt-mobile-runtime .qt-dialog-usage-legend .qt-dialog-body { display: grid; gap: 2px; align-content: start; padding: 14px; }
+body.qt-mobile-runtime .qt-dialog-usage-legend .qt-dialog-footer { min-height: 48px; padding-bottom: 0; }
+body.qt-mobile-runtime .qt-usage-legend-row { min-height: 44px; }
+body.qt-mobile-runtime .qt-usage-legend-remove { min-width: 44px; min-height: 44px; }
+body.qt-mobile-runtime .qt-dialog-usage-legend .qt-usage-legend-hint { margin-top: 0; margin-right: auto; border-top: 0; padding-top: 0; font-size: 11px; }
 body.qt-mobile-runtime .qt-usage-chart-wrap { min-width: 0; padding: 0 2px; }
 body.qt-mobile-runtime .qt-usage-chart-card { overflow: hidden; }
 body.qt-mobile-runtime .qt-usage-chart-head { flex-direction: row; align-items: center; }

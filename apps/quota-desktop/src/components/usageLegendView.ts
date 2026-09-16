@@ -1,7 +1,8 @@
 import { usageComparisonId } from "./usageComparisonView";
 
-export function legendTriggerVisible(scopeCount: number, mobile: boolean): boolean {
-  return !mobile && scopeCount > 0;
+/** 药丸入口全平台统一渲染：有可比组合即显示；移动端点击打开聚焦模态窗 */
+export function legendTriggerVisible(scopeCount: number): boolean {
+  return scopeCount > 0;
 }
 
 export function toggleSeriesFocus(current: string | null, id: string): string | null {

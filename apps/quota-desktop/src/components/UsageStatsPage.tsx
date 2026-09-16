@@ -8,7 +8,7 @@ import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate } from "./UsageComparisonDialog";
 import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, removeUsageComparison, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
-import { Button, SegmentedControl, Tooltip } from "./ui";
+import { Button, DialogShell, SegmentedControl, Tooltip } from "./ui";
 import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, pressUsageMarkerToggle, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
 import { focusPlatformInfo, legendTriggerVisible, buildLegendItems, pressLegendRemove, toggleSeriesFocus, type LegendItem } from "./usageLegendView";
 
@@ -81,6 +81,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const [markerMode, setMarkerMode] = useState(false);
   const [markersOverride, setMarkersOverride] = useState<number[] | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
   const previousTotalRef = useRef<UsageDomain>(viewDomain);
   const autoInitRef = useRef(false);
   const dragRef = useRef<{ pointerId: number; startX: number; domain: UsageDomain } | null>(null);
@@ -144,6 +145,16 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closeLegend, legendOpen, markerMode]);
+  // 浮层（仅桌面渲染）的 outside-tap 关闭，DropdownMenu 同款 mousedown 模式；
+  // 触发钮在容器内不误触，移动端由 DialogShell 的遮罩/返回键承担关闭
+  useEffect(() => {
+    if (!legendOpen || mobile) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      if (legendRef.current && !legendRef.current.contains(event.target as Node)) closeLegend();
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [closeLegend, legendOpen, mobile]);
   useEffect(() => {
     if (settings.data?.usage_comparison_series !== null) {
       autoInitRef.current = false;
@@ -176,17 +187,21 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     new Set(scopes.map((scope) => scope.id)),
     new Map(candidates.map((candidate) => [candidate.id, `${candidate.providerName} · ${candidate.windowName}`])),
   ), [candidates, effectiveSelection, scopes]);
+  // 删光组合后自动收起：桌面药丸随 0 组合整体消失，移动端模态窗同样不应空开
+  useEffect(() => {
+    if (legendOpen && legendItems.length === 0) closeLegend();
+  }, [closeLegend, legendItems.length, legendOpen]);
   // 卡头药丸内嵌平台的显示取数：聚焦名 + 最新值，未聚焦展示「无聚焦组合」
   const focusPlatform = useMemo(() => focusPlatformInfo(focusedId, legendItems, scopes), [focusedId, legendItems, scopes]);
   // 行尾删除两段确认：首击进入 armed（图标变垃圾桶），再击才落盘；保存在途时禁用删除钮，
-  // 防止连删用陈旧闭包数据把刚删的组合写回；移动端 chips 无错误展示位，失败静默（列表源于设置缓存，不会出现假删除）
-  const removeScope = (item: LegendItem, surface: "popover" | "chip") => {
+  // 防止连删用陈旧闭包数据把刚删的组合写回
+  const removeScope = (item: LegendItem) => {
     const outcome = pressLegendRemove(armedRemoveId, item.id);
     if (outcome.kind === "armed") { setArmedRemoveId(outcome.id); return; }
     setArmedRemoveId(null);
     setLegendError(null);
     setRemovePending(true);
-    void saveSelection(removeUsageComparison(effectiveSelection, item.providerId, item.windowKey)).catch((err) => { if (surface === "popover") setLegendError(t("usage.saveFailed", { msg: String(err) })); }).finally(() => setRemovePending(false));
+    void saveSelection(removeUsageComparison(effectiveSelection, item.providerId, item.windowKey)).catch((err) => { setLegendError(t("usage.saveFailed", { msg: String(err) })); }).finally(() => setRemovePending(false));
   };
 
   const absoluteScale = niceAbsoluteScale(scopes.filter((scope) => scope.metric === "absolute").flatMap((scope) => scope.samples.map((sample) => sample.value)));
@@ -288,12 +303,15 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const pageState = providersLoading || settings.isLoading ? { kind: "loading", message: t("usage.loadingProviders") } : providersError ? { kind: "error", message: t("usage.providersError", { msg: String(providersError) }) } : settings.isError ? { kind: "error", message: t("usage.settingsError", { msg: String(settings.error) }) } : providers.length === 0 ? { kind: "empty", message: t("usage.noProviders") } : effectiveSelection.length === 0 ? { kind: "empty", message: t("usage.emptySelection") } : scopes.length === 0 && histories.some((query) => query.isLoading) ? { kind: "loading", message: t("usage.loadingHistory") } : scopes.length === 0 ? { kind: "empty", message: t("usage.emptyHistory") } : null;
   const partialErrors = histories.filter((query) => query.isError).length;
   const cursorRows = cursor ? detailScopes.map((scope) => ({ scope, sample: nearestSample(scope, cursor.timestamp) })) : [];
+  // 聚焦组合行列表为桌面浮层与移动端模态窗共用：同一组件、同一样式、同一删除流程
+  const legendRows = legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; const current = scope ? scope.samples[scope.samples.length - 1] : null; return <div key={item.id} className="qt-usage-legend-row" style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-legend-focus" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}><i /><span>{item.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button> : <span className="qt-usage-legend-offline" data-tooltip={t("usage.unavailable")}><i /><span>{item.name}</span><strong>—</strong></span>}<button type="button" className={`qt-usage-legend-remove ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} data-tooltip={armed ? t("usage.legendRemoveArmed") : ""} disabled={removePending} onClick={() => removeScope(item)}>{armed ? <Trash2 size={13} aria-hidden="true" /> : <X size={13} aria-hidden="true" />}</button></div>; });
 
   return <section className="qt-usage-page" aria-label={t("usage.title")}>
-    <div className="qt-usage-toolbar"><div className="qt-usage-comparison-actions"><Button icon={Plus} disabled={removePending} onClick={() => setAddDialogOpen(true)}>{t("usage.addCombination")} <span>{t("usage.combinationCount", { count: effectiveSelection.length })}</span></Button>{legendTriggerVisible(legendItems.length, mobile) && <div className="qt-usage-legend" onMouseLeave={(event) => { const active = document.activeElement; if (event.currentTarget.contains(active) && active instanceof Element && active.matches(":focus-visible")) return; closeLegend(); }} onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) closeLegend(); }}><Button icon={Focus} variant="secondary" className="qt-usage-legend-trigger" aria-haspopup="dialog" aria-expanded={legendOpen} onMouseEnter={() => setLegendOpen(true)} onFocus={() => setLegendOpen(true)} onClick={(event) => { if (event.detail === 0) setLegendOpen((value) => !value); }}>{t("usage.legendTrigger")}<span className={`qt-usage-focus-platform ${focusPlatform ? "" : "is-empty"}`} aria-hidden="true" style={focusPlatform ? { "--qt-series-color": SERIES_COLORS[focusPlatform.colorSlot] } as CSSProperties : undefined}><span className="qt-usage-focus-kicker">{t("usage.focusKicker")}</span><span className="qt-usage-focus-main">{focusPlatform ? <><span className="qt-usage-focus-name">{focusPlatform.name}</span><strong className="qt-usage-focus-value">{focusPlatform.value != null ? formatNumber(focusPlatform.value, focusPlatform.metric) : "—"}</strong></> : t("usage.focusEmpty")}</span></span></Button>{legendOpen && <div className="qt-usage-legend-popover" role="dialog" aria-label={t("usage.legendTrigger")}>{legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; const current = scope ? scope.samples[scope.samples.length - 1] : null; return <div key={item.id} className="qt-usage-legend-row" style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-legend-focus" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}><i /><span>{item.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button> : <span className="qt-usage-legend-offline" data-tooltip={t("usage.unavailable")}><i /><span>{item.name}</span><strong>—</strong></span>}<button type="button" className={`qt-usage-legend-remove ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} data-tooltip={armed ? t("usage.legendRemoveArmed") : ""} disabled={removePending} onClick={() => removeScope(item, "popover")}>{armed ? <Trash2 size={13} aria-hidden="true" /> : <X size={13} aria-hidden="true" />}</button></div>; })}{legendError && <span className="qt-usage-legend-error" role="alert">{legendError}</span>}<span className="qt-usage-legend-hint">{t("usage.legendHint")}</span></div>}</div>}</div><div className="qt-usage-range-switch"><SegmentedControl value={range} onChange={selectRange} compact options={[{ value: "24h", label: t("usage.range24h") }, { value: "7d", label: t("usage.range7d") }]} /></div></div>
+    <div className="qt-usage-toolbar"><div className="qt-usage-comparison-actions"><Button icon={Plus} disabled={removePending} onClick={() => setAddDialogOpen(true)}>{t("usage.addCombination")} <span>{t("usage.combinationCount", { count: effectiveSelection.length })}</span></Button>{legendTriggerVisible(legendItems.length) && <div className="qt-usage-legend" ref={legendRef}><Button icon={Focus} variant="secondary" className="qt-usage-legend-trigger" aria-haspopup="dialog" aria-expanded={legendOpen} onClick={() => (legendOpen ? closeLegend() : setLegendOpen(true))}>{t("usage.legendTrigger")}<span className={`qt-usage-focus-platform ${focusPlatform ? "" : "is-empty"}`} aria-hidden="true" style={focusPlatform ? { "--qt-series-color": SERIES_COLORS[focusPlatform.colorSlot] } as CSSProperties : undefined}><span className="qt-usage-focus-kicker">{t("usage.focusKicker")}</span><span className="qt-usage-focus-main">{focusPlatform ? <><span className="qt-usage-focus-name">{focusPlatform.name}</span><strong className="qt-usage-focus-value">{focusPlatform.value != null ? formatNumber(focusPlatform.value, focusPlatform.metric) : "—"}</strong></> : t("usage.focusEmpty")}</span></span></Button>{legendOpen && !mobile && <div className="qt-usage-legend-popover" role="dialog" aria-label={t("usage.legendTrigger")}>{legendRows}{legendError && <span className="qt-usage-legend-error" role="alert">{legendError}</span>}<span className="qt-usage-legend-hint">{t("usage.legendHint")}</span></div>}</div>}</div><div className="qt-usage-range-switch"><SegmentedControl value={range} onChange={selectRange} compact options={[{ value: "24h", label: t("usage.range24h") }, { value: "7d", label: t("usage.range7d") }]} /></div></div>
     {partialErrors > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.historyError", { msg: String(partialErrors) })}</div>}
     {scopePartition.hidden.length > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.unitConflictHidden", { count: scopePartition.hidden.length, unit: scopePartition.absoluteUnit ?? "—" })}</div>}
-    {mobile && legendItems.length > 0 && <div className="qt-usage-mobile-focus" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setArmedRemoveId(null); }}>{legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; return <div key={item.id} className={`qt-usage-mobile-focus-item ${scope && focusedId === item.id ? "is-focused" : ""}`} style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-mobile-focus-toggle" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}>{item.name}</button> : <span className="qt-usage-mobile-focus-offline">{item.name}</span>}<button type="button" className={`qt-usage-mobile-focus-remove qt-touch-inline ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} disabled={removePending} onClick={() => removeScope(item, "chip")}>{armed ? <Trash2 size={14} aria-hidden="true" /> : <X size={14} aria-hidden="true" />}</button></div>; })}</div>}
+    {/* 聚焦组合模态窗（移动端）：DialogShell 自带返回键分层关闭、Esc、遮罩点击与焦点圈 */}
+    {mobile && legendOpen && <DialogShell title={t("usage.legendTrigger")} onClose={closeLegend} closeLabel={t("common.close")} size="sm" className="qt-dialog-usage-legend" backdropClassName="qt-usage-dialog-backdrop" closeOnBackdrop footer={<span className="qt-usage-legend-hint">{t("usage.legendHint")}</span>}>{legendError && <span className="qt-usage-legend-error" role="alert">{legendError}</span>}{legendRows}</DialogShell>}
     {pageState ? <div className={`qt-usage-state is-${pageState.kind}`}><strong>{pageState.kind === "empty" ? t("usage.emptyTitle") : t("usage.statusTitle")}</strong><span>{pageState.message}</span></div> : <article className="qt-usage-chart-card">
       <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><div className="qt-usage-head-actions"><Tooltip text={t("usage.markerPlaceHint")} multiline><Button icon={LocateFixed} variant="ghost" className="qt-usage-marker-toggle" aria-pressed={markerMode} disabled={markerDragActive} onClick={pressMarkerToggle}>{t("usage.markerMode")}</Button></Tooltip><Tooltip text={t("usage.markerClearAll")}><Button icon={Trash2} variant="ghost" aria-label={t("usage.markerClearAll")} disabled={markers.length === 0 || markerDragActive} onClick={() => void saveMarkers([])} /></Tooltip><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></div></header>
       <div className="qt-usage-marker-readout">{(() => {
