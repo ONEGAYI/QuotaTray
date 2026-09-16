@@ -23,7 +23,7 @@
 | --- | --- |
 | 图标按钮 | `IconButton` 组件的 `label` 自动挂 `data-tooltip` |
 | 包裹任意元素 | `Tooltip` 组件（`qt-tooltip-anchor`，已含 `position: relative`） |
-| 长文本 | `Tooltip` 加 `multiline` prop（或手动另挂 `is-multiline` 类）：允许换行（限宽同全局 360px） |
+| 长文本 | `Tooltip` 加 `multiline` prop（或手动另挂 `is-multiline` 类）：允许换行（限宽同全局 360px）。变体自带 `width: max-content` 顶满限宽——绝对定位气泡缺省 shrink-to-fit 以锚点为可用宽度，窄锚点（小图标/按钮）不顶宽会塌成一字一行的细长条（2026-09-16 修） |
 | 手动挂载 | 元素加 `data-tooltip` 且自身 `position` 非 static（气泡绝对定位的锚点） |
 
 注意：`select` 等 replaced 元素上伪元素不渲染，须用 `Tooltip` 组件包裹而非直接挂属性；
@@ -39,6 +39,7 @@
   （路由标签气泡在窄屏媒体查询下可悬停触发，非死代码）
 - 定价三档解释（PricingSection，英文 47-51 字符）
 - 错误详情（ProviderCard / SettingsDialog，headline + 脱敏 detail）
+- 使用统计卡头「定位线」放置提示（中 >28 汉字、英文约 120 字符，`Tooltip multiline`）
 
 **禁止**：原生 `title=` 属性——系统默认样式不可定制、出现有延迟、观感与标准气泡不一致。
 
@@ -54,6 +55,10 @@
 - `.qt-gate-info-btn[data-tooltip]::after` 右对齐变体（便携首启确认页问号钮）：
   `left: auto; right: 0; transform: none` 覆盖居中锚定与 3px 上浮——按钮贴卡片右缘，
   居中锚定的气泡会被滚动卡片（overflow 裁剪容器）右缘裁掉（2026-08-28，技术限制）。
+- `.qt-usage-head-actions [data-tooltip]::after` 向下弹出变体（使用统计卡头
+  「定位线」/清空钮）：图表卡片 `overflow:hidden`，标准向上气泡被卡顶裁掉；
+  `bottom: auto; top: calc(100% + 7px)` 落到锚点下方，hover 归位由全局 `:hover`
+  规则接管（2026-09-16，技术限制，同 gate-info-btn 口径）。
 
 **代码锚点**：`index.css` 的 `[data-tooltip]::after` 与 `.qt-tooltip-anchor`；
 `ui.tsx` 的 `IconButton`、`Tooltip`。

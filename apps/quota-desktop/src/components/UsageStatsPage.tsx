@@ -1,4 +1,4 @@
-import { LocateFixed, Maximize2, MousePointer2, Plus, RotateCcw, Settings2, Trash2, X } from "lucide-react";
+import { Focus, LocateFixed, Maximize2, MousePointer2, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { api } from "../api";
@@ -6,10 +6,11 @@ import { markerRateText, markerSpanText } from "../display";
 import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
-import { UsageComparisonDialog, type UsageComparisonCandidate, type UsageComparisonDialogMode } from "./UsageComparisonDialog";
-import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
-import { Button, SegmentedControl } from "./ui";
-import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { UsageComparisonDialog, type UsageComparisonCandidate } from "./UsageComparisonDialog";
+import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, removeUsageComparison, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
+import { Button, SegmentedControl, Tooltip } from "./ui";
+import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, pressUsageMarkerToggle, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { focusPlatformInfo, legendTriggerVisible, buildLegendItems, pressLegendRemove, toggleSeriesFocus, type LegendItem } from "./usageLegendView";
 
 interface UsageScope extends HistorySeries {
   id: string;
@@ -68,7 +69,11 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const [viewDomain, setViewDomain] = useState<UsageDomain>(() => [rangeNow - USAGE_RANGES["7d"].spanMs, rangeNow]);
   const [cursor, setCursor] = useState<CursorState | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [dialogMode, setDialogMode] = useState<UsageComparisonDialogMode | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [armedRemoveId, setArmedRemoveId] = useState<string | null>(null);
+  const [legendError, setLegendError] = useState<string | null>(null);
+  const [removePending, setRemovePending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [markerMode, setMarkerMode] = useState(false);
   const [markersOverride, setMarkersOverride] = useState<number[] | null>(null);
@@ -124,12 +129,18 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       setMarkersOverride((current) => current === next ? null : current);
     }
   }, [qc]);
+  const closeLegend = useCallback(() => { setLegendOpen(false); setArmedRemoveId(null); setLegendError(null); }, []);
+  // 单一 Esc 监听按层级收起：先收读数 popover，再退定位线模式，避免一次按键双退出
   useEffect(() => {
-    if (!markerMode) return;
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMarkerMode(false); };
+    if (!markerMode && !legendOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (legendOpen) closeLegend();
+      else setMarkerMode(false);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [markerMode]);
+  }, [closeLegend, legendOpen, markerMode]);
   useEffect(() => {
     if (settings.data?.usage_comparison_series !== null) {
       autoInitRef.current = false;
@@ -157,6 +168,23 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   }, [candidates, effectiveSelection, histories, lang, providers, rangeConfig.bucketMs, totalDomain]);
   const scopes: UsageScope[] = scopePartition.visible;
   useEffect(() => { if (focusedId && !scopes.some((scope) => scope.id === focusedId)) setFocusedId(null); }, [focusedId, scopes]);
+  const legendItems = useMemo(() => buildLegendItems(
+    effectiveSelection,
+    new Set(scopes.map((scope) => scope.id)),
+    new Map(candidates.map((candidate) => [candidate.id, `${candidate.providerName} · ${candidate.windowName}`])),
+  ), [candidates, effectiveSelection, scopes]);
+  // 卡头药丸内嵌平台的显示取数：聚焦名 + 最新值，未聚焦展示「无聚焦组合」
+  const focusPlatform = useMemo(() => focusPlatformInfo(focusedId, legendItems, scopes), [focusedId, legendItems, scopes]);
+  // 行尾删除两段确认：首击进入 armed（图标变垃圾桶），再击才落盘；保存在途时禁用删除钮，
+  // 防止连删用陈旧闭包数据把刚删的组合写回；移动端 chips 无错误展示位，失败静默（列表源于设置缓存，不会出现假删除）
+  const removeScope = (item: LegendItem, surface: "popover" | "chip") => {
+    const outcome = pressLegendRemove(armedRemoveId, item.id);
+    if (outcome.kind === "armed") { setArmedRemoveId(outcome.id); return; }
+    setArmedRemoveId(null);
+    setLegendError(null);
+    setRemovePending(true);
+    void saveSelection(removeUsageComparison(effectiveSelection, item.providerId, item.windowKey)).catch((err) => { if (surface === "popover") setLegendError(t("usage.saveFailed", { msg: String(err) })); }).finally(() => setRemovePending(false));
+  };
 
   const absoluteScale = niceAbsoluteScale(scopes.filter((scope) => scope.metric === "absolute").flatMap((scope) => scope.samples.map((sample) => sample.value)));
   const percentPresent = scopes.some((scope) => scope.metric === "percent");
@@ -191,6 +219,12 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     setCursor(null);
     void saveMarkers(next);
     if (next.length >= USAGE_MARKER_LIMIT) setMarkerMode(false);
+  };
+  // 卡头按钮三态语义（裁决在 pressUsageMarkerToggle 纯函数）：清空需落盘，进入/退出放置只动本地状态
+  const pressMarkerToggle = () => {
+    const outcome = pressUsageMarkerToggle(markerMode, markers);
+    if (outcome.cleared) void saveMarkers(outcome.markers);
+    setMarkerMode(outcome.mode);
   };
   const dragMarker = (point: { x: number }) => {
     const drag = markerDragRef.current;
@@ -250,13 +284,12 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const cursorRows = cursor ? detailScopes.map((scope) => ({ scope, sample: nearestSample(scope, cursor.timestamp) })) : [];
 
   return <section className="qt-usage-page" aria-label={t("usage.title")}>
-    <div className="qt-usage-toolbar"><div className="qt-usage-comparison-actions"><Button icon={Plus} onClick={() => setDialogMode("add")}>{t("usage.addCombination")} <span>{t("usage.combinationCount", { count: effectiveSelection.length })}</span></Button><Button icon={Settings2} variant="ghost" onClick={() => setDialogMode("manage")}>{t("usage.manageCombinations")}</Button></div><div className="qt-usage-range-switch"><SegmentedControl value={range} onChange={selectRange} compact options={[{ value: "24h", label: t("usage.range24h") }, { value: "7d", label: t("usage.range7d") }]} /></div></div>
+    <div className="qt-usage-toolbar"><div className="qt-usage-comparison-actions"><Button icon={Plus} disabled={removePending} onClick={() => setAddDialogOpen(true)}>{t("usage.addCombination")} <span>{t("usage.combinationCount", { count: effectiveSelection.length })}</span></Button>{legendTriggerVisible(legendItems.length, mobile) && <div className="qt-usage-legend" onMouseLeave={(event) => { const active = document.activeElement; if (event.currentTarget.contains(active) && active instanceof Element && active.matches(":focus-visible")) return; closeLegend(); }} onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) closeLegend(); }}><Button icon={Focus} variant="secondary" className="qt-usage-legend-trigger" aria-haspopup="dialog" aria-expanded={legendOpen} onMouseEnter={() => setLegendOpen(true)} onFocus={() => setLegendOpen(true)}>{t("usage.legendTrigger")}<span className={`qt-usage-focus-platform ${focusPlatform ? "" : "is-empty"}`} aria-hidden="true" style={focusPlatform ? { "--qt-series-color": SERIES_COLORS[focusPlatform.colorSlot] } as CSSProperties : undefined}><span className="qt-usage-focus-kicker">{t("usage.focusKicker")}</span><span className="qt-usage-focus-main">{focusPlatform ? <><span className="qt-usage-focus-name">{focusPlatform.name}</span><strong className="qt-usage-focus-value">{focusPlatform.value != null ? formatNumber(focusPlatform.value, focusPlatform.metric) : "—"}</strong></> : t("usage.focusEmpty")}</span></span></Button>{legendOpen && <div className="qt-usage-legend-popover" role="dialog" aria-label={t("usage.legendTrigger")}>{legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; const current = scope ? scope.samples[scope.samples.length - 1] : null; return <div key={item.id} className="qt-usage-legend-row" style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-legend-focus" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}><i /><span>{item.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button> : <span className="qt-usage-legend-offline" title={t("usage.unavailable")}><i /><span>{item.name}</span><strong>—</strong></span>}<button type="button" className={`qt-usage-legend-remove ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} title={armed ? t("usage.legendRemoveArmed") : undefined} disabled={removePending} onClick={() => removeScope(item, "popover")}>{armed ? <Trash2 size={13} aria-hidden="true" /> : <X size={13} aria-hidden="true" />}</button></div>; })}{legendError && <span className="qt-usage-legend-error" role="alert">{legendError}</span>}<span className="qt-usage-legend-hint">{t("usage.legendHint")}</span></div>}</div>}</div><div className="qt-usage-range-switch"><SegmentedControl value={range} onChange={selectRange} compact options={[{ value: "24h", label: t("usage.range24h") }, { value: "7d", label: t("usage.range7d") }]} /></div></div>
     {partialErrors > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.historyError", { msg: String(partialErrors) })}</div>}
     {scopePartition.hidden.length > 0 && <div className="qt-inline-warning qt-usage-partial-warning">{t("usage.unitConflictHidden", { count: scopePartition.hidden.length, unit: scopePartition.absoluteUnit ?? "—" })}</div>}
-    {!mobile && scopes.length > 0 && <div className="qt-usage-series-summary">{scopes.map((scope) => { const current = scope.samples[scope.samples.length - 1]; return <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}><i /><span>{scope.providerName} · {scope.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button>; })}</div>}
-    {mobile && scopes.length > 0 && <div className="qt-usage-mobile-focus">{scopes.map((scope) => <button key={scope.id} type="button" aria-pressed={focusedId === scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties} onClick={() => setFocusedId((value) => value === scope.id ? null : scope.id)}>{scope.providerName} · {scope.name}</button>)}</div>}
+    {mobile && legendItems.length > 0 && <div className="qt-usage-mobile-focus" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setArmedRemoveId(null); }}>{legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; return <div key={item.id} className={`qt-usage-mobile-focus-item ${scope && focusedId === item.id ? "is-focused" : ""}`} style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-mobile-focus-toggle" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}>{item.name}</button> : <span className="qt-usage-mobile-focus-offline" title={t("usage.unavailable")}>{item.name}</span>}<button type="button" className={`qt-usage-mobile-focus-remove ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} title={armed ? t("usage.legendRemoveArmed") : undefined} disabled={removePending} onClick={() => removeScope(item, "chip")}>{armed ? <Trash2 size={14} aria-hidden="true" /> : <X size={14} aria-hidden="true" />}</button></div>; })}</div>}
     {pageState ? <div className={`qt-usage-state is-${pageState.kind}`}><strong>{pageState.kind === "empty" ? t("usage.emptyTitle") : t("usage.statusTitle")}</strong><span>{pageState.message}</span></div> : <article className="qt-usage-chart-card">
-      <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><div className="qt-usage-head-actions"><Button icon={LocateFixed} variant="ghost" className="qt-usage-marker-toggle" aria-pressed={markerMode} title={t("usage.markerPlaceHint")} onClick={() => setMarkerMode((value) => !value)}>{t("usage.markerMode")}</Button><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></div></header>
+      <header className="qt-usage-chart-head"><div><p className="qt-usage-eyebrow">{t("usage.title")}</p><p className="qt-usage-updated">{t("usage.comparisonChartLabel", { count: scopes.length })}</p></div><div className="qt-usage-head-actions"><Tooltip text={t("usage.markerPlaceHint")} multiline><Button icon={LocateFixed} variant="ghost" className="qt-usage-marker-toggle" aria-pressed={markerMode} onClick={pressMarkerToggle}>{t("usage.markerMode")}</Button></Tooltip><Tooltip text={t("usage.markerClearAll")}><Button icon={Trash2} variant="ghost" aria-label={t("usage.markerClearAll")} disabled={markers.length === 0} onClick={() => void saveMarkers([])} /></Tooltip><Button icon={RotateCcw} className="qt-usage-reset" onClick={() => { if (focusedId) setFocusedId(null); else resetView(); }}>{focusedId ? t("usage.resetFocus") : t("usage.resetView")}</Button></div></header>
       <div className="qt-usage-marker-readout">{(() => {
         if (markers.length === 0) return <span className="qt-usage-marker-empty">{t("usage.markerEmpty")}</span>;
         const sorted = [...markers].sort((a, b) => a - b);
@@ -270,7 +303,6 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
             return <>{rate != null && <span className="qt-usage-marker-rate">{t("usage.markerRate", { rate: markerRateText(rate, focusedScope.metric, focusedScope.unit) })}</span>}
               {peak && <span className="qt-usage-marker-rate">{t("usage.markerPeakBurn", { rate: markerRateText(peak.ratePerHour, focusedScope.metric, focusedScope.unit), at: dateFormatter.format(peak.from.timestamp) })}</span>}</>;
           })()}</span>}
-          <button type="button" className="qt-usage-marker-remove qt-usage-marker-clear qt-touch-inline" aria-label={t("usage.markerClearAll")} title={t("usage.markerClearAll")} onClick={() => void saveMarkers([])}><Trash2 size={13} aria-hidden="true" /></button>
         </>;
       })()}</div>
       <div className={`qt-usage-chart-wrap ${isDragging ? "is-dragging" : ""}`} onWheelCapture={onWheel}>
@@ -299,6 +331,6 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       {mobile && cursor && <div className="qt-usage-mobile-readout" aria-live="polite"><span>{dateFormatter.format(cursor.timestamp)}</span>{cursorRows.map(({ scope, sample }) => <div key={scope.id} style={{ "--qt-series-color": SERIES_COLORS[scope.colorSlot] } as CSSProperties}><i /><span>{scope.providerName} · {scope.name}</span><strong>{sample ? formatNumber(sample.value, scope.metric) : "—"}</strong></div>)}</div>}
       {!mobile && <footer className="qt-usage-chart-footer"><span><MousePointer2 size={14} aria-hidden="true" />{t("usage.dragHint")}</span><span><Maximize2 size={14} aria-hidden="true" />{t("usage.zoomHint")}</span><span>{t("usage.focusHint")}</span>{focusedHasLongGap && <span className="qt-usage-legend-gap"><i />{t("usage.gapLegend")}</span>}</footer>}
     </article>}
-    {dialogMode && <UsageComparisonDialog mode={dialogMode} candidates={candidates} selected={effectiveSelection} onClose={() => setDialogMode(null)} onSave={saveSelection} />}
+    {addDialogOpen && <UsageComparisonDialog candidates={candidates} selected={effectiveSelection} onClose={() => setAddDialogOpen(false)} onSave={saveSelection} />}
   </section>;
 }

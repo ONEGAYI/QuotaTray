@@ -9,6 +9,7 @@ import {
   moveUsageMarker,
   nearestUsageSample,
   niceAbsoluteScale,
+  pressUsageMarkerToggle,
   shouldZoomUsageChart,
   snapUsageMarkerTimestamp,
   splitUsageSeries,
@@ -263,6 +264,26 @@ describe("使用统计图表纯逻辑", () => {
     expect(moveUsageMarker([100, 300], 300, 200)).toEqual([100, 200]);
     expect(moveUsageMarker([100, 300], 300, 100)).toEqual([100, 300]);
     expect(moveUsageMarker([100, 300], 300, 300)).toEqual([100, 300]);
+  });
+
+  it("定位线按钮：模式中点击退出且保留已放置的定位线", () => {
+    expect(pressUsageMarkerToggle(true, [100, 300])).toEqual({ mode: false, markers: [100, 300], cleared: false });
+  });
+
+  it("定位线按钮：有空缺时点击进入放置模式直接补位，已有定位线原样保留", () => {
+    expect(pressUsageMarkerToggle(false, [])).toEqual({ mode: true, markers: [], cleared: false });
+    expect(pressUsageMarkerToggle(false, [100])).toEqual({ mode: true, markers: [100], cleared: false });
+  });
+
+  it("定位线按钮：满两条后再点清空两条并从头定位", () => {
+    expect(pressUsageMarkerToggle(false, [100, 300])).toEqual({ mode: true, markers: [], cleared: true });
+  });
+
+  it("定位线按钮：保留路径返回副本，不改动入参数组", () => {
+    const markers = [100];
+    const outcome = pressUsageMarkerToggle(false, markers);
+    expect(outcome.markers).not.toBe(markers);
+    expect(markers).toEqual([100]);
   });
 
   it("定位线吸附：容差内吸附最近样本，容差外与空样本保留原始时刻", () => {

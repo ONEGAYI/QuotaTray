@@ -244,6 +244,27 @@ export function moveUsageMarker(existing: number[], from: number, to: number): n
   return existing.map((timestamp) => (timestamp === from ? to : timestamp));
 }
 
+/** 「定位线」卡头按钮一次点击的语义裁决。 */
+export interface UsageMarkerToggleOutcome {
+  /** 点击后放置模式是否开启 */
+  mode: boolean;
+  /** 点击后的定位线列表：满两条重定位时清空，其余路径原样保留 */
+  markers: number[];
+  /** 本次点击是否清掉了已有定位线（调用方据此决定是否落盘） */
+  cleared: boolean;
+}
+
+/**
+ * 定位线按钮三态（2026-09-16 所有者修订）：放置模式中点击=退出；未满两条时
+ * 点击进入放置直接补位（下一次图表点击落 vacant 位）；满两条再点=两条全清、
+ * 从头定位。清空不进入放置的诉求由卡头垃圾桶承担。
+ */
+export function pressUsageMarkerToggle(mode: boolean, markers: readonly number[]): UsageMarkerToggleOutcome {
+  if (mode) return { mode: false, markers: [...markers], cleared: false };
+  if (markers.length >= USAGE_MARKER_LIMIT) return { mode: true, markers: [], cleared: true };
+  return { mode: true, markers: [...markers], cleared: false };
+}
+
 /**
  * 吸附最近真实样本时刻：距离 ≤ tolerance 才吸附（等距时取先遍历到的样本），
  * 无样本或超出容差时保留原始时刻——定位线对齐真实采样点，读数才干净。
