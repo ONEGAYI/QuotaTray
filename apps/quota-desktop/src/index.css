@@ -409,8 +409,10 @@ button:disabled { cursor: not-allowed; }
 .qt-usage-marker-dot { fill: var(--qt-chart-marker); stroke: var(--qt-surface); stroke-width: 1.5; pointer-events: none; }
 .qt-usage-marker-hit { fill: transparent; cursor: ew-resize; }
 /* 预留高度覆盖满载最坏行数（桌面窄窗两行 / 移动端窄屏三至四行），
-   放置/删除/聚焦切换不引起卡片高度跳变 */
-.qt-usage-marker-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 54px; border-top: 1px solid var(--qt-border); padding: 8px 18px; background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 11px; }
+   放置/删除/聚焦切换不引起卡片高度跳变。桌面两行实测 65px
+   （22px 行内按钮×2 + 行距 4 + padding 16 + border 1），峰值消耗
+   文本加入后 54px 预留不足、放置第二条线时高度突增挤压图表（#116 后发现） */
+.qt-usage-marker-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 65px; border-top: 1px solid var(--qt-border); padding: 8px 18px; background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 11px; }
 .qt-usage-marker-empty { color: var(--qt-text-faint); }
 .qt-usage-marker-label { display: inline-flex; align-items: center; gap: 5px; color: var(--qt-chart-marker); font-weight: 600; }
 .qt-usage-marker-item { display: inline-flex; align-items: center; gap: 5px; }
