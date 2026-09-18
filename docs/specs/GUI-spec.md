@@ -103,8 +103,8 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | `resolve_quota_cli_path` | → 安装包资源或开发产物中的真实 CLI 绝对路径 | `current_exe/resource_dir` 探测 |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
 | `get_settings / save_settings` | 设置对象 ↔ | desktop 自有存储 |
-| `export_configuration` | `path + options（档位/密码，缺省便捷档）` → `ImportCounts 概要`；Android `content://` 经 SAF 通道分流透传 | `export_config_to_path_with_options` |
-| `import_configuration` | `path + options（策略/密码，缺省整体替换现状语义）` → `provider_count + 新增/跳过计数`；按策略接线历史（合并幂等/覆盖清空重插）与比较组合（并集/替换），清空旧结果/快照并广播刷新 | `import_config_to_path_with_options` + `HistoryStore::merge_rows/replace_rows` |
+| `export_configuration` | `path + options（档位/密码，缺省便捷档）` → `()`（导出无返回载荷，计数反馈在导入行）；Android `content://` 经 SAF 通道分流透传 | `export_config_to_path_with_options` |
+| `import_configuration` | `path + options（策略/密码，缺省整体替换现状语义）` → `provider_count + 新增/跳过计数`；按策略接线历史（合并幂等/覆盖清空重插；v1 老包未携带历史字段不清本机，与 CLI 同口径）与比较组合（并集/替换），清空旧结果/快照并广播刷新 | `import_config_to_path_with_options` + `HistoryStore::merge_rows/replace_rows` |
 | `inspect_transfer_package` | `path` → `{version, mode}`（只读头部，不解密；供导入模态文件信息卡） | `inspect_transfer_container` |
 | `open_data_dir / open_logs_dir` | → 在资源管理器打开当前运行模式的数据根/日志目录（不存在则按需补建；桌面门控，Android 不注册语义） | `tauri_plugin_opener` |
 
@@ -163,7 +163,7 @@ M5-a 起同一成功链路另行写入查询历史库（`~/.quotatray/history.db
 - [ ] 低额度提醒按阈值生效
 - [ ] 数据迁移可通过系统文件对话框完成；导入后账户、托盘与悬停窗同步刷新，旧快照清空
 - [ ] 双档导出模态：密码档（≥8 位两次一致、派生密钥不随包）与便捷档（警示不降级）均端到端可用
-- [ ] 双模导入模态：合并零丢失本机数据、覆盖后历史库 = 备份内容；覆盖三重防线（默认合并 + 倒计时 + 勾选）生效
+- [ ] 双模导入模态：合并零丢失本机数据、覆盖后历史库 = 备份内容（v1 老包未携带历史字段则保留本机）；覆盖三重防线（默认合并 + 倒计时 + 勾选）生效
 - [ ] 密码档错密码就地报确定性错误（不关模态）；v1/v2 旧包继续可导入
 - [ ] 数据/日志目录入口在安装版与便携版打开正确目录；Android 不渲染入口
 - [ ] `cargo clippy/test --workspace` 全绿；前端构建无错误

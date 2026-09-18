@@ -297,8 +297,11 @@ fn inspect_transfer_package_at(
 
 /// 按导入策略把迁移包携带的历史行写入历史库（IPC 导入接线的策略段）：
 /// 合并 = 幂等合并（不丢本机任何数据；空/缺失载荷不动本机）；覆盖 =
-/// 清空本机后重插备份行（未携带历史的包同样清空——覆盖语义是整库以
-/// 备份为准）。写入失败仅告警（配置已导入成功，历史属尽力而为数据）。
+/// 清空本机后重插备份行（与 CLI `apply_history_by_strategy` 同口径：
+/// 备份未携带历史字段（`None`，仅 v1 老包；v2/v3 恒携带）时不清空本机
+/// ——「备份没有这部分数据」不等于「备份断言历史为空」，`Some([])`
+/// 是备份明确断言空历史，照常清空重插）。写入失败仅告警（配置已导入
+/// 成功，历史属尽力而为数据）。
 fn apply_history_import(
     store: &quota_core::HistoryStore,
     history: Option<&[quota_core::HistoryExportRow]>,
@@ -309,7 +312,10 @@ fn apply_history_import(
             Some(rows) if !rows.is_empty() => store.merge_rows(rows),
             _ => return,
         },
-        quota_core::ImportStrategy::Overwrite => store.replace_rows(history.unwrap_or(&[])),
+        quota_core::ImportStrategy::Overwrite => {
+            let Some(rows) = history else { return };
+            store.replace_rows(rows)
+        }
     };
     if let Err(e) = result {
         eprintln!("导入历史写入失败：{e}");
@@ -1716,19 +1722,21 @@ pub(crate) fn mobile_cli_provider_blocked(target_os: &str, provider_id: &str) ->
     target_os == "android" && quota_core::provider::uses_cli_credentials(provider_id)
 }
 
-fn desktop_update_commands_supported(target_os: &str) -> bool {
+/// 目标平台是否为桌面形态（Windows/macOS/Linux）——桌面专属命令的
+/// 通用判定：更新安装/打开目录（永久桌面）与资源管理器入口共用。
+fn is_desktop_platform(target_os: &str) -> bool {
     !matches!(target_os, "android" | "ios")
 }
 
 /// 更新「检测」命令的支持面：桌面全家 + Android（2026-08-29 手动检测
 /// 口径——进更新页自动检一次 + 手动按钮，无调度器）。与
-/// [`desktop_update_commands_supported`]（安装/打开目录，永久桌面）分层。
+/// [`is_desktop_platform`]（安装/打开目录等桌面专属命令，永久桌面）分层。
 fn update_check_supported(target_os: &str) -> bool {
     target_os != "ios"
 }
 
 fn ensure_desktop_update_commands(lang: Lang) -> Result<(), String> {
-    if desktop_update_commands_supported(std::env::consts::OS) {
+    if is_desktop_platform(std::env::consts::OS) {
         Ok(())
     } else {
         Err(lang.err_mobile_update_unsupported())
@@ -1744,10 +1752,10 @@ fn ensure_update_check_supported(lang: Lang) -> Result<(), String> {
 }
 
 /// 资源管理器目录入口（数据/日志目录）的桌面门控：Android 无文件
-/// 管理器语义，前端不渲染入口，此处为命令层兜底。结构照抄
-/// [`ensure_desktop_update_commands`]，文案分层（与更新流程无关）。
+/// 管理器语义，前端不渲染入口，此处为命令层兜底。判定复用
+/// [`is_desktop_platform`]，文案分层（与更新流程无关）。
 fn ensure_desktop_only(lang: Lang) -> Result<(), String> {
-    if desktop_update_commands_supported(std::env::consts::OS) {
+    if is_desktop_platform(std::env::consts::OS) {
         Ok(())
     } else {
         Err(lang.err_mobile_desktop_only())
@@ -2364,11 +2372,11 @@ mod tests {
     }
 
     #[test]
-    fn desktop_update_commands_are_blocked_on_mobile_targets() {
-        assert!(!desktop_update_commands_supported("android"));
-        assert!(!desktop_update_commands_supported("ios"));
-        assert!(desktop_update_commands_supported("windows"));
-        assert!(desktop_update_commands_supported("linux"));
+    fn desktop_only_commands_are_blocked_on_mobile_targets() {
+        assert!(!is_desktop_platform("android"));
+        assert!(!is_desktop_platform("ios"));
+        assert!(is_desktop_platform("windows"));
+        assert!(is_desktop_platform("linux"));
     }
 
     /// 契约：守卫分层——更新「检测」对 Android 放行（2026-08-29 手动检测
@@ -2379,10 +2387,10 @@ mod tests {
         assert!(!update_check_supported("ios"));
         assert!(update_check_supported("windows"));
         assert!(update_check_supported("linux"));
-        // 分层差异本身即契约：检测放行 ≠ 安装命令放行
+        // 分层差异本身即契约：检测放行 ≠ 桌面专属命令放行
         assert_ne!(
             update_check_supported("android"),
-            desktop_update_commands_supported("android")
+            is_desktop_platform("android")
         );
     }
     use quota_core::{InMemoryStore, UsageData};
@@ -2828,8 +2836,9 @@ mod tests {
     }
 
     /// 契约（T-17）：历史策略接线——合并保留本机行并幂等并入备份行；
-    /// 覆盖清空本机后库 = 备份行（未携带历史的包同样清空：覆盖语义是
-    /// 整库以备份为准）。
+    /// 覆盖清空本机后库 = 备份行；未携带历史字段的包（None，仅 v1 老包）
+    /// 覆盖导入不清空本机（格式缺失 ≠ 断言历史为空），明确携带空历史
+    /// （`Some([])`）的包覆盖导入照常清空。
     #[test]
     fn transfer_helpers_history_strategy_merge_keeps_local_overwrite_replaces() {
         let local_row = |at: u64| quota_core::HistoryExportRow {
@@ -2877,8 +2886,14 @@ mod tests {
         apply_history_import(&store, None, quota_core::ImportStrategy::Overwrite);
         assert_eq!(
             store.export_rows().unwrap().len(),
+            2,
+            "覆盖导入未携带历史字段的包（v1 老包）不清空本机"
+        );
+        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Overwrite);
+        assert_eq!(
+            store.export_rows().unwrap().len(),
             0,
-            "覆盖导入未携带历史的包同样清空"
+            "覆盖导入明确携带空历史的包清空本机"
         );
     }
 

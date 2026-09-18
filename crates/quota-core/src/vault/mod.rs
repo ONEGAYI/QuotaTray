@@ -118,6 +118,9 @@ impl Vault {
 }
 
 /// crate 内部：生成 32 字节密码学随机盐（迁移容器 v3 密码档 Argon2id salt）。
+/// 复用 [`cipher::generate_master_key`] 是刻意的同构：盐与主密钥的生成
+/// 需求完全一致（CSPRNG 均匀填充 32 字节），密钥学上等价、无相互派生
+/// 关系——两者仅字节数巧合相同，独立随机生成互不影响安全性。
 pub(crate) fn random_salt() -> [u8; cipher::KEY_LEN] {
     let salt = cipher::generate_master_key();
     let mut fixed = [0_u8; cipher::KEY_LEN];
