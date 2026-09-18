@@ -353,6 +353,12 @@ QuotaTray/
 │       │   │   ├── settingsView.ts              # 设置视图纯逻辑
 │       │   │   ├── TemplateHelpCard.tsx         # 模板说明折叠卡
 │       │   │   ├── TitleBar.tsx                 # 自定义标题栏
+│       │   │   ├── TransferExportDialog.tsx     # 双档导出模态窗
+│       │   │   ├── transferExportView.test.ts   # 导出模态测试
+│       │   │   ├── transferExportView.ts        # 导出模态纯逻辑
+│       │   │   ├── TransferImportDialog.tsx     # 双模导入模态窗
+│       │   │   ├── transferImportView.test.ts   # 导入模态测试
+│       │   │   ├── transferImportView.ts        # 导入模态纯逻辑
 │       │   │   ├── ui.tsx                       # 跨端共享基础组件
 │       │   │   ├── usageChartView.test.ts       # 统计图表逻辑测试
 │       │   │   ├── usageChartView.ts            # 统计图表纯逻辑
