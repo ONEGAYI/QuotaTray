@@ -23,7 +23,7 @@ import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
 import { useCatalogStatus, useSettings, useUpdateState } from "../queries";
-import type { DownloadProgress, Settings } from "../types";
+import type { DownloadProgress, ExportOptions, Settings } from "../types";
 import {
   backgroundIntervalOptions,
   downloadPercent,
@@ -44,6 +44,7 @@ import {
   transferErrorMessage,
 } from "./configTransferView";
 import { ClearConfigDialog } from "./ClearConfigDialog";
+import { TransferExportDialog } from "./TransferExportDialog";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -81,6 +82,8 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
+  /** 导出模态（T-16）：档位选择与口令校验在模态内完成，确认后才弹保存框。 */
+  const [exportOpen, setExportOpen] = useState(false);
   /** 目录入口打开失败的就地反馈（成功时资源管理器弹出即反馈，无需文案）。 */
   const [dirOpenError, setDirOpenError] = useState<string | null>(null);
   /** 在资源管理器打开数据/日志目录（桌面专属入口，Android 不渲染）。 */
@@ -208,9 +211,10 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   });
 
   const exportConfiguration = useMutation({
-    mutationFn: api.exportConfiguration,
-    onSuccess: (_, path) => {
-      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path }) });
+    mutationFn: (vars: { path: string; options: ExportOptions }) =>
+      api.exportConfiguration(vars.path, vars.options),
+    onSuccess: (_, vars) => {
+      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path: vars.path }) });
     },
     onError: (error) => {
       setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
@@ -234,15 +238,10 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
     },
   });
 
-  const beginExport = async () => {
+  /** 导出模态确认后的执行段：弹系统保存框（取消即回到模态）→ 执行导出。
+   *  档位选择与口令校验由 TransferExportDialog 完成，这里只拿最终 options。 */
+  const runExport = async (options: ExportOptions): Promise<"saved" | "cancelled"> => {
     setTransferFeedback(null);
-    const confirmed = await confirmDialog(t("settings.exportConfirm"), {
-      title: t("settings.transferTitle"),
-      kind: "warning",
-      okLabel: t("settings.exportConfirmButton"),
-      cancelLabel: t("common.cancel"),
-    });
-    if (!confirmed) return;
     // Android 的系统文档选择器按 MIME 类型过滤；tauri-plugin-dialog 仍复用
     // extensions 字段传递该值。桌面端继续使用真实扩展名。
     const path = await saveDialog({
@@ -253,7 +252,10 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
         extensions: mobile ? ["application/octet-stream"] : ["qtray-export"],
       }],
     });
-    if (path) exportConfiguration.mutate(mobile ? path : ensureTransferExtension(path));
+    if (!path) return "cancelled";
+    const resolved = mobile ? path : ensureTransferExtension(path);
+    await exportConfiguration.mutateAsync({ path: resolved, options });
+    return "saved";
   };
 
   const beginImport = async () => {
@@ -990,7 +992,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               >
                 <Button
                   disabled={exportConfiguration.isPending || importConfiguration.isPending}
-                  onClick={() => void beginExport()}
+                  onClick={() => setExportOpen(true)}
                 >
                   <FileDown size={15} aria-hidden="true" />
                   {exportConfiguration.isPending
@@ -1066,6 +1068,11 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
           {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}
         </div>
       </div>
+      <TransferExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={runExport}
+      />
       <ClearConfigDialog
         open={clearOpen}
         onClose={() => setClearOpen(false)}

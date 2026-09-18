@@ -809,6 +809,11 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-transfer-intro-icon { color: var(--qt-warning); }
 .qt-transfer-intro h3 { margin: 0 0 3px; font-size: 13px; }
 .qt-transfer-intro p { margin: 3px 0 0; color: var(--qt-text-soft); font-size: 12px; line-height: 1.5; }
+/* 导出模态（T-16）：档位分段 + 条件展开的双档表单；便捷档警示复用上方警示卡 */
+.qt-transfer-export-body { display: grid; gap: 12px; }
+.qt-transfer-export-body .qt-transfer-intro { margin: 0; }
+.qt-transfer-export-info { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: var(--qt-radius-md); background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 12px; line-height: 1.55; }
+.qt-transfer-export-info svg { flex: none; margin-top: 1px; color: var(--qt-accent-strong); }
 .qt-update-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 7px 0 9px; padding: 13px; border-radius: var(--qt-radius-md); background: var(--qt-success-soft); }
 .qt-update-status.has-update { background: var(--qt-accent-soft); }
 .qt-update-status.has-error { background: var(--qt-danger-soft); }

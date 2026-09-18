@@ -262,13 +262,15 @@ fn export_configuration_at(
     vault: &Vault,
     history: Option<&[quota_core::HistoryExportRow]>,
     usage_comparison_series: Option<&[quota_core::UsageComparisonSeries]>,
+    options: &quota_core::ExportOptions,
 ) -> Result<(), String> {
     let config = AppConfig::load(config_path).map_err(|e| e.to_string())?;
-    quota_core::export_config_to_path_with_usage(
+    quota_core::export_config_to_path_with_options(
         &config,
         vault,
         history,
         usage_comparison_series,
+        options,
         export_path,
     )
     .map_err(|e| e.to_string())
@@ -308,6 +310,7 @@ fn export_configuration_to_uri(
     uri: &str,
     history: Option<&[quota_core::HistoryExportRow]>,
     usage_comparison_series: Option<&[quota_core::UsageComparisonSeries]>,
+    options: &quota_core::ExportOptions,
 ) -> Result<(), String> {
     use std::io::Write;
     use tauri_plugin_fs::FsExt;
@@ -320,6 +323,7 @@ fn export_configuration_to_uri(
             &state.vault,
             history,
             usage_comparison_series,
+            options,
         )?;
         let bytes = std::fs::read(&temp).map_err(|e| format!("读取迁移缓存失败：{e}"))?;
         let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
@@ -374,12 +378,18 @@ fn import_configuration_from_uri(
 }
 
 /// 导出完整配置（含查询历史）到用户通过系统对话框选定的路径。
+///
+/// `options` 选择导出档位（密码档/便捷档）；缺省视为便捷档，与既有
+/// 调用方兼容。保存路径为空（用户在系统保存框取消）由前端拦截，不会
+/// 到达本命令。
 #[tauri::command]
 pub fn export_configuration(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
+    options: Option<quota_core::ExportOptions>,
 ) -> Result<(), String> {
+    let options = options.unwrap_or(quota_core::ExportOptions::Convenient);
     // 历史读取失败降级为不带历史，导出主任务继续
     let history = match state.history.lock().unwrap().export_rows() {
         Ok(rows) => Some(rows),
@@ -402,6 +412,7 @@ pub fn export_configuration(
             &path,
             history.as_deref(),
             usage_comparison_series.as_deref(),
+            &options,
         );
     }
     let _ = app;
@@ -411,6 +422,7 @@ pub fn export_configuration(
         &state.vault,
         history.as_deref(),
         usage_comparison_series.as_deref(),
+        &options,
     )
 }
 
@@ -2444,6 +2456,7 @@ mod tests {
             &source_vault,
             None,
             Some(&comparison),
+            &quota_core::ExportOptions::Convenient,
         )
         .unwrap();
         let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
@@ -2486,7 +2499,15 @@ mod tests {
             total: Some(100.0),
             unit: Some("%".into()),
         }];
-        export_configuration_at(&source_path, &bundle, &source_vault, Some(&rows), None).unwrap();
+        export_configuration_at(
+            &source_path,
+            &bundle,
+            &source_vault,
+            Some(&rows),
+            None,
+            &quota_core::ExportOptions::Convenient,
+        )
+        .unwrap();
         let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
         assert_eq!(imported.history.as_deref(), Some(rows.as_slice()));
 
@@ -2499,6 +2520,71 @@ mod tests {
         assert_eq!(store.range("p1", 0).unwrap().len(), 1);
         // Windows 上句柄存活时删除会失败，先释放再清理
         drop(store);
+        let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(target_path.parent().unwrap());
+    }
+
+    /// 契约（T-16）：IPC 层透传导出档位——密码档包不带口令无法按便捷档
+    /// 导入（确定性错误、不落配置），带口令可完整往返；短口令在导出侧
+    /// 即被确定性拒绝（前端校验之外的兜底防线）。
+    #[test]
+    fn transfer_helpers_password_mode_roundtrip() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let source_path = transfer_path("password-mode", "source.json");
+        let target_path = transfer_path("password-mode-target", "target.json");
+        let bundle = transfer_path("password-mode", "backup.qtray-export");
+        let mut source_entry = entry("p1");
+        source_entry
+            .set_api_key(&source_vault, "sk-password-export")
+            .unwrap();
+        AppConfig {
+            providers: vec![source_entry],
+            custom_models: Default::default(),
+        }
+        .save(&source_path)
+        .unwrap();
+
+        let short = quota_core::ExportOptions::Password {
+            password: "1234567".into(),
+        };
+        let err = export_configuration_at(&source_path, &bundle, &source_vault, None, None, &short)
+            .unwrap_err();
+        assert_eq!(err, "备份密码至少需要 8 个字符");
+
+        let options = quota_core::ExportOptions::Password {
+            password: "12345678".into(),
+        };
+        export_configuration_at(&source_path, &bundle, &source_vault, None, None, &options)
+            .unwrap();
+
+        // 密码档包按便捷档导入：确定性拒绝（导入 options 接线属导入模态
+        // 工单，此处经 core options API 验证容器确按密码档编码）
+        let err = import_configuration_at(&bundle, &target_path, &target_vault).unwrap_err();
+        assert_eq!(
+            err,
+            quota_core::ConfigTransferError::PasswordRequired.to_string()
+        );
+        assert!(!target_path.exists());
+
+        let imported = quota_core::import_config_to_path_with_options(
+            &bundle,
+            &target_vault,
+            &quota_core::ImportOptions {
+                password: Some("12345678".into()),
+            },
+            &target_path,
+        )
+        .unwrap();
+        assert_eq!(imported.config.providers.len(), 1);
+        assert_eq!(
+            imported.config.providers[0]
+                .credentials(&target_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            "sk-password-export"
+        );
         let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
         let _ = std::fs::remove_dir_all(target_path.parent().unwrap());
     }
