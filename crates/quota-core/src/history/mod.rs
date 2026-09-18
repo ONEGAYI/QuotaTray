@@ -337,8 +337,26 @@ impl HistoryStore {
     /// [`HistoryStore::merge_rows`] 的 OR REPLACE 容忍口径不同：覆盖模的
     /// 语义是「库内容 = 备份内容」，对自相矛盾的包宁可拒绝也不静默择一行。
     pub fn replace_rows(&self, rows: &[HistoryExportRow]) -> Result<(), HistoryError> {
-        // TODO(工单 #121)：清空重插语义待实现（红态桩）。
-        self.merge_rows(rows)
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM history", params![])?;
+        for row in rows {
+            tx.execute(
+                "INSERT INTO history
+                    (provider_id, window_key, sampled_at, used, remaining, total, unit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    row.provider_id,
+                    row.window_key,
+                    row.sampled_at as i64,
+                    row.used,
+                    row.remaining,
+                    row.total,
+                    row.unit,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     fn maybe_cleanup(&self, now_ms: u64) {

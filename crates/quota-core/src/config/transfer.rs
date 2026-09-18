@@ -16,6 +16,13 @@
 //!
 //! 新版本只产 v3；仅支持低版本的旧二进制读到更高版本会拒绝（版本拒绝规则
 //! 延续）。信封 AAD 按版本+档位细分，v1/v2 既有 AAD 保持不变。
+//!
+//! 导入双模（`ImportOptions::strategy`，策略在写入层生效）：合并（默认）
+//! = 不丢本机任何东西——条目按 id 并集（同 id 本机为准）、比较组合按
+//! (provider_id, window_key) 并集（本机为准、超 4 条截断）、历史幂等合并；
+//! 覆盖 = 完全变成备份——配置与比较组合整体替换、历史单事务清空重插
+//! （`HistoryStore::replace_rows`）。既有无 options 的旧导入入口维持
+//! 「整体替换」现状语义（显式按覆盖委托，不受默认合并影响）。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -140,14 +147,27 @@ pub fn sanitize_usage_comparison_series(
 /// `series_added` = 备份中成功并入最终列表的数量；被 4 条上限截断的
 /// 备份键不计入任一计数。
 pub fn merge_usage_comparison_series(
-    _local: &[UsageComparisonSeries],
+    local: &[UsageComparisonSeries],
     incoming: &[UsageComparisonSeries],
 ) -> (Vec<UsageComparisonSeries>, ImportCounts) {
-    // TODO(工单 #121)：合并并集语义待实现（红态桩）。
-    (
-        sanitize_usage_comparison_series(incoming.to_vec()),
-        ImportCounts::default(),
-    )
+    let local_series = sanitize_usage_comparison_series(local.to_vec());
+    let local_keys: HashSet<(String, String)> = local_series
+        .iter()
+        .map(|item| (item.provider_id.clone(), item.window_key.clone()))
+        .collect();
+    let mut merged = local_series;
+    let mut counts = ImportCounts::default();
+    for item in sanitize_usage_comparison_series(incoming.to_vec()) {
+        let key = (item.provider_id.clone(), item.window_key.clone());
+        if local_keys.contains(&key) {
+            counts.series_skipped += 1;
+        } else if merged.len() < MAX_USAGE_COMPARISON_SERIES {
+            merged.push(item);
+            counts.series_added += 1;
+        }
+        // 已达 4 条上限：剩余备份键被截断，不计入任一计数
+    }
+    (sanitize_usage_comparison_series(merged), counts)
 }
 
 /// 迁移容器的档位。
@@ -460,6 +480,10 @@ pub enum ConfigTransferError {
     Vault(#[from] VaultError),
     #[error("导入配置保存失败：{0}")]
     Save(#[from] super::ConfigError),
+    /// 合并模读取本机配置失败（如 JSON 损坏）；不复用 `Save` 的
+    /// `#[from]`（同源类型只能有一个 from 转换），调用点显式 map_err。
+    #[error("导入配置读取失败：{0}")]
+    Load(#[source] super::ConfigError),
     #[error("备份密码至少需要 8 个字符")]
     PasswordTooShort,
     #[error("迁移包受密码保护，请在导入时提供备份密码")]
@@ -865,16 +889,73 @@ pub fn import_config_to_path(
     )
 }
 
-/// 完整导入迁移包（可携带密码档口令）后，原子替换目标配置文件。
+/// 完整导入迁移包（可携带密码档口令与导入策略）后应用到目标配置文件。
+///
+/// 策略在写入层生效：合并 = 读取本机配置做条目/自定义模型库并集（同 id
+/// 本机为准）后原子保存；覆盖 = 现状整体替换。历史与比较组合不落
+/// config.json：历史由调用端按策略选 `HistoryStore::merge_rows`（合并，
+/// 现状幂等合并）或 `replace_rows`（覆盖，单事务清空重插）；比较组合由
+/// 调用端按策略整体写入 settings.json（覆盖）或经
+/// [`merge_usage_comparison_series`] 并集（合并）。生效计数见返回
+/// bundle 的 `counts` 字段。
 pub fn import_config_to_path_with_options(
     export_path: &Path,
     target_vault: &Vault,
     options: &ImportOptions,
     config_path: &Path,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    let bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
-    bundle.config.save(config_path)?;
+    let mut bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
+    bundle.counts = match options.strategy {
+        ImportStrategy::Merge => {
+            // 本机配置文件缺失视为空配置（首次恢复场景 → 全额并入）。
+            let local = AppConfig::load(config_path).map_err(ConfigTransferError::Load)?;
+            let (merged, counts) = merge_app_config(&local, &bundle.config);
+            merged.save(config_path)?;
+            counts
+        }
+        ImportStrategy::Overwrite => {
+            bundle.config.save(config_path)?;
+            ImportCounts {
+                providers_added: bundle.config.providers.len(),
+                providers_skipped: 0,
+                series_added: bundle.usage_comparison_series.as_ref().map_or(0, Vec::len),
+                series_skipped: 0,
+            }
+        }
+    };
     Ok(bundle)
+}
+
+/// 合并模的配置并集：条目按 id 并集（本机在前保序、备份新条目按序追加；
+/// 同 id 冲突以本机为准、跳过备份条目无需凭据转写——本机密文 AAD 未动，
+/// 新条目在解码层已转写到目标 vault）；自定义模型库按 native 键并集、
+/// 同键同模型 id 以本机定义为准（「不丢本机任何东西」覆盖 custom_models
+/// 维度，条目计数仅覆盖 providers）。
+fn merge_app_config(local: &AppConfig, incoming: &AppConfig) -> (AppConfig, ImportCounts) {
+    let mut merged = local.clone();
+    let mut ids: HashSet<&str> = local
+        .providers
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let mut counts = ImportCounts::default();
+    for entry in &incoming.providers {
+        if ids.insert(entry.id.as_str()) {
+            merged.providers.push(entry.clone());
+            counts.providers_added += 1;
+        } else {
+            counts.providers_skipped += 1;
+        }
+    }
+    for (key, models) in &incoming.custom_models {
+        let slot = merged.custom_models.entry(key.clone()).or_default();
+        for model in models {
+            if !slot.iter().any(|existing| existing.id == model.id) {
+                slot.push(model.clone());
+            }
+        }
+    }
+    (merged, counts)
 }
 
 fn rewrap_credentials(

@@ -29,12 +29,13 @@ pub mod vault;
 
 pub use config::{
     AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, ExportOptions,
-    ImportOptions, MAX_USAGE_COMPARISON_SERIES, PlanVariant, ProviderEntry, ProviderKind,
-    TransferBundle, TransferContainerInfo, TransferMode, UsageComparisonSeries, export_config,
-    export_config_to_path, export_config_to_path_with_options, export_config_to_path_with_usage,
+    ImportCounts, ImportOptions, ImportStrategy, MAX_USAGE_COMPARISON_SERIES, PlanVariant,
+    ProviderEntry, ProviderKind, TransferBundle, TransferContainerInfo, TransferMode,
+    UsageComparisonSeries, export_config, export_config_to_path,
+    export_config_to_path_with_options, export_config_to_path_with_usage,
     export_config_with_options, export_config_with_usage, import_config, import_config_from_path,
     import_config_from_path_with_options, import_config_to_path,
-    import_config_to_path_with_options, inspect_transfer_container,
+    import_config_to_path_with_options, inspect_transfer_container, merge_usage_comparison_series,
     sanitize_usage_comparison_series,
 };
 pub use history::{
