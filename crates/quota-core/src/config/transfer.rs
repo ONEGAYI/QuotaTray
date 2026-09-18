@@ -1,14 +1,21 @@
 //! 完整配置的跨机器迁移格式。
 //!
 //! 普通 `config.json` 的机器主密钥仍只存在于系统凭据库。显式导出时，先把每条
-//! 凭据转写到本次随机生成的一次性迁移密钥，再用同一迁移密钥整体加密配置。
-//! 迁移密钥随私有二进制容器携带，因此导出包的敏感级别等同明文凭据。
+//! 凭据转写到本次导出的迁移密钥，再用同一迁移密钥整体加密配置，写入私有
+//! 二进制容器。
 //!
 //! 容器版本：v1 明文载荷为 `AppConfig`（历史版本，仍可导入）；v2 起为
 //! `{ config, history, usage_comparison_series? }` 信封，随配置携带历史走势数据
-//! 与可选的使用统计比较组合（均不含凭据）。
-//! 新版本只产 v2；仅支持 v1 的旧二进制会拒绝 v2。已支持 v2、但早于可选比较
-//! 字段的二进制会按 serde 默认规则忽略未知字段，配置与历史仍可降级导入。
+//! 与可选的使用统计比较组合（均不含凭据）；v3 起头部新增档位字段，导出双档：
+//!
+//! - **便捷档**：一次性 32 字节随机迁移密钥随包携带，导入零门槛；迁移密钥
+//!   与密文同包，敏感级别等同明文凭据（v1/v2 容器恒为此档语义）。
+//! - **密码档**：用户口令经 Argon2id 派生密钥加密，派生密钥绝不写入容器
+//!   任何字节；KDF 参数（算法/内存/迭代/并行度/盐）与信封 GCM nonce 写入
+//!   头部自描述，旧包永远可用头部参数重派生解密。
+//!
+//! 新版本只产 v3；仅支持低版本的旧二进制读到更高版本会拒绝（版本拒绝规则
+//! 延续）。信封 AAD 按版本+档位细分，v1/v2 既有 AAD 保持不变。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -25,6 +32,7 @@ pub const CONFIG_EXPORT_EXTENSION: &str = "qtray-export";
 const MAGIC: &[u8; 8] = b"QTRAYCFG";
 const FORMAT_VERSION_V1: u16 = 1;
 const FORMAT_VERSION_V2: u16 = 2;
+const FORMAT_VERSION_V3: u16 = 3;
 const TRANSFER_KEY_LEN: usize = 32;
 const VERSION_OFFSET: usize = MAGIC.len();
 const KEY_OFFSET: usize = VERSION_OFFSET + 2;
@@ -33,6 +41,46 @@ const HEADER_LEN: usize = LENGTH_OFFSET + 4;
 const MAX_EXPORT_SIZE: usize = 16 * 1024 * 1024;
 const ENVELOPE_AAD_V1: &str = "quotatray-config-export:v1";
 const ENVELOPE_AAD_V2: &str = "quotatray-config-export:v2";
+const ENVELOPE_AAD_V3_CONVENIENT: &str = "quotatray-config-export:v3-convenient";
+const ENVELOPE_AAD_V3_PASSWORD: &str = "quotatray-config-export:v3-password";
+
+/// 备份口令的最小字符数（按 `char` 计）。
+const MIN_PASSWORD_CHARS: usize = 8;
+
+// v3 头部公共前缀：[0..8) 魔数、[8..10) 版本、[10..11) 档位，其后按档位分叉。
+const MODE_OFFSET: usize = VERSION_OFFSET + 2;
+const MODE_CONVENIENT: u8 = 0;
+const MODE_PASSWORD: u8 = 1;
+
+// v3 便捷档：档位字节后接 32B 随机迁移密钥 + u32 载荷长度（与 v1/v2 的
+// 「密钥随包」布局语义一致，仅前置档位字节）。
+const V3_CONVENIENT_KEY_OFFSET: usize = MODE_OFFSET + 1;
+const V3_CONVENIENT_LENGTH_OFFSET: usize = V3_CONVENIENT_KEY_OFFSET + TRANSFER_KEY_LEN;
+const V3_CONVENIENT_HEADER_LEN: usize = V3_CONVENIENT_LENGTH_OFFSET + 4;
+
+// v3 密码档：档位字节后接自描述 KDF 头（算法/内存 KiB/迭代/并行度/32B 盐）
+// + 12B 信封 GCM nonce + u32 载荷长度；派生密钥绝不写入容器。
+const KDF_ALG_ARGON2ID: u32 = 1;
+const KDF_ALGORITHM_OFFSET: usize = MODE_OFFSET + 1;
+const KDF_MEMORY_OFFSET: usize = KDF_ALGORITHM_OFFSET + 4;
+const KDF_TIME_OFFSET: usize = KDF_MEMORY_OFFSET + 4;
+const KDF_PARALLELISM_OFFSET: usize = KDF_TIME_OFFSET + 4;
+const KDF_SALT_OFFSET: usize = KDF_PARALLELISM_OFFSET + 4;
+const KDF_SALT_LEN: usize = 32;
+const CIPHER_NONCE_OFFSET: usize = KDF_SALT_OFFSET + KDF_SALT_LEN;
+const CIPHER_NONCE_LEN: usize = crate::vault::NONCE_LEN;
+const V3_PASSWORD_LENGTH_OFFSET: usize = CIPHER_NONCE_OFFSET + CIPHER_NONCE_LEN;
+const V3_PASSWORD_HEADER_LEN: usize = V3_PASSWORD_LENGTH_OFFSET + 4;
+
+/// Argon2id 导出默认参数（OWASP 交互式推荐档：19 MiB 内存 / 2 迭代 / 1 并行）。
+const ARGON2_DEFAULT_MEMORY_KIB: u32 = 19456;
+const ARGON2_DEFAULT_TIME_COST: u32 = 2;
+const ARGON2_DEFAULT_PARALLELISM: u32 = 1;
+/// 导入侧接受的 KDF 参数上限（拒绝恶意容器头部触发的 KDF DoS）；
+/// 导出默认参数远低于上限，为未来升级留空间。
+const KDF_MAX_MEMORY_KIB: u32 = 1 << 20;
+const KDF_MAX_TIME_COST: u32 = 4096;
+const KDF_MAX_PARALLELISM: u32 = 64;
 
 /// 使用统计中持久化的一条 Provider + 窗口组合。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -84,6 +132,41 @@ pub fn sanitize_usage_comparison_series(
     normalized
 }
 
+/// 迁移容器的档位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum TransferMode {
+    /// 便捷档：一次性随机迁移密钥随包携带（v1/v2 容器恒为此档语义）。
+    Convenient,
+    /// 密码档：口令经 Argon2id 派生密钥加密，派生密钥绝不写入容器。
+    Password,
+}
+
+/// 只读识别出的迁移容器元信息（不解密、不验证密码）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TransferContainerInfo {
+    /// 容器格式版本（1/2/3）。
+    pub version: u16,
+    /// 档位；v1/v2 容器恒报便捷档。
+    pub mode: TransferMode,
+}
+
+/// 导出档位选项。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ExportOptions {
+    /// 便捷档：一次性 32 字节随机迁移密钥随包携带，包的保密等级等同明文凭据。
+    Convenient,
+    /// 密码档：口令经 Argon2id 派生密钥加密，派生密钥绝不写入容器；
+    /// 口令至少 8 个字符（按 `char` 计），不足确定性拒绝。
+    Password { password: String },
+}
+
+/// 导入选项。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ImportOptions {
+    /// 密码档容器的备份口令；便捷档容器忽略此字段。
+    pub password: Option<String>,
+}
+
 /// v2 容器的明文信封；可选字段缺省表示旧包未携带。
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct ExportEnvelope {
@@ -104,11 +187,191 @@ pub struct TransferBundle {
     pub usage_comparison_series: Option<Vec<UsageComparisonSeries>>,
 }
 
-fn envelope_aad(version: u16) -> &'static str {
-    match version {
-        FORMAT_VERSION_V1 => ENVELOPE_AAD_V1,
-        _ => ENVELOPE_AAD_V2,
+/// 已解析的容器头部（不含任何密码学验证，供 inspect 与导入共用）。
+struct ContainerHeader<'a> {
+    version: u16,
+    mode: TransferMode,
+    /// 便捷档：随包携带的迁移密钥；密码档为 `None`。
+    transfer_key: Option<&'a [u8]>,
+    /// 密码档：头部自描述的 KDF 参数与信封 nonce；便捷档为 `None`。
+    password_params: Option<PasswordHeaderParams>,
+    /// 信封加密 AAD（按版本+档位细分）。
+    aad: &'static str,
+    /// 载荷起始偏移。
+    payload_offset: usize,
+}
+
+/// v3 密码档头部自描述的 Argon2id 参数与信封 GCM nonce。
+struct PasswordHeaderParams {
+    algorithm: u32,
+    memory_kib: u32,
+    time_cost: u32,
+    parallelism: u32,
+    salt: [u8; KDF_SALT_LEN],
+    nonce: [u8; CIPHER_NONCE_LEN],
+}
+
+/// 解析容器头部：校验魔数、版本、档位、长度一致性，不做解密。
+fn parse_header(bytes: &[u8]) -> Result<ContainerHeader<'_>, ConfigTransferError> {
+    if bytes.len() > MAX_EXPORT_SIZE {
+        return Err(ConfigTransferError::TooLarge);
     }
+    if bytes.len() < KEY_OFFSET {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "文件头或载荷不完整",
+        });
+    }
+    if &bytes[..MAGIC.len()] != MAGIC {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "魔数不匹配",
+        });
+    }
+
+    let version = u16::from_be_bytes(
+        bytes[VERSION_OFFSET..KEY_OFFSET]
+            .try_into()
+            .expect("fixed version field"),
+    );
+    match version {
+        FORMAT_VERSION_V1 | FORMAT_VERSION_V2 => parse_legacy_header(bytes, version),
+        FORMAT_VERSION_V3 => parse_v3_header(bytes),
+        _ => Err(ConfigTransferError::UnsupportedVersion { version }),
+    }
+}
+
+/// v1/v2 头部：32B 随机迁移密钥 + u32 载荷长度（档位概念上恒为便捷档）。
+fn parse_legacy_header(
+    bytes: &[u8],
+    version: u16,
+) -> Result<ContainerHeader<'_>, ConfigTransferError> {
+    if bytes.len() < HEADER_LEN {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "文件头或载荷不完整",
+        });
+    }
+    let payload_len = u32::from_be_bytes(
+        bytes[LENGTH_OFFSET..HEADER_LEN]
+            .try_into()
+            .expect("fixed length field"),
+    ) as usize;
+    verify_payload_len(bytes, HEADER_LEN, payload_len)?;
+    Ok(ContainerHeader {
+        version,
+        mode: TransferMode::Convenient,
+        transfer_key: Some(&bytes[KEY_OFFSET..LENGTH_OFFSET]),
+        password_params: None,
+        aad: if version == FORMAT_VERSION_V1 {
+            ENVELOPE_AAD_V1
+        } else {
+            ENVELOPE_AAD_V2
+        },
+        payload_offset: HEADER_LEN,
+    })
+}
+
+/// v3 头部：先读档位字节，再按档位解析对应布局。
+fn parse_v3_header(bytes: &[u8]) -> Result<ContainerHeader<'_>, ConfigTransferError> {
+    if bytes.len() < V3_CONVENIENT_HEADER_LEN {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "文件头或载荷不完整",
+        });
+    }
+    match bytes[MODE_OFFSET] {
+        MODE_CONVENIENT => {
+            let payload_len = u32::from_be_bytes(
+                bytes[V3_CONVENIENT_LENGTH_OFFSET..V3_CONVENIENT_HEADER_LEN]
+                    .try_into()
+                    .expect("fixed length field"),
+            ) as usize;
+            verify_payload_len(bytes, V3_CONVENIENT_HEADER_LEN, payload_len)?;
+            Ok(ContainerHeader {
+                version: FORMAT_VERSION_V3,
+                mode: TransferMode::Convenient,
+                transfer_key: Some(&bytes[V3_CONVENIENT_KEY_OFFSET..V3_CONVENIENT_LENGTH_OFFSET]),
+                password_params: None,
+                aad: ENVELOPE_AAD_V3_CONVENIENT,
+                payload_offset: V3_CONVENIENT_HEADER_LEN,
+            })
+        }
+        MODE_PASSWORD => {
+            if bytes.len() < V3_PASSWORD_HEADER_LEN {
+                return Err(ConfigTransferError::InvalidFormat {
+                    reason: "文件头或载荷不完整",
+                });
+            }
+            let algorithm = u32::from_be_bytes(
+                bytes[KDF_ALGORITHM_OFFSET..KDF_MEMORY_OFFSET]
+                    .try_into()
+                    .expect("fixed algorithm field"),
+            );
+            let memory_kib = u32::from_be_bytes(
+                bytes[KDF_MEMORY_OFFSET..KDF_TIME_OFFSET]
+                    .try_into()
+                    .expect("fixed memory field"),
+            );
+            let time_cost = u32::from_be_bytes(
+                bytes[KDF_TIME_OFFSET..KDF_PARALLELISM_OFFSET]
+                    .try_into()
+                    .expect("fixed time field"),
+            );
+            let parallelism = u32::from_be_bytes(
+                bytes[KDF_PARALLELISM_OFFSET..KDF_SALT_OFFSET]
+                    .try_into()
+                    .expect("fixed parallelism field"),
+            );
+            let salt: [u8; KDF_SALT_LEN] = bytes[KDF_SALT_OFFSET..CIPHER_NONCE_OFFSET]
+                .try_into()
+                .expect("fixed salt field");
+            let nonce: [u8; CIPHER_NONCE_LEN] = bytes
+                [CIPHER_NONCE_OFFSET..V3_PASSWORD_LENGTH_OFFSET]
+                .try_into()
+                .expect("fixed nonce field");
+            let payload_len = u32::from_be_bytes(
+                bytes[V3_PASSWORD_LENGTH_OFFSET..V3_PASSWORD_HEADER_LEN]
+                    .try_into()
+                    .expect("fixed length field"),
+            ) as usize;
+            verify_payload_len(bytes, V3_PASSWORD_HEADER_LEN, payload_len)?;
+            Ok(ContainerHeader {
+                version: FORMAT_VERSION_V3,
+                mode: TransferMode::Password,
+                transfer_key: None,
+                password_params: Some(PasswordHeaderParams {
+                    algorithm,
+                    memory_kib,
+                    time_cost,
+                    parallelism,
+                    salt,
+                    nonce,
+                }),
+                aad: ENVELOPE_AAD_V3_PASSWORD,
+                payload_offset: V3_PASSWORD_HEADER_LEN,
+            })
+        }
+        _ => Err(ConfigTransferError::InvalidFormat {
+            reason: "未知的容器档位",
+        }),
+    }
+}
+
+/// 校验「头部 + 载荷长度」与总长精确一致，且不超 16 MiB（两档同限）。
+fn verify_payload_len(
+    bytes: &[u8],
+    header_len: usize,
+    payload_len: usize,
+) -> Result<(), ConfigTransferError> {
+    let expected_len = header_len
+        .checked_add(payload_len)
+        .ok_or(ConfigTransferError::TooLarge)?;
+    if expected_len > MAX_EXPORT_SIZE {
+        return Err(ConfigTransferError::TooLarge);
+    }
+    if bytes.len() != expected_len {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "载荷长度不符或存在尾随数据",
+        });
+    }
+    Ok(())
 }
 
 /// 配置迁移编码、认证、凭据转写或文件读写错误。
@@ -132,12 +395,20 @@ pub enum ConfigTransferError {
     Vault(#[from] VaultError),
     #[error("导入配置保存失败：{0}")]
     Save(#[from] super::ConfigError),
+    #[error("备份密码至少需要 8 个字符")]
+    PasswordTooShort,
+    #[error("迁移包受密码保护，请在导入时提供备份密码")]
+    PasswordRequired,
+    #[error("备份密码错误或包已损坏")]
+    PasswordAuthFailed,
+    #[error("备份密码密钥派生失败：{0}")]
+    Kdf(#[source] argon2::Error),
 }
 
 /// 将完整配置（可选携带历史数据）编码为携带一次性迁移密钥的私有认证容器。
 ///
-/// 保留 v2 历史迁移阶段的公开签名；需要携带统计比较组合时使用
-/// [`export_config_with_usage`]。
+/// 保留 v2 历史迁移阶段的公开签名，便捷档默认；需要携带统计比较组合或
+/// 选择密码档时使用 [`export_config_with_options`]。
 pub fn export_config(
     config: &AppConfig,
     source_vault: &Vault,
@@ -146,20 +417,105 @@ pub fn export_config(
     export_config_with_usage(config, source_vault, history, None)
 }
 
-/// 将完整配置、可选历史与使用统计组合编码为私有认证容器。
+/// 将完整配置、可选历史与使用统计组合编码为私有认证容器（便捷档默认）。
 ///
 /// 所有已配置凭据必须能被 `source_vault` 解密，否则整次导出失败。
-/// 始终产 v2 信封容器；历史与比较组合均可选择不携带。
+/// 始终产 v3 信封容器；历史与比较组合均可选择不携带。
+/// 密码档导出使用 [`export_config_with_options`]。
 pub fn export_config_with_usage(
     config: &AppConfig,
     source_vault: &Vault,
     history: Option<&[HistoryExportRow]>,
     usage_comparison_series: Option<&[UsageComparisonSeries]>,
 ) -> Result<Vec<u8>, ConfigTransferError> {
-    let (transfer_vault, transfer_key) = Vault::transient()?;
-    let mut transferable = config.clone();
-    rewrap_credentials(&mut transferable, source_vault, &transfer_vault)?;
+    export_config_with_options(
+        config,
+        source_vault,
+        history,
+        usage_comparison_series,
+        &ExportOptions::Convenient,
+    )
+}
 
+/// 将完整配置、可选历史与使用统计组合按指定档位编码为私有认证容器。
+///
+/// 便捷档产 v3 mode=0 容器（32B 随机迁移密钥随包，语义与 v1/v2 一致）；
+/// 密码档产 v3 mode=1 容器：口令经 Argon2id 派生密钥加密，KDF 参数与信封
+/// nonce 写入头部自描述，派生密钥绝不写入容器任何字节。口令不足 8 个字符
+/// 时确定性拒绝（[`ConfigTransferError::PasswordTooShort`]）。
+pub fn export_config_with_options(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+    usage_comparison_series: Option<&[UsageComparisonSeries]>,
+    options: &ExportOptions,
+) -> Result<Vec<u8>, ConfigTransferError> {
+    match options {
+        ExportOptions::Convenient => {
+            let (transfer_vault, transfer_key) = Vault::transient()?;
+            let serialized = assemble_envelope(
+                config,
+                source_vault,
+                &transfer_vault,
+                history,
+                usage_comparison_series,
+            )?;
+            let sealed = transfer_vault.encrypt(&serialized, ENVELOPE_AAD_V3_CONVENIENT)?;
+            let mut prefix = Vec::with_capacity(V3_CONVENIENT_HEADER_LEN);
+            prefix.extend_from_slice(MAGIC);
+            prefix.extend_from_slice(&FORMAT_VERSION_V3.to_be_bytes());
+            prefix.push(MODE_CONVENIENT);
+            prefix.extend_from_slice(transfer_key.as_slice());
+            append_payload(&prefix, sealed.as_bytes())
+        }
+        ExportOptions::Password { password } => {
+            if password.chars().count() < MIN_PASSWORD_CHARS {
+                return Err(ConfigTransferError::PasswordTooShort);
+            }
+            let salt = crate::vault::random_salt();
+            let derived = derive_transfer_key(
+                password,
+                KDF_ALG_ARGON2ID,
+                ARGON2_DEFAULT_MEMORY_KIB,
+                ARGON2_DEFAULT_TIME_COST,
+                ARGON2_DEFAULT_PARALLELISM,
+                &salt,
+            )?;
+            let transfer_vault = Vault::from_master_key(&derived[..])?;
+            let serialized = assemble_envelope(
+                config,
+                source_vault,
+                &transfer_vault,
+                history,
+                usage_comparison_series,
+            )?;
+            let (nonce, sealed) = transfer_vault
+                .seal_with_random_nonce(serialized.as_bytes(), ENVELOPE_AAD_V3_PASSWORD)?;
+            let mut prefix = Vec::with_capacity(V3_PASSWORD_HEADER_LEN);
+            prefix.extend_from_slice(MAGIC);
+            prefix.extend_from_slice(&FORMAT_VERSION_V3.to_be_bytes());
+            prefix.push(MODE_PASSWORD);
+            prefix.extend_from_slice(&KDF_ALG_ARGON2ID.to_be_bytes());
+            prefix.extend_from_slice(&ARGON2_DEFAULT_MEMORY_KIB.to_be_bytes());
+            prefix.extend_from_slice(&ARGON2_DEFAULT_TIME_COST.to_be_bytes());
+            prefix.extend_from_slice(&ARGON2_DEFAULT_PARALLELISM.to_be_bytes());
+            prefix.extend_from_slice(&salt);
+            prefix.extend_from_slice(&nonce);
+            append_payload(&prefix, &sealed)
+        }
+    }
+}
+
+/// 组装明文信封：凭据全部转写到迁移密钥后序列化为 JSON。
+fn assemble_envelope(
+    config: &AppConfig,
+    source_vault: &Vault,
+    transfer_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+    usage_comparison_series: Option<&[UsageComparisonSeries]>,
+) -> Result<Zeroizing<String>, ConfigTransferError> {
+    let mut transferable = config.clone();
+    rewrap_credentials(&mut transferable, source_vault, transfer_vault)?;
     let envelope = ExportEnvelope {
         config: transferable,
         history: history.map(|rows| rows.to_vec()),
@@ -168,26 +524,66 @@ pub fn export_config_with_usage(
     };
     let serialized =
         Zeroizing::new(serde_json::to_string(&envelope).map_err(ConfigTransferError::Serialize)?);
-    let sealed = transfer_vault.encrypt(&serialized, ENVELOPE_AAD_V2)?;
-    let payload = sealed.as_bytes();
-    let total_len = HEADER_LEN
+    Ok(serialized)
+}
+
+/// 拼装容器字节：`prefix || u32 载荷长度 || 载荷`，超 16 MiB 上限即拒绝。
+fn append_payload(prefix: &[u8], payload: &[u8]) -> Result<Vec<u8>, ConfigTransferError> {
+    let total_len = prefix
+        .len()
         .checked_add(payload.len())
+        .and_then(|len| len.checked_add(4))
         .ok_or(ConfigTransferError::TooLarge)?;
     if total_len > MAX_EXPORT_SIZE {
         return Err(ConfigTransferError::TooLarge);
     }
     let payload_len = u32::try_from(payload.len()).map_err(|_| ConfigTransferError::TooLarge)?;
-
     let mut bytes = Vec::with_capacity(total_len);
-    bytes.extend_from_slice(MAGIC);
-    bytes.extend_from_slice(&FORMAT_VERSION_V2.to_be_bytes());
-    bytes.extend_from_slice(&transfer_key);
+    bytes.extend_from_slice(prefix);
     bytes.extend_from_slice(&payload_len.to_be_bytes());
     bytes.extend_from_slice(payload);
     Ok(bytes)
 }
 
+/// 用头部自描述参数从口令派生 32 字节迁移密钥（Argon2id）。
+///
+/// 算法与参数范围校验先于派生执行：恶意容器头部在此快速失败，不会进入
+/// 高成本的 KDF 计算。
+fn derive_transfer_key(
+    password: &str,
+    algorithm: u32,
+    memory_kib: u32,
+    time_cost: u32,
+    parallelism: u32,
+    salt: &[u8; KDF_SALT_LEN],
+) -> Result<Zeroizing<[u8; TRANSFER_KEY_LEN]>, ConfigTransferError> {
+    if algorithm != KDF_ALG_ARGON2ID {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "未知的密钥派生算法",
+        });
+    }
+    if !(1..=KDF_MAX_MEMORY_KIB).contains(&memory_kib)
+        || !(1..=KDF_MAX_TIME_COST).contains(&time_cost)
+        || !(1..=KDF_MAX_PARALLELISM).contains(&parallelism)
+    {
+        return Err(ConfigTransferError::InvalidFormat {
+            reason: "密钥派生参数超出可接受范围",
+        });
+    }
+    let params = argon2::Params::new(memory_kib, time_cost, parallelism, Some(TRANSFER_KEY_LEN))
+        .map_err(ConfigTransferError::Kdf)?;
+    let argon2 = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    let mut key = Zeroizing::new([0_u8; TRANSFER_KEY_LEN]);
+    argon2
+        .hash_password_into(password.as_bytes(), salt, &mut *key)
+        .map_err(ConfigTransferError::Kdf)?;
+    Ok(key)
+}
+
 /// 解码迁移容器，将其中所有凭据转写到 `target_vault`，并返回可选的历史行。
+///
+/// 保留既有签名：对便捷档容器（v1/v2/v3 mode=0）零参数可用；密码档容器
+/// 请改用 [`import_config_with_options`] 提供备份口令。
 ///
 /// 函数只在完整认证、解析和转写成功后返回结果，不产生部分导入结果；
 /// 历史行的落库合并由调用方决定（`HistoryStore::merge_rows`）。
@@ -195,80 +591,108 @@ pub fn import_config(
     bytes: &[u8],
     target_vault: &Vault,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    if bytes.len() > MAX_EXPORT_SIZE {
-        return Err(ConfigTransferError::TooLarge);
-    }
-    if bytes.len() < HEADER_LEN {
-        return Err(ConfigTransferError::InvalidFormat {
-            reason: "文件头或载荷不完整",
-        });
-    }
-    if &bytes[..MAGIC.len()] != MAGIC {
-        return Err(ConfigTransferError::InvalidFormat {
-            reason: "魔数不匹配",
-        });
-    }
+    import_config_with_options(bytes, target_vault, &ImportOptions::default())
+}
 
-    let version = u16::from_be_bytes(
-        bytes[VERSION_OFFSET..KEY_OFFSET]
-            .try_into()
-            .expect("fixed version field"),
-    );
-    if version != FORMAT_VERSION_V1 && version != FORMAT_VERSION_V2 {
-        return Err(ConfigTransferError::UnsupportedVersion { version });
-    }
-
-    let transfer_key = Zeroizing::new(bytes[KEY_OFFSET..LENGTH_OFFSET].to_vec());
-    let payload_len = u32::from_be_bytes(
-        bytes[LENGTH_OFFSET..HEADER_LEN]
-            .try_into()
-            .expect("fixed length field"),
-    ) as usize;
-    let expected_len = HEADER_LEN
-        .checked_add(payload_len)
-        .ok_or(ConfigTransferError::TooLarge)?;
-    if expected_len > MAX_EXPORT_SIZE {
-        return Err(ConfigTransferError::TooLarge);
-    }
-    if bytes.len() != expected_len {
-        return Err(ConfigTransferError::InvalidFormat {
-            reason: "载荷长度不符或存在尾随数据",
-        });
-    }
-
-    let payload = std::str::from_utf8(&bytes[HEADER_LEN..]).map_err(|_| {
-        ConfigTransferError::InvalidFormat {
-            reason: "加密载荷不是合法 UTF-8",
+/// 解码迁移容器（可携带密码档口令），将所有凭据转写到 `target_vault`。
+///
+/// 密码档容器要求 `options.password`：缺失报
+/// [`ConfigTransferError::PasswordRequired`]；口令错误或载荷被篡改均报
+/// [`ConfigTransferError::PasswordAuthFailed`]（GCM 认证失败无法区分两者，
+/// 文案如实）。便捷档容器忽略口令字段。
+pub fn import_config_with_options(
+    bytes: &[u8],
+    target_vault: &Vault,
+    options: &ImportOptions,
+) -> Result<TransferBundle, ConfigTransferError> {
+    let header = parse_header(bytes)?;
+    let payload = &bytes[header.payload_offset..];
+    let (transfer_vault, serialized) = match header.mode {
+        TransferMode::Convenient => {
+            let transfer_key = header
+                .transfer_key
+                .expect("convenient containers carry an in-package transfer key");
+            let vault = Vault::from_master_key(transfer_key)?;
+            let payload_str =
+                std::str::from_utf8(payload).map_err(|_| ConfigTransferError::InvalidFormat {
+                    reason: "加密载荷不是合法 UTF-8",
+                })?;
+            let plain = vault.decrypt(payload_str, header.aad)?;
+            (vault, Zeroizing::new(plain.into_bytes()))
         }
-    })?;
-    let transfer_vault = Vault::from_master_key(&transfer_key)?;
-    let serialized = Zeroizing::new(transfer_vault.decrypt(payload, envelope_aad(version))?);
-    // v1 明文是裸 AppConfig，v2 起是带可选历史/比较组合的信封。
-    let bundle = if version == FORMAT_VERSION_V1 {
+        TransferMode::Password => {
+            let params = header
+                .password_params
+                .as_ref()
+                .expect("password containers carry KDF parameters");
+            let password = options
+                .password
+                .as_deref()
+                .ok_or(ConfigTransferError::PasswordRequired)?;
+            let derived = derive_transfer_key(
+                password,
+                params.algorithm,
+                params.memory_kib,
+                params.time_cost,
+                params.parallelism,
+                &params.salt,
+            )?;
+            let vault = Vault::from_master_key(&derived[..])?;
+            let plain = vault
+                .open_with_nonce(payload, header.aad, &params.nonce)
+                .map_err(|_| ConfigTransferError::PasswordAuthFailed)?;
+            (vault, plain)
+        }
+    };
+    decode_envelope(header.version, &transfer_vault, &serialized, target_vault)
+}
+
+/// 解析明文信封并把全部凭据转写到目标保险库。
+/// v1 明文是裸 AppConfig，v2 起是带可选历史/比较组合的信封。
+fn decode_envelope(
+    version: u16,
+    transfer_vault: &Vault,
+    serialized: &[u8],
+    target_vault: &Vault,
+) -> Result<TransferBundle, ConfigTransferError> {
+    if version == FORMAT_VERSION_V1 {
         let mut config: AppConfig =
-            serde_json::from_str(&serialized).map_err(ConfigTransferError::Parse)?;
-        rewrap_credentials(&mut config, &transfer_vault, target_vault)?;
-        TransferBundle {
+            serde_json::from_slice(serialized).map_err(ConfigTransferError::Parse)?;
+        rewrap_credentials(&mut config, transfer_vault, target_vault)?;
+        return Ok(TransferBundle {
             config,
             history: None,
             usage_comparison_series: None,
-        }
-    } else {
-        let mut envelope: ExportEnvelope =
-            serde_json::from_str(&serialized).map_err(ConfigTransferError::Parse)?;
-        rewrap_credentials(&mut envelope.config, &transfer_vault, target_vault)?;
-        TransferBundle {
-            config: envelope.config,
-            history: envelope.history,
-            usage_comparison_series: envelope
-                .usage_comparison_series
-                .map(sanitize_usage_comparison_series),
-        }
-    };
-    Ok(bundle)
+        });
+    }
+    let mut envelope: ExportEnvelope =
+        serde_json::from_slice(serialized).map_err(ConfigTransferError::Parse)?;
+    rewrap_credentials(&mut envelope.config, transfer_vault, target_vault)?;
+    Ok(TransferBundle {
+        config: envelope.config,
+        history: envelope.history,
+        usage_comparison_series: envelope
+            .usage_comparison_series
+            .map(sanitize_usage_comparison_series),
+    })
 }
 
-/// 原子写出迁移包（可选携带历史）；失败时清理同目录临时文件。
+/// 只读识别迁移容器头部，返回容器版本与档位。
+///
+/// 不解密、不验证密码：密码档容器即使载荷已损坏也能识别，供 GUI 导入
+/// 模态的文件信息卡在用户输入口令前展示。结构非法或版本未知时按导入
+/// 同口径报错。
+pub fn inspect_transfer_container(
+    bytes: &[u8],
+) -> Result<TransferContainerInfo, ConfigTransferError> {
+    let header = parse_header(bytes)?;
+    Ok(TransferContainerInfo {
+        version: header.version,
+        mode: header.mode,
+    })
+}
+
+/// 原子写出迁移包（可选携带历史，便捷档默认）；失败时清理同目录临时文件。
 pub fn export_config_to_path(
     config: &AppConfig,
     source_vault: &Vault,
@@ -278,7 +702,7 @@ pub fn export_config_to_path(
     export_config_to_path_with_usage(config, source_vault, history, None, export_path)
 }
 
-/// 原子写出携带可选统计比较组合的迁移包。
+/// 原子写出携带可选统计比较组合的迁移包（便捷档默认）。
 pub fn export_config_to_path_with_usage(
     config: &AppConfig,
     source_vault: &Vault,
@@ -286,26 +710,77 @@ pub fn export_config_to_path_with_usage(
     usage_comparison_series: Option<&[UsageComparisonSeries]>,
     export_path: &Path,
 ) -> Result<(), ConfigTransferError> {
-    let bytes = export_config_with_usage(config, source_vault, history, usage_comparison_series)?;
+    export_config_to_path_with_options(
+        config,
+        source_vault,
+        history,
+        usage_comparison_series,
+        &ExportOptions::Convenient,
+        export_path,
+    )
+}
+
+/// 原子写出按指定档位编码的迁移包；密码档口令不足 8 个字符时确定性拒绝。
+pub fn export_config_to_path_with_options(
+    config: &AppConfig,
+    source_vault: &Vault,
+    history: Option<&[HistoryExportRow]>,
+    usage_comparison_series: Option<&[UsageComparisonSeries]>,
+    options: &ExportOptions,
+    export_path: &Path,
+) -> Result<(), ConfigTransferError> {
+    let bytes = export_config_with_options(
+        config,
+        source_vault,
+        history,
+        usage_comparison_series,
+        options,
+    )?;
     atomic_write(export_path, &bytes).map_err(ConfigTransferError::Write)
 }
 
-/// 从文件读取迁移包并返回已转写到目标保险库的配置与可选历史。
+/// 从文件读取迁移包并返回已转写到目标保险库的配置与可选历史
+/// （便捷档默认；密码档包请改用 [`import_config_from_path_with_options`]）。
 pub fn import_config_from_path(
     export_path: &Path,
     target_vault: &Vault,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    let bytes = std::fs::read(export_path).map_err(ConfigTransferError::Read)?;
-    import_config(&bytes, target_vault)
+    import_config_from_path_with_options(export_path, target_vault, &ImportOptions::default())
 }
 
-/// 完整导入迁移包后，原子替换目标配置文件并返回解码结果（含待合并历史）。
+/// 从文件读取迁移包（可携带密码档口令）并返回已转写的配置与可选历史。
+pub fn import_config_from_path_with_options(
+    export_path: &Path,
+    target_vault: &Vault,
+    options: &ImportOptions,
+) -> Result<TransferBundle, ConfigTransferError> {
+    let bytes = std::fs::read(export_path).map_err(ConfigTransferError::Read)?;
+    import_config_with_options(&bytes, target_vault, options)
+}
+
+/// 完整导入迁移包后，原子替换目标配置文件并返回解码结果（含待合并历史）；
+/// 便捷档默认，密码档包请改用 [`import_config_to_path_with_options`]。
 pub fn import_config_to_path(
     export_path: &Path,
     target_vault: &Vault,
     config_path: &Path,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    let bundle = import_config_from_path(export_path, target_vault)?;
+    import_config_to_path_with_options(
+        export_path,
+        target_vault,
+        &ImportOptions::default(),
+        config_path,
+    )
+}
+
+/// 完整导入迁移包（可携带密码档口令）后，原子替换目标配置文件。
+pub fn import_config_to_path_with_options(
+    export_path: &Path,
+    target_vault: &Vault,
+    options: &ImportOptions,
+    config_path: &Path,
+) -> Result<TransferBundle, ConfigTransferError> {
+    let bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
     bundle.config.save(config_path)?;
     Ok(bundle)
 }
@@ -498,8 +973,8 @@ mod tests {
 
         assert_ne!(first, second);
         assert_ne!(
-            &first[KEY_OFFSET..LENGTH_OFFSET],
-            &second[KEY_OFFSET..LENGTH_OFFSET],
+            &first[V3_CONVENIENT_KEY_OFFSET..V3_CONVENIENT_LENGTH_OFFSET],
+            &second[V3_CONVENIENT_KEY_OFFSET..V3_CONVENIENT_LENGTH_OFFSET],
             "每次导出必须换迁移密钥"
         );
         for plain in [
@@ -560,13 +1035,15 @@ mod tests {
         assert!(import_config(&bad_magic, &target_vault).is_err());
 
         let mut bad_version = valid.clone();
-        bad_version[VERSION_OFFSET..KEY_OFFSET].copy_from_slice(&3_u16.to_be_bytes());
+        // v3 起合法最高版本为 3，篡改目标前移到未来版本 4（改 3 已是恒等操作）。
+        bad_version[VERSION_OFFSET..KEY_OFFSET].copy_from_slice(&4_u16.to_be_bytes());
         assert!(import_config(&bad_version, &target_vault).is_err());
 
         assert!(import_config(&valid[..20], &target_vault).is_err());
 
         let mut bad_length = valid.clone();
-        bad_length[LENGTH_OFFSET..HEADER_LEN].copy_from_slice(&u32::MAX.to_be_bytes());
+        bad_length[V3_CONVENIENT_LENGTH_OFFSET..V3_CONVENIENT_HEADER_LEN]
+            .copy_from_slice(&u32::MAX.to_be_bytes());
         assert!(import_config(&bad_length, &target_vault).is_err());
 
         let mut trailing = valid.clone();
@@ -859,5 +1336,563 @@ mod tests {
             export_config(&config, &source_vault, Some(&rows)),
             Err(ConfigTransferError::TooLarge)
         ));
+    }
+
+    // ---- 迁移容器 v3：密码档导出与 inspect 识别（工单 #120）----
+
+    const V3_PASSWORD: &str = "correct-horse-battery-staple";
+
+    /// 手工构造 v2 容器（信封载荷），锁定对 v2 布局与 AAD 的兼容。
+    fn package_v2_with_payload(transfer_key: &[u8], payload: &str) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(HEADER_LEN + payload.len());
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&FORMAT_VERSION_V2.to_be_bytes());
+        bytes.extend_from_slice(transfer_key);
+        bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(payload.as_bytes());
+        bytes
+    }
+
+    /// 手工构造 v3 便捷档容器（mode 字节 + 随包密钥 + v3 便捷 AAD 载荷）。
+    fn package_v3_convenient_with_payload(transfer_key: &[u8], payload: &str) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(V3_CONVENIENT_HEADER_LEN + payload.len());
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&FORMAT_VERSION_V3.to_be_bytes());
+        bytes.push(MODE_CONVENIENT);
+        bytes.extend_from_slice(transfer_key);
+        bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(payload.as_bytes());
+        bytes
+    }
+
+    /// 手工构造 v3 密码档容器（自描述 KDF 头部 + nonce + 任意载荷），
+    /// 供 AAD/参数校验与 inspect 契约测试。
+    #[allow(clippy::too_many_arguments)]
+    fn package_v3_password_with_payload(
+        algorithm: u32,
+        memory_kib: u32,
+        time_cost: u32,
+        parallelism: u32,
+        salt: &[u8; KDF_SALT_LEN],
+        nonce: &[u8; CIPHER_NONCE_LEN],
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(V3_PASSWORD_HEADER_LEN + payload.len());
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&FORMAT_VERSION_V3.to_be_bytes());
+        bytes.push(MODE_PASSWORD);
+        bytes.extend_from_slice(&algorithm.to_be_bytes());
+        bytes.extend_from_slice(&memory_kib.to_be_bytes());
+        bytes.extend_from_slice(&time_cost.to_be_bytes());
+        bytes.extend_from_slice(&parallelism.to_be_bytes());
+        bytes.extend_from_slice(salt);
+        bytes.extend_from_slice(nonce);
+        bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    #[test]
+    fn password_export_import_roundtrip_hides_derived_key() {
+        let source_store = InMemoryStore::new();
+        let target_store = InMemoryStore::new();
+        let source_vault = Vault::open(&source_store).unwrap();
+        let target_vault = Vault::open(&target_store).unwrap();
+        let source_key_before = source_store.get().unwrap().unwrap();
+        let target_key_before = target_store.get().unwrap().unwrap();
+        let mut config = sample_config(&source_vault);
+        // 双凭据槽：第二槽必须在同一次导出中一并转写。
+        config.providers[0]
+            .set_api_key2(&source_vault, "user-id-1024")
+            .unwrap();
+        let history = sample_history();
+        let comparison = vec![UsageComparisonSeries {
+            provider_id: "native-a".into(),
+            window_key: "five_hour".into(),
+            color_slot: 1,
+        }];
+
+        let bytes = export_config_with_options(
+            &config,
+            &source_vault,
+            Some(&history),
+            Some(&comparison),
+            &ExportOptions::Password {
+                password: V3_PASSWORD.into(),
+            },
+        )
+        .unwrap();
+
+        // 头部自描述：不解密即可识别为 v3 密码档。
+        let info = inspect_transfer_container(&bytes).unwrap();
+        assert_eq!(info.version, FORMAT_VERSION_V3);
+        assert_eq!(info.mode, TransferMode::Password);
+
+        // 攻击者视角：知道口令、能读头部全部 KDF 参数，独立派生出的密钥
+        // 也不得出现在容器任何字节。
+        let salt: [u8; KDF_SALT_LEN] = bytes[KDF_SALT_OFFSET..CIPHER_NONCE_OFFSET]
+            .try_into()
+            .unwrap();
+        let memory_kib = u32::from_be_bytes(
+            bytes[KDF_MEMORY_OFFSET..KDF_TIME_OFFSET]
+                .try_into()
+                .unwrap(),
+        );
+        let time_cost = u32::from_be_bytes(
+            bytes[KDF_TIME_OFFSET..KDF_PARALLELISM_OFFSET]
+                .try_into()
+                .unwrap(),
+        );
+        let parallelism = u32::from_be_bytes(
+            bytes[KDF_PARALLELISM_OFFSET..KDF_SALT_OFFSET]
+                .try_into()
+                .unwrap(),
+        );
+        let params = argon2::Params::new(memory_kib, time_cost, parallelism, Some(32)).unwrap();
+        let mut derived = [0u8; 32];
+        argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+            .hash_password_into(V3_PASSWORD.as_bytes(), &salt, &mut derived)
+            .unwrap();
+        assert!(
+            !bytes.windows(32).any(|window| window == derived),
+            "派生密钥不得出现在容器任何字节"
+        );
+        assert!(!bytes.windows(32).any(|window| window == source_key_before));
+        assert!(!bytes.windows(32).any(|window| window == target_key_before));
+        for plain in [
+            V3_PASSWORD,
+            SECRET_A,
+            SECRET_B,
+            "user-id-1024",
+            "敏感显示名称",
+        ] {
+            assert!(
+                !bytes
+                    .windows(plain.len())
+                    .any(|window| window == plain.as_bytes()),
+                "密码档容器泄漏明文：{plain}"
+            );
+        }
+
+        let bundle = import_config_with_options(
+            &bytes,
+            &target_vault,
+            &ImportOptions {
+                password: Some(V3_PASSWORD.into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(bundle.config.providers.len(), 2);
+        assert_eq!(bundle.history, Some(history));
+        assert_eq!(bundle.usage_comparison_series, Some(comparison));
+        let credentials = bundle.config.providers[0]
+            .credentials(&target_vault)
+            .unwrap();
+        assert_eq!(credentials.api_key.as_str(), SECRET_A);
+        assert_eq!(
+            credentials.api_key2.as_ref().unwrap().as_str(),
+            "user-id-1024"
+        );
+        assert_eq!(
+            bundle.config.providers[1]
+                .credentials(&target_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            SECRET_B
+        );
+        assert_eq!(source_store.get().unwrap().unwrap(), source_key_before);
+        assert_eq!(target_store.get().unwrap().unwrap(), target_key_before);
+    }
+
+    #[test]
+    fn password_export_rejects_passwords_shorter_than_8_chars() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config = sample_config(&source_vault);
+
+        let err = export_config_with_options(
+            &config,
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Password {
+                password: "1234567".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigTransferError::PasswordTooShort));
+        assert!(err.to_string().contains("8"), "文案应说明最小长度：{err}");
+
+        // 恰好 8 个字符：长度维度不再拒绝，可完整往返。
+        let bytes = export_config_with_options(
+            &config,
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Password {
+                password: "12345678".into(),
+            },
+        )
+        .unwrap();
+        let bundle = import_config_with_options(
+            &bytes,
+            &Vault::open(&InMemoryStore::new()).unwrap(),
+            &ImportOptions {
+                password: Some("12345678".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(bundle.config.providers.len(), 2);
+    }
+
+    #[test]
+    fn wrong_or_missing_password_fails_deterministically() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let bytes = export_config_with_options(
+            &sample_config(&source_vault),
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Password {
+                password: V3_PASSWORD.into(),
+            },
+        )
+        .unwrap();
+
+        // 未提供密码：确定性引导错误，而非笼统的解析失败。
+        let missing = import_config_with_options(&bytes, &target_vault, &ImportOptions::default())
+            .unwrap_err();
+        assert!(matches!(missing, ConfigTransferError::PasswordRequired));
+
+        // 错误密码：GCM 认证失败无法区分密码错误与包损坏，文案如实。
+        let wrong = import_config_with_options(
+            &bytes,
+            &target_vault,
+            &ImportOptions {
+                password: Some("wrong-password-42".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(wrong, ConfigTransferError::PasswordAuthFailed));
+        assert_eq!(wrong.to_string(), "备份密码错误或包已损坏");
+
+        // 正确密码 + 篡改密文：同一确定性文案（包损坏方向）。
+        let mut tampered = bytes.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 1;
+        let corrupted = import_config_with_options(
+            &tampered,
+            &target_vault,
+            &ImportOptions {
+                password: Some(V3_PASSWORD.into()),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(corrupted, ConfigTransferError::PasswordAuthFailed));
+    }
+
+    #[test]
+    fn inspect_reports_version_and_mode_without_decryption() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let (transfer_vault, transfer_key) = Vault::transient().unwrap();
+
+        // v1 手工包（裸 AppConfig 载荷）。
+        let mut v1_config = sample_config(&source_vault);
+        rewrap_credentials(&mut v1_config, &source_vault, &transfer_vault).unwrap();
+        let v1 = package_v1_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serde_json::to_string(&v1_config).unwrap(), ENVELOPE_AAD_V1)
+                .unwrap(),
+        );
+        // v2 手工包（信封载荷）。
+        let mut v2_config = sample_config(&source_vault);
+        rewrap_credentials(&mut v2_config, &source_vault, &transfer_vault).unwrap();
+        let envelope = ExportEnvelope {
+            config: v2_config,
+            history: None,
+            usage_comparison_series: None,
+        };
+        let v2 = package_v2_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serde_json::to_string(&envelope).unwrap(), ENVELOPE_AAD_V2)
+                .unwrap(),
+        );
+
+        let v1_info = inspect_transfer_container(&v1).unwrap();
+        assert_eq!(
+            (v1_info.version, v1_info.mode),
+            (FORMAT_VERSION_V1, TransferMode::Convenient)
+        );
+        let v2_info = inspect_transfer_container(&v2).unwrap();
+        assert_eq!(
+            (v2_info.version, v2_info.mode),
+            (FORMAT_VERSION_V2, TransferMode::Convenient)
+        );
+
+        let convenient = export_config_with_options(
+            &sample_config(&source_vault),
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Convenient,
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_transfer_container(&convenient).unwrap(),
+            TransferContainerInfo {
+                version: FORMAT_VERSION_V3,
+                mode: TransferMode::Convenient,
+            }
+        );
+
+        let password = export_config_with_options(
+            &sample_config(&source_vault),
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Password {
+                password: V3_PASSWORD.into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_transfer_container(&password).unwrap(),
+            TransferContainerInfo {
+                version: FORMAT_VERSION_V3,
+                mode: TransferMode::Password,
+            }
+        );
+
+        // 密码档载荷损坏不影响 inspect：只读头部，不触碰密码学验证。
+        let mut corrupted = password;
+        let last = corrupted.len() - 1;
+        corrupted[last] ^= 1;
+        assert_eq!(
+            inspect_transfer_container(&corrupted).unwrap().mode,
+            TransferMode::Password
+        );
+
+        // 坏输入：空、截断、未知版本。
+        assert!(inspect_transfer_container(b"").is_err());
+        assert!(inspect_transfer_container(&v1[..20]).is_err());
+        let mut v4 = convenient;
+        v4[VERSION_OFFSET..KEY_OFFSET].copy_from_slice(&4_u16.to_be_bytes());
+        assert!(matches!(
+            inspect_transfer_container(&v4),
+            Err(ConfigTransferError::UnsupportedVersion { version: 4 })
+        ));
+    }
+
+    #[test]
+    fn v1_v2_v3_packages_import_through_one_entry_point() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let (transfer_vault, transfer_key) = Vault::transient().unwrap();
+        let history = sample_history();
+        let comparison = vec![UsageComparisonSeries {
+            provider_id: "native-a".into(),
+            window_key: "five_hour".into(),
+            color_slot: 0,
+        }];
+
+        // v1：裸 AppConfig 载荷。
+        let mut v1_config = sample_config(&source_vault);
+        rewrap_credentials(&mut v1_config, &source_vault, &transfer_vault).unwrap();
+        let v1 = package_v1_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serde_json::to_string(&v1_config).unwrap(), ENVELOPE_AAD_V1)
+                .unwrap(),
+        );
+
+        // v2：信封载荷（携带历史与比较组合）。
+        let mut v2_config = sample_config(&source_vault);
+        rewrap_credentials(&mut v2_config, &source_vault, &transfer_vault).unwrap();
+        let envelope = ExportEnvelope {
+            config: v2_config,
+            history: Some(history.clone()),
+            usage_comparison_series: Some(comparison.clone()),
+        };
+        let v2 = package_v2_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serde_json::to_string(&envelope).unwrap(), ENVELOPE_AAD_V2)
+                .unwrap(),
+        );
+
+        // v3 两档：既有导出入口（便捷档默认）与密码档。
+        let v3_convenient = export_config_with_usage(
+            &sample_config(&source_vault),
+            &source_vault,
+            Some(&history),
+            Some(&comparison),
+        )
+        .unwrap();
+        let v3_password = export_config_with_options(
+            &sample_config(&source_vault),
+            &source_vault,
+            Some(&history),
+            Some(&comparison),
+            &ExportOptions::Password {
+                password: V3_PASSWORD.into(),
+            },
+        )
+        .unwrap();
+
+        // 四代包同走新导入入口；便捷系无需密码。
+        let no_password = ImportOptions::default();
+        let from_v1 = import_config_with_options(&v1, &target_vault, &no_password).unwrap();
+        assert_eq!(from_v1.config.providers.len(), 2);
+        assert!(from_v1.history.is_none());
+        assert!(from_v1.usage_comparison_series.is_none());
+        assert_eq!(
+            from_v1.config.providers[0]
+                .credentials(&target_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            SECRET_A
+        );
+
+        let from_v2 = import_config_with_options(&v2, &target_vault, &no_password).unwrap();
+        assert_eq!(from_v2.history, Some(history.clone()));
+        assert_eq!(from_v2.usage_comparison_series, Some(comparison.clone()));
+
+        // 既有无 options 导入入口对 v3 便捷档直接可用（CLI/GUI 零改动验证）。
+        let from_v3c = import_config(&v3_convenient, &target_vault).unwrap();
+        assert_eq!(from_v3c.history, Some(history.clone()));
+        assert_eq!(from_v3c.usage_comparison_series, Some(comparison.clone()));
+        assert_eq!(
+            from_v3c.config.providers[1]
+                .credentials(&target_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            SECRET_B
+        );
+
+        let from_v3p = import_config_with_options(
+            &v3_password,
+            &target_vault,
+            &ImportOptions {
+                password: Some(V3_PASSWORD.into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(from_v3p.history, Some(history));
+        assert_eq!(from_v3p.usage_comparison_series, Some(comparison));
+    }
+
+    #[test]
+    fn v3_convenient_aad_is_scoped_to_version_and_mode() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let (transfer_vault, transfer_key) = Vault::transient().unwrap();
+        let mut config = sample_config(&source_vault);
+        rewrap_credentials(&mut config, &source_vault, &transfer_vault).unwrap();
+        let envelope = ExportEnvelope {
+            config,
+            history: None,
+            usage_comparison_series: None,
+        };
+        let serialized = serde_json::to_string(&envelope).unwrap();
+
+        // v3 便捷档专属 AAD：布局与密钥相同，仅 AAD 正确时可导入。
+        let ok = package_v3_convenient_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serialized, ENVELOPE_AAD_V3_CONVENIENT)
+                .unwrap(),
+        );
+        let imported = import_config(&ok, &target_vault).unwrap();
+        assert_eq!(imported.config.providers.len(), 2);
+
+        // 用 v2 的 AAD 加密同载荷：v3 便捷档头部拒绝（AAD 按版本+档位细分）。
+        let wrong = package_v3_convenient_with_payload(
+            &transfer_key,
+            &transfer_vault
+                .encrypt(&serialized, ENVELOPE_AAD_V2)
+                .unwrap(),
+        );
+        assert!(import_config(&wrong, &target_vault).is_err());
+    }
+
+    #[test]
+    fn password_export_respects_shared_size_cap() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config = sample_config(&source_vault);
+        // 单行约 1 MiB 的 unit 字符串，20 行必然超过 16 MiB 上限（两档同限）。
+        let fat_unit = "x".repeat(1024 * 1024);
+        let rows: Vec<HistoryExportRow> = (0..20)
+            .map(|idx| HistoryExportRow {
+                provider_id: format!("p-{idx}"),
+                window_key: "w0".into(),
+                sampled_at: idx,
+                used: None,
+                remaining: None,
+                total: None,
+                unit: Some(fat_unit.clone()),
+            })
+            .collect();
+        assert!(matches!(
+            export_config_with_options(
+                &config,
+                &source_vault,
+                Some(&rows),
+                None,
+                &ExportOptions::Password {
+                    password: V3_PASSWORD.into(),
+                },
+            ),
+            Err(ConfigTransferError::TooLarge)
+        ));
+    }
+
+    #[test]
+    fn hostile_kdf_params_are_rejected_before_derivation() {
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let salt = [0_u8; KDF_SALT_LEN];
+        let nonce = [0_u8; CIPHER_NONCE_LEN];
+        let with_password = || ImportOptions {
+            password: Some(V3_PASSWORD.into()),
+        };
+
+        // 未知 KDF 算法：报格式错误，而不是按未知算法派生。
+        let unknown_alg = package_v3_password_with_payload(
+            99,
+            ARGON2_DEFAULT_MEMORY_KIB,
+            ARGON2_DEFAULT_TIME_COST,
+            ARGON2_DEFAULT_PARALLELISM,
+            &salt,
+            &nonce,
+            b"payload",
+        );
+        assert!(matches!(
+            import_config_with_options(&unknown_alg, &target_vault, &with_password()),
+            Err(ConfigTransferError::InvalidFormat { .. })
+        ));
+
+        // 巨额内存参数：必须在参数校验层快速拒绝（防 KDF DoS），不得进入派生。
+        let hostile_memory = package_v3_password_with_payload(
+            KDF_ALG_ARGON2ID,
+            u32::MAX,
+            ARGON2_DEFAULT_TIME_COST,
+            ARGON2_DEFAULT_PARALLELISM,
+            &salt,
+            &nonce,
+            b"payload",
+        );
+        let start = std::time::Instant::now();
+        assert!(matches!(
+            import_config_with_options(&hostile_memory, &target_vault, &with_password()),
+            Err(ConfigTransferError::InvalidFormat { .. })
+        ));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "巨额 KDF 参数必须在派生前拒绝"
+        );
     }
 }
