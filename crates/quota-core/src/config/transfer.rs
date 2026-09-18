@@ -16,6 +16,13 @@
 //!
 //! 新版本只产 v3；仅支持低版本的旧二进制读到更高版本会拒绝（版本拒绝规则
 //! 延续）。信封 AAD 按版本+档位细分，v1/v2 既有 AAD 保持不变。
+//!
+//! 导入双模（`ImportOptions::strategy`，策略在写入层生效）：合并（默认）
+//! = 不丢本机任何东西——条目按 id 并集（同 id 本机为准）、比较组合按
+//! (provider_id, window_key) 并集（本机为准、超 4 条截断）、历史幂等合并；
+//! 覆盖 = 完全变成备份——配置与比较组合整体替换、历史单事务清空重插
+//! （`HistoryStore::replace_rows`）。既有无 options 的旧导入入口维持
+//! 「整体替换」现状语义（显式按覆盖委托，不受默认合并影响）。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -132,6 +139,37 @@ pub fn sanitize_usage_comparison_series(
     normalized
 }
 
+/// 合并模的比较组合并集：本机组合全保留（保序保色槽），备份仅补本机
+/// 没有的 (provider_id, window_key) 键，整体再经 [`sanitize_usage_comparison_series`]
+/// 修复色槽冲突并维持 4 条上限。
+///
+/// 计数口径：`series_skipped` = 备份中与本机同键（以本机为准）的数量；
+/// `series_added` = 备份中成功并入最终列表的数量；被 4 条上限截断的
+/// 备份键不计入任一计数。
+pub fn merge_usage_comparison_series(
+    local: &[UsageComparisonSeries],
+    incoming: &[UsageComparisonSeries],
+) -> (Vec<UsageComparisonSeries>, ImportCounts) {
+    let local_series = sanitize_usage_comparison_series(local.to_vec());
+    let local_keys: HashSet<(String, String)> = local_series
+        .iter()
+        .map(|item| (item.provider_id.clone(), item.window_key.clone()))
+        .collect();
+    let mut merged = local_series;
+    let mut counts = ImportCounts::default();
+    for item in sanitize_usage_comparison_series(incoming.to_vec()) {
+        let key = (item.provider_id.clone(), item.window_key.clone());
+        if local_keys.contains(&key) {
+            counts.series_skipped += 1;
+        } else if merged.len() < MAX_USAGE_COMPARISON_SERIES {
+            merged.push(item);
+            counts.series_added += 1;
+        }
+        // 已达 4 条上限：剩余备份键被截断，不计入任一计数
+    }
+    (sanitize_usage_comparison_series(merged), counts)
+}
+
 /// 迁移容器的档位。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TransferMode {
@@ -160,11 +198,31 @@ pub enum ExportOptions {
     Password { password: String },
 }
 
+/// 导入策略：在写入层（`import_config_to_path*` 家族）决定备份如何与
+/// 本机数据合并。
+///
+/// 设计哲学：**合并 = 不丢本机任何东西；覆盖 = 完全变成备份**。
+/// 交互与确认由调用端（CLI/GUI）负责，core 不弹交互。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ImportStrategy {
+    /// 合并（默认，保守）：条目按 id 并集、同 id 冲突以本机为准（备份条目
+    /// 跳过，无需凭据转写）；比较组合按 (provider_id, window_key) 并集、
+    /// 冲突本机为准、超 4 条截断；历史幂等合并。
+    #[default]
+    Merge,
+    /// 覆盖：配置与比较组合整体替换；历史单事务清空本机后重插备份行
+    /// （`HistoryStore::replace_rows`）。
+    Overwrite,
+}
+
 /// 导入选项。
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ImportOptions {
     /// 密码档容器的备份口令；便捷档容器忽略此字段。
     pub password: Option<String>,
+    /// 导入策略；缺省（含旧序列化形态与 `Default`）为合并（保守）。
+    #[serde(default)]
+    pub strategy: ImportStrategy,
 }
 
 /// v2 容器的明文信封；可选字段缺省表示旧包未携带。
@@ -185,6 +243,33 @@ pub struct TransferBundle {
     pub history: Option<Vec<HistoryExportRow>>,
     /// GUI/CLI settings.json 中的使用统计比较组合；旧包未携带时为 `None`。
     pub usage_comparison_series: Option<Vec<UsageComparisonSeries>>,
+    /// 按策略应用到本机配置的生效计数；纯解码入口不接触本机状态，恒为零值。
+    pub counts: ImportCounts,
+}
+
+/// 导入按策略应用的生效计数（新增/跳过）。
+///
+/// - 合并模：`*_added` = 备份中新并入本机的数量；`*_skipped` = 备份中因
+///   与本机同 id/同键冲突而以本机为准跳过的数量。
+/// - 覆盖模：整体替换，`*_added` = 生效的备份数量，`*_skipped` = 0
+///   （覆盖无跳过概念）。
+///
+/// 条目维度由写入层入口（[`import_config_to_path_with_options`] 及其
+/// 兼容档）对 config.json 的应用结果填充；比较组合维度仅在覆盖模由写入层
+/// 填充（整体替换、包内即生效量），合并模的组合并集发生在调用端的
+/// settings.json 层，计数由 [`merge_usage_comparison_series`] 返回。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ImportCounts {
+    /// 新增并入（合并）或整体生效（覆盖）的条目数。
+    pub providers_added: usize,
+    /// 合并模因同 id 冲突跳过的备份条目数；覆盖模恒 0。
+    pub providers_skipped: usize,
+    /// 新增并入（合并，由 `merge_usage_comparison_series` 填充）或整体
+    /// 生效（覆盖，写入层填充）的比较组合数。
+    pub series_added: usize,
+    /// 合并模因同键冲突跳过的备份组合数（由 `merge_usage_comparison_series`
+    /// 填充）；覆盖模恒 0。
+    pub series_skipped: usize,
 }
 
 /// 已解析的容器头部（不含任何密码学验证，供 inspect 与导入共用）。
@@ -395,6 +480,10 @@ pub enum ConfigTransferError {
     Vault(#[from] VaultError),
     #[error("导入配置保存失败：{0}")]
     Save(#[from] super::ConfigError),
+    /// 合并模读取本机配置失败（如 JSON 损坏）；不复用 `Save` 的
+    /// `#[from]`（同源类型只能有一个 from 转换），调用点显式 map_err。
+    #[error("导入配置读取失败：{0}")]
+    Load(#[source] super::ConfigError),
     #[error("备份密码至少需要 8 个字符")]
     PasswordTooShort,
     #[error("迁移包受密码保护，请在导入时提供备份密码")]
@@ -591,7 +680,16 @@ pub fn import_config(
     bytes: &[u8],
     target_vault: &Vault,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    import_config_with_options(bytes, target_vault, &ImportOptions::default())
+    // 旧入口维持既有「整体替换」语义：显式传 Overwrite，不受
+    // Default(Merge) 影响。本函数纯解码不落盘，strategy 仅在写入层生效。
+    import_config_with_options(
+        bytes,
+        target_vault,
+        &ImportOptions {
+            password: None,
+            strategy: ImportStrategy::Overwrite,
+        },
+    )
 }
 
 /// 解码迁移容器（可携带密码档口令），将所有凭据转写到 `target_vault`。
@@ -663,6 +761,7 @@ fn decode_envelope(
             config,
             history: None,
             usage_comparison_series: None,
+            counts: ImportCounts::default(),
         });
     }
     let mut envelope: ExportEnvelope =
@@ -674,6 +773,7 @@ fn decode_envelope(
         usage_comparison_series: envelope
             .usage_comparison_series
             .map(sanitize_usage_comparison_series),
+        counts: ImportCounts::default(),
     })
 }
 
@@ -741,11 +841,21 @@ pub fn export_config_to_path_with_options(
 
 /// 从文件读取迁移包并返回已转写到目标保险库的配置与可选历史
 /// （便捷档默认；密码档包请改用 [`import_config_from_path_with_options`]）。
+///
+/// 纯解码入口不落盘；旧入口维持「整体替换」语义（显式传 Overwrite，
+/// strategy 仅在写入层生效）。
 pub fn import_config_from_path(
     export_path: &Path,
     target_vault: &Vault,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    import_config_from_path_with_options(export_path, target_vault, &ImportOptions::default())
+    import_config_from_path_with_options(
+        export_path,
+        target_vault,
+        &ImportOptions {
+            password: None,
+            strategy: ImportStrategy::Overwrite,
+        },
+    )
 }
 
 /// 从文件读取迁移包（可携带密码档口令）并返回已转写的配置与可选历史。
@@ -760,6 +870,9 @@ pub fn import_config_from_path_with_options(
 
 /// 完整导入迁移包后，原子替换目标配置文件并返回解码结果（含待合并历史）；
 /// 便捷档默认，密码档包请改用 [`import_config_to_path_with_options`]。
+///
+/// 旧入口维持既有「整体替换」现状语义：显式传 [`ImportStrategy::Overwrite`]
+/// 委托，不受 `Default`（合并）影响。
 pub fn import_config_to_path(
     export_path: &Path,
     target_vault: &Vault,
@@ -768,21 +881,81 @@ pub fn import_config_to_path(
     import_config_to_path_with_options(
         export_path,
         target_vault,
-        &ImportOptions::default(),
+        &ImportOptions {
+            password: None,
+            strategy: ImportStrategy::Overwrite,
+        },
         config_path,
     )
 }
 
-/// 完整导入迁移包（可携带密码档口令）后，原子替换目标配置文件。
+/// 完整导入迁移包（可携带密码档口令与导入策略）后应用到目标配置文件。
+///
+/// 策略在写入层生效：合并 = 读取本机配置做条目/自定义模型库并集（同 id
+/// 本机为准）后原子保存；覆盖 = 现状整体替换。历史与比较组合不落
+/// config.json：历史由调用端按策略选 `HistoryStore::merge_rows`（合并，
+/// 现状幂等合并）或 `replace_rows`（覆盖，单事务清空重插）；比较组合由
+/// 调用端按策略整体写入 settings.json（覆盖）或经
+/// [`merge_usage_comparison_series`] 并集（合并）。生效计数见返回
+/// bundle 的 `counts` 字段。
 pub fn import_config_to_path_with_options(
     export_path: &Path,
     target_vault: &Vault,
     options: &ImportOptions,
     config_path: &Path,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    let bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
-    bundle.config.save(config_path)?;
+    let mut bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
+    bundle.counts = match options.strategy {
+        ImportStrategy::Merge => {
+            // 本机配置文件缺失视为空配置（首次恢复场景 → 全额并入）。
+            let local = AppConfig::load(config_path).map_err(ConfigTransferError::Load)?;
+            let (merged, counts) = merge_app_config(&local, &bundle.config);
+            merged.save(config_path)?;
+            counts
+        }
+        ImportStrategy::Overwrite => {
+            bundle.config.save(config_path)?;
+            ImportCounts {
+                providers_added: bundle.config.providers.len(),
+                providers_skipped: 0,
+                series_added: bundle.usage_comparison_series.as_ref().map_or(0, Vec::len),
+                series_skipped: 0,
+            }
+        }
+    };
     Ok(bundle)
+}
+
+/// 合并模的配置并集：条目按 id 并集（本机在前保序、备份新条目按序追加；
+/// 同 id 冲突以本机为准、跳过备份条目无需凭据转写——本机密文 AAD 未动，
+/// 新条目在解码层已转写到目标 vault）；自定义模型库按 native 键并集、
+/// 同键同模型 id 以本机定义为准（「不丢本机任何东西」覆盖 custom_models
+/// 维度，条目计数仅覆盖 providers）。
+fn merge_app_config(local: &AppConfig, incoming: &AppConfig) -> (AppConfig, ImportCounts) {
+    let mut merged = local.clone();
+    let mut ids: HashSet<&str> = local
+        .providers
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let mut counts = ImportCounts::default();
+    for entry in &incoming.providers {
+        if ids.insert(entry.id.as_str()) {
+            merged.providers.push(entry.clone());
+            counts.providers_added += 1;
+        } else {
+            counts.providers_skipped += 1;
+        }
+    }
+    for (key, models) in &incoming.custom_models {
+        let slot = merged.custom_models.entry(key.clone()).or_default();
+        for model in models {
+            if !slot.iter().any(|existing| existing.id == model.id) {
+                slot.push(model.clone());
+            }
+        }
+    }
+    (merged, counts)
 }
 
 fn rewrap_credentials(
@@ -1479,6 +1652,7 @@ mod tests {
             &target_vault,
             &ImportOptions {
                 password: Some(V3_PASSWORD.into()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1539,6 +1713,7 @@ mod tests {
             &Vault::open(&InMemoryStore::new()).unwrap(),
             &ImportOptions {
                 password: Some("12345678".into()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1571,6 +1746,7 @@ mod tests {
             &target_vault,
             &ImportOptions {
                 password: Some("wrong-password-42".into()),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -1586,6 +1762,7 @@ mod tests {
             &target_vault,
             &ImportOptions {
                 password: Some(V3_PASSWORD.into()),
+                ..Default::default()
             },
         )
         .unwrap_err();
@@ -1779,6 +1956,7 @@ mod tests {
             &target_vault,
             &ImportOptions {
                 password: Some(V3_PASSWORD.into()),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1858,6 +2036,7 @@ mod tests {
         let nonce = [0_u8; CIPHER_NONCE_LEN];
         let with_password = || ImportOptions {
             password: Some(V3_PASSWORD.into()),
+            ..Default::default()
         };
 
         // 未知 KDF 算法：报格式错误，而不是按未知算法派生。
@@ -1894,5 +2073,433 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(5),
             "巨额 KDF 参数必须在派生前拒绝"
         );
+    }
+
+    // ---- 导入双模：合并并集与覆盖全量替换（工单 #121）----
+
+    /// 构造单条 native 条目配置，供双模测试拼装两台机器的不同条目集。
+    fn single_native_config(vault: &Vault, id: &str, name: &str, secret: &str) -> AppConfig {
+        let mut entry = ProviderEntry {
+            id: id.into(),
+            name: name.into(),
+            kind: ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            use_proxy: false,
+            console_url: None,
+        };
+        entry.set_api_key(vault, secret).unwrap();
+        AppConfig {
+            providers: vec![entry],
+            custom_models: BTreeMap::new(),
+        }
+    }
+
+    /// 契约：既有无 options 导入入口维持「整体替换」现状语义——本机独有
+    /// 条目被清、配置完全变成备份；显式 Overwrite 的带 options 入口同产物。
+    #[test]
+    fn legacy_import_functions_keep_whole_replace_semantics() {
+        let export_path = temp_path("legacy-replace", CONFIG_EXPORT_EXTENSION);
+        let config_path = temp_path("legacy-replace", "json");
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local = single_native_config(&local_vault, "local-only", "本机独有", "sk-local-only");
+        local.save(&config_path).unwrap();
+
+        let backup = sample_config(&source_vault);
+        export_config_to_path(&backup, &source_vault, None, &export_path).unwrap();
+
+        let bundle = import_config_to_path(&export_path, &local_vault, &config_path).unwrap();
+        assert!(
+            !AppConfig::load(&config_path)
+                .unwrap()
+                .providers
+                .iter()
+                .any(|entry| entry.id == "local-only"),
+            "旧入口 = 整体替换：本机独有条目被清，不受 Default(Merge) 影响"
+        );
+        assert_eq!(
+            bundle.counts,
+            ImportCounts {
+                providers_added: 2,
+                providers_skipped: 0,
+                series_added: 0,
+                series_skipped: 0,
+            },
+            "旧入口走覆盖口径计数"
+        );
+
+        // 显式 Overwrite 的带 options 入口与旧入口同为整体替换。
+        local.save(&config_path).unwrap();
+        import_config_to_path_with_options(
+            &export_path,
+            &local_vault,
+            &ImportOptions {
+                strategy: ImportStrategy::Overwrite,
+                ..Default::default()
+            },
+            &config_path,
+        )
+        .unwrap();
+        assert!(
+            !AppConfig::load(&config_path)
+                .unwrap()
+                .providers
+                .iter()
+                .any(|entry| entry.id == "local-only"),
+            "显式 Overwrite 与旧入口产物一致"
+        );
+
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+    }
+
+    /// 契约：合并模——同 id 条目本机为准零覆盖（名称与密文原样保留）、
+    /// 新 id 条目并入且凭据转写成功；自定义模型库按键并集、同 id 本机
+    /// 定义为准；条目计数准确；bundle 本体仍是解码后的备份内容。
+    #[test]
+    fn merge_import_keeps_local_entries_and_adds_new_ones() {
+        let export_path = temp_path("merge-union", CONFIG_EXPORT_EXTENSION);
+        let config_path = temp_path("merge-union", "json");
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local_vault = Vault::open(&InMemoryStore::new()).unwrap();
+
+        // 本机：keep-me（本机名称/密钥/自定义价）。
+        let mut local =
+            single_native_config(&local_vault, "keep-me", "本机名称", "sk-local-secret");
+        local.custom_models.insert(
+            "deepseek".into(),
+            vec![CustomModelDef {
+                id: "flash".into(),
+                display: "本机定义".into(),
+                peak: Some(PriceTier::full(0.1, 1.0, 2.0)),
+                ..Default::default()
+            }],
+        );
+        local.save(&config_path).unwrap();
+        let local_ciphertext = local.providers[0].api_key_enc.clone();
+
+        // 备份（另一台机器）：同 id 不同内容 + 新条目 + 键重叠/新增的自定义价。
+        let mut backup =
+            single_native_config(&source_vault, "keep-me", "备份名称", "sk-backup-secret");
+        let new_entry =
+            single_native_config(&source_vault, "new-entry", "备份新条目", "sk-backup-new");
+        backup
+            .providers
+            .push(new_entry.providers.into_iter().next().unwrap());
+        backup.custom_models.insert(
+            "deepseek".into(),
+            vec![CustomModelDef {
+                id: "flash".into(),
+                display: "备份定义".into(),
+                peak: Some(PriceTier::full(9.9, 9.9, 9.9)),
+                ..Default::default()
+            }],
+        );
+        backup.custom_models.insert(
+            "kimi".into(),
+            vec![CustomModelDef {
+                id: "moon".into(),
+                display: "备份独有".into(),
+                ..Default::default()
+            }],
+        );
+        export_config_to_path(&backup, &source_vault, None, &export_path).unwrap();
+
+        let bundle = import_config_to_path_with_options(
+            &export_path,
+            &local_vault,
+            &ImportOptions {
+                strategy: ImportStrategy::Merge,
+                ..Default::default()
+            },
+            &config_path,
+        )
+        .unwrap();
+
+        let loaded = AppConfig::load(&config_path).unwrap();
+        assert_eq!(loaded.providers.len(), 2, "条目按 id 并集");
+        assert_eq!(loaded.providers[0].id, "keep-me", "本机条目保持在前");
+
+        let kept = &loaded.providers[0];
+        assert_eq!(kept.name, "本机名称", "同 id 冲突以本机为准");
+        assert_eq!(
+            kept.api_key_enc, local_ciphertext,
+            "本机条目零覆盖：密文原样保留（无需转写）"
+        );
+        assert_eq!(
+            kept.credentials(&local_vault).unwrap().api_key.as_str(),
+            "sk-local-secret"
+        );
+
+        let added = loaded
+            .providers
+            .iter()
+            .find(|entry| entry.id == "new-entry")
+            .unwrap();
+        assert_eq!(
+            added.credentials(&local_vault).unwrap().api_key.as_str(),
+            "sk-backup-new",
+            "新条目凭据已转写到本机 vault"
+        );
+
+        // 自定义模型库：同键同 id 本机定义为准，备份新键/新模型并入。
+        let deepseek = loaded.custom_models.get("deepseek").unwrap();
+        assert_eq!(deepseek.len(), 1);
+        assert_eq!(deepseek[0].display, "本机定义");
+        assert!(loaded.custom_models.contains_key("kimi"));
+
+        assert_eq!(
+            bundle.counts,
+            ImportCounts {
+                providers_added: 1,
+                providers_skipped: 1,
+                series_added: 0,
+                series_skipped: 0,
+            },
+            "合并模条目计数准确；组合计数由 merge_usage_comparison_series 返回"
+        );
+        assert_eq!(
+            bundle.config.providers[0].name, "备份名称",
+            "bundle 本体仍是解码后的备份内容，不因策略变形"
+        );
+
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+    }
+
+    /// 契约：合并模对本机不存在的配置文件（首次恢复场景）全额并入。
+    #[test]
+    fn merge_import_without_local_config_adds_whole_package() {
+        let export_path = temp_path("merge-empty", CONFIG_EXPORT_EXTENSION);
+        let config_path = temp_path("merge-empty", "json");
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let backup = sample_config(&source_vault);
+        export_config_to_path(&backup, &source_vault, None, &export_path).unwrap();
+
+        let bundle = import_config_to_path_with_options(
+            &export_path,
+            &local_vault,
+            &ImportOptions {
+                strategy: ImportStrategy::Merge,
+                ..Default::default()
+            },
+            &config_path,
+        )
+        .unwrap();
+
+        let loaded = AppConfig::load(&config_path).unwrap();
+        assert_eq!(loaded.providers.len(), 2);
+        assert_eq!(
+            bundle.counts,
+            ImportCounts {
+                providers_added: 2,
+                providers_skipped: 0,
+                series_added: 0,
+                series_skipped: 0,
+            }
+        );
+        assert_eq!(
+            loaded.providers[0]
+                .credentials(&local_vault)
+                .unwrap()
+                .api_key
+                .as_str(),
+            SECRET_A,
+            "无本机配置时备份条目照常转写"
+        );
+
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+    }
+
+    /// 契约：覆盖模——config 与组合整体替换、全量生效计数（added = 包内
+    /// 数量、skipped 恒 0）。
+    #[test]
+    fn overwrite_import_replaces_config_and_series_wholesale() {
+        let export_path = temp_path("overwrite", CONFIG_EXPORT_EXTENSION);
+        let config_path = temp_path("overwrite", "json");
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local = single_native_config(&local_vault, "local-only", "本机独有", "sk-local-only");
+        local.save(&config_path).unwrap();
+
+        let backup = sample_config(&source_vault);
+        let comparison = vec![
+            UsageComparisonSeries {
+                provider_id: "native-a".into(),
+                window_key: "w1".into(),
+                color_slot: 0,
+            },
+            UsageComparisonSeries {
+                provider_id: "template-b".into(),
+                window_key: "w2".into(),
+                color_slot: 1,
+            },
+        ];
+        export_config_to_path_with_usage(
+            &backup,
+            &source_vault,
+            None,
+            Some(&comparison),
+            &export_path,
+        )
+        .unwrap();
+
+        let bundle = import_config_to_path_with_options(
+            &export_path,
+            &local_vault,
+            &ImportOptions {
+                strategy: ImportStrategy::Overwrite,
+                ..Default::default()
+            },
+            &config_path,
+        )
+        .unwrap();
+
+        let loaded = AppConfig::load(&config_path).unwrap();
+        assert_eq!(
+            loaded.providers.len(),
+            2,
+            "覆盖模整体替换：本机独有条目被清"
+        );
+        assert!(
+            !loaded
+                .providers
+                .iter()
+                .any(|entry| entry.id == "local-only")
+        );
+        assert_eq!(
+            loaded.custom_models, backup.custom_models,
+            "自定义模型库整体替换"
+        );
+        assert_eq!(
+            bundle.usage_comparison_series,
+            Some(comparison),
+            "组合随包整体生效（调用端整体写入 settings）"
+        );
+        assert_eq!(
+            bundle.counts,
+            ImportCounts {
+                providers_added: 2,
+                providers_skipped: 0,
+                series_added: 2,
+                series_skipped: 0,
+            },
+            "覆盖模计数 = 全量生效、无跳过"
+        );
+
+        let _ = fs::remove_file(&export_path);
+        let _ = fs::remove_file(&config_path);
+    }
+
+    /// 契约：比较组合并集——本机全保留（保序保色槽）、备份仅补新键、
+    /// 冲突本机为准计跳过、超 4 条截断不计入任一计数。
+    #[test]
+    fn merge_usage_comparison_series_unions_local_first_and_caps_at_four() {
+        let series = |provider_id: &str, window_key: &str, color_slot: u8| UsageComparisonSeries {
+            provider_id: provider_id.into(),
+            window_key: window_key.into(),
+            color_slot,
+        };
+
+        // 本机 2 + 备份 3（1 键重叠）→ 本机全保留 + 新增 2，恰满 cap 4。
+        let local = vec![series("p1", "w1", 0), series("p1", "w2", 1)];
+        let incoming = vec![
+            series("p1", "w1", 3),
+            series("p2", "w3", 2),
+            series("p3", "w4", 3),
+        ];
+        let (merged, counts) = merge_usage_comparison_series(&local, &incoming);
+        let merged_keys: Vec<(&str, &str)> = merged
+            .iter()
+            .map(|item| (item.provider_id.as_str(), item.window_key.as_str()))
+            .collect();
+        assert_eq!(
+            merged_keys,
+            vec![("p1", "w1"), ("p1", "w2"), ("p2", "w3"), ("p3", "w4")],
+            "本机在前保序，备份新键按序追加"
+        );
+        assert_eq!(merged[0].color_slot, 0, "本机色槽原样保留");
+        assert_eq!(merged[1].color_slot, 1);
+        assert_eq!(
+            counts,
+            ImportCounts {
+                providers_added: 0,
+                providers_skipped: 0,
+                series_added: 2,
+                series_skipped: 1,
+            }
+        );
+
+        // cap 截断：本机 3 + 备份 2（不重叠）→ 只并入第一条，第二条被截断
+        // （不计新增也不计跳过）；备份抢本机色槽时修复到空闲槽。
+        let local = vec![
+            series("a", "w", 0),
+            series("b", "w", 1),
+            series("c", "w", 2),
+        ];
+        let incoming = vec![series("d", "w", 0), series("e", "w", 1)];
+        let (merged, counts) = merge_usage_comparison_series(&local, &incoming);
+        assert_eq!(merged.len(), MAX_USAGE_COMPARISON_SERIES);
+        assert!(merged.iter().any(|item| item.provider_id == "d"));
+        assert!(
+            !merged.iter().any(|item| item.provider_id == "e"),
+            "超出 4 条上限的备份键被截断"
+        );
+        assert_eq!(merged[3].color_slot, 3, "备份冲突色槽修复到空闲槽");
+        assert_eq!(
+            counts,
+            ImportCounts {
+                providers_added: 0,
+                providers_skipped: 0,
+                series_added: 1,
+                series_skipped: 0,
+            }
+        );
+    }
+
+    /// 契约：ImportOptions 默认合并（保守）；T-12 旧序列化形态（无
+    /// strategy 字段）反序列化回退合并；两模 serde roundtrip。
+    #[test]
+    fn import_options_default_strategy_is_merge_and_serde_compatible() {
+        assert_eq!(ImportStrategy::default(), ImportStrategy::Merge);
+        assert_eq!(ImportOptions::default().strategy, ImportStrategy::Merge);
+
+        let legacy: ImportOptions = serde_json::from_str(r#"{"password":"12345678"}"#).unwrap();
+        assert_eq!(legacy.strategy, ImportStrategy::Merge);
+        assert_eq!(legacy.password.as_deref(), Some("12345678"));
+
+        let overwrite: ImportOptions =
+            serde_json::from_str(r#"{"password":null,"strategy":"Overwrite"}"#).unwrap();
+        assert_eq!(overwrite.strategy, ImportStrategy::Overwrite);
+    }
+
+    /// 契约：纯解码入口不接触本机状态，计数恒为零值。
+    #[test]
+    fn decode_only_import_returns_zero_counts() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let bytes = export_config(&sample_config(&source_vault), &source_vault, None).unwrap();
+        let bundle = import_config(&bytes, &Vault::open(&InMemoryStore::new()).unwrap()).unwrap();
+        assert_eq!(bundle.counts, ImportCounts::default());
     }
 }
