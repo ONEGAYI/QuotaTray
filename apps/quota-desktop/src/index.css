@@ -814,6 +814,16 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-transfer-export-body .qt-transfer-intro { margin: 0; }
 .qt-transfer-export-info { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; border-radius: var(--qt-radius-md); background: var(--qt-surface-soft); color: var(--qt-text-soft); font-size: 12px; line-height: 1.55; }
 .qt-transfer-export-info svg { flex: none; margin-top: 1px; color: var(--qt-accent-strong); }
+/* 导入模态（T-17）：文件信息卡 + 策略分段 + 覆盖三重防线（警示复用上方警示卡） */
+.qt-transfer-import-body { display: grid; gap: 12px; }
+.qt-transfer-import-body .qt-transfer-intro { margin: 0; }
+.qt-transfer-import-file { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); background: var(--qt-surface-soft); }
+.qt-transfer-import-file > svg { flex: none; color: var(--qt-success); }
+.qt-transfer-import-file-meta { flex: 1; min-width: 0; }
+.qt-transfer-import-file-meta p { margin: 0; color: var(--qt-text-soft); font-size: 12px; line-height: 1.5; }
+.qt-transfer-import-file-meta .qt-transfer-import-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--qt-text); font-weight: 600; }
+.qt-transfer-import-ack { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--qt-text-soft); line-height: 1.55; }
+.qt-transfer-import-ack input { flex: none; margin-top: 1px; accent-color: var(--qt-danger); }
 .qt-update-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 7px 0 9px; padding: 13px; border-radius: var(--qt-radius-md); background: var(--qt-success-soft); }
 .qt-update-status.has-update { background: var(--qt-accent-soft); }
 .qt-update-status.has-error { background: var(--qt-danger-soft); }

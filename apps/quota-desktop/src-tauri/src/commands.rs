@@ -280,8 +280,74 @@ fn import_configuration_at(
     export_path: &std::path::Path,
     config_path: &std::path::Path,
     vault: &Vault,
+    options: &quota_core::ImportOptions,
 ) -> Result<quota_core::TransferBundle, String> {
-    quota_core::import_config_to_path(export_path, vault, config_path).map_err(|e| e.to_string())
+    quota_core::import_config_to_path_with_options(export_path, vault, options, config_path)
+        .map_err(|e| e.to_string())
+}
+
+/// 只读识别迁移容器头部（不解密、不验证密码），供导入模态的文件信息卡
+/// 在用户输入口令前展示版本与档位；错误透传 core 中文文案。
+fn inspect_transfer_package_at(
+    path: &std::path::Path,
+) -> Result<quota_core::TransferContainerInfo, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    quota_core::inspect_transfer_container(&bytes).map_err(|e| e.to_string())
+}
+
+/// 按导入策略把迁移包携带的历史行写入历史库（IPC 导入接线的策略段）：
+/// 合并 = 幂等合并（不丢本机任何数据；空/缺失载荷不动本机）；覆盖 =
+/// 清空本机后重插备份行（未携带历史的包同样清空——覆盖语义是整库以
+/// 备份为准）。写入失败仅告警（配置已导入成功，历史属尽力而为数据）。
+fn apply_history_import(
+    store: &quota_core::HistoryStore,
+    history: Option<&[quota_core::HistoryExportRow]>,
+    strategy: quota_core::ImportStrategy,
+) {
+    let result = match strategy {
+        quota_core::ImportStrategy::Merge => match history {
+            Some(rows) if !rows.is_empty() => store.merge_rows(rows),
+            _ => return,
+        },
+        quota_core::ImportStrategy::Overwrite => store.replace_rows(history.unwrap_or(&[])),
+    };
+    if let Err(e) = result {
+        eprintln!("导入历史写入失败：{e}");
+    }
+}
+
+/// 导入策略对比较组合的写入决策：Unchanged = 不动本机（合并模导入
+/// 不携带组合的旧包）；Replace = 整体写入给定值（None = 清空）。
+enum SeriesImportDecision {
+    Unchanged,
+    Replace(Option<Vec<quota_core::UsageComparisonSeries>>),
+}
+
+/// 按导入策略计算比较组合的落盘值与 series 维度计数：合并 = 本机与
+/// 备份并集（同键本机为准，见 core `merge_usage_comparison_series`），
+/// 计数由并集结果填充；覆盖 = 备份整体替换（计数已由 core 写入层按
+/// 包内生效量填充，原样保留）。
+fn resolve_imported_series(
+    local: &[quota_core::UsageComparisonSeries],
+    incoming: Option<&[quota_core::UsageComparisonSeries]>,
+    strategy: quota_core::ImportStrategy,
+    counts: &mut quota_core::ImportCounts,
+) -> SeriesImportDecision {
+    match strategy {
+        quota_core::ImportStrategy::Merge => match incoming {
+            Some(incoming) => {
+                let (merged, series_counts) =
+                    quota_core::merge_usage_comparison_series(local, incoming);
+                counts.series_added = series_counts.series_added;
+                counts.series_skipped = series_counts.series_skipped;
+                SeriesImportDecision::Replace(Some(merged))
+            }
+            None => SeriesImportDecision::Unchanged,
+        },
+        quota_core::ImportStrategy::Overwrite => {
+            SeriesImportDecision::Replace(incoming.map(|rows| rows.to_vec()))
+        }
+    }
 }
 
 #[cfg(any(target_os = "android", test))]
@@ -345,33 +411,41 @@ fn export_configuration_to_uri(
     result
 }
 
+/// 经 SAF 读取 content:// 文档的全部字节（迁移导入与容器 inspect 共用）。
+#[cfg(target_os = "android")]
+fn read_android_transfer_document(app: &AppHandle, uri: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use tauri_plugin_fs::FsExt;
+
+    let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
+        Ok(path) => path,
+        Err(never) => match never {},
+    };
+    let mut options = tauri_plugin_fs::OpenOptions::new();
+    options.read(true);
+    let mut source = app
+        .fs()
+        .open(path, options)
+        .map_err(|e| format!("打开 Android 导入文档失败：{e}"))?;
+    let mut bytes = Vec::new();
+    source
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("读取 Android 导入文档失败：{e}"))?;
+    Ok(bytes)
+}
+
 #[cfg(target_os = "android")]
 fn import_configuration_from_uri(
     app: &AppHandle,
     state: &AppState,
     uri: &str,
+    options: &quota_core::ImportOptions,
 ) -> Result<quota_core::TransferBundle, String> {
-    use std::io::Read;
-    use tauri_plugin_fs::FsExt;
-
     let temp = android_transfer_temp(app, "import")?;
     let result = (|| {
-        let path = match uri.parse::<tauri_plugin_fs::FilePath>() {
-            Ok(path) => path,
-            Err(never) => match never {},
-        };
-        let mut options = tauri_plugin_fs::OpenOptions::new();
-        options.read(true);
-        let mut source = app
-            .fs()
-            .open(path, options)
-            .map_err(|e| format!("打开 Android 导入文档失败：{e}"))?;
-        let mut bytes = Vec::new();
-        source
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("读取 Android 导入文档失败：{e}"))?;
+        let bytes = read_android_transfer_document(app, uri)?;
         std::fs::write(&temp, bytes).map_err(|e| format!("写入迁移缓存失败：{e}"))?;
-        import_configuration_at(&temp, &state.paths.config(), &state.vault)
+        import_configuration_at(&temp, &state.paths.config(), &state.vault, options)
     })();
     let _ = std::fs::remove_file(temp);
     result
@@ -426,21 +500,49 @@ pub fn export_configuration(
     )
 }
 
-/// 从迁移包整体替换配置（历史幂等合并），清除旧查询快照并通知所有窗口刷新。
+/// 只读识别迁移包容器（版本 + 档位），不解密、不验证密码：供导入模态
+/// 的文件信息卡在用户输入口令前展示。
+#[tauri::command]
+pub fn inspect_transfer_package(
+    app: AppHandle,
+    path: String,
+) -> Result<quota_core::TransferContainerInfo, String> {
+    #[cfg(target_os = "android")]
+    if is_android_document_uri(&path) {
+        let bytes = read_android_transfer_document(&app, &path)?;
+        return quota_core::inspect_transfer_container(&bytes).map_err(|e| e.to_string());
+    }
+    let _ = app;
+    inspect_transfer_package_at(std::path::Path::new(&path))
+}
+
+/// 导入迁移包并按策略应用到本机，清除旧查询快照并通知所有窗口刷新。
+///
+/// `options` 携带密码档口令与导入策略（合并/覆盖）；缺省维持既有调用方
+/// 的「整体替换」现状语义（覆盖 + 无口令）。策略接线：core 写入层只管
+/// config.json，历史库与 settings.json 的比较组合在此按 strategy 分叉
+/// （合并 = 幂等合并/并集，覆盖 = 整库替换/整体替换）。返回生效计数。
 #[tauri::command]
 pub fn import_configuration(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
-) -> Result<usize, String> {
+    options: Option<quota_core::ImportOptions>,
+) -> Result<quota_core::ImportCounts, String> {
+    // 缺省维持既有「整体替换」现状语义（显式 Overwrite + 无口令）
+    let options = options.unwrap_or(quota_core::ImportOptions {
+        password: None,
+        strategy: quota_core::ImportStrategy::Overwrite,
+    });
     #[cfg(target_os = "android")]
     let bundle = if is_android_document_uri(&path) {
-        import_configuration_from_uri(&app, &state, &path)?
+        import_configuration_from_uri(&app, &state, &path, &options)?
     } else {
         import_configuration_at(
             std::path::Path::new(&path),
             &state.paths.config(),
             &state.vault,
+            &options,
         )?
     };
     #[cfg(not(target_os = "android"))]
@@ -448,16 +550,31 @@ pub fn import_configuration(
         std::path::Path::new(&path),
         &state.paths.config(),
         &state.vault,
+        &options,
     )?;
-    // 迁移包携带的历史行合并进本机历史库（配置已导入成功，失败仅告警）
-    if let Some(rows) = &bundle.history
-        && !rows.is_empty()
-        && let Err(e) = state.history.lock().unwrap().merge_rows(rows)
-    {
-        eprintln!("导入历史合并失败：{e}");
-    }
-    if let Err(e) =
-        persist_usage_comparison_settings(&state, bundle.usage_comparison_series.clone())
+    // 调用端策略接线：历史库与比较组合按 strategy 写入；失败仅告警
+    // （配置已导入成功，两者属尽力而为数据，与既有行为一致）
+    apply_history_import(
+        &state.history.lock().unwrap(),
+        bundle.history.as_deref(),
+        options.strategy,
+    );
+    let local_series = state
+        .settings
+        .read()
+        .unwrap()
+        .usage_comparison_series
+        .clone()
+        .unwrap_or_default();
+    let mut counts = bundle.counts;
+    let series_decision = resolve_imported_series(
+        &local_series,
+        bundle.usage_comparison_series.as_deref(),
+        options.strategy,
+        &mut counts,
+    );
+    if let SeriesImportDecision::Replace(value) = series_decision
+        && let Err(e) = persist_usage_comparison_settings(&state, value)
     {
         eprintln!("导入使用统计比较组合失败（配置已导入）：{e}");
     }
@@ -467,7 +584,7 @@ pub fn import_configuration(
     if let Err(e) = app.emit("configuration-imported", provider_count) {
         eprintln!("配置导入事件发送失败：{e}");
     }
-    Ok(provider_count)
+    Ok(counts)
 }
 
 #[tauri::command]
@@ -2297,6 +2414,15 @@ mod tests {
         dir.join(name)
     }
 
+    /// 既有无 options 导入入口的等价选项：整体替换 + 无口令（旧调用方
+    /// 兼容语义，见 import_configuration 命令的缺省分支）。
+    fn legacy_overwrite_options() -> quota_core::ImportOptions {
+        quota_core::ImportOptions {
+            password: None,
+            strategy: quota_core::ImportStrategy::Overwrite,
+        }
+    }
+
     /// AI 调试契约：返回真实存在的 CLI 绝对路径；开发同目录优先，安装包资源兜底。
     /// 文件名按平台拼接 EXE_SUFFIX（Linux 无后缀），保证跨矩阵确定性。
     #[test]
@@ -2459,7 +2585,13 @@ mod tests {
             &quota_core::ExportOptions::Convenient,
         )
         .unwrap();
-        let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
+        let imported = import_configuration_at(
+            &bundle,
+            &target_path,
+            &target_vault,
+            &legacy_overwrite_options(),
+        )
+        .unwrap();
         assert_eq!(imported.config.providers.len(), 1);
         assert_eq!(imported.usage_comparison_series, Some(comparison));
         assert_eq!(
@@ -2508,7 +2640,13 @@ mod tests {
             &quota_core::ExportOptions::Convenient,
         )
         .unwrap();
-        let imported = import_configuration_at(&bundle, &target_path, &target_vault).unwrap();
+        let imported = import_configuration_at(
+            &bundle,
+            &target_path,
+            &target_vault,
+            &legacy_overwrite_options(),
+        )
+        .unwrap();
         assert_eq!(imported.history.as_deref(), Some(rows.as_slice()));
 
         // 模拟 IPC 层合并：临时历史库 merge 后可查
@@ -2558,9 +2696,15 @@ mod tests {
         export_configuration_at(&source_path, &bundle, &source_vault, None, None, &options)
             .unwrap();
 
-        // 密码档包按便捷档导入：确定性拒绝（导入 options 接线属导入模态
+        // 密码档包不带口令导入：确定性拒绝（导入 options 接线属导入模态
         // 工单，此处经 core options API 验证容器确按密码档编码）
-        let err = import_configuration_at(&bundle, &target_path, &target_vault).unwrap_err();
+        let err = import_configuration_at(
+            &bundle,
+            &target_path,
+            &target_vault,
+            &legacy_overwrite_options(),
+        )
+        .unwrap_err();
         assert_eq!(
             err,
             quota_core::ConfigTransferError::PasswordRequired.to_string()
@@ -2602,8 +2746,351 @@ mod tests {
         existing.save(&config_path).unwrap();
         std::fs::write(&bundle, b"not a transfer package").unwrap();
 
-        assert!(import_configuration_at(&bundle, &config_path, &vault).is_err());
+        assert!(
+            import_configuration_at(&bundle, &config_path, &vault, &legacy_overwrite_options())
+                .is_err()
+        );
         assert_eq!(AppConfig::load(&config_path).unwrap(), existing);
+        let _ = std::fs::remove_dir_all(config_path.parent().unwrap());
+    }
+
+    /// 契约（T-17）：inspect 只读识别三代容器与档位（导入模态文件信息卡
+    /// 的数据源）——v3 两档经真实导出产物识别，v1/v2 经手工头部识别
+    /// （inspect 不解密，头部自足）；坏文件透传 core 中文错误文案。
+    #[test]
+    fn transfer_helpers_inspect_identifies_generations_and_modes() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config_path = transfer_path("inspect", "config.json");
+        AppConfig::default().save(&config_path).unwrap();
+        let convenient = transfer_path("inspect", "convenient.qtray-export");
+        let password = transfer_path("inspect", "password.qtray-export");
+        export_configuration_at(
+            &config_path,
+            &convenient,
+            &vault,
+            None,
+            None,
+            &quota_core::ExportOptions::Convenient,
+        )
+        .unwrap();
+        export_configuration_at(
+            &config_path,
+            &password,
+            &vault,
+            None,
+            None,
+            &quota_core::ExportOptions::Password {
+                password: "12345678".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            inspect_transfer_package_at(&convenient).unwrap(),
+            quota_core::TransferContainerInfo {
+                version: 3,
+                mode: quota_core::TransferMode::Convenient,
+            }
+        );
+        assert_eq!(
+            inspect_transfer_package_at(&password).unwrap(),
+            quota_core::TransferContainerInfo {
+                version: 3,
+                mode: quota_core::TransferMode::Password,
+            }
+        );
+
+        // v1/v2 手工容器（魔数+版本+32B 密钥+载荷长度+载荷）：恒报便捷档
+        let legacy = transfer_path("inspect", "legacy.qtray-export");
+        for version in [1_u16, 2] {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(b"QTRAYCFG");
+            bytes.extend_from_slice(&version.to_be_bytes());
+            bytes.extend_from_slice(&[7_u8; 32]);
+            bytes.extend_from_slice(&8_u32.to_be_bytes());
+            bytes.extend_from_slice(b"payload!");
+            std::fs::write(&legacy, bytes).unwrap();
+            assert_eq!(
+                inspect_transfer_package_at(&legacy).unwrap(),
+                quota_core::TransferContainerInfo {
+                    version,
+                    mode: quota_core::TransferMode::Convenient,
+                }
+            );
+        }
+
+        let bad = transfer_path("inspect", "bad.qtray-export");
+        std::fs::write(&bad, b"not a package").unwrap();
+        assert!(!inspect_transfer_package_at(&bad).unwrap_err().is_empty());
+        assert!(
+            inspect_transfer_package_at(&transfer_path("inspect", "missing.qtray-export")).is_err()
+        );
+        let _ = std::fs::remove_dir_all(config_path.parent().unwrap());
+    }
+
+    /// 契约（T-17）：历史策略接线——合并保留本机行并幂等并入备份行；
+    /// 覆盖清空本机后库 = 备份行（未携带历史的包同样清空：覆盖语义是
+    /// 整库以备份为准）。
+    #[test]
+    fn transfer_helpers_history_strategy_merge_keeps_local_overwrite_replaces() {
+        let local_row = |at: u64| quota_core::HistoryExportRow {
+            provider_id: "local".into(),
+            window_key: "w0".into(),
+            sampled_at: at,
+            used: None,
+            remaining: Some(1.0),
+            total: None,
+            unit: None,
+        };
+        let backup_row = |at: u64| quota_core::HistoryExportRow {
+            provider_id: "backup".into(),
+            window_key: "w0".into(),
+            sampled_at: at,
+            used: None,
+            remaining: Some(2.0),
+            total: None,
+            unit: None,
+        };
+        let backup = vec![backup_row(10), backup_row(20)];
+
+        let store = quota_core::HistoryStore::open_in_memory().unwrap();
+        store.merge_rows(&[local_row(1)]).unwrap();
+        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Merge);
+        assert_eq!(
+            store.range("local", 0).unwrap().len(),
+            1,
+            "合并不清本机历史"
+        );
+        assert_eq!(
+            store.range("backup", 0).unwrap().len(),
+            2,
+            "备份行并入本机库"
+        );
+        // 合并 + 空/缺失载荷：不动本机
+        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Merge);
+        apply_history_import(&store, None, quota_core::ImportStrategy::Merge);
+        assert_eq!(store.export_rows().unwrap().len(), 3);
+
+        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Overwrite);
+        let rows = store.export_rows().unwrap();
+        assert_eq!(rows.len(), 2, "覆盖后库 = 备份内容");
+        assert!(rows.iter().all(|row| row.provider_id == "backup"));
+        apply_history_import(&store, None, quota_core::ImportStrategy::Overwrite);
+        assert_eq!(
+            store.export_rows().unwrap().len(),
+            0,
+            "覆盖导入未携带历史的包同样清空"
+        );
+    }
+
+    /// 契约（T-17）：比较组合策略接线——合并按 (provider_id, window_key)
+    /// 并集（同键本机为准）并填充 series 计数；覆盖整体替换（None = 清空）
+    /// 且不改写 core 写入层已填的计数（包内即生效量）。
+    #[test]
+    fn transfer_helpers_series_strategy_merge_unions_overwrite_replaces() {
+        let series = |provider: &str, slot: u8| quota_core::UsageComparisonSeries {
+            provider_id: provider.into(),
+            window_key: "w0".into(),
+            color_slot: slot,
+        };
+        let local = vec![series("p1", 0)];
+        let incoming = vec![series("p1", 1), series("p2", 2)];
+
+        let mut counts = quota_core::ImportCounts::default();
+        match resolve_imported_series(
+            &local,
+            Some(&incoming),
+            quota_core::ImportStrategy::Merge,
+            &mut counts,
+        ) {
+            SeriesImportDecision::Replace(Some(merged)) => {
+                assert_eq!(merged.len(), 2, "并集去重");
+                assert_eq!(merged[0], series("p1", 0), "同键冲突本机为准");
+            }
+            _ => panic!("合并模应产生写入值"),
+        }
+        assert_eq!((counts.series_added, counts.series_skipped), (1, 1));
+
+        // 合并 + 旧包不携带组合：不动本机、计数为零
+        let mut counts = quota_core::ImportCounts::default();
+        assert!(matches!(
+            resolve_imported_series(&local, None, quota_core::ImportStrategy::Merge, &mut counts),
+            SeriesImportDecision::Unchanged
+        ));
+        assert_eq!((counts.series_added, counts.series_skipped), (0, 0));
+
+        // 覆盖：整体替换（None = 清空）；计数保留调用方已填值
+        let mut counts = quota_core::ImportCounts {
+            providers_added: 2,
+            providers_skipped: 0,
+            series_added: 1,
+            series_skipped: 0,
+        };
+        match resolve_imported_series(
+            &local,
+            Some(&incoming),
+            quota_core::ImportStrategy::Overwrite,
+            &mut counts,
+        ) {
+            SeriesImportDecision::Replace(value) => {
+                assert_eq!(value.as_deref(), Some(incoming.as_slice()));
+            }
+            _ => panic!("覆盖模应整体替换"),
+        }
+        assert_eq!(
+            (counts.series_added, counts.series_skipped),
+            (1, 0),
+            "覆盖模不改写 core 写入层计数"
+        );
+        assert!(matches!(
+            resolve_imported_series(
+                &local,
+                None,
+                quota_core::ImportStrategy::Overwrite,
+                &mut counts
+            ),
+            SeriesImportDecision::Replace(None)
+        ));
+    }
+
+    /// 契约（T-17）：合并/覆盖两模端到端（写入层 options 透传）——合并
+    /// 同 id 本机为准、本机条目保位、备份新条目追加并给出计数；覆盖后
+    /// 配置 = 备份内容。
+    #[test]
+    fn transfer_helpers_import_strategy_end_to_end() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let source_path = transfer_path("strategy", "source.json");
+        let bundle = transfer_path("strategy", "backup.qtray-export");
+        let config_path = transfer_path("strategy-target", "config.json");
+        AppConfig {
+            providers: vec![entry("shared"), entry("fresh")],
+            custom_models: Default::default(),
+        }
+        .save(&source_path)
+        .unwrap();
+        export_configuration_at(
+            &source_path,
+            &bundle,
+            &source_vault,
+            None,
+            None,
+            &quota_core::ExportOptions::Convenient,
+        )
+        .unwrap();
+        // 本机已有同 id 条目 shared 与本机独有条目 kept
+        AppConfig {
+            providers: vec![entry("shared"), entry("kept")],
+            custom_models: Default::default(),
+        }
+        .save(&config_path)
+        .unwrap();
+
+        let merged = import_configuration_at(
+            &bundle,
+            &config_path,
+            &target_vault,
+            &quota_core::ImportOptions {
+                password: None,
+                strategy: quota_core::ImportStrategy::Merge,
+            },
+        )
+        .unwrap();
+        let ids: Vec<String> = AppConfig::load(&config_path)
+            .unwrap()
+            .providers
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(
+            ids,
+            ["shared", "kept", "fresh"],
+            "合并同 id 本机为准、本机条目保位、备份新条目追加"
+        );
+        assert_eq!(
+            (
+                merged.counts.providers_added,
+                merged.counts.providers_skipped
+            ),
+            (1, 1)
+        );
+
+        let replaced = import_configuration_at(
+            &bundle,
+            &config_path,
+            &target_vault,
+            &quota_core::ImportOptions {
+                password: None,
+                strategy: quota_core::ImportStrategy::Overwrite,
+            },
+        )
+        .unwrap();
+        let ids: Vec<String> = AppConfig::load(&config_path)
+            .unwrap()
+            .providers
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(ids, ["shared", "fresh"], "覆盖后配置 = 备份内容");
+        assert_eq!(
+            (
+                replaced.counts.providers_added,
+                replaced.counts.providers_skipped
+            ),
+            (2, 0)
+        );
+        let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(config_path.parent().unwrap());
+    }
+
+    /// 契约（T-17）：密码档包错误口令确定性拒绝（GCM 认证失败文案如实：
+    /// 密码错误或包已损坏）且配置不被写入——错误字符串透传给导入模态
+    /// 就地展示，弹窗不关。
+    #[test]
+    fn transfer_helpers_wrong_password_is_deterministic_and_preserves_config() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let source_path = transfer_path("wrong-password", "source.json");
+        let bundle = transfer_path("wrong-password", "backup.qtray-export");
+        let config_path = transfer_path("wrong-password-target", "config.json");
+        AppConfig {
+            providers: vec![entry("p1")],
+            custom_models: Default::default(),
+        }
+        .save(&source_path)
+        .unwrap();
+        export_configuration_at(
+            &source_path,
+            &bundle,
+            &source_vault,
+            None,
+            None,
+            &quota_core::ExportOptions::Password {
+                password: "12345678".into(),
+            },
+        )
+        .unwrap();
+        let existing = AppConfig {
+            providers: vec![entry("keep")],
+            custom_models: Default::default(),
+        };
+        existing.save(&config_path).unwrap();
+
+        let err = import_configuration_at(
+            &bundle,
+            &config_path,
+            &target_vault,
+            &quota_core::ImportOptions {
+                password: Some("wrong-password".into()),
+                strategy: quota_core::ImportStrategy::Merge,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            quota_core::ConfigTransferError::PasswordAuthFailed.to_string()
+        );
+        assert_eq!(AppConfig::load(&config_path).unwrap(), existing);
+        let _ = std::fs::remove_dir_all(source_path.parent().unwrap());
         let _ = std::fs::remove_dir_all(config_path.parent().unwrap());
     }
 
