@@ -358,6 +358,13 @@ export const en: Record<TextKey, string> = {
   "settings.downloadedPortable": "Update package downloaded to: {path}. Quit QuotaTray, then extract the zip over the portable directory (Data/ is unaffected).",
   "settings.downloadedArchive": "Update package downloaded to: {path}. Quit QuotaTray, then extract the zip over the application directory (user data is unaffected).",
   "settings.openDownloadDir": "Open download folder",
+  "settings.openDataDirTitle": "Data folder",
+  "settings.openDataDirHint": "Open the current data folder (configuration, history, and pricing cache) in the file manager",
+  "settings.openDataDirPortableHint": "Open the portable Data/ folder in the file manager; it holds portable.key alongside encrypted credentials—never share it",
+  "settings.openLogsDirTitle": "Log folder",
+  "settings.openLogsDirHint": "Open the rolling log folder in the file manager (troubleshooting; kept for 7 days)",
+  "settings.openDirButton": "Open",
+  "settings.openDirFailed": "Failed to open the folder: {error}",
 
   // ---- Portable first-run confirmation: body keeps only "why + do-not";
   // the full fixed notice folds into the question-mark click-to-expand

@@ -13,6 +13,7 @@ import {
   ExternalLink,
   FileDown,
   FileUp,
+  FolderOpen,
   PackageCheck,
   SlidersHorizontal,
   Trash2,
@@ -80,6 +81,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
+  /** 目录入口打开失败的就地反馈（成功时资源管理器弹出即反馈，无需文案）。 */
+  const [dirOpenError, setDirOpenError] = useState<string | null>(null);
+  /** 在资源管理器打开数据/日志目录（桌面专属入口，Android 不渲染）。 */
+  const openDir = (which: "data" | "logs") => {
+    setDirOpenError(null);
+    const opening = which === "data" ? api.openDataDir() : api.openLogsDir();
+    opening.catch((e: unknown) => {
+      console.error("打开目录失败", e);
+      setDirOpenError(t("settings.openDirFailed", { error: String(e) }));
+    });
+  };
   const [clearOpen, setClearOpen] = useState(false);
   /** Android：SAF 保存的 APK 位置（content:// URI，会话内存——后端状态表
    * 不记录，离开页面丢失后重下即可）。附带下载时的可用版本快照：
@@ -1009,6 +1021,33 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 }>
                   {transferFeedback.text}
                 </p>
+              )}
+              {!mobile && (
+                <>
+                  <SettingRow
+                    title={t("settings.openDataDirTitle")}
+                    description={t(
+                      portableRun
+                        ? "settings.openDataDirPortableHint"
+                        : "settings.openDataDirHint",
+                    )}
+                  >
+                    <Button onClick={() => openDir("data")}>
+                      <FolderOpen size={15} aria-hidden="true" />
+                      {t("settings.openDirButton")}
+                    </Button>
+                  </SettingRow>
+                  <SettingRow
+                    title={t("settings.openLogsDirTitle")}
+                    description={t("settings.openLogsDirHint")}
+                  >
+                    <Button onClick={() => openDir("logs")}>
+                      <FolderOpen size={15} aria-hidden="true" />
+                      {t("settings.openDirButton")}
+                    </Button>
+                  </SettingRow>
+                  {dirOpenError && <p className="qt-inline-error">{dirOpenError}</p>}
+                </>
               )}
               <SettingRow
                 title={t("settings.clearTitle")}
