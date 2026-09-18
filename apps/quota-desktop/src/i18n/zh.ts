@@ -326,6 +326,13 @@ export const zh = {
   "settings.downloadedPortable": "更新包已下载到：{path}。请退出 QuotaTray 后，将 zip 内容解压覆盖到便携目录（Data/ 数据不受影响）。",
   "settings.downloadedArchive": "更新包已下载到：{path}。请退出 QuotaTray 后，将 zip 内容解压覆盖到程序目录（用户数据不受影响）。",
   "settings.openDownloadDir": "打开下载目录",
+  "settings.openDataDirTitle": "数据目录",
+  "settings.openDataDirHint": "在资源管理器中打开当前数据目录（配置、历史库与定价缓存所在）",
+  "settings.openDataDirPortableHint": "在资源管理器中打开便携 Data/ 目录；其中 portable.key 与凭据密文同目录，整个目录请勿外传",
+  "settings.openLogsDirTitle": "日志目录",
+  "settings.openLogsDirHint": "在资源管理器中打开滚动日志目录（排查问题用，保留 7 天）",
+  "settings.openDirButton": "打开",
+  "settings.openDirFailed": "打开目录失败：{error}",
 
   // ---- 便携首启确认（正文只放「为什么 + 不要做什么」，完整固定
   // 提示收进问号图标点击展开；noticeFull 与 AGENTS.md 固定提示逐字一致） ----

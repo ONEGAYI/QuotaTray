@@ -1614,6 +1614,17 @@ fn ensure_update_check_supported(lang: Lang) -> Result<(), String> {
     }
 }
 
+/// 资源管理器目录入口（数据/日志目录）的桌面门控：Android 无文件
+/// 管理器语义，前端不渲染入口，此处为命令层兜底。结构照抄
+/// [`ensure_desktop_update_commands`]，文案分层（与更新流程无关）。
+fn ensure_desktop_only(lang: Lang) -> Result<(), String> {
+    if desktop_update_commands_supported(std::env::consts::OS) {
+        Ok(())
+    } else {
+        Err(lang.err_mobile_desktop_only())
+    }
+}
+
 #[tauri::command]
 pub fn get_boot_state(app: AppHandle) -> BootStateDto {
     // AppState 已托管 = 启动完成；BootGate.pending 有值 = 待确认
@@ -1795,6 +1806,36 @@ pub fn open_console_url(app: AppHandle, url: String) -> Result<(), String> {
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| format!("打开控制台失败：{e}"))
+}
+
+/// 在资源管理器打开当前运行模式的数据目录（安装版 `~/.quotatray`、
+/// 便携版 exe 旁 `Data/`）。路径源是 [`crate::state::AppState::paths`]
+/// （模式感知，init 时与运行形态一次性绑定），绝不重算派生。目录按需
+/// 补建：桌面启动装配已创建数据根（日志目录滚动装配链路），此处
+/// create_dir_all 兜底装配失败（如日志初始化未遂）与首启竞态，
+/// 与 init_logging 的按需创建同口径；失败时错误信息带真实原因。
+#[tauri::command]
+pub fn open_data_dir(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    ensure_desktop_only(lang_of(&state))?;
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.paths.root().to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败：{e}"))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("打开数据目录失败：{e}"))
+}
+
+/// 在资源管理器打开滚动日志目录（`<数据根>/logs`，JSONL，7 天保留）。
+/// 路径与补建口径同 [`open_data_dir`]。
+#[tauri::command]
+pub fn open_logs_dir(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    ensure_desktop_only(lang_of(&state))?;
+    use tauri_plugin_opener::OpenerExt;
+    let dir = state.paths.logs();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录失败：{e}"))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("打开日志目录失败：{e}"))
 }
 
 /// 控制台 URL 安全校验：仅放行 `http(s)://` 形态（scheme 大小写不敏感，

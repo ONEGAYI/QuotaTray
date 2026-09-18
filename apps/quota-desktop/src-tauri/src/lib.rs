@@ -331,6 +331,8 @@ pub fn run() {
             commands::confirm_portable_init,
             commands::cancel_portable_init,
             commands::open_update_dir,
+            commands::open_data_dir,
+            commands::open_logs_dir,
             commands::open_console_url,
             commands::get_update_state,
             commands::check_update_now,

@@ -23,6 +23,10 @@ export const api = {
   cancelPortableInit: (): Promise<void> => invoke("cancel_portable_init"),
   /** 打开更新下载目录（便携形态手动覆盖引导）。 */
   openUpdateDir: (): Promise<void> => invoke("open_update_dir"),
+  /** 在资源管理器打开当前运行模式的数据目录（桌面专属，Android 端拒绝）。 */
+  openDataDir: (): Promise<void> => invoke("open_data_dir"),
+  /** 在资源管理器打开滚动日志目录（桌面专属，Android 端拒绝）。 */
+  openLogsDir: (): Promise<void> => invoke("open_logs_dir"),
   /** 打开控制台直达 URL（scheme 白名单在 Rust 侧收口，仅 http/https）。 */
   openConsoleUrl: (url: string): Promise<void> => invoke("open_console_url", { url }),
   listProviders: (): Promise<ProviderEntry[]> => invoke("list_providers"),
