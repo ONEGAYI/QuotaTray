@@ -330,6 +330,17 @@ impl HistoryStore {
         Ok(())
     }
 
+    /// 覆盖式整库替换（单事务）：清空本机历史后重插备份行，供迁移包
+    /// 覆盖导入端使用——不物理换库文件。
+    ///
+    /// 包内主键重复时确定性失败并整体回滚（本机历史不被半清空）；与
+    /// [`HistoryStore::merge_rows`] 的 OR REPLACE 容忍口径不同：覆盖模的
+    /// 语义是「库内容 = 备份内容」，对自相矛盾的包宁可拒绝也不静默择一行。
+    pub fn replace_rows(&self, rows: &[HistoryExportRow]) -> Result<(), HistoryError> {
+        // TODO(工单 #121)：清空重插语义待实现（红态桩）。
+        self.merge_rows(rows)
+    }
+
     fn maybe_cleanup(&self, now_ms: u64) {
         if now_ms.saturating_sub(self.last_cleanup_ms.get()) < CLEANUP_INTERVAL_MS {
             return;
@@ -795,5 +806,88 @@ mod tests {
         std::fs::write(&path, b"this is not a sqlite database at all").unwrap();
         assert!(HistoryStore::open(&path).is_err());
         remove_db(&path);
+    }
+
+    // ---- 覆盖导入：单事务清空重插（工单 #121）----
+
+    /// 迁移包覆盖导入用的历史行构造（仅数值列）。
+    fn export_row(
+        provider_id: &str,
+        window_key: &str,
+        sampled_at: u64,
+        used: f64,
+    ) -> HistoryExportRow {
+        HistoryExportRow {
+            provider_id: provider_id.into(),
+            window_key: window_key.into(),
+            sampled_at,
+            used: Some(used),
+            remaining: Some(100.0 - used),
+            total: Some(100.0),
+            unit: Some("USD".into()),
+        }
+    }
+
+    /// 契约：覆盖模历史替换——单事务清空本机后重插，库内容 = 备份内容，
+    /// 本机多余行不存在。
+    #[test]
+    fn replace_rows_swaps_local_history_for_backup_exactly() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        store
+            .record("local-a", &[usage(Some("five_hour"), 1.0)], T0)
+            .unwrap();
+        store
+            .record("local-b", &[usage(Some("weekly"), 2.0)], T0 + 60_000)
+            .unwrap();
+
+        let backup = vec![
+            export_row("backup-a", "five_hour", T0, 10.0),
+            export_row("backup-a", "weekly", T0 + 60_000, 20.0),
+            export_row("local-a", "weekly", T0 + 120_000, 30.0),
+        ];
+        store.replace_rows(&backup).unwrap();
+
+        assert_eq!(store.export_rows().unwrap(), backup, "库内容完全等于备份");
+        assert!(
+            store.range("local-b", 0).unwrap().is_empty(),
+            "本机多余行不存在"
+        );
+        let local_a = store.range("local-a", 0).unwrap();
+        assert_eq!(local_a.len(), 1, "同条目本机旧行也被备份内容取代");
+    }
+
+    /// 契约：replace_rows 单事务性——包内主键重复时确定性失败并整体回滚，
+    /// 本机历史不被半清空；回滚不损库，随后正常替换照常可用。
+    #[test]
+    fn replace_rows_conflicting_package_rolls_back_atomically() {
+        let store = HistoryStore::open_in_memory().unwrap();
+        store
+            .record("local-a", &[usage(Some("five_hour"), 1.0)], T0)
+            .unwrap();
+        store
+            .record("local-b", &[usage(Some("weekly"), 2.0)], T0)
+            .unwrap();
+        let before = store.export_rows().unwrap();
+
+        // 清空后的重插在第二行主键冲突处失败：整库必须回滚。
+        let row = export_row("backup-a", "w0", T0, 10.0);
+        let conflicting = HistoryExportRow {
+            used: Some(99.0),
+            ..row.clone()
+        };
+        assert!(
+            store.replace_rows(&[row, conflicting]).is_err(),
+            "包内主键重复必须确定性失败（不静默择一行）"
+        );
+        assert_eq!(
+            store.export_rows().unwrap(),
+            before,
+            "失败整体回滚，本机历史不被半清空"
+        );
+
+        // 回滚不损库：随后正常替换照常可用。
+        let fixed = vec![export_row("fixed", "w0", T0, 1.0)];
+        store.replace_rows(&fixed).unwrap();
+        assert_eq!(store.export_rows().unwrap(), fixed);
     }
 }
