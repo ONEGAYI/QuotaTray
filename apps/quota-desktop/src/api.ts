@@ -2,6 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   BootStateDto,
+  ExportOptions,
   HistoryPoint,
   NativeMeta,
   ProviderEntry,
@@ -93,9 +94,9 @@ export const api = {
   /** 局部更新设置：后端读现值合并 patch，避免前端缓存全量回写。 */
   patchSettings: (patch: SettingsPatch): Promise<void> =>
     invoke("patch_settings", { patch }),
-  /** 将完整配置导出到系统保存对话框选定的路径。 */
-  exportConfiguration: (path: string): Promise<void> =>
-    invoke("export_configuration", { path }),
+  /** 将完整配置按指定档位导出到系统保存对话框选定的路径（默认便捷档）。 */
+  exportConfiguration: (path: string, options: ExportOptions = "Convenient"): Promise<void> =>
+    invoke("export_configuration", { path, options }),
   /** 从迁移包整体替换配置，返回导入的供应商数量。 */
   importConfiguration: (path: string): Promise<number> =>
     invoke("import_configuration", { path }),

@@ -32,6 +32,10 @@ export interface UsageComparisonSeries {
   color_slot: number;
 }
 
+/** 导出档位选项（与 Rust core `ExportOptions` 一一对应；serde externally
+ *  tagged：便捷档为字符串字面量，密码档为单键对象）。 */
+export type ExportOptions = "Convenient" | { Password: { password: string } };
+
 /** 模板请求定义。 */
 export interface TemplateRequest {
   method?: "GET" | "POST";
