@@ -2572,6 +2572,7 @@ mod tests {
             &target_vault,
             &quota_core::ImportOptions {
                 password: Some("12345678".into()),
+                strategy: Default::default(),
             },
             &target_path,
         )
