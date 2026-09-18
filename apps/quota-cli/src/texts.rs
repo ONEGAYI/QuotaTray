@@ -7,7 +7,7 @@
 
 use crate::lang::Lang;
 use clap::Command;
-use quota_core::WindowKind;
+use quota_core::{ImportCounts, WindowKind};
 
 /// 无参 / 前缀型文案键。exhaustive match 保证每键双语齐全（漏译即编译错误）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,6 +188,14 @@ pub enum T {
     EngineInitFail,
     ConfigFilePrefix,
     ConfigTransferFail,
+    /// config export 交互选档提示语。
+    ExportTierPrompt,
+    /// 密码档第一次密码输入提示。
+    ExportPasswordPrompt,
+    /// 密码档第二次密码输入提示（校验一致）。
+    ExportPasswordConfirm,
+    /// config import 密码档包的密码输入提示。
+    ImportPasswordPrompt,
 
     // ---- 便携模式 ----
     /// 首启固定安全提示（AGENTS.md「Portable 固定安全提示」原文，不得改写）。
@@ -270,6 +278,7 @@ pub enum T {
     HelpConfigImport,
     HelpConfigImportInput,
     HelpConfigImportYes,
+    HelpConfigImportStrategy,
     HelpHistory,
     HelpHistoryShow,
     HelpHistoryShowId,
@@ -556,6 +565,10 @@ fn zh(key: T) -> &'static str {
         T::EngineInitFail => "查询引擎初始化失败：",
         T::ConfigFilePrefix => "配置文件：",
         T::ConfigTransferFail => "配置迁移失败：",
+        T::ExportTierPrompt => "选择迁移包档位（默认密码档）：",
+        T::ExportPasswordPrompt => "设置备份密码（至少 8 个字符，输入不回显）",
+        T::ExportPasswordConfirm => "再次输入同一备份密码",
+        T::ImportPasswordPrompt => "输入备份密码（该迁移包受密码保护）",
 
         T::PortableSecurityNotice => {
             "⚠️ **便携版安全提示**：便携版会将用于解密凭据的主密钥保存在 `Data/portable.key`。\
@@ -650,10 +663,13 @@ fn zh(key: T) -> &'static str {
         T::HelpConfigTransfer => "完整配置跨机器迁移",
         T::HelpConfigExport => "导出完整配置与凭据到私有迁移包",
         T::HelpConfigExportOutput => "迁移包输出路径",
-        T::HelpConfigExportYes => "跳过敏感文件确认",
-        T::HelpConfigImport => "从迁移包整体替换当前配置",
+        T::HelpConfigExportYes => "跳过全部交互（落便捷档导出，脚本行为兼容）",
+        T::HelpConfigImport => "从迁移包导入配置（默认合并，可选覆盖）",
         T::HelpConfigImportInput => "迁移包输入路径",
-        T::HelpConfigImportYes => "跳过整体替换确认",
+        T::HelpConfigImportYes => "跳过风险确认（密码档包仍需输入密码）",
+        T::HelpConfigImportStrategy => {
+            "导入策略：merge 只补缺失、同 id 以本机为准（默认）；overwrite 完全替换本机数据"
+        }
         T::HelpUpdate => "检测 GitHub release 新版本，可选下载安装包",
         T::HelpUpdateCheck => "只检测不下载",
         T::HelpUpdateYes => "跳过下载确认",
@@ -897,6 +913,12 @@ fn en(key: T) -> &'static str {
         T::EngineInitFail => "query engine init failed: ",
         T::ConfigFilePrefix => "config file: ",
         T::ConfigTransferFail => "configuration transfer failed: ",
+        T::ExportTierPrompt => "Select the transfer package tier (password tier by default):",
+        T::ExportPasswordPrompt => {
+            "Set the backup password (8 characters minimum, input is masked)"
+        }
+        T::ExportPasswordConfirm => "Re-enter the same backup password",
+        T::ImportPasswordPrompt => "Enter the backup password (this package is password-protected)",
 
         T::PortableSecurityNotice => {
             "⚠️ Portable security notice: the portable build stores the master key that \
@@ -1013,13 +1035,22 @@ fn en(key: T) -> &'static str {
         T::HelpHistoryClearYes => "Skip confirmation",
         T::HelpConfigTransfer => "Transfer the complete configuration between machines",
         T::HelpConfigExport => {
-            "Export the complete configuration and credentials to a private transfer package"
+            "Export the full configuration and credentials to a private transfer package"
         }
         T::HelpConfigExportOutput => "Transfer package output path",
-        T::HelpConfigExportYes => "Skip the sensitive-file confirmation",
-        T::HelpConfigImport => "Replace the current configuration from a transfer package",
+        T::HelpConfigExportYes => {
+            "Skip all interaction (exports the convenient tier, script-compatible)"
+        }
+        T::HelpConfigImport => {
+            "Import configuration from a transfer package (merge by default, overwrite optional)"
+        }
         T::HelpConfigImportInput => "Transfer package input path",
-        T::HelpConfigImportYes => "Skip the full-replacement confirmation",
+        T::HelpConfigImportYes => {
+            "Skip the risk confirmation (password-protected packages still ask for the password)"
+        }
+        T::HelpConfigImportStrategy => {
+            "Import strategy: merge only fills gaps, same-id conflicts keep local (default); overwrite fully replaces local data"
+        }
         T::HelpUpdate => "Check for a new GitHub release, optionally download the installer",
         T::HelpUpdateCheck => "Check only, do not download",
         T::HelpUpdateYes => "Skip the download confirmation",
@@ -1205,11 +1236,67 @@ pub fn cancelled(lang: Lang) -> &'static str {
     }
 }
 
-/// 配置导出前的高敏感文件确认。
-pub fn config_export_confirm(lang: Lang, path: &std::path::Path) -> String {
+/// config export 交互选档的密码档列表项。
+pub fn export_tier_password_item(lang: Lang) -> &'static str {
     match lang {
+        Lang::En => {
+            "Password tier (recommended) - password-encrypted, the key never ships with the package, safe to store on untrusted clouds"
+        }
+        _ => "密码档（推荐）——口令加密，密钥不随包，可安全存放网盘等不可信位置",
+    }
+}
+
+/// config export 交互选档的便捷档列表项。
+pub fn export_tier_convenient_item(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => {
+            "Convenient tier - a random key ships with the package, zero-friction migration; the package is as sensitive as plaintext credentials"
+        }
+        _ => "便捷档——随机密钥随包，换机零门槛；整个包等同明文凭据",
+    }
+}
+
+/// 密码档输入密码前的知情提示（忘记密码无法恢复）。
+pub fn export_password_notice(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => {
+            "The password is never saved and cannot be recovered if forgotten; it needs at least 8 characters"
+        }
+        _ => "密码不会保存，忘记后无法恢复；密码至少需要 8 个字符",
+    }
+}
+
+/// 密码档两次输入不一致的提示。
+pub fn export_password_mismatch(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "the two passwords do not match, please re-enter both",
+        _ => "两次输入的密码不一致，请重新输入两次",
+    }
+}
+
+/// `--yes` 导出落便捷档时的安全警示（产物等同明文凭据）。
+pub fn export_convenient_notice(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => {
+            "note: --yes exports the convenient tier; the package carries its decryption key and must be protected like plaintext credentials"
+        }
+        _ => "注意：--yes 按脚本兼容口径落便捷档；迁移包自带解密密钥，必须按明文凭据同等保护",
+    }
+}
+
+/// 配置导出前的敏感文件确认（文案按档位分叉）。
+pub fn config_export_confirm(lang: Lang, path: &std::path::Path, password_tier: bool) -> String {
+    match lang {
+        Lang::En if password_tier => format!(
+            "Export to {}? The package is encrypted with your password and carries the query history; without the password nobody can decrypt it",
+            path.display()
+        ),
         Lang::En => format!(
             "Export to {}? The package contains a decryption key and the query history, and must be protected like plaintext credentials",
+            path.display()
+        ),
+        _ if password_tier => format!(
+            "导出到 {}？迁移包由你的密码加密并携带查询历史；没有密码任何人都无法解密",
             path.display()
         ),
         _ => format!(
@@ -1219,15 +1306,23 @@ pub fn config_export_confirm(lang: Lang, path: &std::path::Path) -> String {
     }
 }
 
-/// 配置导入前的整体替换确认。
-pub fn config_import_confirm(lang: Lang, path: &std::path::Path) -> String {
+/// 配置导入前按策略分叉的风险确认。
+pub fn config_import_confirm(lang: Lang, path: &std::path::Path, overwrite: bool) -> String {
     match lang {
+        Lang::En if overwrite => format!(
+            "Import {} with overwrite? This completely replaces all local providers, credentials, pricing, custom models, usage comparison selections, and replaces the local history with the package history",
+            path.display()
+        ),
         Lang::En => format!(
-            "Import {}? This replaces all current providers, credentials, pricing, custom models, and usage comparison selections",
+            "Import {} with merge? Only missing providers and comparison selections are added; same-id conflicts keep the local version, and no local data is lost",
+            path.display()
+        ),
+        _ if overwrite => format!(
+            "导入 {}（覆盖）？将完全替换本机全部供应商、凭据、定价、自定义模型与使用统计比较组合，并以备份历史替换本机历史",
             path.display()
         ),
         _ => format!(
-            "导入 {}？这会整体替换当前所有供应商、凭据、定价、自定义模型与使用统计比较组合",
+            "导入 {}（合并）？仅补缺失的供应商与比较组合，同 id 冲突以本机为准，不丢本机任何数据",
             path.display()
         ),
     }
@@ -1241,14 +1336,48 @@ pub fn config_exported(lang: Lang, path: &std::path::Path) -> String {
     }
 }
 
-/// 配置导入完成提示。
-pub fn config_imported(lang: Lang, path: &std::path::Path, count: usize) -> String {
+/// 配置导入完成提示（带按策略生效的新增/跳过计数反馈）。
+pub fn config_imported(
+    lang: Lang,
+    path: &std::path::Path,
+    overwrite: bool,
+    counts: &quota_core::ImportCounts,
+) -> String {
+    let ImportCounts {
+        providers_added,
+        providers_skipped,
+        series_added,
+        series_skipped,
+    } = counts;
     match lang {
-        Lang::En => format!(
-            "configuration imported from {} ({count} provider(s))",
-            path.display()
+        Lang::En if overwrite => format!(
+            "configuration imported from {} (overwrite: {} provider(s), {} comparison selection(s) in effect)",
+            path.display(),
+            providers_added,
+            series_added
         ),
-        _ => format!("已从 {} 导入配置（{count} 个供应商）", path.display()),
+        Lang::En => format!(
+            "configuration merged from {} (providers: {} added, {} skipped; comparison selections: {} added, {} skipped)",
+            path.display(),
+            providers_added,
+            providers_skipped,
+            series_added,
+            series_skipped
+        ),
+        _ if overwrite => format!(
+            "已从 {} 覆盖导入配置（生效 {} 个供应商、{} 条比较组合）",
+            path.display(),
+            providers_added,
+            series_added
+        ),
+        _ => format!(
+            "已从 {} 合并导入配置（供应商新增 {} 个、跳过 {} 个；比较组合新增 {} 条、跳过 {} 条）",
+            path.display(),
+            providers_added,
+            providers_skipped,
+            series_added,
+            series_skipped
+        ),
     }
 }
 
@@ -1257,6 +1386,14 @@ pub fn history_merged(lang: Lang, count: usize) -> String {
     match lang {
         Lang::En => format!("merged {count} history row(s) into the local history store"),
         _ => format!("已合并 {count} 行历史数据到本机历史库"),
+    }
+}
+
+/// config import 覆盖档历史清空重插的行数提示。
+pub fn history_replaced(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::En => format!("replaced the local history with {count} row(s) from the package"),
+        _ => format!("本机历史已清空并重插备份的 {count} 行"),
     }
 }
 
@@ -1675,6 +1812,7 @@ pub fn apply_help_lang(cmd: Command, lang: Lang) -> Command {
                     c.about(tr(T::HelpConfigImport))
                         .mut_arg("input", |a| a.help(tr(T::HelpConfigImportInput)))
                         .mut_arg("yes", |a| a.help(tr(T::HelpConfigImportYes)))
+                        .mut_arg("strategy", |a| a.help(tr(T::HelpConfigImportStrategy)))
                 })
         })
         .mut_subcommand("pricing", |c| {
