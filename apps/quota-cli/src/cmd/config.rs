@@ -15,8 +15,9 @@ use std::path::PathBuf;
 
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use quota_core::{
-    AppConfig, ExportOptions, HistoryExportRow, HistoryStore, ImportStrategy,
-    export_config_to_path_with_options, import_config_to_path,
+    AppConfig, ExportOptions, HistoryExportRow, HistoryStore, ImportCounts, ImportOptions,
+    ImportStrategy, TransferMode, UsageComparisonSeries, export_config_to_path_with_options,
+    import_config_to_path_with_options, inspect_transfer_container, merge_usage_comparison_series,
 };
 use zeroize::Zeroizing;
 
@@ -89,13 +90,30 @@ fn run_export_with(ctx: &Ctx, output: PathBuf, yes: bool, prompt: &mut dyn Trans
             return 1;
         }
     };
-    // [红骨架] 档位交互已接线但选择值暂不生效：恒落便捷档（现状行为）。
-    let _tier = if yes {
-        None
+    // 档位：--yes 按脚本兼容口径落便捷档（跳过选档、密码与风险确认，
+    // 产物语义与现状等价）；交互模式默认密码档。
+    let options = if yes {
+        ExportOptions::Convenient
     } else {
-        prompt.select_export_tier(ctx.lang)
+        match prompt_export_options(ctx.lang, prompt) {
+            Some(options) => options,
+            None => {
+                println!("{}", texts::cancelled(ctx.lang));
+                return 0;
+            }
+        }
     };
-    let _ = prompt;
+    let password_tier = matches!(options, ExportOptions::Password { .. });
+    if !yes
+        && !prompt.confirm(texts::config_export_confirm(
+            ctx.lang,
+            &output,
+            password_tier,
+        ))
+    {
+        println!("{}", texts::cancelled(ctx.lang));
+        return 0;
+    }
     // 历史随包携带；读失败降级为不带历史（导出主任务继续）。
     let history = read_history_rows(ctx);
     let usage_comparison = match settings_io::load_usage_comparison(&ctx.config_path) {
@@ -113,11 +131,15 @@ fn run_export_with(ctx: &Ctx, output: PathBuf, yes: bool, prompt: &mut dyn Trans
         &vault,
         history.as_deref(),
         usage_comparison.as_deref(),
-        &ExportOptions::Convenient,
+        &options,
         &output,
     ) {
         Ok(()) => {
             println!("{}", texts::config_exported(ctx.lang, &output));
+            // --yes 落便捷档的安全义务：显式告知产物等同明文凭据
+            if yes {
+                eprintln!("{}", texts::export_convenient_notice(ctx.lang));
+            }
             0
         }
         Err(e) => {
@@ -132,6 +154,38 @@ fn run_export_with(ctx: &Ctx, output: PathBuf, yes: bool, prompt: &mut dyn Trans
     }
 }
 
+/// 交互收集导出档位与密码；选档取消或密码输入中止返回 `None`。
+fn prompt_export_options(lang: Lang, prompt: &mut dyn TransferPrompt) -> Option<ExportOptions> {
+    match prompt.select_export_tier(lang)? {
+        0 => {
+            // 知情提示先行：密码不保存、忘记无法恢复
+            eprintln!("{}", texts::export_password_notice(lang));
+            let password = prompt_password_twice(lang, prompt)?;
+            Some(ExportOptions::Password {
+                password: (*password).clone(),
+            })
+        }
+        _ => Some(ExportOptions::Convenient),
+    }
+}
+
+/// 密码档两次掩码输入并校验一致；不一致提示后重新输入两次，
+/// 中止（Ctrl+C 等）由调用方按交互取消处理。
+fn prompt_password_twice(lang: Lang, prompt: &mut dyn TransferPrompt) -> Option<Zeroizing<String>> {
+    loop {
+        let first = prompt
+            .read_password(t(lang, T::ExportPasswordPrompt), lang)
+            .ok()?;
+        let second = prompt
+            .read_password(t(lang, T::ExportPasswordConfirm), lang)
+            .ok()?;
+        if *first == *second {
+            return Some(first);
+        }
+        eprintln!("{}", texts::export_password_mismatch(lang));
+    }
+}
+
 pub fn run_import(ctx: &Ctx, input: PathBuf, yes: bool, strategy: ImportStrategy) -> i32 {
     run_import_with(ctx, input, yes, strategy, &mut TerminalPrompt)
 }
@@ -143,9 +197,8 @@ fn run_import_with(
     strategy: ImportStrategy,
     prompt: &mut dyn TransferPrompt,
 ) -> i32 {
-    // [红骨架] 策略与密码交互暂未生效：维持现状整体替换语义。
-    let _ = (strategy, prompt);
-    if !yes && !confirm(texts::config_import_confirm(ctx.lang, &input, false)) {
+    let overwrite = strategy == ImportStrategy::Overwrite;
+    if !yes && !prompt.confirm(texts::config_import_confirm(ctx.lang, &input, overwrite)) {
         println!("{}", texts::cancelled(ctx.lang));
         return 0;
     }
@@ -156,35 +209,148 @@ fn run_import_with(
             return 1;
         }
     };
-    match import_config_to_path(&input, &vault, &ctx.config_path) {
-        Ok(bundle) => {
-            merge_history(ctx, bundle.history.as_deref());
-            if let Err(e) = settings_io::write_usage_comparison(
-                &ctx.config_path,
-                bundle.usage_comparison_series.as_deref(),
-            ) {
-                eprintln!(
-                    "{}",
-                    texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
-                );
+    // 密码档包无论 --yes 与否都要求输入密码（--yes 只跳过风险确认）。
+    // 密码只经掩码交互读入，不进命令行参数；中止按交互取消处理。
+    let bytes = match std::fs::read(&input) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
+            return 1;
+        }
+    };
+    let password = match inspect_transfer_container(&bytes) {
+        Ok(info) if info.mode == TransferMode::Password => {
+            match prompt.read_password(t(ctx.lang, T::ImportPasswordPrompt), ctx.lang) {
+                Ok(password) => Some((*password).clone()),
+                Err(_) => {
+                    println!("{}", texts::cancelled(ctx.lang));
+                    return 0;
+                }
             }
+        }
+        Ok(_) => None,
+        Err(e) => {
+            eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
+            return 1;
+        }
+    };
+    match import_config_to_path_with_options(
+        &input,
+        &vault,
+        &ImportOptions { password, strategy },
+        &ctx.config_path,
+    ) {
+        Ok(mut bundle) => {
+            // config.json 已按策略落盘；历史与比较组合由调用端按策略接线
+            // （core 写入层只管 config.json，见 transfer.rs 模块文档）。
+            apply_history_by_strategy(ctx, strategy, bundle.history.as_deref());
+            bundle.counts = apply_series_by_strategy(
+                ctx,
+                strategy,
+                bundle.usage_comparison_series.as_deref(),
+                bundle.counts,
+            );
             println!(
                 "{}",
-                texts::config_imported(
-                    ctx.lang,
-                    &input,
-                    false,
-                    &quota_core::ImportCounts {
-                        providers_added: bundle.config.providers.len(),
-                        ..Default::default()
-                    }
-                )
+                texts::config_imported(ctx.lang, &input, overwrite, &bundle.counts)
             );
             0
         }
         Err(e) => {
             eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
             1
+        }
+    }
+}
+
+/// 按策略把迁移包携带的历史行接入本机历史库（配置已导入成功，失败仅告警）。
+///
+/// 合并 = 幂等合并续线；覆盖 = 单事务清空本机后重插备份行（备份携带
+/// 空历史集即清空——「完全变成备份」对空备份同样成立）。备份未携带
+/// 历史字段（`None`，仅 v1 老包；v2/v3 导出恒携带 history 字段）时
+/// 不清空本机——「备份没有这部分数据」不等于「备份断言历史为空」。
+fn apply_history_by_strategy(
+    ctx: &Ctx,
+    strategy: ImportStrategy,
+    rows: Option<&[HistoryExportRow]>,
+) {
+    match strategy {
+        ImportStrategy::Merge => merge_history(ctx, rows),
+        ImportStrategy::Overwrite => {
+            let Some(rows) = rows else { return };
+            let store = match HistoryStore::open(&ctx.history_path()) {
+                Ok(store) => store,
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        texts::history_transfer_degraded(ctx.lang, &e.to_string())
+                    );
+                    return;
+                }
+            };
+            match store.replace_rows(rows) {
+                Ok(()) => println!("{}", texts::history_replaced(ctx.lang, rows.len())),
+                Err(e) => eprintln!(
+                    "{}",
+                    texts::history_transfer_degraded(ctx.lang, &e.to_string())
+                ),
+            }
+        }
+    }
+}
+
+/// 按策略把迁移包携带的比较组合接入 settings.json，返回填好 series
+/// 维度计数的 `counts`（providers 维度已由 core 写入层填充）。
+///
+/// 合并 = 本机组合全保留 + 备份仅补缺（(provider_id, window_key) 并集）；
+/// 覆盖 = 整体替换（备份未携带时删键，与既有覆盖语义一致）。
+/// 本机 settings 读取失败时不做并集写入（无法安全并集，保持不动）。
+fn apply_series_by_strategy(
+    ctx: &Ctx,
+    strategy: ImportStrategy,
+    incoming: Option<&[UsageComparisonSeries]>,
+    mut counts: ImportCounts,
+) -> ImportCounts {
+    match strategy {
+        ImportStrategy::Merge => {
+            let Some(incoming) = incoming else {
+                return counts;
+            };
+            match settings_io::load_usage_comparison(&ctx.config_path) {
+                Ok(local) => {
+                    let local = local.unwrap_or_default();
+                    let (merged, series_counts) = merge_usage_comparison_series(&local, incoming);
+                    counts.series_added = series_counts.series_added;
+                    counts.series_skipped = series_counts.series_skipped;
+                    // 备份组合全部与本机同键（或为空）时本机为准，不动文件
+                    if merged != local
+                        && let Err(e) =
+                            settings_io::write_usage_comparison(&ctx.config_path, Some(&merged))
+                    {
+                        eprintln!(
+                            "{}",
+                            texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
+                        );
+                    }
+                    counts
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
+                    );
+                    counts
+                }
+            }
+        }
+        ImportStrategy::Overwrite => {
+            if let Err(e) = settings_io::write_usage_comparison(&ctx.config_path, incoming) {
+                eprintln!(
+                    "{}",
+                    texts::usage_comparison_transfer_degraded(ctx.lang, &e.to_string())
+                );
+            }
+            counts
         }
     }
 }
@@ -236,14 +402,6 @@ fn merge_history(ctx: &Ctx, rows: Option<&[HistoryExportRow]>) {
             texts::history_transfer_degraded(ctx.lang, &e.to_string())
         ),
     }
-}
-
-fn confirm(prompt: String) -> bool {
-    Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt(prompt)
-        .default(false)
-        .interact()
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -664,7 +822,10 @@ mod tests {
         );
         assert_eq!(prompt.password_calls, 0, "便捷档包不得问密码");
 
-        // 密码档包：不提供密码（桩耗尽）→ 密码必答缺失，确定性失败
+        // 密码档包：给空密码（管道 EOF 场景 read_secret 读到空行的真实
+        // 映射）→ GCM 认证确定性失败，退出码 1 且本机配置不动。
+        // （交互中止 Ctrl+C 是取消语义退出码 0，由 export 侧 abort 测试
+        // 锁定同一原语；--yes「必问」由下方 password_calls 断言锁定。）
         let password_bundle = dir.join("password.qtray-export");
         let mut export_prompt = StubPrompt::new(
             Some(0),
@@ -677,7 +838,7 @@ mod tests {
         );
         let target2 = Ctx::with_store(dir.join("t2.json"), Arc::new(InMemoryStore::new()));
         AppConfig::default().save(&target2.config_path).unwrap();
-        let mut no_password = StubPrompt::new(None, vec![true], vec![]);
+        let mut no_password = StubPrompt::new(None, vec![true], vec![String::new()]);
         assert_eq!(
             run_import_with(
                 &target2,
@@ -688,7 +849,7 @@ mod tests {
             ),
             1
         );
-        assert_eq!(no_password.password_calls, 1);
+        assert_eq!(no_password.password_calls, 1, "--yes 也必须问一次密码");
         assert_eq!(
             AppConfig::load(&target2.config_path).unwrap(),
             AppConfig::default(),
@@ -798,12 +959,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// 契约：覆盖模遇到未携带历史的包（如 v1 老包/源机无历史库）时
-    /// 不清空本机历史（备份「没有这部分数据」≠「断言历史为空」）。
+    /// 契约：覆盖模遇到明确携带空历史的包（源机无历史数据）时清空本机
+    /// 历史——「完全变成备份」对空备份同样成立。
     #[test]
-    fn import_overwrite_bundle_without_history_keeps_local_history() {
-        let dir = test_dir("overwrite-no-history");
-        // 源机无历史库、无组合：导出的包 history=None、series=None
+    fn import_overwrite_empty_history_clears_local() {
+        let dir = test_dir("overwrite-empty-history");
+        // 源机历史库为空（read_history_rows 恒 Some，空库导出空行集）
         let source = source_ctx(&dir);
         let bundle = dir.join("bare.qtray-export");
         assert_eq!(run_export(&source, bundle.clone(), true), 0);
@@ -819,7 +980,27 @@ mod tests {
             .unwrap()
             .range("local-provider", 0)
             .unwrap();
-        assert_eq!(points.len(), 1, "备份未携带历史时本机历史保持不动");
+        assert_eq!(points.len(), 0, "空备份覆盖清空本机历史");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 契约：覆盖模遇到未携带历史字段的包（仅 v1 老包形态；v2/v3 的
+    /// CLI 导出恒携带 history 字段）时不清空本机历史——「备份没有这
+    /// 部分数据」不等于「备份断言历史为空」。函数级直测（构造 v1 包
+    /// 需跨 crate 复刻容器 AAD，成本大于收益，core 侧已锁定 v1 兼容）。
+    #[test]
+    fn overwrite_without_history_rows_keeps_local_history() {
+        let dir = test_dir("overwrite-none-history");
+        let target = target_ctx_with_local_entry(&dir);
+        record_history(&target, "local-provider", 22.0, 1_700_000_000_002);
+
+        apply_history_by_strategy(&target, ImportStrategy::Overwrite, None);
+
+        let points = HistoryStore::open(&target.history_path())
+            .unwrap()
+            .range("local-provider", 0)
+            .unwrap();
+        assert_eq!(points.len(), 1, "None（v1 老包）不清空本机历史");
         let _ = std::fs::remove_dir_all(dir);
     }
 
