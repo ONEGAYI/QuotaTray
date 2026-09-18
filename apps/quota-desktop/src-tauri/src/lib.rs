@@ -308,6 +308,7 @@ pub fn run() {
             commands::resolve_quota_cli_path,
             commands::export_configuration,
             commands::import_configuration,
+            commands::inspect_transfer_package,
             commands::upsert_provider,
             commands::remove_provider,
             commands::reorder_providers,
