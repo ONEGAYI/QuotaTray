@@ -26,8 +26,9 @@ function fileNameOf(path: string): string {
 // 覆盖展开三重防线（警示卡 + 5 秒阅读倒计时 + 风险勾选，倒计时归零前
 // 勾选与确认一并禁用，确认钮转 danger）→ 执行。成功反馈（新增/跳过
 // 计数）落在数据页 transferFeedback 后关闭；失败（含错密码）就地
-// qt-inline-error 展示、不关弹窗。pending 期间双钮禁用、关闭路径锁定，
-// 关闭即清空口令（与 T-16 导出模态同一 busy 锁与口令清空时机惯例）；
+// qt-inline-error 展示、不关弹窗；重选的文件 inspect 失败时旧文件即
+// 失效（信息卡清空，防错位提交）。pending 与 inspect 期间双钮禁用、
+// 关闭路径锁定，关闭即清空口令（与 T-16 导出模态同一惯例）；
 // Esc/焦点圈定/移动端全屏由 DialogShell 既有机制提供。
 export function TransferImportDialog({
   open,
@@ -98,6 +99,11 @@ export function TransferImportDialog({
         strategy === "overwrite" ? IMPORT_OVERWRITE_COUNTDOWN_SECONDS : 0,
       );
     } catch (e) {
+      // 重选坏文件时旧文件即失效：清空信息卡防「错误横幅指向新文件、
+      // 确认钮却提交旧文件」的错位（首次选择失败时本就是空，清空幂等）
+      setFile(null);
+      setInfo(null);
+      setPassword("");
       setError(transferErrorMessage(e));
     } finally {
       setInspecting(false);
@@ -147,13 +153,14 @@ export function TransferImportDialog({
     <DialogShell
       title={t("settings.importModalTitle")}
       description={t("settings.importModalDescription")}
-      // busy 期间锁定 Esc/右上角 X：导入写入进行中，关闭会让结果不可见
-      onClose={busy ? () => {} : onClose}
+      // busy/inspecting 期间锁定 Esc/右上角 X：导入写入进行中关闭会让
+      // 结果不可见；inspect 未返回时关闭会让迟到回填命中已重置的模态
+      onClose={busy || inspecting ? () => {} : onClose}
       closeLabel={t("common.cancel")}
       size="sm"
       footer={
         <>
-          <Button disabled={busy} onClick={onClose}>
+          <Button disabled={busy || inspecting} onClick={onClose}>
             {t("common.cancel")}
           </Button>
           <Button
