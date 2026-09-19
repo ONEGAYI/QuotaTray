@@ -1262,7 +1262,10 @@ body.qt-mobile-runtime .qt-usage-legend-remove { min-width: 44px; min-height: 44
 body.qt-mobile-runtime .qt-dialog-usage-legend .qt-usage-legend-hint { margin-top: 0; margin-right: auto; border-top: 0; padding-top: 0; font-size: 11px; }
 body.qt-mobile-runtime .qt-usage-chart-wrap { min-width: 0; padding: 0 2px; }
 body.qt-mobile-runtime .qt-usage-chart-card { overflow: hidden; }
-body.qt-mobile-runtime .qt-usage-chart-head { flex-direction: row; align-items: center; }
+/* 卡头改 row wrap（2026-09-19 真机回归）：定位线+垃圾桶+重置三钮挂 44px 热区后
+   同行放不下，不换行的 row 会把标题块压到 CJK 逐字竖排；行距 8px 对齐工具栏
+   wrap 先例（2026-09-17），列距维持基类 20px。 */
+body.qt-mobile-runtime .qt-usage-chart-head { flex-flow: row wrap; align-items: center; gap: 8px 20px; }
 
 /* 官方模型资料：卡片正文与编辑页均提供完整触摸命中区。 */
 body.qt-mobile-runtime .qt-pricing-provenance .qt-btn { min-height: 44px; min-width: 44px; }
