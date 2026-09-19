@@ -1,6 +1,6 @@
 import { usageComparisonId } from "./usageComparisonView";
 
-/** 药丸入口全平台统一渲染：有可比组合即显示；移动端点击打开聚焦模态窗 */
+/** 药丸入口全平台统一渲染：有可比组合即显示；桌面悬停展开浮层，移动端点击打开聚焦模态窗 */
 export function legendTriggerVisible(scopeCount: number): boolean {
   return scopeCount > 0;
 }
