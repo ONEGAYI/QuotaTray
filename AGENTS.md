@@ -2,37 +2,12 @@
 
 托盘常驻的多平台 AI 账户余额监视器：预置官方平台查询 + 声明式模板/JS 脚本自定义查询，GUI 为薄层，业务核心与 CLI 平级共享。
 
-- 调研基础：cc-switch v3.20.0（见 [docs/预研文档/2026-08-23 CC-Switch调研报告.md](<docs/预研文档/2026-08-23 CC-Switch调研报告.md>)）
-- 设计方案：[docs/预研文档/2026-08-22 项目方案预研.md](<docs/预研文档/2026-08-22 项目方案预研.md>)
+- 调研基础：cc-switch v3.20.0（见 [docs/预研文档/2026-08-23 CC-Switch调研报告.md](docs/预研文档/2026-08-23 CC-Switch调研报告.md)）
+- 设计方案：[docs/预研文档/2026-08-22 项目方案预研.md](docs/预研文档/2026-08-22 项目方案预研.md)
 
-## 设计决策快照
+## 并行开发约定（2026-08-23 起）
 
-以下决策已由项目所有者确认。初始快照形成于 2026-08-22；后续新增决策在决策项中
-注明日期。修改既有结论需重新确认：
-
-| 决策项 | 结论 | 备选（未采纳） |
-|---|---|---|
-| 技术栈 | Rust workspace 三端共享：`crates/core` + `apps/cli`（clap）+ `apps/desktop`（Tauri 2 + 托盘） | 异构 GUI sidecar；Go/Node 栈 |
-| 凭据加密 | 随机 32 字节主密钥存系统凭据库（keyring-core + 平台原生 Store），凭据字段 AES-GCM 加密后存配置文件 | AES-SIV 确定性加密；凭据直存系统库；DPAPI 整体加密 |
-| 自定义查询 | 声明式模板优先（零代码），QuickJS 沙箱脚本兜底复杂场景 | 全 JS 脚本；纯声明式 |
-| 目标平台 | Windows 优先，全程使用跨平台库，不为未支持平台花工作量 | 仅 Windows（锁死）；三平台同步支持 |
-| 便携版密钥（2026-08-27） | 采用方案 A：随机 32 字节便携主密钥常驻 `Data/portable.key`，首次创建前显式警告；便携目录保密等级等同明文凭据 | Argon2id 口令派生；便携版不携带凭据 |
-| WoA 发布阶段（2026-08-27） | ARM64 资产先按 Preview 发布；Release 与 README 必须显式标注，真实 WoA 完整验收并经所有者重新确认后方可转稳定 | 仅凭交叉编译直接宣称稳定；暂不发布 ARM64 资产 |
-| 便携提示呈现（2026-08-27） | GUI 首启确认页正文精简为「为什么 + 不要做什么」两行暗红警示，完整固定提示收进问号图标点击展开（InlineMd 渲染 `**`/反引号，字典值保持文档原文）；便携包内说明中英双 txt；README 与 CLI 保持全文原样 | 正文直排全文（字多无人读，起不到警示效果）；仅中文 txt |
-| Android Preview（2026-08-28，所有者确认） | 首期仅承诺前台刷新；底部导航 + 顶部应用栏 + 全屏编辑页；统一使用 keyring-core 1 与四个平台原生 Store，真实设备完整验收前保持 Preview | 直接缩放桌面 UI；盲测即宣称稳定；首期引入常驻前台服务 |
-| Android 更新链（2026-08-29 确认；2026-09-07 修订权限口径） | 手动检测（进页+按钮；常驻轮询记为缺口）+ SAF 保存下载 + 自研薄 JNI 桥拉起系统安装器；声明自安装权限（REQUEST_INSTALL_PACKAGES，2026-09-07 所有者重新确认推翻原「不声明」口径——真机端测实证不声明时「安装未知应用」授权列表搜不到本应用、应用内安装链死路；GitHub 分发无 Play 审核顾虑，未来 Play 构建须剥离），content URI 会话内存 | 引第三方 intent 插件（查证 0.1.0/400 下载/停更多年）；纯文案手动安装引导；自动下载；不声明自安装权限（原口径，2026-09-07 弃） |
-| 使用统计比较（2026-08-30，所有者确认） | 最多四条 Provider+窗口组合，稳定色槽并随配置迁移；桌面聚焦多行气泡，Android 全宽图表+常驻读数；添加/管理使用居中 82dvh 模糊浮窗（2026-09-16 修订：独立管理页移除，删除收进「聚焦组合」浮层与移动端标签的行内两段确认，添加弹窗仅负责新增） | 单 Provider/Scope 下拉；移动横向滚动桌面图；添加管理全屏页 |
-| 滚动日志与瞬时重试（2026-09-04） | flexi_logger JSONL（按天+5MB 双条件滚动、7 天 mtime 保留、同步直写、RUST_LOG 调级），core 经 `flexi-logging` feature 门控装配、两端 bin 开启共享；瞬时失败（超时/网络/408/429/5xx）2.5s 自动重试一次、确定性零重试；日志字段白名单制，凭据永不入日志 | tracing 全家桶（FAT 便携盘清理 bug 风险）；无限重试 |
-| 统计定位线（2026-09-05，所有者确认） | 卡头模式按钮放置（吸附最近样本、满两条退出；2026-09-16 所有者修订按钮语义：模式中点击退出，未满两条点击进入放置直接补位，满两条再点清空两条从头定位——仅清除不重定位走卡头垃圾桶，垃圾桶自读数行末尾移入卡头）+ 手柄拖动微调 + 图表上方常驻读数行（时刻/时间差/聚焦值，预留高度防跳变）；持久化 settings.json 仅本机、不进迁移包 | 普通单击直放（与平移/游标 tap 冲突）；会话级不持久化；定位线信息进悬浮气泡 |
-| 定位线峰值消耗（2026-09-16，所有者裁定） | 两条定位线且聚焦组合时，读数行在平均消耗外另显区间内最陡相邻样本段的每小时消耗（带段起始时刻）；只算消耗方向 | 峰值回升一并显示（回升即充值/额度重置，瞬间跳变使跨桶斜率无测量意义，所有者裁定不计算不展示）；基于平滑曲线求导 |
-| CLI 凭据快照（2026-09-05，所有者确认） | 四家 CLI 凭据 provider 读取经进程内快照缓存：能读就更新快照；被环境性拦截（权限拒绝/共享冲突——实证：鸣潮 ACE 反作弊游戏运行期内核级全局拒绝读 `~/.codex/auth.json`，退出自恢复）回退旧快照继续查询；NotFound 仍报安装引导。IO 错误按 kind 分类透出真实原因，不再统一误报「未找到」 | 凭据读取失败即红卡（游戏窗口期打断刷新）；PermissionDenied 归 transient 走重试；按进程特征探测拦截（实证为全局文件级） |
-| 更新检测双通道（2026-09-07，所有者确认） | 检测串行双通道：直连优先（配代理时直连通道 `no_proxy` 真直连，防系统代理静默劫持），直连成功即用且不发代理请求；直连任何失败且配了代理时经代理重试一次，代理结果为最终结果；未配置代理维持单通道现状。下载继续经代理。动机：匿名 GitHub API 按 IP 限额，代理共享出口额度易耗尽 | 检测并行双发（必然消耗代理共享额度，违背目的）；下载也改直连优先 |
-| 模型与定价目录数据更新链（2026-09-10） | 价格数据独立于应用版本：`data/pricing/v1/catalog.json` 为单一数据源（构建时 include_str! 嵌入种子），人工审核数据 PR 合并 main 即经 raw.githubusercontent 分发；客户端双通道同步（直连优先，同更新检测口径）、revision 单调不降级、坏包不落盘、跨进程锁防 CLI/GUI 互覆；下架模型 retired 保留最后已知价、missing 不借默认模型价格；桌面 6h 自动检查/30min 失败退避，CLI 仅非 JSON 模式 5s 预算补检 | 每次改价发应用版本；第三方定价源接入；retired 物理删除 |
-| 聚焦组合入口统一（2026-09-16 所有者确认；2026-09-19 修订桌面开合） | 药丸入口全平台统一渲染（有组合即显示）；桌面开合为悬停驱动（2026-09-19 所有者修订，推翻 09-16「点击 toggle 唯一路径」口径：悬停/Tab 聚焦展开、移出/失焦收起，键盘 Enter/Space 触发的 click 才 toggle（鼠标点击不 toggle，悬停已展开再 toggle 会在钮上立即收起闪烁），Esc 收起兜底，outside-tap 关闭退役；悬停处理器经 mobile 条件不绑定——移动端触摸合成 mouseenter 会抢在 click 前展开、与点击 toggle 抵消）；移动端聚焦列表为 DialogShell 模态窗（居中卡片、高度随内容自适应，返回键/Esc/遮罩关闭，行 44px 触控 + 行内两段删除），0.13.1 的横向 chips 退役 | 桌面点击 toggle 唯一路径（09-16 口径，09-19 回退）；移动端保留 chips；浮层锚定触发钮做窄屏适配 |
-| 迁移容器 v3 双档（2026-09-18，spec #119） | 导出双档：密码档（口令 ≥8 字符经 Argon2id 派生密钥加密，KDF 参数+信封 nonce 入头部自描述，派生密钥绝不写入容器任何字节，认证失败文案如实写「备份密码错误或包已损坏」）+ 便捷档（32B 随机迁移密钥随包，语义不变）；v3 头部 mode 字段区分两档，信封 AAD 按版本+档位细分（v1/v2 既有 AAD 不变）；v1/v2 旧包持续可导入，16 MiB 上限两档同限；新增 inspect 只读识别版本+档位不解密（#120 core 已实现，端侧接入见 T-15/16/17） | 明文 JSON 导出（需安全红线新增受控例外，明确未采纳）；nonce 内嵌密文不进头部；v1/v2 弃用时间表 |
-| 导入双模（2026-09-18，spec #119；2026-09-18 审查 #127 补记两点） | `ImportOptions::strategy` 两模（策略在写入层 `import_config_to_path*` 生效，设计哲学：合并 = 不丢本机任何东西、覆盖 = 完全变成备份）：合并（`#[default]` 保守）= 条目按 id 并集、同 id 本机为准（跳过备份条目无需凭据转写，AAD 绑定条目 id 天然兼容），自定义模型库 custom_models 按 native 键并集、同键同模型 id 以本机为准（「不丢本机任何东西」覆盖模型库维度），比较组合按 (provider_id, window_key) 并集、冲突本机为准、超 4 条截断（复用 sanitize 修色槽），历史幂等合并；覆盖 = config/组合整体替换 + 历史单事务清空重插（`HistoryStore::replace_rows`，不物理换库文件，包内主键重复确定性失败整体回滚）——v1 老包未携带历史字段（`None`）时覆盖档不清本机历史（格式缺失 ≠ 断言历史为空），`Some([])` 为备份明确断言空历史、照常清空（CLI/桌面同口径，桌面原「None 同样清空」已废弃）；`TransferBundle.counts` 返回新增/跳过计数（合并模组合计数由 `merge_usage_comparison_series` 返回）；既有无 options 导入入口显式传 Overwrite 维持整体替换现状，交互确认由调用端负责（#121 core 已实现，端侧接入见 T-15/16/17） | 旧入口随默认值走合并（破坏现状语义）；覆盖物理换库文件；合并同 id 以备份为准；v1 老包覆盖导入清本机历史（审查 #127 否决，违背保守方向） |
-
-**并行开发约定**（2026-08-23 起）：core 的 M2 API 面已冻结（M2a 完成）。
+core 的 M2 API 面已冻结（M2a 完成）。
 CLI（M2b）与 GUI（M3）双工作树并行开发，共享文件仅 workspace
 `Cargo.toml`、CI 与本文件树——先合的 PR 为准，后合的 rebase 更新文件树即可。
 core 若需变更公开 API，先单独提 PR 合入再同步两端。
@@ -43,17 +18,16 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 
 ## 移动端能力缺口追踪（Android Preview）
 
-活追踪独立建档：[docs/移动端能力缺口追踪.md](<docs/移动端能力缺口追踪.md>)——
+活追踪独立建档：[docs/移动端能力缺口追踪.md](docs/移动端能力缺口追踪.md)——
 凡合入影响任一条目的移动端变更必须同 PR 更新该文档（能力部分就绪即改写口径，
 彻底闭环即移出条目；全部补齐后该文档删除）。现状底稿见
-[2026-08-29 安卓缺口调研报告.md](<docs/预研文档/2026-08-29 安卓缺口调研报告.md>)。
-
+[2026-08-29 安卓缺口调研报告.md](docs/预研文档/2026-08-29 安卓缺口调研报告.md)。
 
 ## Agent 工程技能配置
 
-- **Issue tracker**：任务包（spec + 工单）以 GitHub Issues 为唯一载体——规格发布为父 issue、工单挂 sub-issue、依赖用原生 blocked-by 关系；2026-09-10 起不再落 `.scratch/` 本地任务包（旧包 model-pricing-catalog 保留为历史存档）。详见 [docs/agents/issue-tracker.md](<docs/agents/issue-tracker.md>)。
-- **分诊标签**：五个规范角色用默认字符串（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 [docs/agents/triage-labels.md](<docs/agents/triage-labels.md>)。
-- **领域文档**：单一上下文布局，词汇基准是本文件「术语表」与「设计决策快照」两节。详见 [docs/agents/domain.md](<docs/agents/domain.md>)。
+- **Issue tracker**：任务包（spec + 工单）以 GitHub Issues 为唯一载体——规格发布为父 issue、工单挂 sub-issue、依赖用原生 blocked-by 关系；2026-09-10 起不再落 `.scratch/` 本地任务包（旧包 model-pricing-catalog 保留为历史存档）。详见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)。
+- **分诊标签**：五个规范角色用默认字符串（needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix）。详见 [docs/agents/triage-labels.md](docs/agents/triage-labels.md)。
+- **领域文档**：单一上下文布局，词汇基准是根 `CONTEXT.md`（Language 词条），设计决策记录在 `docs/adr/`。详见 [docs/agents/domain.md](docs/agents/domain.md)。
 
 ## 工程规范
 
@@ -64,8 +38,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
 - **提交前格式化与静态检查（硬门禁）**：Rust 改动先 `cargo fmt --all`，再 `cargo clippy --workspace --all-targets -- -D warnings`（`--all-targets` 含 examples/测试，CI 同口径——漏跑会让 main 编译债拖垮后续所有 PR 的 CI）；前端改动先 `pnpm lint --fix`。CI 的 `cargo fmt --all --check` 作用于全 workspace（2026-08-24 v0.3.2 遗留三处未格式化、2026-08-25 v0.4.2 后三处 clippy 失败即为此例）。
   交叉 lint（2026-08-29 审查轮闭环）：host clippy 不编译 android/
   桌面 cfg 分叉的另一半，CI android-preview job 已加
-  `cargo clippy -p quota-desktop --all-targets --target
-  aarch64-linux-android -- -D warnings`（NDK CC/AR/sysroot env 就地配置，
+  `cargo clippy -p quota-desktop --all-targets --target aarch64-linux-android -- -D warnings`（NDK CC/AR/sysroot env 就地配置，
   build.rs 的 C 依赖所需）。桌面/移动分叉的代码（cfg 门禁的方法、
   模块替身）改动时两半都要过；本地复跑可用同命令 + NDK env（参数
   见 ci.yml），无 NDK 环境时以 CI 为准。
@@ -93,8 +66,7 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
   - 桌面端产物：`pnpm tauri build --no-bundle`（出裸 exe；完整打包 M4）
   - ⚠️ 裸 `cargo build`（含 --release）的桌面端产物指向 devUrl（1420），
     无 vite dev server 时窗口空白——运行/分发一律走 tauri CLI
-  - GUI 冒烟：`cargo run -p quota-desktop --example smoke_setup -- --data-dir <沙箱>
-    --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
+  - GUI 冒烟：`cargo run -p quota-desktop --example smoke_setup -- --data-dir <沙箱> --key-file <.DevApiKey.json>` 注入后以 `--data-dir` 启动 exe 验证
   - 开发目录清理：仓库根执行 `.\clean 1|2|3`；先预览用 `.\clean 3 -WhatIf`
   - 清理器契约测试：`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean.tests.ps1`
 - 文档用中文编写。
@@ -196,29 +168,6 @@ CLI 先合，GUI rebase 后合并同步本文件树；Lang 枚举两端各自实
   错误；国际站保持通用 HTTP 错误路径。后续关注官方更新公告
   （docs.siliconflow.cn/cn/release-notes/overview），替代 API 发布后移除特判、
   接入新接口。
-
-## 术语表
-
-| 术语 | 含义 |
-|---|---|
-| 主密钥（KEK） | 首次运行随机生成的 32 字节密钥，存系统凭据库，仅用于加解密配置中的凭据字段 |
-| 便携主密钥 | Portable 方案 A 使用的随机 32 字节主密钥，常驻 `Data/portable.key`；因与配置密文同行，整个便携数据目录保密等级等同明文凭据 |
-| 一次性迁移密钥 | 每次导出随机生成的 32 字节密钥；源凭据先转写到该密钥，密钥随 `.qtray-export` 包携带，导入后再转写到目标机器主密钥 |
-| 配置迁移包 | QuotaTray 私有、带版本和认证校验的二进制配置导出；虽然不可直接阅读，但因携带迁移密钥，保密级别等同明文凭据 |
-| 预置平台（native provider） | core 内置 Rust 实现的官方查询（如 DeepSeek、SiliconFlow），随版本发布 |
-| 声明式模板（template provider） | JSON 描述的查询配置（URL/头/字段映射/算术），零代码 |
-| 第二凭据槽（apiKey2） | 第二个加密凭据槽，两类消费方：模板/脚本以 `{{apiKey2}}` 变量引用（如 new-api 系站点的用户 ID，注入 `New-Api-User` 头）；native 双凭据平台（阿里云余额）作 AccessKey Secret（门控 `provider::uses_api_key2`）。与主 key 同 vault 加密、同「空=保持不变」写入语义 |
-| 脚本查询（script provider） | QuickJS 沙箱内运行的 `{request, extractor}` 脚本，兜底复杂平台 |
-| 瞬时失败 / 确定性失败 | 网络抖动类错误（可重试、保留旧值）vs 认证/解析类错误（立即透出） |
-| keep-last-good | 查询失败时在时限内继续展示上次成功结果的策略 |
-| 峰谷定价 | 按「周几+时间段」划分高峰/空闲时段并配两档三价（缓存命中/未命中/输出，每 MTokens）的展示配置：预置随版本内置（DeepSeek），条目可字段级自定义（空=回退预置） |
-| 历史库 | `~/.quotatray/history.db`（SQLite）：每次成功查询的余额/额度快照时序表，滚动保留 30 天，schema 走 user_version 版本化迁移 |
-| 窗口键（window_key） | 历史行的窗口标识：`plan_name` 非空取之，否则回退序数 `w0/w1…`；同一多窗口条目每窗口一条时间线 |
-| 迁移容器 v2 | `.qtray-export` 第 2 版信封 `{config, history, usage_comparison_series?}`：导入语义按导入双模分档（见「合并导入/覆盖导入」）；v1 旧包仍可导入；仅支持 v1 的程序拒绝 v2，早期 v2 程序会忽略新增可选字段 |
-| 密码档 | 迁移容器 v3 的口令加密档：用户口令经 Argon2id 派生密钥加密迁移包，KDF 参数与信封 nonce 随容器头部自描述，派生密钥绝不写入容器；忘记密码无法恢复，备份可安全外存 |
-| 便捷档 | 迁移容器 v3 的零门槛档：一次性 32 字节随机迁移密钥随包携带，保密等级等同明文凭据（v1/v2 容器恒为此档语义） |
-| 合并导入 | 导入双模默认模（保守）：条目按 id 并集、同 id 本机为准；比较组合按 (provider_id, window_key) 并集、冲突本机为准、超 4 条截断；历史幂等合并——不丢本机任何数据 |
-| 覆盖导入 | 导入双模重建模：配置与比较组合整体替换、历史单事务清空本机后重插备份行——本机完全变成备份内容；倒计时+勾选类强确认由调用端负责 |
 
 ## 文件树（简版速览）
 
@@ -439,6 +388,7 @@ QuotaTray/
 ├── CHANGELOG.md            # 版本变更记录
 ├── CLAUDE.md               # AGENTS 导入+专属补充
 ├── clean.cmd               # 开发目录清理入口
+├── CONTEXT.md              # 项目词汇基准（Language 词条）
 ├── crates/                 # workspace crates 根
 │   └── quota-core/ # 业务核心库（无 UI）
 │       ├── Cargo.toml # core crate 清单
@@ -497,6 +447,7 @@ QuotaTray/
 │       └── v1/ # 定价目录 v1 格式
 │           └── catalog.json # 预置定价目录数据源
 ├── docs/                   # 文档
+│   ├── adr/…            # 设计决策记录（ADR 一行一档）
 │   ├── agents/          # 工程技能配置文档
 │   │   ├── domain.md        # 工程技能领域文档消费规则
 │   │   ├── issue-tracker.md # 工程技能 issue 约定
