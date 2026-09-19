@@ -309,6 +309,22 @@ test("统计页工具栏移动端两行收拢：时间尺度并入添加行靠�
   );
 });
 
+test("统计页卡头移动端宽度不足时换行，不把标题压缩成竖排（真机排版回归）", () => {
+  // 2026-09-19 真机截屏回归：卡头移动端强制不换行的 row，在「定位线 + 垃圾桶 +
+  // 重置」三钮挂 44px 热区后同行放不下，标题块被 flex 收缩至 min-content，
+  // CJK 逐字断行成竖排。改 row wrap（工具栏 2026-09-17 同款先例）：宽视口
+  // 同行 space-between，放不下时按钮组自然换到次行；行距 8px 对齐工具栏。
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-chart-head\s*\{[^}]*flex-flow:\s*row wrap;[^}]*gap:\s*8px 20px;/s,
+  );
+  // 禁止回归：不允许移动端再出现无 wrap 的整流 row/column 覆盖
+  assert.doesNotMatch(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-chart-head\s*\{[^}]*flex-direction:\s*(row|column);/s,
+  );
+});
+
 test("DialogShell 仅在启用时点击遮罩关闭，内部点击不关闭", () => {
   assert.match(
     ui,

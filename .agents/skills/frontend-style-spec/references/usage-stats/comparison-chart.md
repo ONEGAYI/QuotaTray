@@ -97,6 +97,14 @@ outside-tap）或 Esc 关闭。
 展开）三控件同行 space-between 排开，垂直更省；无组合时添加与时间尺度
 单行排布。
 
+**卡头窄屏换行**（2026-09-19 真机回归修复）：图表卡头移动端覆盖为
+`flex-flow: row wrap`（行距 8px 对齐工具栏 wrap 先例，列距维持基类 20px）：
+宽视口标题与按钮组同行 `space-between`，放不下时按钮组自然换到次行。回归
+背景：不换行的 row 覆盖在卡头挂「定位线 + 垃圾桶 + 重置」三钮并加 44px 热区后
+同行放不下，标题块被 flex 收缩至 min-content，CJK 逐字断行成竖排（真机截屏
+确认）；桌面窄窗走 620px 媒体查询的 column 回退不受影响。mobile-style 契约
+测试锁定 wrap 形态并禁止回归无 wrap 的整流覆盖。
+
 **代码锚点**：`UsageStatsPage.tsx`、`UsageComparisonDialog.tsx`、
 `usageComparisonView.ts`、`usageLegendView.ts`、`ui.tsx` 的 `DialogShell`、
 `index.css` 的 `qt-usage-*` 与 `qt-dialog-usage-comparison`、
