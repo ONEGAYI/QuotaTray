@@ -103,14 +103,26 @@ Tauri 2 桌面应用：主窗口做配置管理，托盘做余额常驻展示。
 | `resolve_quota_cli_path` | → 安装包资源或开发产物中的真实 CLI 绝对路径 | `current_exe/resource_dir` 探测 |
 | `query_provider` | `id` → `UsageData[] / { kind, message }` | `QueryEngine::query` |
 | `get_settings / save_settings` | 设置对象 ↔ | desktop 自有存储 |
-| `export_configuration` | `path` → () | `export_config_to_path` |
-| `import_configuration` | `path` → `provider_count` | `import_config_to_path`；清空旧结果/快照并广播刷新 |
+| `export_configuration` | `path + options（档位/密码，缺省便捷档）` → `()`（导出无返回载荷，计数反馈在导入行）；Android `content://` 经 SAF 通道分流透传 | `export_config_to_path_with_options` |
+| `import_configuration` | `path + options（策略/密码，缺省整体替换现状语义）` → `provider_count + 新增/跳过计数`；按策略接线历史（合并幂等/覆盖清空重插；v1 老包未携带历史字段不清本机，与 CLI 同口径）与比较组合（并集/替换），清空旧结果/快照并广播刷新 | `import_config_to_path_with_options` + `HistoryStore::merge_rows/replace_rows` |
+| `inspect_transfer_package` | `path` → `{version, mode}`（只读头部，不解密；供导入模态文件信息卡） | `inspect_transfer_container` |
+| `open_data_dir / open_logs_dir` | → 在资源管理器打开当前运行模式的数据根/日志目录（不存在则按需补建；桌面门控，Android 不注册语义） | `tauri_plugin_opener` |
 
 **红线 3 落实**：key 写入走「空值 = 保持不变」约定，前端永不回显明文、
 永不接收明文（编辑表单的 key 框初始为空，占位符显示"已配置"/"未配置"）。
 模板/脚本形态另有第二凭据输入框（`{{apiKey2}}` 槽，如 new-api 系站点的
 用户 ID 注入 `New-Api-User` 头），同款加密保存与不回显语义；诊断包携带
 已保存条目的 `entryId` 供 `quota assist test` 端测复用本机凭据。
+
+**迁移双档双模交互（2026-09-18，spec #119）**：导出/导入从系统原生
+confirm 改为 DialogShell 模态窗（移动端自动全屏）。导出模态：档位分段
+（密码档默认，≥8 位两次输入；便捷档保留「等同明文凭据」警示）→ 确认后
+弹系统保存框。导入模态：inspect 文件信息卡（版本+档位）→ 密码档口令 →
+策略单选（合并默认）→ 覆盖展开三重防线（警告 + 5 秒阅读倒计时 + 风险
+勾选 + danger 确认钮）→ 计数反馈。迁移口令仅内存/IPC 传输，模态关闭
+即清空，不落任何持久层或日志。数据管理分区另有数据/日志目录快捷入口
+（桌面渲染，Android 门控隐藏；便携版数据目录行附 portable.key 勿外传
+提示）。
 
 ## 5. 快照持久化（desktop 侧）
 
@@ -150,4 +162,8 @@ M5-a 起同一成功链路另行写入查询历史库（`~/.quotatray/history.db
 - [ ] 单实例：第二个实例启动只激活已有窗口
 - [ ] 低额度提醒按阈值生效
 - [ ] 数据迁移可通过系统文件对话框完成；导入后账户、托盘与悬停窗同步刷新，旧快照清空
+- [ ] 双档导出模态：密码档（≥8 位两次一致、派生密钥不随包）与便捷档（警示不降级）均端到端可用
+- [ ] 双模导入模态：合并零丢失本机数据、覆盖后历史库 = 备份内容（v1 老包未携带历史字段则保留本机）；覆盖三重防线（默认合并 + 倒计时 + 勾选）生效
+- [ ] 密码档错密码就地报确定性错误（不关模态）；v1/v2 旧包继续可导入
+- [ ] 数据/日志目录入口在安装版与便携版打开正确目录；Android 不渲染入口
 - [ ] `cargo clippy/test --workspace` 全绿；前端构建无错误

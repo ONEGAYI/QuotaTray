@@ -32,6 +32,43 @@ export interface UsageComparisonSeries {
   color_slot: number;
 }
 
+/** 导出档位选项（与 Rust core `ExportOptions` 一一对应；serde externally
+ *  tagged：便捷档为字符串字面量，密码档为单键对象）。 */
+export type ExportOptions = "Convenient" | { Password: { password: string } };
+
+/** 迁移容器的档位（core `TransferMode` 镜像；serde externally tagged 的
+ *  unit variants 序列化为字符串字面量；v1/v2 容器恒报便捷档）。 */
+export type TransferMode = "Convenient" | "Password";
+
+/** 只读识别的迁移容器元信息（inspect_transfer_package 返回；不解密、
+ *  不验证密码）。 */
+export interface TransferContainerInfo {
+  /** 容器格式版本（1/2/3）。 */
+  version: number;
+  mode: TransferMode;
+}
+
+/** 导入策略（IPC 载荷；core `ImportStrategy` 镜像，serde externally
+ *  tagged unit variant 字面量）。 */
+export type ImportStrategyPayload = "Merge" | "Overwrite";
+
+/** 导入选项（与 Rust core `ImportOptions` 一一对应）。 */
+export interface ImportOptions {
+  /** 密码档容器的备份口令；便捷档容器忽略（null = 不提供）。 */
+  password: string | null;
+  strategy: ImportStrategyPayload;
+}
+
+/** 导入按策略应用的生效计数（core `ImportCounts` 镜像，snake_case）：
+ *  合并模 *_added = 新并入本机数、*_skipped = 同 id/同键以本机为准跳过数；
+ *  覆盖模 *_added = 生效的备份数、*_skipped = 0。 */
+export interface ImportCounts {
+  providers_added: number;
+  providers_skipped: number;
+  series_added: number;
+  series_skipped: number;
+}
+
 /** 模板请求定义。 */
 export interface TemplateRequest {
   method?: "GET" | "POST";

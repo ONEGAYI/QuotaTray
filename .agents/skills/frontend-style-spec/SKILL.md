@@ -47,6 +47,7 @@ description: QuotaTray 桌面与移动前端样式/交互规范的唯一事实�
 | T-013 | 使用统计多曲线比较与定位线 | [usage-stats/comparison-chart.md](references/usage-stats/comparison-chart.md) | 使用统计页 | 生效 | 2026-09-06 |
 | T-014 | 余额卡片 hover 反馈几何中性 | [common-ui/card.md](references/common-ui/card.md) | 账户页卡片 | 草案 | 2026-09-05 |
 | T-015 | 托盘细环与大数字 | [tray/icon.md](references/tray/icon.md) | 原生桌面托盘 | 生效 | 2026-09-10 |
+| T-016 | 迁移模态特有类族 | [common-ui/transfer-dialog.md](references/common-ui/transfer-dialog.md) | 迁移导出/导入模态 | 草案 | 2026-09-18 |
 
 ### 令牌条目（DT-）
 

@@ -298,6 +298,19 @@ impl Lang {
         }
     }
 
+    /// 桌面专属命令（资源管理器目录入口等）在移动端的拒绝文案——
+    /// 与 [`Self::err_mobile_update_unsupported`]（更新流程语境）分层：
+    /// 数据/日志目录入口与更新无关，复用更新文案会把用户误导到更新页。
+    pub fn err_mobile_desktop_only(&self) -> String {
+        match self {
+            Self::Zh => "此操作依赖桌面系统的文件管理器，移动端不可用".to_string(),
+            Self::En => {
+                "This action relies on the desktop file manager and is unavailable on mobile"
+                    .to_string()
+            }
+        }
+    }
+
     /// Android 更新命令收到非 content:// 的保存/安装位置（防御分支）。
     #[cfg(target_os = "android")]
     pub fn err_update_uri_invalid(&self) -> String {

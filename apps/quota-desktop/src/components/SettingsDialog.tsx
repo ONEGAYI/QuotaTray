@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import {
   confirm as confirmDialog,
-  open as openDialog,
   save as saveDialog,
 } from "@tauri-apps/plugin-dialog";
 import {
@@ -13,6 +12,7 @@ import {
   ExternalLink,
   FileDown,
   FileUp,
+  FolderOpen,
   PackageCheck,
   SlidersHorizontal,
   Trash2,
@@ -22,7 +22,7 @@ import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
 import { useCatalogStatus, useSettings, useUpdateState } from "../queries";
-import type { DownloadProgress, Settings } from "../types";
+import type { DownloadProgress, ExportOptions, ImportCounts, ImportOptions, Settings } from "../types";
 import {
   backgroundIntervalOptions,
   downloadPercent,
@@ -43,6 +43,8 @@ import {
   transferErrorMessage,
 } from "./configTransferView";
 import { ClearConfigDialog } from "./ClearConfigDialog";
+import { TransferExportDialog } from "./TransferExportDialog";
+import { TransferImportDialog } from "./TransferImportDialog";
 import { Button, DialogShell, SettingRow, Switch } from "./ui";
 
 interface Props {
@@ -80,6 +82,22 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const [draft, setDraft] = useState<Settings | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [transferFeedback, setTransferFeedback] = useState<TransferFeedback | null>(null);
+  /** 导出模态（T-16）：档位选择与口令校验在模态内完成，确认后才弹保存框。 */
+  const [exportOpen, setExportOpen] = useState(false);
+  /** 导入模态（T-17）：文件选择/inspect/口令/策略与覆盖三重防线在模态内
+   *  完成，确认后执行；系统原生 confirm 流程已退役。 */
+  const [importOpen, setImportOpen] = useState(false);
+  /** 目录入口打开失败的就地反馈（成功时资源管理器弹出即反馈，无需文案）。 */
+  const [dirOpenError, setDirOpenError] = useState<string | null>(null);
+  /** 在资源管理器打开数据/日志目录（桌面专属入口，Android 不渲染）。 */
+  const openDir = (which: "data" | "logs") => {
+    setDirOpenError(null);
+    const opening = which === "data" ? api.openDataDir() : api.openLogsDir();
+    opening.catch((e: unknown) => {
+      console.error("打开目录失败", e);
+      setDirOpenError(t("settings.openDirFailed", { error: String(e) }));
+    });
+  };
   const [clearOpen, setClearOpen] = useState(false);
   /** Android：SAF 保存的 APK 位置（content:// URI，会话内存——后端状态表
    * 不记录，离开页面丢失后重下即可）。附带下载时的可用版本快照：
@@ -196,9 +214,10 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   });
 
   const exportConfiguration = useMutation({
-    mutationFn: api.exportConfiguration,
-    onSuccess: (_, path) => {
-      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path }) });
+    mutationFn: (vars: { path: string; options: ExportOptions }) =>
+      api.exportConfiguration(vars.path, vars.options),
+    onSuccess: (_, vars) => {
+      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path: vars.path }) });
     },
     onError: (error) => {
       setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
@@ -206,31 +225,37 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   });
 
   const importConfiguration = useMutation({
-    mutationFn: api.importConfiguration,
-    onSuccess: (count) => {
+    mutationFn: (vars: { path: string; options: ImportOptions }) =>
+      api.importConfiguration(vars.path, vars.options),
+    // 成功反馈按策略带新增/跳过计数（覆盖模无跳过概念，单独文案）；
+    // 失败不落 transferFeedback——导入模态保持打开，错误由模态就地展示
+    onSuccess: (counts, vars) => {
       setTransferFeedback({
         kind: "success",
-        text: t("settings.importSuccess", { count: String(count) }),
+        text:
+          vars.options.strategy === "Overwrite"
+            ? t("settings.importSuccessOverwrite", {
+                providersAdded: String(counts.providers_added),
+                seriesAdded: String(counts.series_added),
+              })
+            : t("settings.importSuccessMerge", {
+                providersAdded: String(counts.providers_added),
+                providersSkipped: String(counts.providers_skipped),
+                seriesAdded: String(counts.series_added),
+                seriesSkipped: String(counts.series_skipped),
+              }),
       });
       void qc.invalidateQueries({ queryKey: ["providers"] });
       void qc.invalidateQueries({ queryKey: ["provider"] });
       void qc.invalidateQueries({ queryKey: ["snapshots"] });
       void qc.invalidateQueries({ queryKey: ["native-metas"] });
     },
-    onError: (error) => {
-      setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
-    },
   });
 
-  const beginExport = async () => {
+  /** 导出模态确认后的执行段：弹系统保存框（取消即回到模态）→ 执行导出。
+   *  档位选择与口令校验由 TransferExportDialog 完成，这里只拿最终 options。 */
+  const runExport = async (options: ExportOptions): Promise<"saved" | "cancelled"> => {
     setTransferFeedback(null);
-    const confirmed = await confirmDialog(t("settings.exportConfirm"), {
-      title: t("settings.transferTitle"),
-      kind: "warning",
-      okLabel: t("settings.exportConfirmButton"),
-      cancelLabel: t("common.cancel"),
-    });
-    if (!confirmed) return;
     // Android 的系统文档选择器按 MIME 类型过滤；tauri-plugin-dialog 仍复用
     // extensions 字段传递该值。桌面端继续使用真实扩展名。
     const path = await saveDialog({
@@ -241,30 +266,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
         extensions: mobile ? ["application/octet-stream"] : ["qtray-export"],
       }],
     });
-    if (path) exportConfiguration.mutate(mobile ? path : ensureTransferExtension(path));
+    if (!path) return "cancelled";
+    const resolved = mobile ? path : ensureTransferExtension(path);
+    await exportConfiguration.mutateAsync({ path: resolved, options });
+    return "saved";
   };
 
-  const beginImport = async () => {
-    setTransferFeedback(null);
-    // 与导出同口径：Android SAF 需要 MIME，桌面文件选择器需要扩展名。
-    const path = await openDialog({
-      title: t("settings.importDialogTitle"),
-      multiple: false,
-      directory: false,
-      filters: [{
-        name: t("settings.transferDialogFilter"),
-        extensions: mobile ? ["application/octet-stream"] : ["qtray-export"],
-      }],
-    });
-    if (!path) return;
-    const confirmed = await confirmDialog(t("settings.importConfirm"), {
-      title: t("settings.transferTitle"),
-      kind: "warning",
-      okLabel: t("settings.importConfirmButton"),
-      cancelLabel: t("common.cancel"),
-    });
-    if (confirmed) importConfiguration.mutate(path);
-  };
+  /** 导入模态确认后的执行段：模态只交付最终 path + options，成功反馈
+   *  （新增/跳过计数）落在数据页 transferFeedback；失败 reject 由模态
+   *  就地展示（弹窗不关）。 */
+  const runImport = (path: string, options: ImportOptions): Promise<ImportCounts> =>
+    importConfiguration.mutateAsync({ path, options });
 
   // 安装会退出应用（NSIS 覆盖安装需先解锁自身文件），确认后再触发
   const beginInstall = async () => {
@@ -978,7 +990,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               >
                 <Button
                   disabled={exportConfiguration.isPending || importConfiguration.isPending}
-                  onClick={() => void beginExport()}
+                  onClick={() => setExportOpen(true)}
                 >
                   <FileDown size={15} aria-hidden="true" />
                   {exportConfiguration.isPending
@@ -993,7 +1005,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 <Button
                   variant="danger"
                   disabled={exportConfiguration.isPending || importConfiguration.isPending}
-                  onClick={() => void beginImport()}
+                  onClick={() => setImportOpen(true)}
                 >
                   <FileUp size={15} aria-hidden="true" />
                   {importConfiguration.isPending
@@ -1009,6 +1021,33 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 }>
                   {transferFeedback.text}
                 </p>
+              )}
+              {!mobile && (
+                <>
+                  <SettingRow
+                    title={t("settings.openDataDirTitle")}
+                    description={t(
+                      portableRun
+                        ? "settings.openDataDirPortableHint"
+                        : "settings.openDataDirHint",
+                    )}
+                  >
+                    <Button onClick={() => openDir("data")}>
+                      <FolderOpen size={15} aria-hidden="true" />
+                      {t("settings.openDirButton")}
+                    </Button>
+                  </SettingRow>
+                  <SettingRow
+                    title={t("settings.openLogsDirTitle")}
+                    description={t("settings.openLogsDirHint")}
+                  >
+                    <Button onClick={() => openDir("logs")}>
+                      <FolderOpen size={15} aria-hidden="true" />
+                      {t("settings.openDirButton")}
+                    </Button>
+                  </SettingRow>
+                  {dirOpenError && <p className="qt-inline-error">{dirOpenError}</p>}
+                </>
               )}
               <SettingRow
                 title={t("settings.clearTitle")}
@@ -1027,6 +1066,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
           {save.isError && <p className="qt-inline-error">{String(save.error)}</p>}
         </div>
       </div>
+      <TransferExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={runExport}
+      />
+      <TransferImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImport={runImport}
+        mobile={mobile}
+      />
       <ClearConfigDialog
         open={clearOpen}
         onClose={() => setClearOpen(false)}

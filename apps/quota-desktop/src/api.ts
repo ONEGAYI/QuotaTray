@@ -2,7 +2,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   BootStateDto,
+  ExportOptions,
   HistoryPoint,
+  ImportCounts,
+  ImportOptions,
   NativeMeta,
   ProviderEntry,
   QueryOutcome,
@@ -11,6 +14,7 @@ import type {
   SnapshotEntry,
   CatalogStatus,
   CatalogUpdateResult,
+  TransferContainerInfo,
   UpdateStateDto,
 } from "./types";
 
@@ -23,6 +27,10 @@ export const api = {
   cancelPortableInit: (): Promise<void> => invoke("cancel_portable_init"),
   /** 打开更新下载目录（便携形态手动覆盖引导）。 */
   openUpdateDir: (): Promise<void> => invoke("open_update_dir"),
+  /** 在资源管理器打开当前运行模式的数据目录（桌面专属，Android 端拒绝）。 */
+  openDataDir: (): Promise<void> => invoke("open_data_dir"),
+  /** 在资源管理器打开滚动日志目录（桌面专属，Android 端拒绝）。 */
+  openLogsDir: (): Promise<void> => invoke("open_logs_dir"),
   /** 打开控制台直达 URL（scheme 白名单在 Rust 侧收口，仅 http/https）。 */
   openConsoleUrl: (url: string): Promise<void> => invoke("open_console_url", { url }),
   listProviders: (): Promise<ProviderEntry[]> => invoke("list_providers"),
@@ -89,12 +97,16 @@ export const api = {
   /** 局部更新设置：后端读现值合并 patch，避免前端缓存全量回写。 */
   patchSettings: (patch: SettingsPatch): Promise<void> =>
     invoke("patch_settings", { patch }),
-  /** 将完整配置导出到系统保存对话框选定的路径。 */
-  exportConfiguration: (path: string): Promise<void> =>
-    invoke("export_configuration", { path }),
-  /** 从迁移包整体替换配置，返回导入的供应商数量。 */
-  importConfiguration: (path: string): Promise<number> =>
-    invoke("import_configuration", { path }),
+  /** 将完整配置按指定档位导出到系统保存对话框选定的路径（默认便捷档）。 */
+  exportConfiguration: (path: string, options: ExportOptions = "Convenient"): Promise<void> =>
+    invoke("export_configuration", { path, options }),
+  /** 导入迁移包并按策略（合并/覆盖）应用到本机，返回生效计数。 */
+  importConfiguration: (path: string, options: ImportOptions): Promise<ImportCounts> =>
+    invoke("import_configuration", { path, options }),
+  /** 只读识别迁移容器（版本 + 档位），不解密、不验证密码（导入模态
+   *  文件信息卡数据源）。 */
+  inspectTransferPackage: (path: string): Promise<TransferContainerInfo> =>
+    invoke("inspect_transfer_package", { path }),
   /** 推送解析后的实际主题（ThemeProvider 调用，托盘圆环图标配色取用）。 */
   setResolvedTheme: (theme: "light" | "dark"): Promise<void> =>
     invoke("set_resolved_theme", { theme }),

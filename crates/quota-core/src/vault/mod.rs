@@ -15,6 +15,8 @@ mod store;
 
 use cipher::AesGcmCipher;
 pub use cipher::CipherError;
+// crate 内中转：迁移容器 v3 密码档布局常量与 cipher 实现共享同一 nonce 长度。
+pub(crate) use cipher::NONCE_LEN;
 pub use store::{FileStore, InMemoryStore, KeyringStore, SecretStore, VaultError};
 
 /// 凭据保险库。持有主密钥（仅内存），提供加解密入口。
@@ -86,6 +88,44 @@ impl Vault {
             reason: "解密后不是合法 UTF-8".into(),
         })
     }
+
+    /// crate 内部：生成随机 GCM nonce 并加密为裸密文（`ciphertext||tag`，无
+    /// 版本前缀与 base64），返回 `(nonce, sealed)`。迁移容器 v3 密码档把
+    /// nonce 与 Argon2id 参数一并写入容器头部，使全部解密参数随头部自描述。
+    pub(crate) fn seal_with_random_nonce(
+        &self,
+        plaintext: &[u8],
+        aad: &str,
+    ) -> Result<([u8; cipher::NONCE_LEN], Vec<u8>), VaultError> {
+        self.cipher
+            .encrypt_with_detached_nonce(plaintext, aad.as_bytes())
+            .map_err(VaultError::from)
+    }
+
+    /// crate 内部：用容器头部 nonce 解密裸密文，与
+    /// [`Self::seal_with_random_nonce`] 成对。
+    pub(crate) fn open_with_nonce(
+        &self,
+        sealed: &[u8],
+        aad: &str,
+        nonce: &[u8; cipher::NONCE_LEN],
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, VaultError> {
+        self.cipher
+            .decrypt_with_nonce(sealed, aad.as_bytes(), nonce)
+            .map(zeroize::Zeroizing::new)
+            .map_err(VaultError::from)
+    }
+}
+
+/// crate 内部：生成 32 字节密码学随机盐（迁移容器 v3 密码档 Argon2id salt）。
+/// 复用 [`cipher::generate_master_key`] 是刻意的同构：盐与主密钥的生成
+/// 需求完全一致（CSPRNG 均匀填充 32 字节），密钥学上等价、无相互派生
+/// 关系——两者仅字节数巧合相同，独立随机生成互不影响安全性。
+pub(crate) fn random_salt() -> [u8; cipher::KEY_LEN] {
+    let salt = cipher::generate_master_key();
+    let mut fixed = [0_u8; cipher::KEY_LEN];
+    fixed.copy_from_slice(&salt);
+    fixed
 }
 
 #[cfg(test)]

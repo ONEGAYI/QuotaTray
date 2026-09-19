@@ -13,7 +13,8 @@ use base64::{Engine, engine::general_purpose::STANDARD as B64};
 const VERSION: &str = "v1";
 /// 主密钥长度（AES-256）。vault 后端（keyring/File）做同值校验用。
 pub const KEY_LEN: usize = 32;
-const NONCE_LEN: usize = 12;
+/// GCM nonce 长度；迁移容器 v3 密码档头部按此长度存放 nonce。
+pub(crate) const NONCE_LEN: usize = 12;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CipherError {
@@ -94,6 +95,44 @@ impl AesGcmCipher {
             return Err(CipherError::MalformedCiphertext);
         }
         let (nonce, sealed) = raw.split_at(NONCE_LEN);
+        self.cipher
+            .decrypt(
+                Nonce::from_slice(nonce),
+                aes_gcm::aead::Payload { msg: sealed, aad },
+            )
+            .map_err(|_| CipherError::AuthFailed)
+    }
+
+    /// 显式随机 nonce 加密为裸密文（`ciphertext||tag`，无版本前缀与 base64），
+    /// 一并返回本次 nonce。迁移容器 v3 密码档用：nonce 写入容器头部，
+    /// 使全部解密参数（除口令外）随头部自描述。
+    pub fn encrypt_with_detached_nonce(
+        &self,
+        plaintext: &[u8],
+        aad: &[u8],
+    ) -> Result<([u8; NONCE_LEN], Vec<u8>), CipherError> {
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let sealed = self
+            .cipher
+            .encrypt(
+                &nonce,
+                aes_gcm::aead::Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
+            .map_err(|_| CipherError::AuthFailed)?;
+        Ok((nonce.into(), sealed))
+    }
+
+    /// 用显式 nonce 解密裸密文（`ciphertext||tag`），与
+    /// [`Self::encrypt_with_detached_nonce`] 成对。
+    pub fn decrypt_with_nonce(
+        &self,
+        sealed: &[u8],
+        aad: &[u8],
+        nonce: &[u8; NONCE_LEN],
+    ) -> Result<Vec<u8>, CipherError> {
         self.cipher
             .decrypt(
                 Nonce::from_slice(nonce),

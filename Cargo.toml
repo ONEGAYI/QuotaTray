@@ -34,6 +34,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 regex = "1"
 # QuickJS 沙箱（M4 script provider）：默认内嵌编译 QuickJS-NG 源码（MSRV 1.87）
 rquickjs = "0.12"
+# 迁移容器 v3 密码档：口令经 Argon2id 派生密钥（KDF 参数随容器头部自描述）；
+# std 提供 std::error::Error 实现（错误链经 thiserror source 透出）
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "std"] }
 # 历史数据存储（M5 history）：bundled 内嵌编译 SQLite，Windows 分发自包含
 rusqlite = { version = "0.40", features = ["bundled"] }
 # 结构化日志：core 经 log facade 打点，两端 bin 以 flexi_logger 装配（JSONL 滚动）

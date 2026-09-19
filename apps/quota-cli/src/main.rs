@@ -363,15 +363,37 @@ enum ConfigCmd {
         #[arg(long)]
         yes: bool,
     },
-    /// 从迁移包整体替换当前配置
+    /// 从迁移包导入配置（默认合并，可选覆盖）
     Import {
         /// 迁移包输入路径
         #[arg(value_name = "PATH")]
         input: PathBuf,
-        /// 跳过整体替换确认
+        /// 导入策略：merge 只补缺失、同 id 以本机为准（默认）；overwrite 完全替换本机数据
+        #[arg(long, value_enum, default_value_t = ImportStrategyArg::Merge)]
+        strategy: ImportStrategyArg,
+        /// 跳过风险确认（密码档包仍需输入密码）
         #[arg(long)]
         yes: bool,
     },
+}
+
+/// `config import --strategy` 的 CLI 层枚举（core `ImportStrategy` 不做 clap
+/// 绑定，遵循「core 公开 API 面冻结、两端各自实现展示枚举」的并行约定）。
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum ImportStrategyArg {
+    /// 只补缺失，同 id 冲突以本机为准（默认）
+    Merge,
+    /// 完全替换本机数据
+    Overwrite,
+}
+
+impl From<ImportStrategyArg> for quota_core::ImportStrategy {
+    fn from(value: ImportStrategyArg) -> Self {
+        match value {
+            ImportStrategyArg::Merge => Self::Merge,
+            ImportStrategyArg::Overwrite => Self::Overwrite,
+        }
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -651,9 +673,11 @@ async fn run(cli: Cli) -> i32 {
         Command::Config(ConfigCmd::Export { output, yes }) => {
             cmd::config::run_export(&ctx, output, yes)
         }
-        Command::Config(ConfigCmd::Import { input, yes }) => {
-            cmd::config::run_import(&ctx, input, yes)
-        }
+        Command::Config(ConfigCmd::Import {
+            input,
+            strategy,
+            yes,
+        }) => cmd::config::run_import(&ctx, input, yes, strategy.into()),
         Command::Update { check, yes, output } => {
             cmd::update::run(
                 &ctx,
@@ -875,6 +899,23 @@ mod tests {
             vec!["quota", "config", "export", "backup.qtray-export", "--yes"],
             vec!["quota", "config", "import", "backup.qtray-export"],
             vec!["quota", "config", "import", "backup.qtray-export", "--yes"],
+            vec![
+                "quota",
+                "config",
+                "import",
+                "backup.qtray-export",
+                "--strategy",
+                "merge",
+            ],
+            vec![
+                "quota",
+                "config",
+                "import",
+                "backup.qtray-export",
+                "--strategy",
+                "overwrite",
+                "--yes",
+            ],
             vec!["quota", "--config", "c.json", "list"],
             // --lang 三值（全局参数，可置于子命令前后）
             vec!["quota", "--lang", "zh", "list"],
@@ -892,6 +933,63 @@ mod tests {
             e.to_string().contains(quota_core::update::arch_label()),
             "--version 输出应包含平台标签"
         );
+    }
+
+    /// 契约：config import --strategy 两值可解析、缺省默认 merge、
+    /// 非法值被拒；CLI 枚举正确映射到 core ImportStrategy。
+    #[test]
+    fn config_import_strategy_parses_with_merge_default() {
+        let import = |args: &[&str]| match Cli::try_parse_from(args).unwrap().command {
+            Command::Config(ConfigCmd::Import { strategy, .. }) => strategy,
+            other => panic!("应解析为 config import：{other:?}"),
+        };
+
+        assert_eq!(
+            import(&["quota", "config", "import", "b.qtray-export"]),
+            ImportStrategyArg::Merge
+        );
+        assert_eq!(
+            import(&[
+                "quota",
+                "config",
+                "import",
+                "b.qtray-export",
+                "--strategy",
+                "merge"
+            ]),
+            ImportStrategyArg::Merge
+        );
+        assert_eq!(
+            import(&[
+                "quota",
+                "config",
+                "import",
+                "b.qtray-export",
+                "--strategy",
+                "overwrite"
+            ]),
+            ImportStrategyArg::Overwrite
+        );
+        // 映射到 core 策略（写入层语义的分界点）
+        assert_eq!(
+            quota_core::ImportStrategy::from(ImportStrategyArg::Merge),
+            quota_core::ImportStrategy::Merge
+        );
+        assert_eq!(
+            quota_core::ImportStrategy::from(ImportStrategyArg::Overwrite),
+            quota_core::ImportStrategy::Overwrite
+        );
+
+        let e = Cli::try_parse_from([
+            "quota",
+            "config",
+            "import",
+            "b.qtray-export",
+            "--strategy",
+            "sync",
+        ])
+        .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::InvalidValue);
     }
 
     /// 契约：互斥与非法参数被拒。

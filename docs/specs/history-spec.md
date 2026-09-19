@@ -92,6 +92,10 @@ CLI 查看（M5-a）提供数据底座。存储使用 SQLite（rusqlite，bundle
   `quota history clear` 逃生提示（常见根因是历史体积）。
 - 条目删除时同步 `clear(id)`（与快照孤儿过滤语义对齐）；
   配置导入**不**清本机历史（旧条目数据自然滚动淘汰）。
+- **2026-09-18 修订（spec #119 导入双模）**：合并导入不清本机历史
+  （幂等合并语义不变）；覆盖导入改为单事务清空本机后重插备份行
+  （`HistoryStore::replace_rows`，不物理换库文件；包内主键重复确定性
+  失败并整体回滚，本机历史不被半清空）。
 
 ## 6. API（quota-core::history）
 
@@ -109,6 +113,7 @@ impl HistoryStore {
     pub fn clear(&self, provider_id: Option<&str>) -> Result<(), HistoryError>;
     pub fn export_rows(&self) -> Result<Vec<HistoryExportRow>, HistoryError>;
     pub fn merge_rows(&self, rows: &[HistoryExportRow]) -> Result<(), HistoryError>;
+    pub fn replace_rows(&self, rows: &[HistoryExportRow]) -> Result<(), HistoryError>;  // 覆盖模整库替换（§5）
 }
 ```
 
