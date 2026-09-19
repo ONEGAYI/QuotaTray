@@ -17,7 +17,8 @@ use dialoguer::{Confirm, Select, theme::ColorfulTheme};
 use quota_core::{
     AppConfig, ExportOptions, HistoryExportRow, HistoryStore, ImportCounts, ImportOptions,
     ImportStrategy, TransferMode, UsageComparisonSeries, export_config_to_path_with_options,
-    import_config_to_path_with_options, inspect_transfer_container, merge_usage_comparison_series,
+    import_config_bytes_to_path_with_options, inspect_transfer_container,
+    merge_usage_comparison_series, precheck_transfer_file_size,
 };
 use zeroize::Zeroizing;
 
@@ -211,6 +212,12 @@ fn run_import_with(
     };
     // 密码档包无论 --yes 与否都要求输入密码（--yes 只跳过风险确认）。
     // 密码只经掩码交互读入，不进命令行参数；中止按交互取消处理。
+    // 读取前按元数据预拒超限（误选大文件不必先整读进内存）；inspect
+    // 判档与导入复用同一份字节，消除对同一文件的二次读取竞态窗口。
+    if let Err(e) = precheck_transfer_file_size(&input) {
+        eprintln!("{}{e}", t(ctx.lang, T::ConfigTransferFail));
+        return 1;
+    }
     let bytes = match std::fs::read(&input) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -234,8 +241,8 @@ fn run_import_with(
             return 1;
         }
     };
-    match import_config_to_path_with_options(
-        &input,
+    match import_config_bytes_to_path_with_options(
+        &bytes,
         &vault,
         &ImportOptions { password, strategy },
         &ctx.config_path,
@@ -1089,6 +1096,44 @@ mod tests {
         let merged = read_series(&target);
         assert_eq!(merged.len(), 2, "本机组合保序保留");
         assert!(merged.iter().all(|s| s.provider_id != "backup-only"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// 契约：合并模计数的两维度接线——series 维度由 apply_series_by_strategy
+    /// 按并集填充且不覆盖 core 写入层已填的 providers 维度；完成文案携带
+    /// 全部四维计数（用户可观察输出）。
+    #[test]
+    fn import_merge_counts_wiring_reaches_output() {
+        let dir = test_dir("counts-wiring");
+        let target = target_ctx_with_local_entry(&dir);
+        // 本机已有 source-entry 同键组合；备份组合一条撞键、一条新增
+        write_series(&target, &[series("source-entry", 0)]);
+        let incoming = [series("source-entry", 1), series("new-entry", 2)];
+
+        let counts = apply_series_by_strategy(
+            &target,
+            ImportStrategy::Merge,
+            Some(&incoming),
+            ImportCounts {
+                providers_added: 1,
+                providers_skipped: 1,
+                ..Default::default()
+            },
+        );
+        assert_eq!(counts.series_added, 1, "new-entry 并入");
+        assert_eq!(counts.series_skipped, 1, "source-entry 撞键跳过");
+        assert_eq!(counts.providers_added, 1, "core 维度不被接线覆盖");
+        assert_eq!(counts.providers_skipped, 1);
+        assert_eq!(read_series(&target).len(), 2, "并集落盘");
+
+        let text = texts::config_imported(
+            Lang::Zh,
+            std::path::Path::new("backup.qtray-export"),
+            false,
+            &counts,
+        );
+        assert!(text.contains("新增 1"), "文案含新增计数：{text}");
+        assert!(text.contains("跳过 1"), "文案含跳过计数：{text}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

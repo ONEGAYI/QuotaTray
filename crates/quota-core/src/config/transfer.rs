@@ -45,7 +45,9 @@ const VERSION_OFFSET: usize = MAGIC.len();
 const KEY_OFFSET: usize = VERSION_OFFSET + 2;
 const LENGTH_OFFSET: usize = KEY_OFFSET + TRANSFER_KEY_LEN;
 const HEADER_LEN: usize = LENGTH_OFFSET + 4;
-const MAX_EXPORT_SIZE: usize = 16 * 1024 * 1024;
+/// 迁移包大小上限（16 MiB）；公开给调用端在整读文件前做预检
+/// （[`precheck_transfer_file_size`]），避免误选的大文件先占满内存。
+pub const MAX_EXPORT_SIZE: usize = 16 * 1024 * 1024;
 const ENVELOPE_AAD_V1: &str = "quotatray-config-export:v1";
 const ENVELOPE_AAD_V2: &str = "quotatray-config-export:v2";
 const ENVELOPE_AAD_V3_CONVENIENT: &str = "quotatray-config-export:v3-convenient";
@@ -189,13 +191,24 @@ pub struct TransferContainerInfo {
 }
 
 /// 导出档位选项。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum ExportOptions {
     /// 便捷档：一次性 32 字节随机迁移密钥随包携带，包的保密等级等同明文凭据。
     Convenient,
     /// 密码档：口令经 Argon2id 派生密钥加密，派生密钥绝不写入容器；
     /// 口令至少 8 个字符（按 `char` 计），不足确定性拒绝。
     Password { password: String },
+}
+
+/// Debug 输出永不携带口令：口令是密码档唯一的秘密材料，任何 `{:?}`
+/// 打点（日志、断言失败、panic message）都不得泄漏。
+impl std::fmt::Debug for ExportOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportOptions::Convenient => f.write_str("Convenient"),
+            ExportOptions::Password { .. } => f.write_str("Password { password: <redacted> }"),
+        }
+    }
 }
 
 /// 导入策略：在写入层（`import_config_to_path*` 家族）决定备份如何与
@@ -216,13 +229,23 @@ pub enum ImportStrategy {
 }
 
 /// 导入选项。
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ImportOptions {
     /// 密码档容器的备份口令；便捷档容器忽略此字段。
     pub password: Option<String>,
     /// 导入策略；缺省（含旧序列化形态与 `Default`）为合并（保守）。
     #[serde(default)]
     pub strategy: ImportStrategy,
+}
+
+/// Debug 输出永不携带口令（与 [`ExportOptions`] 同一卫生标准）。
+impl std::fmt::Debug for ImportOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImportOptions")
+            .field("password", &self.password.as_deref().map(|_| "<redacted>"))
+            .field("strategy", &self.strategy)
+            .finish()
+    }
 }
 
 /// v2 容器的明文信封；可选字段缺省表示旧包未携带。
@@ -634,6 +657,14 @@ fn append_payload(prefix: &[u8], payload: &[u8]) -> Result<Vec<u8>, ConfigTransf
     Ok(bytes)
 }
 
+/// KDF 参数是否全部落在可接受范围内（单项上限防 KDF DoS；导出默认参数
+/// 远低于上限）。抽为纯函数便于三个维度各自超限/压线的边界直测。
+fn kdf_params_within_limits(memory_kib: u32, time_cost: u32, parallelism: u32) -> bool {
+    (1..=KDF_MAX_MEMORY_KIB).contains(&memory_kib)
+        && (1..=KDF_MAX_TIME_COST).contains(&time_cost)
+        && (1..=KDF_MAX_PARALLELISM).contains(&parallelism)
+}
+
 /// 用头部自描述参数从口令派生 32 字节迁移密钥（Argon2id）。
 ///
 /// 算法与参数范围校验先于派生执行：恶意容器头部在此快速失败，不会进入
@@ -651,10 +682,7 @@ fn derive_transfer_key(
             reason: "未知的密钥派生算法",
         });
     }
-    if !(1..=KDF_MAX_MEMORY_KIB).contains(&memory_kib)
-        || !(1..=KDF_MAX_TIME_COST).contains(&time_cost)
-        || !(1..=KDF_MAX_PARALLELISM).contains(&parallelism)
-    {
+    if !kdf_params_within_limits(memory_kib, time_cost, parallelism) {
         return Err(ConfigTransferError::InvalidFormat {
             reason: "密钥派生参数超出可接受范围",
         });
@@ -792,6 +820,19 @@ pub fn inspect_transfer_container(
     })
 }
 
+/// 读取前按文件元数据预拒超限迁移包（与容器解析同口径的 16 MiB 上限），
+/// 避免误选的大文件先整读进内存后才报 [`ConfigTransferError::TooLarge`]；
+/// 元数据读取失败按导入同口径透出 IO 错误。
+pub fn precheck_transfer_file_size(path: &Path) -> Result<(), ConfigTransferError> {
+    let len = std::fs::metadata(path)
+        .map_err(ConfigTransferError::Read)?
+        .len();
+    if len > MAX_EXPORT_SIZE as u64 {
+        return Err(ConfigTransferError::TooLarge);
+    }
+    Ok(())
+}
+
 /// 原子写出迁移包（可选携带历史，便捷档默认）；失败时清理同目录临时文件。
 pub fn export_config_to_path(
     config: &AppConfig,
@@ -904,7 +945,21 @@ pub fn import_config_to_path_with_options(
     options: &ImportOptions,
     config_path: &Path,
 ) -> Result<TransferBundle, ConfigTransferError> {
-    let mut bundle = import_config_from_path_with_options(export_path, target_vault, options)?;
+    let bytes = std::fs::read(export_path).map_err(ConfigTransferError::Read)?;
+    import_config_bytes_to_path_with_options(&bytes, target_vault, options, config_path)
+}
+
+/// 用已读取的容器字节完整导入（解码 + 策略写入层 + 生效计数），语义与
+/// [`import_config_to_path_with_options`] 一致；供单次读取复用同一份字节
+/// 的调用端（CLI 先 inspect 判档收口令再导入，消除对同一文件的二次读取
+/// 竞态窗口）。
+pub fn import_config_bytes_to_path_with_options(
+    bytes: &[u8],
+    target_vault: &Vault,
+    options: &ImportOptions,
+    config_path: &Path,
+) -> Result<TransferBundle, ConfigTransferError> {
+    let mut bundle = import_config_with_options(bytes, target_vault, options)?;
     bundle.counts = match options.strategy {
         ImportStrategy::Merge => {
             // 本机配置文件缺失视为空配置（首次恢复场景 → 全额并入）。
@@ -2073,6 +2128,116 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(5),
             "巨额 KDF 参数必须在派生前拒绝"
         );
+    }
+
+    /// KDF 参数上限的维度完整回归：三个维度各自超限都拒绝、恰好压线都
+    /// 放行（压线放行只测纯校验函数，不实际执行天价派生）。
+    #[test]
+    fn kdf_param_limits_cover_all_dimensions() {
+        assert!(!kdf_params_within_limits(
+            KDF_MAX_MEMORY_KIB + 1,
+            ARGON2_DEFAULT_TIME_COST,
+            ARGON2_DEFAULT_PARALLELISM
+        ));
+        assert!(!kdf_params_within_limits(
+            ARGON2_DEFAULT_MEMORY_KIB,
+            KDF_MAX_TIME_COST + 1,
+            ARGON2_DEFAULT_PARALLELISM
+        ));
+        assert!(!kdf_params_within_limits(
+            ARGON2_DEFAULT_MEMORY_KIB,
+            ARGON2_DEFAULT_TIME_COST,
+            KDF_MAX_PARALLELISM + 1
+        ));
+        assert!(kdf_params_within_limits(
+            KDF_MAX_MEMORY_KIB,
+            KDF_MAX_TIME_COST,
+            KDF_MAX_PARALLELISM
+        ));
+        assert!(!kdf_params_within_limits(0, 1, 1));
+    }
+
+    /// 口令绝不进入 Debug 输出：选项类型可能被 `{:?}` 打点（日志、断言
+    /// 失败、panic message），Debug 面必须脱敏。
+    #[test]
+    fn transfer_options_debug_redacts_password() {
+        let export = ExportOptions::Password {
+            password: "debug-secret-123".into(),
+        };
+        assert!(!format!("{export:?}").contains("debug-secret-123"));
+        assert!(format!("{export:?}").contains("Password"));
+
+        let import = ImportOptions {
+            password: Some("debug-secret-123".into()),
+            strategy: ImportStrategy::Merge,
+        };
+        assert!(!format!("{import:?}").contains("debug-secret-123"));
+        assert!(format!("{import:?}").contains("Merge"));
+    }
+
+    /// 读取前预检：超限文件按元数据快速拒绝（set_len 造稀疏大文件，
+    /// 不实际写 16 MiB 内容），不必先整读进内存。
+    #[test]
+    fn precheck_transfer_file_size_rejects_oversized_by_metadata() {
+        let oversized = temp_path("precheck-oversized", "bin");
+        let file = fs::File::create(&oversized).unwrap();
+        file.set_len(MAX_EXPORT_SIZE as u64 + 1).unwrap();
+        drop(file);
+        assert!(matches!(
+            precheck_transfer_file_size(&oversized),
+            Err(ConfigTransferError::TooLarge)
+        ));
+        let _ = fs::remove_file(oversized);
+
+        let small = temp_path("precheck-small", "bin");
+        fs::write(&small, b"qtray").unwrap();
+        assert!(precheck_transfer_file_size(&small).is_ok());
+        let _ = fs::remove_file(small);
+
+        let missing = temp_path("precheck-missing", "bin");
+        assert!(precheck_transfer_file_size(&missing).is_err());
+    }
+
+    /// 字节版写入层入口与路径版语义一致：合并并集 + 计数 + 本机配置
+    /// 缺失视为空配置全额并入。
+    #[test]
+    fn import_from_bytes_entry_applies_strategy_and_counts() {
+        let dir =
+            std::env::temp_dir().join(format!("quotatray-bytes-import-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let source_store = InMemoryStore::new();
+        let source_vault = Vault::open(&source_store).unwrap();
+        let config = sample_config(&source_vault);
+        let package = dir.join("pkg.qtray-export");
+        export_config_to_path_with_options(
+            &config,
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Convenient,
+            &package,
+        )
+        .unwrap();
+
+        let target_store = InMemoryStore::new();
+        let target_vault = Vault::open(&target_store).unwrap();
+        let config_path = dir.join("config.json");
+        let bytes = fs::read(&package).unwrap();
+        let bundle = import_config_bytes_to_path_with_options(
+            &bytes,
+            &target_vault,
+            &ImportOptions {
+                password: None,
+                strategy: ImportStrategy::Merge,
+            },
+            &config_path,
+        )
+        .unwrap();
+        assert_eq!(bundle.counts.providers_added, config.providers.len());
+        assert_eq!(bundle.counts.providers_skipped, 0);
+        let restored = AppConfig::load(&config_path).unwrap();
+        assert_eq!(restored.providers.len(), config.providers.len());
+        let _ = fs::remove_dir_all(dir);
     }
 
     // ---- 导入双模：合并并集与覆盖全量替换（工单 #121）----

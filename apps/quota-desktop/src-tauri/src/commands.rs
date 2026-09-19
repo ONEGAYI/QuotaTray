@@ -282,6 +282,8 @@ fn import_configuration_at(
     vault: &Vault,
     options: &quota_core::ImportOptions,
 ) -> Result<quota_core::TransferBundle, String> {
+    // 读取前按元数据预拒超限（误选大文件不必先整读进内存才报 TooLarge）
+    quota_core::precheck_transfer_file_size(export_path).map_err(|e| e.to_string())?;
     quota_core::import_config_to_path_with_options(export_path, vault, options, config_path)
         .map_err(|e| e.to_string())
 }
@@ -291,6 +293,7 @@ fn import_configuration_at(
 fn inspect_transfer_package_at(
     path: &std::path::Path,
 ) -> Result<quota_core::TransferContainerInfo, String> {
+    quota_core::precheck_transfer_file_size(path).map_err(|e| e.to_string())?;
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     quota_core::inspect_transfer_container(&bytes).map_err(|e| e.to_string())
 }
@@ -318,7 +321,7 @@ fn apply_history_import(
         }
     };
     if let Err(e) = result {
-        eprintln!("导入历史写入失败：{e}");
+        log::warn!("导入历史写入失败：{e}");
     }
 }
 
@@ -429,14 +432,20 @@ fn read_android_transfer_document(app: &AppHandle, uri: &str) -> Result<Vec<u8>,
     };
     let mut options = tauri_plugin_fs::OpenOptions::new();
     options.read(true);
-    let mut source = app
+    let source = app
         .fs()
         .open(path, options)
         .map_err(|e| format!("打开 Android 导入文档失败：{e}"))?;
     let mut bytes = Vec::new();
+    // SAF 流按 16 MiB 上限截断读取：超限在此拒绝，不把超大文档整读进内存
+    //（content:// 无元数据预检通道，读侧限流是唯一防线）
     source
+        .take(quota_core::MAX_EXPORT_SIZE as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("读取 Android 导入文档失败：{e}"))?;
+    if bytes.len() > quota_core::MAX_EXPORT_SIZE {
+        return Err("迁移包超过 16 MiB 上限".into());
+    }
     Ok(bytes)
 }
 
@@ -461,9 +470,11 @@ fn import_configuration_from_uri(
 ///
 /// `options` 选择导出档位（密码档/便捷档）；缺省视为便捷档，与既有
 /// 调用方兼容。保存路径为空（用户在系统保存框取消）由前端拦截，不会
-/// 到达本命令。
+/// 到达本命令。命令声明为 async：密码档含 Argon2id 派生与整体加解密
+/// 的重操作，经 tauri 线程池执行，不冻结 UI 主线程（同步命令在
+/// WebView2 事件线程内联执行）。
 #[tauri::command]
-pub fn export_configuration(
+pub async fn export_configuration(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
@@ -474,7 +485,7 @@ pub fn export_configuration(
     let history = match state.history.lock().unwrap().export_rows() {
         Ok(rows) => Some(rows),
         Err(e) => {
-            eprintln!("导出携带历史失败（将不含历史数据）：{e}");
+            log::warn!("导出携带历史失败（将不含历史数据）：{e}");
             None
         }
     };
@@ -507,9 +518,10 @@ pub fn export_configuration(
 }
 
 /// 只读识别迁移包容器（版本 + 档位），不解密、不验证密码：供导入模态
-/// 的文件信息卡在用户输入口令前展示。
+/// 的文件信息卡在用户输入口令前展示。async 使文件读取离主线程（与
+/// 导入/导出同口径）。
 #[tauri::command]
-pub fn inspect_transfer_package(
+pub async fn inspect_transfer_package(
     app: AppHandle,
     path: String,
 ) -> Result<quota_core::TransferContainerInfo, String> {
@@ -528,8 +540,10 @@ pub fn inspect_transfer_package(
 /// 的「整体替换」现状语义（覆盖 + 无口令）。策略接线：core 写入层只管
 /// config.json，历史库与 settings.json 的比较组合在此按 strategy 分叉
 /// （合并 = 幂等合并/并集，覆盖 = 整库替换/整体替换）。返回生效计数。
+/// 命令声明为 async：密码档含 Argon2id 派生（输错口令重试亦全量重派生）
+/// 与整体解密，经 tauri 线程池执行，不冻结 UI 主线程。
 #[tauri::command]
-pub fn import_configuration(
+pub async fn import_configuration(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
@@ -559,7 +573,8 @@ pub fn import_configuration(
         &options,
     )?;
     // 调用端策略接线：历史库与比较组合按 strategy 写入；失败仅告警
-    // （配置已导入成功，两者属尽力而为数据，与既有行为一致）
+    // （配置已导入成功，两者属尽力而为数据）。GUI 无 stderr 可见面，
+    // 告警经 log facade 进 JSONL 滚动日志保持可观测。
     apply_history_import(
         &state.history.lock().unwrap(),
         bundle.history.as_deref(),
@@ -582,13 +597,13 @@ pub fn import_configuration(
     if let SeriesImportDecision::Replace(value) = series_decision
         && let Err(e) = persist_usage_comparison_settings(&state, value)
     {
-        eprintln!("导入使用统计比较组合失败（配置已导入）：{e}");
+        log::warn!("导入使用统计比较组合失败（配置已导入）：{e}");
     }
     state.results.write().unwrap().clear();
     after_state_change(&app, &state);
     let provider_count = bundle.config.providers.len();
     if let Err(e) = app.emit("configuration-imported", provider_count) {
-        eprintln!("配置导入事件发送失败：{e}");
+        log::warn!("配置导入事件发送失败：{e}");
     }
     Ok(counts)
 }
