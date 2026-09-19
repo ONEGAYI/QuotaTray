@@ -1,12 +1,12 @@
 # quota-cli 子树视图
 
-CLI 前端（bin 名 `quota`）的文件树子集。数据源为 file-tree 技能 `tree.json`，下方块由脚本渲染，禁止手改；AGENTS.md 主树中 `apps/` 已折叠，本页承载明细。
+CLI 前端（bin 名 `quota`）的文件树子集。数据源为 file-tree 技能 `tree.json`，下方块由脚本渲染，禁止手改；AGENTS.md 主树中本子树折叠为一行，本页承载明细。
 
 ```
 <!-- file-tree:tree^id=apps-cli:begin 由脚本渲染，禁止手改 -->
 QuotaTray/
 └── apps/
-    └── quota-cli/ # CLI 前端（bin 名 quota）
+    └── quota-cli/ # CLI 前端（子树视图拆出）
         ├── Cargo.toml # CLI crate 清单
         ├── src/       # CLI 源码
         │   ├── cmd/           # 子命令实现（每命令一模块）

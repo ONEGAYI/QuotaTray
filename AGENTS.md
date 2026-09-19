@@ -133,7 +133,9 @@ QuotaTray/
 │       └── ci.yml              # 桌面与Android CI
 ├── .gitignore              # 忽略清单（密钥/生成物）
 ├── AGENTS.md               # 项目规则单一事实源
-├── apps/…                  # 应用层子树见 file-subtrees
+├── apps/                   # 应用层（CLI 与桌面端）
+│   ├── quota-cli/…     # CLI 前端（子树视图拆出）
+│   └── quota-desktop/… # 桌面端（子树视图拆出）
 ├── assets/                 # 仓库静态资产目录
 │   └── pics/ # README 界面截图与动图
 │       ├── 主题切换动效.webp   # 主题切换扩散动效演示

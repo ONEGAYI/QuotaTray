@@ -1,12 +1,12 @@
 # quota-desktop 子树视图
 
-桌面端（Tauri 2 + React）的文件树子集。数据源为 file-tree 技能 `tree.json`，下方块由脚本渲染，禁止手改；AGENTS.md 主树中 `apps/` 已折叠，本页承载明细。
+桌面端（Tauri 2 + React）的文件树子集。数据源为 file-tree 技能 `tree.json`，下方块由脚本渲染，禁止手改；AGENTS.md 主树中本子树折叠为一行，本页承载明细。
 
 ```
 <!-- file-tree:tree^id=apps-desktop:begin 由脚本渲染，禁止手改 -->
 QuotaTray/
 └── apps/
-    └── quota-desktop/ # 桌面端（M3 完成）
+    └── quota-desktop/ # 桌面端（子树视图拆出）
         ├── eslint.config.js    # ESLint 扁平配置
         ├── index.html          # Vite HTML 入口
         ├── package.json        # pnpm前端清单
