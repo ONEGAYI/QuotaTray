@@ -270,10 +270,12 @@ test("聚焦组合入口全平台统一药丸：桌面悬停驱动开合，移�
   assert.doesNotMatch(css, /qt-usage-mobile-focus/);
   // 2026-09-19 所有者修订：桌面开合改回悬停驱动（09-16「点击唯一路径」口径推翻），
   // enter/leave 与 focus/blur（键盘可达）四类处理器回归；悬停处理器必须经 mobile
-  // 条件不绑定——移动端触摸合成 mouseenter 会抢在 click 前展开，与点击 toggle 抵消
-  assert.match(usageStats, /onMouseEnter=\{mobile \? undefined : \(\) => setLegendOpen\(true\)\}/);
+  // 条件不绑定——移动端触摸合成 mouseenter 会抢在 click 前展开，与点击 toggle 抵消。
+  // 2026-09-21 宽限收起：打开统一经 openLegend（cancelClose + setLegendOpen(true)），
+  // 显式打开意图作废挂起的收起倒计时
+  assert.match(usageStats, /onMouseEnter=\{mobile \? undefined : openLegend\}/);
   assert.match(usageStats, /onMouseLeave=\{mobile \? undefined : \(event\) =>/);
-  assert.match(usageStats, /onFocus=\{mobile \? undefined : \(\) => setLegendOpen\(true\)\}/);
+  assert.match(usageStats, /onFocus=\{mobile \? undefined : openLegend\}/);
   assert.match(usageStats, /onBlur=\{mobile \? undefined : \(event\) =>/);
   // 键盘路径：Enter/Space 触发的 click（detail 0）才 toggle；鼠标点击不 toggle——
   // 悬停已展开，再 toggle 会在鼠标仍悬停按钮上时立刻收起引发闪烁
@@ -281,8 +283,9 @@ test("聚焦组合入口全平台统一药丸：桌面悬停驱动开合，移�
   // outside-tap 关闭随点击开合适配退役：桌面由 mouseleave/blur 收起，Esc 兜底
   assert.doesNotMatch(usageStats, /onDocMouseDown/);
   // 移动端开合保持点击 toggle；关闭必须走 closeLegend（复位 armed 删除态与陈旧
-  // 错误，不能只翻 legendOpen）
-  assert.match(usageStats, /if \(mobile\) \{ if \(legendOpen\) closeLegend\(\); else setLegendOpen\(true\); return; \}/);
+  // 错误，不能只翻 legendOpen）；打开经 openLegend 作废宽限收起（移动端无挂起
+  // 调度，其中 cancelClose 恒 no-op）
+  assert.match(usageStats, /if \(mobile\) \{ if \(legendOpen\) closeLegend\(\); else openLegend\(\); return; \}/);
   // 移动端聚焦组合为 DialogShell 模态窗（返回键/Esc/遮罩关闭走既有机制）
   assert.match(usageStats, /qt-dialog-usage-legend/);
   // 模态/浮层共用行满足 44px 触控行；行尾删除钮图标 22px 视觉直接加高命中
