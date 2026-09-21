@@ -36,6 +36,28 @@ description: QuotaTray 项目发布惯例与合规固定文本。凡准备或执
   逐 exe 断言 Machine 字段，契约测试 `scripts/package.tests.ps1`）；更新选择
   不得跨架构、跨安装/便携形态回退（core 资产选择器已实现精确匹配）。
 
+### notes 生成与核验（2026-09-21 起）
+
+- **版本号判定**：回顾 `git log <上个tag>..<目标提交>`——含 `feat` 提交则
+  minor 递增，仅 `fix`/`docs`/`chore`/`test` 则 patch 递增；Android
+  versionCode 段位约束见上节。
+- **tag 形态**：轻量 tag（`git tag vX.Y.Z`），沿用 v0.13.2 以来惯例。
+- **notes 一律脚本生成**，禁止手搓 sed/awk 提取、禁止凭记忆复述固定文本：
+
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-notes.ps1 `
+    -Version 0.14.0 -OutFile <临时路径> [-Arm64:$true] [-Android:$false]
+  ```
+
+  脚本内嵌三段固定声明并与本技能原文逐字锁定（契约测试
+  `scripts/release-notes.tests.ps1`），内置 CRLF 免疫、版本边界、行数上限、
+  无 BOM/CR 等断言。背景：v0.14.0 曾因手搓 sed 行尾锚在 CRLF 上失配把整个
+  CHANGELOG 历史吞入 notes，且手写固定文本一字走样（级别→等级）——两处
+  均由该脚本的断言与契约测试拦截。
+- **发布前完成标准（可判定）**：notes 文件全文逐行过目后方可
+  `gh release edit --notes-file`；发布后线上回读与本地文件 diff，除平台
+  尾部换行外必须全等。
+
 ### ARM64 Preview 声明（Windows on ARM）
 
 - 本节条款仅约束 **WoA 资产**（`*-arm64-preview*.zip` 与 NSIS）；Android APK 资产
@@ -70,4 +92,5 @@ description: QuotaTray 项目发布惯例与合规固定文本。凡准备或执
 
 - 使用 `gh release create --notes` 时，notes 顺序为：版本 CHANGELOG 完整内容 → Portable
   固定安全提示 → ARM64 Preview 声明（本次含 WoA ARM64 资产时）→ Android Preview
-  声明（本次含 APK 资产时）。
+  声明（本次含 APK 资产时）。该顺序由 `scripts/release-notes.ps1` 自动组装并经
+  契约测试锁定，手写组装视为违规。

@@ -254,9 +254,9 @@ QuotaTray/
 ├── README.md               # 中文项目自述
 ├── rust-toolchain.toml     # 锁定开发与CI工具链
 ├── scripts/                # 维护脚本
-│   ├── clean.ps1         # 分级清理器
-│   ├── clean.tests.ps1   # 清理器契约测试
-│   ├── fetch_pricing/    # 官网定价确定性抓取脚本集
+│   ├── clean.ps1               # 分级清理器
+│   ├── clean.tests.ps1         # 清理器契约测试
+│   ├── fetch_pricing/          # 官网定价确定性抓取脚本集
 │   │   ├── fetch_pricing.py # 抓取主入口：路由与一键全抓
 │   │   ├── providers/       # 平台抓取组件目录
 │   │   │   ├── __init__.py # Provider 协议声明与通用件导出
@@ -268,8 +268,10 @@ QuotaTray/
 │   │   └── tests/           # 契约测试与快照
 │   │       ├── fetch_pricing.tests.py # 抓取契约测试
 │   │       └── fixtures/…             # 官网页 HTML 固化快照
-│   ├── package.ps1       # 一键发布资产打包脚本
-│   └── package.tests.ps1 # 打包脚本契约测试
+│   ├── package.ps1             # 一键发布资产打包脚本
+│   ├── package.tests.ps1       # 打包脚本契约测试
+│   ├── release-notes.ps1       # Release notes 组装脚本
+│   └── release-notes.tests.ps1 # Release notes 组装契约测试
 └── setup-hooks.cmd         # git hooks 配置入口（幂等）
 <!-- file-tree:tree:end -->
 ```
