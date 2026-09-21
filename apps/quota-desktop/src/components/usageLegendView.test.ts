@@ -1,5 +1,107 @@
 import { describe, expect, it } from "vitest";
-import { buildLegendItems, focusPlatformInfo, legendTriggerVisible, pressLegendRemove, toggleSeriesFocus } from "./usageLegendView";
+import { buildLegendItems, createLegendHoverController, focusPlatformInfo, LEGEND_CLOSE_GRACE_MS, legendTriggerVisible, pressLegendRemove, toggleSeriesFocus } from "./usageLegendView";
+
+function fakeTimers() {
+  // 对齐浏览器语义：fire 之后的 clear 是 no-op（clearTimeout 对已触发的 id 无作用）
+  const entries: { id: number; ms: number; fire: () => void; cleared: boolean; fired: boolean }[] = [];
+  let seq = 0;
+  const timers = {
+    set: (callback: () => void, ms: number) => {
+      const id = ++seq;
+      entries.push({ id, ms, fire: callback, cleared: false, fired: false });
+      return id;
+    },
+    clear: (id: number) => {
+      const entry = entries.find((item) => item.id === id);
+      if (entry && !entry.fired) entry.cleared = true;
+    },
+  };
+  const fireDue = () => {
+    for (const entry of [...entries]) if (!entry.cleared && !entry.fired) { entry.fired = true; entry.fire(); }
+  };
+  return { timers, entries, fireDue };
+}
+
+describe("悬停浮层收起宽限（移出后延迟收起，期间回来即取消）", () => {
+  it("移出触发区后到点收恰一次", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; }, fake.timers);
+    controller.scheduleClose();
+    fake.fireDue();
+    expect(closed).toBe(1);
+  });
+
+  it("登记的延迟时长为 LEGEND_CLOSE_GRACE_MS", () => {
+    const fake = fakeTimers();
+    const controller = createLegendHoverController(() => {}, fake.timers);
+    controller.scheduleClose();
+    expect(fake.entries[fake.entries.length - 1]?.ms).toBe(LEGEND_CLOSE_GRACE_MS);
+  });
+
+  it("宽限期内回到触发区或浮层，取消待执行的收起", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; }, fake.timers);
+    controller.scheduleClose();
+    controller.cancelClose();
+    fake.fireDue();
+    expect(closed).toBe(0);
+  });
+
+  it("连续移出（空隙间往返多次触发 mouseleave）只保留最后一笔，旧倒计时被清除", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; }, fake.timers);
+    controller.scheduleClose();
+    controller.scheduleClose();
+    expect(fake.entries[0].cleared).toBe(true);
+    fake.fireDue();
+    expect(closed).toBe(1);
+  });
+
+  it("组件卸载（dispose）后不再收起，且后续调度不再登记倒计时", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; }, fake.timers);
+    controller.scheduleClose();
+    controller.dispose();
+    controller.scheduleClose();
+    expect(fake.entries.every((entry) => entry.cleared)).toBe(true);
+    fake.fireDue();
+    expect(closed).toBe(0);
+  });
+
+  it("未调度时取消与收起互不干扰（no-op 安全）", () => {
+    const fake = fakeTimers();
+    const controller = createLegendHoverController(() => {}, fake.timers);
+    expect(() => controller.cancelClose()).not.toThrow();
+    expect(fake.entries).toHaveLength(0);
+  });
+
+  it("close 回调内自取消（closeLegend 首行 cancelClose 的生产形态）：恰收起一次且后续调度不受污染", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; controller.cancelClose(); }, fake.timers);
+    controller.scheduleClose();
+    fake.fireDue();
+    expect(closed).toBe(1);
+    controller.scheduleClose();
+    fake.fireDue();
+    expect(closed).toBe(2);
+  });
+
+  it("移出→宽限内返回→再移出→到期：整链恰收起一次", () => {
+    const fake = fakeTimers();
+    let closed = 0;
+    const controller = createLegendHoverController(() => { closed += 1; }, fake.timers);
+    controller.scheduleClose();
+    controller.cancelClose();
+    controller.scheduleClose();
+    fake.fireDue();
+    expect(closed).toBe(1);
+  });
+});
 
 describe("使用统计聚焦组合 popover 逻辑", () => {
   it("已有组合时显示入口（全平台统一药丸，移动端开模态窗）", () => {

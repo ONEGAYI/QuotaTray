@@ -68,3 +68,50 @@ export function focusPlatformInfo(
   const last = scope ? scope.samples[scope.samples.length - 1] : undefined;
   return { name: item.name, colorSlot: item.colorSlot, value: last ? last.value : null, metric: scope?.metric ?? "percent" };
 }
+
+/** 悬停浮层收起宽限：移出后延迟收起，期间回到触发钮或浮层（含空隙往返）即取消。
+ *  240 为需求口径（docs/测试单/2026-09-16 聚焦组合模态窗端测清单.md 桌面回归），
+ *  调整体感时改此值并同步该文档 */
+export const LEGEND_CLOSE_GRACE_MS = 240;
+
+export interface LegendHoverTimers {
+  set: (callback: () => void, ms: number) => number;
+  clear: (id: number) => void;
+}
+
+const windowTimers: LegendHoverTimers = {
+  set: (callback, ms) => window.setTimeout(callback, ms),
+  clear: (id) => window.clearTimeout(id),
+};
+
+export interface LegendHoverController {
+  /** 鼠标移出触发区（容器 mouseleave）：启动/重置收起倒计时 */
+  scheduleClose(): void;
+  /** 鼠标回到触发区或浮层（容器 mouseenter）：取消待执行的收起 */
+  cancelClose(): void;
+  /** 组件卸载：取消倒计时并停止后续调度 */
+  dispose(): void;
+}
+
+export function createLegendHoverController(close: () => void, timers: LegendHoverTimers = windowTimers): LegendHoverController {
+  let pending: number | null = null;
+  let disposed = false;
+  const clearPending = () => {
+    if (pending !== null) {
+      timers.clear(pending);
+      pending = null;
+    }
+  };
+  return {
+    scheduleClose() {
+      if (disposed) return;
+      clearPending();
+      pending = timers.set(close, LEGEND_CLOSE_GRACE_MS);
+    },
+    cancelClose: clearPending,
+    dispose() {
+      disposed = true;
+      clearPending();
+    },
+  };
+}
