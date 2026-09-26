@@ -514,3 +514,28 @@ describe("代理字段 draft 往返（#133 网络环境页）", () => {
     expect(proxyPortFromInput("")).toBeNull();
   });
 });
+
+describe("低余额阈值与消息文案（剩余语义，T-22）", () => {
+  it("settings 阈值说明为剩余方向（双语成对，不含已用措辞）", () => {
+    expect(zh["settings.thresholdHint"]).toContain("剩余");
+    expect(zh["settings.thresholdHint"]).not.toContain("已用");
+    expect(en["settings.thresholdHint"]).toContain("remaining");
+    expect(en["settings.thresholdHint"]).not.toContain("usage reaches");
+    // 与恢复阈值提示同为剩余比例口径（T-21 已改，方向一致不回退）
+    expect(zh["settings.recoveryThresholdHint"]).toContain("剩余");
+    expect(en["settings.recoveryThresholdHint"]).toContain("remaining");
+  });
+
+  it("msgCenter 低余额正文与后端 low_balance_notify_body 成对：剩余措辞、占位 remaining", () => {
+    expect(zh["msgCenter.lowBalanceBody"]).toBe("{name} 剩余 {remaining}%");
+    expect(en["msgCenter.lowBalanceBody"]).toBe("{name} has {remaining}% left");
+  });
+
+  it("hover 主数值 label 翻转为剩余额度（键随语义更名，双语成对）", () => {
+    expect(zh["hover.remainingQuota"]).toBe("剩余额度");
+    expect(en["hover.remainingQuota"]).toBe("Remaining");
+    // 旧键不得残留（防止引用悬空或口径回退）
+    expect("hover.usedQuota" in zh).toBe(false);
+    expect("hover.usedQuota" in en).toBe(false);
+  });
+});

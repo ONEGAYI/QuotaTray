@@ -23,8 +23,8 @@ import {
   exactTime,
   kindLabel,
   relativeTime,
+  remainingPercent,
   resetCountdown,
-  usedPercent,
   windowShortLabel,
 } from "../display";
 import { useLang } from "../i18n";
@@ -63,22 +63,25 @@ interface Props {
   isDragSource?: boolean;
 }
 
-/** 主数值区取值：百分比优先，否则剩余额度。多窗口时 label 带窗口短标签。 */
+/** 主数值区取值（T-22 剩余口径）：百分比优先（剩余百分比），否则剩余
+ *  额度。多窗口时 label 带窗口短标签。金额分支 label 保留「可用余额」——
+ *  其值本就是 remaining 绝对值、无方向可翻，与百分比分支的「剩余」族
+ *  语义等价（双语契约见 ProviderCard.test）。 */
 function primaryValue(data: UsageData | undefined, lang: "zh" | "en", windowLabel?: string) {
   if (!data) return { value: "—", unit: "", label: lang === "zh" ? "暂无数据" : "No data" };
   const zh = lang === "zh";
-  const percent = usedPercent(data);
+  const percent = remainingPercent(data);
   if (percent != null) {
     return {
       value: `${Math.round(percent)}%`,
       unit: "",
       label: windowLabel
         ? zh
-          ? `已用 ${windowLabel}`
-          : `Used ${windowLabel}`
+          ? `剩余 ${windowLabel}`
+          : `Remaining ${windowLabel}`
         : zh
-          ? "已用额度"
-          : "Used",
+          ? "剩余额度"
+          : "Remaining",
     };
   }
   if (data.remaining != null) {
@@ -203,8 +206,10 @@ export const ProviderCard = memo(function ProviderCard({
     : (entry.pricing?.model ?? undefined);
   const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
   const showModelSelect = modelChoices.length > (hasImplicitDefaultChoice ? 1 : 0);
+  // 红色高亮（T-22 方向翻转）：剩余 ≤ 阈值触发，与后端 low_balance_breach
+  // 同时机；算不出剩余百分比（null）视为永不触发（Infinity 占位）。
   const thresholdStates = view.data.map(
-    (data) => (usedPercent(data) ?? -1) >= thresholdPercent,
+    (data) => (remainingPercent(data) ?? Infinity) <= thresholdPercent,
   );
   const overThreshold = thresholdStates[0] ?? false;
   const anyOverThreshold = thresholdStates.some(Boolean);
@@ -521,7 +526,7 @@ export const ProviderCard = memo(function ProviderCard({
               {t("card.refreshEvery", { minutes: intervalMinutes })}
             </div>
           )}
-          {view.data.length === 1 && mainData?.total != null && usedPercent(mainData) == null && (
+          {view.data.length === 1 && mainData?.total != null && remainingPercent(mainData) == null && (
             <p className="qt-provider-total">
               {t("card.totalQuota", { total: mainData.total })}
             </p>
