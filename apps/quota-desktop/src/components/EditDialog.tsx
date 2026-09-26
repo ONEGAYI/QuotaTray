@@ -482,6 +482,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 apiKey={apiKey}
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
+                primaryMetric={initial?.primary_metric}
                 mobile={mobile}
               />
             )}
@@ -515,6 +516,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 apiKey={apiKey}
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
+                primaryMetric={initial?.primary_metric}
                 mobile={mobile}
               />
             )}
@@ -601,6 +603,9 @@ function TemplateForm(props: {
   apiKey2: string;
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
+  /** 条目主度量偏好（T-24）：试查反馈区 dataSummary 消费；编辑已有
+   *  条目时取已保存值（保存草稿联动由偏好控件任务接入） */
+  primaryMetric?: ProviderEntry["primary_metric"];
   mobile: boolean;
 }) {
   const { t, lang } = useLang();
@@ -734,7 +739,7 @@ function TemplateForm(props: {
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
-                  {dataSummary(d, lang)}
+                  {dataSummary(d, lang, props.primaryMetric)}
                 </p>
               ))}
             </div>
@@ -777,6 +782,9 @@ function ScriptForm(props: {
   apiKey2: string;
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
+  /** 条目主度量偏好（T-24）：试查反馈区 dataSummary 消费；编辑已有
+   *  条目时取已保存值（保存草稿联动由偏好控件任务接入） */
+  primaryMetric?: ProviderEntry["primary_metric"];
   mobile: boolean;
 }) {
   const { t, lang } = useLang();
@@ -893,7 +901,7 @@ function ScriptForm(props: {
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
-                  {dataSummary(d, lang)}
+                  {dataSummary(d, lang, props.primaryMetric)}
                 </p>
               ))}
             </div>

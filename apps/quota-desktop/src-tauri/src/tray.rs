@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use quota_core::pricing::{self, PeakKind};
-use quota_core::{AppConfig, CustomModelDef, PlanKind, ProviderEntry};
+use quota_core::{AppConfig, CustomModelDef, PlanKind, PrimaryMetric, ProviderEntry};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -64,12 +64,18 @@ pub(crate) const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
 /// - 确定性失败：`名称 · ⚠ 错误摘要`（立即透出，不展示旧值）；
 /// - `is_valid=false`：`名称 · ⚠ 已失效：原因`；
 /// - 剩余百分比 ≤ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
+///
+/// 主度量偏好分档（T-24，#142）：`metric` 来自条目 `primary_metric`——
+/// amount 档金额行优先、auto/percent 维持推断基线（百分比优先）；指定
+/// 度量某窗口算不出时逐窗口静默回退另一度量（与前端 display.ts 的
+/// dataSummary 成对）。⚠ 判定不随偏好变化（阈值恒为剩余百分比口径）。
 pub fn entry_lines(
     name: &str,
     state: &EntryState,
     threshold_percent: u8,
     now_ms: u64,
     lang: Lang,
+    metric: PrimaryMetric,
 ) -> Vec<String> {
     let t = lang.texts();
     let warn = |line: String, over: bool| {
@@ -135,28 +141,31 @@ pub fn entry_lines(
                     .unwrap_or_else(|| lang.window_name(i + 1))
             ),
         };
-        let body = if let Some(pct) = quota_core::remaining_percent(d) {
-            format!(
+        // 两度量各自可算才有行体；偏好只定先后（T-24），算不出回退另一度量
+        let percent_line = || {
+            let pct = quota_core::remaining_percent(d)?;
+            Some(format!(
                 "{name} · {window}{}",
                 lang.remaining_percent_text(&percent_text(pct))
-            )
-        } else if let (Some(rem), unit) = (d.remaining, d.unit.clone()) {
-            match unit {
-                Some(u) if !u.is_empty() => {
-                    format!(
-                        "{name} · {window}{}",
-                        lang.remaining_text(&amount_text(rem), Some(&u))
-                    )
-                }
-                Some(_) | None => {
-                    format!(
-                        "{name} · {window}{}",
-                        lang.remaining_text(&amount_text(rem), None)
-                    )
-                }
-            }
+            ))
+        };
+        let amount_line = || {
+            let rem = d.remaining?;
+            let unit = d.unit.as_deref().filter(|u| !u.is_empty());
+            Some(format!(
+                "{name} · {window}{}",
+                lang.remaining_text(&amount_text(rem), unit)
+            ))
+        };
+        let fetched_line = || format!("{name} · {window}{}", t.fetched);
+        let body = if metric == PrimaryMetric::Amount {
+            amount_line()
+                .or_else(percent_line)
+                .unwrap_or_else(fetched_line)
         } else {
-            format!("{name} · {window}{}", t.fetched)
+            percent_line()
+                .or_else(amount_line)
+                .unwrap_or_else(fetched_line)
         };
         let over =
             quota_core::remaining_percent(d).is_some_and(|p| p <= f64::from(threshold_percent));
@@ -502,6 +511,7 @@ fn build_menu(
                     settings.low_balance_remaining_percent,
                     now,
                     lang,
+                    entry.primary_metric,
                 ),
                 None => vec![format!("{} · {}", entry.name, t.no_data)],
             };
@@ -735,12 +745,24 @@ mod tests {
     /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行（阈值硬编码 20，
     /// 与新默认同值——剩余口径）。
     fn assert_both(name: &str, st: &EntryState, zh: Vec<&str>, en: Vec<&str>) {
+        assert_both_metric(name, st, quota_core::PrimaryMetric::Auto, zh, en);
+    }
+
+    /// 双语断言辅助（带主度量偏好，T-24）：同一状态在 zh/en 下各自匹配
+    /// 期望行（阈值硬编码 20，与 assert_both 同源）。
+    fn assert_both_metric(
+        name: &str,
+        st: &EntryState,
+        metric: quota_core::PrimaryMetric,
+        zh: Vec<&str>,
+        en: Vec<&str>,
+    ) {
         assert_eq!(
-            entry_lines(name, st, 20, NOW, Lang::Zh),
+            entry_lines(name, st, 20, NOW, Lang::Zh, metric),
             zh.into_iter().map(String::from).collect::<Vec<_>>()
         );
         assert_eq!(
-            entry_lines(name, st, 20, NOW, Lang::En),
+            entry_lines(name, st, 20, NOW, Lang::En, metric),
             en.into_iter().map(String::from).collect::<Vec<_>>()
         );
     }
@@ -1046,6 +1068,112 @@ mod tests {
         );
     }
 
+    /// 契约：主度量偏好分档（T-24）——amount 档金额行优先（即使可算
+    /// 百分比），auto/percent 维持推断基线（百分比优先）；指定度量算不出
+    /// 时静默回退另一度量（与前端 display.ts dataSummary 成对）。
+    #[test]
+    fn primary_metric_preference_branching() {
+        use quota_core::PrimaryMetric;
+        // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+        let both = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            remaining: Some(62.97),
+            unit: Some("CNY".into()),
+            ..Default::default()
+        };
+        let st = ok_state(vec![both], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Auto,
+            vec!["X · 剩余 85% · 刚刚"],
+            vec!["X · Left 85% · just now"],
+        );
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Percent,
+            vec!["X · 剩余 85% · 刚刚"],
+            vec!["X · Left 85% · just now"],
+        );
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 62.97 CNY · 刚刚"],
+            vec!["X · Left 62.97 CNY · just now"],
+        );
+
+        // 回退：amount 档无 remaining → 剩余百分比
+        let st = ok_state(vec![percent_data(Some(42.0))], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 58% · 刚刚"],
+            vec!["X · Left 58% · just now"],
+        );
+        // 回退：percent 档算不出百分比 → 剩余金额
+        let st = ok_state(vec![data(Some(62.97), Some("CNY"))], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Percent,
+            vec!["X · 剩余 62.97 CNY · 刚刚"],
+            vec!["X · Left 62.97 CNY · just now"],
+        );
+    }
+
+    /// 契约：amount 档混合窗口逐窗口回退——金额窗口（有 remaining）用
+    /// 金额行，纯百分比窗口静默回退百分比行；金额单位为空串时不带单位。
+    #[test]
+    fn amount_preference_per_window_fallback() {
+        use quota_core::PrimaryMetric;
+        let mcp = UsageData {
+            plan_name: Some("mcp".into()),
+            used: Some(30.0),
+            total: Some(200.0),
+            remaining: Some(62.97),
+            unit: Some("CNY".into()),
+            ..Default::default()
+        };
+        let five_hour = UsageData {
+            plan_name: Some("five_hour".into()),
+            used: Some(42.0),
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        let st = ok_state(vec![mcp, five_hour], NOW);
+        assert_both_metric(
+            "GLM",
+            &st,
+            PrimaryMetric::Amount,
+            vec![
+                "GLM · mcp 剩余 62.97 CNY · 刚刚",
+                "GLM · five_hour 剩余 58% · 刚刚",
+            ],
+            vec![
+                "GLM · mcp Left 62.97 CNY · just now",
+                "GLM · five_hour Left 58% · just now",
+            ],
+        );
+        // 金额单位缺失/空串：金额行不带单位后缀（现状分支语义保持）
+        let no_unit = UsageData {
+            plan_name: None,
+            remaining: Some(5.0),
+            ..Default::default()
+        };
+        let st = ok_state(vec![no_unit], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 5.00 · 刚刚"],
+            vec!["X · Left 5.00 · just now"],
+        );
+    }
+
     /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」
     /// （百分比行剩余口径）。
     #[test]
@@ -1147,7 +1275,7 @@ mod tests {
             ..Default::default()
         };
         for lang in [Lang::Zh, Lang::En] {
-            let line = &entry_lines("X", &st, 80, NOW, lang)[0];
+            let line = &entry_lines("X", &st, 80, NOW, lang, quota_core::PrimaryMetric::Auto)[0];
             // X · ⚠ + 60 字符
             assert!(line.chars().count() < 70, "应截断：{line}");
             assert!(!line.contains(&"错".repeat(61)), "不得超出截断上限");

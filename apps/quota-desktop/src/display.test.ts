@@ -161,6 +161,37 @@ describe("单窗口主文案 dataSummary（剩余口径，T-22）", () => {
   });
 });
 
+describe("主度量偏好分档 dataSummary（T-24，与 tray.rs entry_lines 成对）", () => {
+  // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+  const both = { used: 30, total: 200, remaining: 62.97, unit: "CNY" };
+
+  it("auto/percent 档维持推断基线：百分比优先（现状顺序不回归）", () => {
+    expect(dataSummary(both, "zh", "auto")).toBe("剩余 85%");
+    expect(dataSummary(both, "en", "auto")).toBe("Left 85%");
+    expect(dataSummary(both, "zh", "percent")).toBe("剩余 85%");
+    expect(dataSummary(both, "en", "percent")).toBe("Left 85%");
+  });
+
+  it("amount 档金额文案优先——即使可算百分比（本 spec 原始诉求：余额型主看金额）", () => {
+    expect(dataSummary(both, "zh", "amount")).toBe("剩余 62.97 CNY");
+    expect(dataSummary(both, "en", "amount")).toBe("Left 62.97 CNY");
+  });
+
+  it("指定度量算不出时静默回退另一度量（逐窗口独立判定）", () => {
+    // amount 档无 remaining → 回退剩余百分比
+    expect(dataSummary({ used: 42, unit: "%" }, "zh", "amount")).toBe("剩余 58%");
+    expect(dataSummary({ used: 42, unit: "%" }, "en", "amount")).toBe("Left 58%");
+    // percent 档算不出百分比 → 回退金额
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "zh", "percent")).toBe("剩余 62.97 CNY");
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "en", "percent")).toBe("Left 62.97 CNY");
+  });
+
+  it("两度量皆缺：各档统一已获取回退（双语）", () => {
+    expect(dataSummary({ used: 10 }, "zh", "amount")).toBe("已获取");
+    expect(dataSummary({ used: 10 }, "en", "percent")).toBe("Fetched");
+  });
+});
+
 describe("多窗口短标签", () => {
   it("提取 plan_name 的全角括号内容，week 映射为双语", () => {
     expect(windowShortLabel("GLM Coding Plan（5h）", 0, "zh")).toBe("5h");
