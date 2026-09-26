@@ -1062,7 +1062,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::config::{PlanVariant, ProviderEntry, ProviderKind};
+    use crate::config::{PlanVariant, PrimaryMetric, ProviderEntry, ProviderKind};
     use crate::pricing::{CustomModelDef, PriceTier, PricingConfig};
     use crate::vault::{InMemoryStore, SecretStore};
 
@@ -1095,6 +1095,7 @@ mod tests {
                 ..Default::default()
             }),
             plan_variant: PlanVariant::Weekly,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -1121,6 +1122,7 @@ mod tests {
             base_url: Some("https://template.example.test".into()),
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -1471,6 +1473,38 @@ mod tests {
         let bundle = import_config(&bytes, &target_vault).unwrap();
 
         assert_eq!(bundle.usage_comparison_series, Some(comparison));
+    }
+
+    /// 契约：条目主度量偏好随迁移包走——偏好字段随 AppConfig 整体进包，
+    /// 导出导入 roundtrip 后非 Auto 偏好保真；缺省 Auto 条目保持缺省。
+    #[test]
+    fn primary_metric_roundtrips_inside_transfer_bundle() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut config = sample_config(&source_vault);
+        config.providers[0].primary_metric = PrimaryMetric::Percent;
+        config.providers[1].primary_metric = PrimaryMetric::Amount;
+
+        let bytes = export_config(&config, &source_vault, None).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+
+        assert_eq!(
+            bundle.config.providers[0].primary_metric,
+            PrimaryMetric::Percent
+        );
+        assert_eq!(
+            bundle.config.providers[1].primary_metric,
+            PrimaryMetric::Amount
+        );
+
+        // 缺省 Auto 条目 roundtrip 后仍为缺省
+        config.providers[0].primary_metric = PrimaryMetric::Auto;
+        let bytes = export_config(&config, &source_vault, None).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+        assert_eq!(
+            bundle.config.providers[0].primary_metric,
+            PrimaryMetric::Auto
+        );
     }
 
     #[test]
@@ -2256,6 +2290,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };

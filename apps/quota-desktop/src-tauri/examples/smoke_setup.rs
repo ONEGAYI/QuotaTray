@@ -74,6 +74,7 @@ fn main() {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -108,6 +109,7 @@ fn main() {
         base_url: Some(mock_url),
         pricing: None,
         plan_variant: PlanVariant::Auto,
+        primary_metric: Default::default(),
         use_proxy: false,
         console_url: None,
     };

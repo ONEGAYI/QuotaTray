@@ -14,7 +14,7 @@ use crate::vault::Vault;
 mod provider;
 mod transfer;
 
-pub use provider::{Credentials, PlanVariant, ProviderKind};
+pub use provider::{Credentials, PlanVariant, PrimaryMetric, ProviderKind};
 pub use transfer::{
     CONFIG_EXPORT_EXTENSION, ConfigTransferError, ExportOptions, ImportCounts, ImportOptions,
     ImportStrategy, MAX_EXPORT_SIZE, MAX_USAGE_COMPARISON_SERIES, TransferBundle,
@@ -53,6 +53,10 @@ pub struct ProviderEntry {
     /// 订阅套餐变体（默认 Auto 不落盘，旧配置天然兼容；语义见定义处）。
     #[serde(default, skip_serializing_if = "PlanVariant::is_auto")]
     pub plan_variant: PlanVariant,
+    /// 主度量展示偏好（默认 Auto 不落盘，旧配置天然兼容；语义见定义处
+    /// 与 CONTEXT.md「主度量」词条）。未知值 serde 拒绝（deny 惯例）。
+    #[serde(default, skip_serializing_if = "PrimaryMetric::is_auto")]
+    pub primary_metric: PrimaryMetric,
     /// 查询是否走代理（条目级开关，默认 false 直连）。代理端口来自
     /// settings.json 的全局网络代理端口——开启但未配端口时查询报
     /// 确定性引导错误。旧配置无此字段天然兼容。
@@ -212,6 +216,41 @@ mod tests {
         );
     }
 
+    /// 契约：primary_metric 为三值偏好字段（PlanVariant 同模式）——
+    /// 旧配置（无该字段）缺省 Auto；Auto 不落盘；三值合法且 roundtrip
+    /// 保真；未知值 serde 拒绝（config.json 严格解析，deny 惯例）。
+    #[test]
+    fn primary_metric_field_compat() {
+        let base = r#"{"id":"e1","name":"n","kind":{"type":"native","provider":"deepseek"}}"#;
+        // 旧配置无该字段 → 缺省 Auto；Auto 序列化省略字段
+        let e: ProviderEntry = serde_json::from_str(base).unwrap();
+        assert_eq!(e.primary_metric, PrimaryMetric::Auto);
+        assert!(
+            !serde_json::to_string(&e)
+                .unwrap()
+                .contains("primary_metric"),
+            "Auto 应省略字段"
+        );
+        // 三值各自合法且 roundtrip 保真（snake_case）
+        for (raw, value) in [
+            ("\"auto\"", PrimaryMetric::Auto),
+            ("\"percent\"", PrimaryMetric::Percent),
+            ("\"amount\"", PrimaryMetric::Amount),
+        ] {
+            let json = format!(
+                r#"{{"id":"e1","name":"n","kind":{{"type":"native","provider":"deepseek"}},"primary_metric":{raw}}}"#
+            );
+            let e: ProviderEntry = serde_json::from_str(&json).unwrap();
+            assert_eq!(e.primary_metric, value);
+            let back: ProviderEntry =
+                serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+            assert_eq!(back.primary_metric, value);
+        }
+        // 未知值拒绝（手写错值整配置加载失败，与 PlanVariant 行为一致）
+        let bad = r#"{"id":"e1","name":"n","kind":{"type":"native","provider":"deepseek"},"primary_metric":"ratio"}"#;
+        assert!(serde_json::from_str::<ProviderEntry>(bad).is_err());
+    }
+
     /// 契约：保存后加载 roundtrip 无损。
     #[test]
     fn save_load_roundtrip() {
@@ -242,6 +281,7 @@ mod tests {
                 base_url: None,
                 pricing: None,
                 plan_variant: Default::default(),
+                primary_metric: Default::default(),
                 use_proxy: false,
                 console_url: None,
             }],
@@ -334,6 +374,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -369,6 +410,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -396,6 +438,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -440,6 +483,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -463,6 +507,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };

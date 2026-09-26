@@ -249,6 +249,7 @@ pub fn assemble_entry(
         base_url,
         pricing: None,
         plan_variant,
+        primary_metric: Default::default(),
         use_proxy,
         console_url: None,
     };
@@ -490,6 +491,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         });
@@ -521,6 +523,7 @@ mod tests {
                 base_url: None,
                 pricing: None,
                 plan_variant: PlanVariant::Auto,
+                primary_metric: Default::default(),
                 use_proxy: false,
                 console_url: None,
             };
