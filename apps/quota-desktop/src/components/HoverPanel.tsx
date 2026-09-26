@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, kindLabel, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "../display";
+import { amountText, dataSummary, kindLabel, relativeTime, remainingPercent, resetCountdown, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -316,10 +316,13 @@ function HoverPanelInner() {
               </section>
             )}
 
-            {!compact && visibleWindows.some((item) => usedPercent(item) != null) && (
+            {!compact && visibleWindows.some((item) => remainingPercent(item) != null) && (
               <section className="qt-hover-usage-list">
                 {visibleWindows.map((item, index) => {
-                  const percent = usedPercent(item);
+                  // 进度条按剩余比例填充（PR #146 review）：与同行文案
+                  // 「剩余 N%」、圆环三口径一致——剩余越多填充越多，
+                  // 不再按已用填充（文案与视觉方向相反即 spec Problem 原句）。
+                  const percent = remainingPercent(item);
                   const reset = resetCountdown(item.reset_at);
                   return (
                     <div className="qt-hover-usage" key={`${item.plan_name ?? "window"}-${index}`}>
