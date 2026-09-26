@@ -2,7 +2,7 @@
 // 语义与 Rust 侧 tray.rs / i18n.rs 纯函数成对——分档边界、剩余/已用措辞
 // 两端保持一致，修改任一侧须同步另一侧。
 import type { UiLang } from "./i18n/zh";
-import type { ProviderEntry, UsageData } from "./types";
+import type { PrimaryMetric, ProviderEntry, UsageData } from "./types";
 
 /** 条目类型标签（平台副标题）：native 用平台名，模板/脚本各归各
  *  （与 CLI render.rs kind_label 成对，script 不得落入模板文案）。 */
@@ -185,4 +185,29 @@ export function windowShortLabel(
   if (!raw) return zh ? `窗口 ${index + 1}` : `window ${index + 1}`;
   if (raw === "week") return zh ? "周限" : "weekly";
   return raw;
+}
+
+/** 主度量偏好回退检测（spec #137 T-23，纯函数）：条目偏好与各窗口数据
+ *  形态比对，返回需回退的窗口名清单——percent 偏好下无百分比原材料
+ *  （remainingPercent 算不出）的窗口回退金额；amount 偏好下无剩余金额
+ *  （remaining 缺失）的窗口回退百分比；auto 按数据推断、无回退概念，
+ *  恒返回空清单。回退方向由偏好唯一决定（percent→金额 / amount→百分比），
+ *  调用方（试查回退 toast 等）直接按偏好取文案，不重复判定。
+ *  窗口名取 plan_name 全名（toast 要可识别的窗口名，不做括号短化），
+ *  无名窗口回退序数（与 windowShortLabel 的无名分支同措辞）。 */
+export function metricFallbackWindows(
+  preference: PrimaryMetric,
+  windows: UsageData[],
+  lang: UiLang,
+): string[] {
+  if (preference !== "percent" && preference !== "amount") return [];
+  const zh = lang === "zh";
+  const names: string[] = [];
+  windows.forEach((d, index) => {
+    const needsFallback =
+      preference === "percent" ? remainingPercent(d) == null : d.remaining == null;
+    if (!needsFallback) return;
+    names.push(d.plan_name ?? (zh ? `窗口 ${index + 1}` : `window ${index + 1}`));
+  });
+  return names;
 }

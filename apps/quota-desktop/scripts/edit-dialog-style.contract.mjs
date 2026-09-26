@@ -80,20 +80,34 @@ test("脚本形态效仿模板二级子页分栏", () => {
   );
 });
 
-test("三形态字段序：凭据（key）优先，控制台地址次之，峰谷定价殿后", () => {
-  // template/script 两个 provider 子页：baseUrl → 凭据 →（卡片闭合）→ 控制台 → 定价
+test("三形态字段序：凭据（key）优先，控制台地址次之，主度量偏好再次，峰谷定价殿后", () => {
+  // template/script 两个 provider 子页：baseUrl → 凭据 →（卡片闭合）→ 控制台 → 主度量 → 定价
   const providerSeq =
-    /baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{pricingSection\}/g;
+    /baseUrlField\}\s*\{credentialField\}\s*\{credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{primaryMetricField\}\s*\{pricingSection\}/g;
   assert.equal(
     (editDialog.match(providerSeq) ?? []).length,
     2,
-    "模板与脚本的 provider 子页应为 baseUrl→凭据→控制台→定价",
+    "模板与脚本的 provider 子页应为 baseUrl→凭据→控制台→主度量→定价",
   );
-  // native 分支：凭据（CLI/普通 + 第二槽）→ 控制台 → 定价
+  // native 分支：凭据（CLI/普通 + 第二槽）→ 控制台 → 主度量 → 定价
   assert.match(
     editDialog,
-    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{pricingSection\}/,
+    /: credentialField\}\s*\{nativeKey2Required && credential2Field\}\s*<\/div>\s*\{consoleUrlField\}\s*\{primaryMetricField\}\s*\{pricingSection\}/,
   );
+});
+
+test("主度量三段控件（T-23，spec #137）：SegmentedControl 三值读写条目偏好，双语齐备", () => {
+  // 三段控件读写 primary_metric（缺省 auto），键文案 zh/en 同步
+  assert.match(editDialog, /useState<PrimaryMetric>\(\s*initial\?\.primary_metric \?\? "auto",?\s*\)/s);
+  assert.match(editDialog, /primary_metric: primaryMetric,/);
+  assert.match(
+    editDialog,
+    /value=\{primaryMetric\}[\s\S]*?edit\.primaryMetricAuto[\s\S]*?edit\.primaryMetricPercent[\s\S]*?edit\.primaryMetricAmount[\s\S]*?onChange=\{setPrimaryMetric\}/,
+  );
+  for (const key of ["primaryMetric", "primaryMetricAuto", "primaryMetricPercent", "primaryMetricAmount", "primaryMetricHint"]) {
+    assert.ok(zh.includes(`"edit.${key}":`), `zh 缺 edit.${key}`);
+    assert.ok(en.includes(`"edit.${key}":`), `en 缺 edit.${key}`);
+  }
 });
 
 test("必填字段合并为单一卡片容器", () => {

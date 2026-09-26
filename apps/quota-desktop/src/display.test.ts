@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dataSummary, exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
+import { dataSummary, exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, metricFallbackWindows, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -158,6 +158,59 @@ describe("单窗口主文案 dataSummary（剩余口径，T-22）", () => {
   it("两者皆缺 → 已获取回退（双语不变）", () => {
     expect(dataSummary({ used: 10 }, "zh")).toBe("已获取");
     expect(dataSummary({ used: 10 }, "en")).toBe("Fetched");
+  });
+});
+
+describe("主度量偏好回退检测 metricFallbackWindows（T-23，spec #137）", () => {
+  it("auto 恒空清单：按数据推断无回退概念，即使数据完全不支持百分比", () => {
+    const balanceOnly: import("./types").UsageData[] = [
+      { remaining: 62.97, unit: "CNY", plan_name: "余额" },
+    ];
+    expect(metricFallbackWindows("auto", balanceOnly, "zh")).toEqual([]);
+  });
+
+  it("percent 偏好：无百分比原材料（remainingPercent 算不出）的窗口回退金额", () => {
+    // 纯余额窗口算不出剩余百分比 → 回退
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [{ remaining: 62.97, unit: "CNY", plan_name: "MCP 窗口" }],
+        "zh",
+      ),
+    ).toEqual(["MCP 窗口"]);
+    // '%' 直读与 used/total 换算两条百分比原材料路径都算得出 → 不回退
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [{ used: 42, unit: "%" }, { used: 30, total: 200, unit: "USD" }],
+        "zh",
+      ),
+    ).toEqual([]);
+  });
+
+  it("amount 偏好：无 remaining 的窗口回退百分比", () => {
+    expect(
+      metricFallbackWindows(
+        "amount",
+        [{ used: 42, unit: "%", plan_name: "5h 窗口" }],
+        "zh",
+      ),
+    ).toEqual(["5h 窗口"]);
+    // 有 remaining（含可换算出 remaining 的金额窗口）→ 不回退
+    expect(
+      metricFallbackWindows("amount", [{ remaining: 5, plan_name: "余额" }], "zh"),
+    ).toEqual([]);
+  });
+
+  it("混合窗口只列回退者；窗口名取 plan_name、无名回退序数（双语）", () => {
+    const windows: import("./types").UsageData[] = [
+      { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+      { remaining: 3.2, unit: "CNY" },
+      { used: 1, total: 10, unit: "CNY", plan_name: "月度" },
+    ];
+    // 第 1、3 窗口有百分比原材料（'%' 直读 / used÷total 换算），仅第 2 回退
+    expect(metricFallbackWindows("percent", windows, "zh")).toEqual(["窗口 2"]);
+    expect(metricFallbackWindows("percent", windows, "en")).toEqual(["window 2"]);
   });
 });
 
