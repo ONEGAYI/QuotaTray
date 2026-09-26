@@ -971,6 +971,12 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-check-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--qt-text-soft); font-size: 13px; cursor: pointer; }
 .qt-check-inline input { margin: 0; accent-color: var(--qt-accent); }
 .qt-template-result { border-radius: var(--qt-radius-sm); padding: 11px; background: var(--qt-surface-soft); font-size: 13px; }
+/* 试查回退警告 toast（#137 T-23）：行容器右对齐（不遮挡左侧试查数据行，
+   用户要对照结果逐窗口看），警告本体带关闭按钮、不自动消失 */
+.qt-fallback-toast-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+.qt-fallback-toast { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--qt-radius-md); padding: 6px 10px; background: var(--qt-warning-soft); color: var(--qt-warning); font-size: 12px; }
+.qt-fallback-toast-close { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none; border: none; border-radius: var(--qt-radius-xs); background: transparent; color: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+.qt-fallback-toast-close:hover { background: color-mix(in srgb, var(--qt-warning) 14%, transparent); }
 .qt-text-success { color: var(--qt-success); font-size: 12px; }
 .qt-text-danger { color: var(--qt-danger); }
 .qt-ai-placeholder-icon { display: inline-grid; width: 20px; height: 20px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--qt-accent) 35%, var(--qt-border)); border-radius: var(--qt-radius-xs); background: color-mix(in srgb, var(--qt-accent) 10%, var(--qt-surface)); color: var(--qt-accent-strong); font-size: 9px; font-weight: 800; letter-spacing: -.03em; }
@@ -1207,6 +1213,9 @@ body.qt-mobile-runtime .qt-native-picker-option { min-height: 48px; }
    撑到 44px。桌面不受本段影响。 */
 body.qt-mobile-runtime .qt-select { min-height: 44px; }
 body.qt-mobile-runtime .qt-segmented button { min-height: 44px; }
+/* 试查回退 toast 关闭钮（#137 T-23）：移动端直接加高（视觉即热区，
+   T-010 定案同款），小卡警告随之撑高属预期 */
+body.qt-mobile-runtime .qt-fallback-toast-close { width: 44px; height: 44px; }
 body.qt-mobile-runtime .qt-template-presets button { min-height: 44px; }
 body.qt-mobile-runtime .qt-template-help-toggle { min-height: 44px; }
 body.qt-mobile-runtime .qt-settings-manual-link { min-height: 44px; align-items: center; }

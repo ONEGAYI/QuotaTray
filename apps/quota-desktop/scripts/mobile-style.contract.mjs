@@ -99,6 +99,15 @@ test("Android 模板预设钮与帮助折叠钮满足 44px 命中区（T-010 全
   );
 });
 
+test("Android 试查回退 toast 关闭钮满足 44px 命中区（T-010；#137 T-23 新增交互面）", () => {
+  // 移动端直接加高（视觉即热区，分段控件定案同款）——toast 不自动消失，
+  // 关闭是唯一出口，命中区不得小于触摸规范
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-fallback-toast-close\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px;/s,
+  );
+});
+
 test("Android 更新页行内链接按语境分治满足 44px 命中区（T-010）", () => {
   // 2026-08-29 所有者定案，分而治之：句中行内链接（qt-inline-link）保持
   // 行内排版、透明伪元素外扩热区（先例 .qt-page-tabs::before 的负 inset）；
