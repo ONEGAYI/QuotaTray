@@ -59,6 +59,7 @@ QuotaTray/
         │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
         │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
         │   │   ├── MessageCenter.tsx            # 标题栏铃铛消息中心
+        │   │   ├── MessageCenter.test.tsx       # 消息卡片文案渲染测试
         │   │   ├── messageCenterView.test.ts    # 消息中心逻辑测试
         │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
         │   │   ├── MobileChrome.tsx             # 移动端应用壳组件

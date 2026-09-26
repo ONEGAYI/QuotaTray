@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
+import { dataSummary, exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -136,6 +136,28 @@ describe("已用与剩余百分比口径", () => {
     expect(remainingPercent({ used: 10, total: 0 })).toBeNull();
     expect(remainingPercent({})).toBeNull();
     expect(remainingPercent({ unit: "%" })).toBeNull();
+  });
+});
+
+describe("单窗口主文案 dataSummary（剩余口径，T-22）", () => {
+  it("能算百分比 → 剩余 N%（与 tray.rs remaining_percent_text 成对：zh 剩余 / en Left）", () => {
+    // '%' 直读 used 后取补：used 42 → 剩余 58
+    expect(dataSummary({ used: 42, unit: "%" }, "zh")).toBe("剩余 58%");
+    expect(dataSummary({ used: 42, unit: "%" }, "en")).toBe("Left 58%");
+    // 金额窗口：used/total 换算后取补（30/200 = 15% 已用 → 85% 剩余）
+    expect(dataSummary({ used: 30, total: 200, unit: "USD" }, "zh")).toBe("剩余 85%");
+    expect(dataSummary({ used: 30, total: 200, unit: "USD" }, "en")).toBe("Left 85%");
+  });
+
+  it("无百分比有 remaining → 剩余金额（与 tray.rs remaining_text 成对，不变）", () => {
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "zh")).toBe("剩余 62.97 CNY");
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "en")).toBe("Left 62.97 CNY");
+    expect(dataSummary({ remaining: 5 }, "zh")).toBe("剩余 5.00");
+  });
+
+  it("两者皆缺 → 已获取回退（双语不变）", () => {
+    expect(dataSummary({ used: 10 }, "zh")).toBe("已获取");
+    expect(dataSummary({ used: 10 }, "en")).toBe("Fetched");
   });
 });
 

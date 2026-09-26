@@ -79,13 +79,15 @@ export function amountText(v: number): string {
   return v.toFixed(2);
 }
 
-/** 单窗口数据的主文案（与 tray.rs 行体措辞成对：已用/剩余/已获取）。 */
+/** 单窗口数据的主文案（与 tray.rs 行体措辞成对：剩余/剩余/已获取——
+ *  T-22 起百分比行体为 remaining_percent_text 的「剩余 N%」，金额为
+ *  remaining_text 的「剩余 X 币」，两分支统一剩余口径）。 */
 export function dataSummary(d: UsageData, lang: UiLang): string {
   const zh = lang === "zh";
-  const pct = usedPercent(d);
+  const pct = remainingPercent(d);
   if (pct != null) {
     const p = `${Math.round(pct)}%`;
-    return zh ? `已用 ${p}` : `Used ${p}`;
+    return zh ? `剩余 ${p}` : `Left ${p}`;
   }
   if (d.remaining != null) {
     const amount = amountText(d.remaining) + (d.unit ? ` ${d.unit}` : "");

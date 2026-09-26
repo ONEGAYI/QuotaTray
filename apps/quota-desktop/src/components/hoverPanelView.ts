@@ -1,3 +1,4 @@
+import { remainingPercent } from "../display";
 import type { ProviderEntry, UsageData } from "../types";
 
 export interface HoverRingView {
@@ -30,13 +31,12 @@ export function hoverRingView(
 ): HoverRingView | null {
   if (!data || data.is_valid === false) return null;
 
-  let usedPercent: number | null = null;
-  if (data.unit === "%" && data.used != null) usedPercent = data.used;
-  else if (data.used != null && data.total != null && data.total > 0) {
-    usedPercent = (data.used / data.total) * 100;
-  }
-  if (usedPercent != null && Number.isFinite(usedPercent)) {
-    const remaining = Math.max(0, Math.min(100, 100 - usedPercent));
+  // T-22 收敛：百分比剩余换算统一走 display.remainingPercent（与 core
+  // remaining_percent 镜像），不再局部做 100−used 反向换算；clamp 保留
+  // 圆环视觉防护（越界数据不出界）。
+  const percent = remainingPercent(data);
+  if (percent != null && Number.isFinite(percent)) {
+    const remaining = Math.max(0, Math.min(100, percent));
     return { fillPercent: remaining, center: `${Math.round(remaining)}%` };
   }
 

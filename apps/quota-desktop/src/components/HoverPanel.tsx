@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, kindLabel, relativeTime, resetCountdown, usedPercent, windowShortLabel } from "../display";
+import { amountText, dataSummary, kindLabel, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -29,9 +29,9 @@ const hoverQueryClient = new QueryClient();
 
 function primaryValue(data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined) {
   if (!data) return { label: "empty" as const, value: "—", unit: "" };
-  const percent = usedPercent(data);
+  const percent = remainingPercent(data);
   if (percent != null) {
-    return { label: "used" as const, value: `${Math.round(percent)}%`, unit: "" };
+    return { label: "remaining" as const, value: `${Math.round(percent)}%`, unit: "" };
   }
   if (data.remaining != null) {
     return { label: "available" as const, value: amountText(data.remaining), unit: data.unit ?? "" };
@@ -112,7 +112,7 @@ function HoverPanelInner() {
   });
   const mainData = view.data[0];
   const primary = primaryValue(mainData);
-  // 多窗口时 hero 标签带窗口短标注（"已用 5h"），单窗口保持通用文案
+  // 多窗口时 hero 标签带窗口短标注（"剩余 5h"），单窗口保持通用文案
   const heroWindow = view.data.length > 1
     ? windowShortLabel(mainData?.plan_name, 0, lang)
     : null;
@@ -193,9 +193,10 @@ function HoverPanelInner() {
     if (entry) refreshProvider.mutate(entry.id);
   };
   const visibleWindows = view.data.filter((item) => item.is_valid !== false).slice(0, 3);
-  // T-21：阈值为剩余语义（默认 20）；高亮比较方向翻转属 T-22，此处仅同步取值。
+  // T-22：阈值为剩余语义（默认 20），高亮方向为剩余 ≤ 阈值
+  // （与后端 breach 同时机）；算不出剩余百分比视为永不触发。
   const overThreshold = view.data.some(
-    (item) => (usedPercent(item) ?? -1) >= (settings.data?.low_balance_remaining_percent ?? 20),
+    (item) => (remainingPercent(item) ?? Infinity) <= (settings.data?.low_balance_remaining_percent ?? 20),
   );
   const renderedStatus = overThreshold ? t("settings.thresholdTitle") : t(statusKey(view.kind));
   const renderedTone = overThreshold ? "danger" : statusTone(view.kind);
@@ -271,7 +272,7 @@ function HoverPanelInner() {
           <main className="qt-hover-content">
             <section className="qt-hover-hero">
               <div>
-                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "used" ? (heroWindow ? (lang === "zh" ? `已用 ${heroWindow}` : `Used ${heroWindow}`) : t("hover.usedQuota")) : t("card.noData")}</span>
+                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "remaining" ? (heroWindow ? (lang === "zh" ? `剩余 ${heroWindow}` : `Remaining ${heroWindow}`) : t("hover.remainingQuota")) : t("card.noData")}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
                 {heroReset && <small className="qt-hover-reset" data-tooltip={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>

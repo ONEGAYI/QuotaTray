@@ -7,7 +7,8 @@
 /** 消息中心条目联合类型；渲染与去重按 kind + 业务键。
  * - update-ready：桌面安装包已下载完成（后端桌面 cfg 广播）；
  * - update-available：移动端检测到新版本（未自动下载，后端移动 cfg 广播）；
- * - low-balance：条目任一窗口已用百分比达到阈值（两端共用，按 provider 去重）；
+ * - low-balance：条目任一窗口剩余百分比达到（≤）阈值（两端共用，按
+ *   provider 去重；T-22 起取值与文案统一剩余口径）；
  * - balance-recovered：先前低额度的条目所有百分比窗口剩余达恢复阈值
  *   （#132，两端共用；替换同条目的 low-balance 卡片，作为新消息未读）。 */
 export type CenterMessage =
