@@ -158,7 +158,9 @@ export const en: Record<TextKey, string> = {
   "hover.account": "Account",
   "hover.model": "Model",
   "hover.availableBalance": "Available balance",
-  "hover.usedQuota": "Quota used",
+  // 摘要位剩余措辞族与 Rust i18n.rs 的 remaining_percent_text/remaining_text
+  // 成对用 Left（PR #146 review：全前端统一，不混用 Remaining）
+  "hover.remainingQuota": "Left",
   "hover.openMain": "Open main window",
   "hover.close": "Close panel",
   "hover.noEnabled": "No enabled accounts",
@@ -218,6 +220,17 @@ export const en: Record<TextKey, string> = {
   "edit.guideImageMissing": "Image missing: {alt}",
   "edit.guideDocMissing": "Guide document is missing. Please update to the latest version and retry.",
   "edit.catalogUpdatedHint": "Pricing catalog updated; this editor keeps the data from when it opened. Reopen to use the new data.",
+  "edit.primaryMetric": "Primary metric",
+  "edit.primaryMetricAuto": "Auto",
+  "edit.primaryMetricPercent": "Percent",
+  "edit.primaryMetricAmount": "Amount",
+  "edit.primaryMetricHint":
+    "Preferred metric for summary display; windows lacking its data fall back individually (flagged by test query)",
+  // 回退 toast 用无谓语句式点名窗口："{windows} has no …" 在多窗口
+  // （"MCP, backup has …"）下主谓不一致（PR #146 review 修复）
+  "edit.metricFallbackToAmount": "No percent data for {windows}; showing amount instead",
+  "edit.metricFallbackToPercent": "No remaining amount for {windows}; showing percent instead",
+  "edit.metricFallbackClose": "Dismiss fallback notice",
   "pricing.retiredTag": "retired",
   "pricing.unknownPrice": "Price unknown",
   "pricing.officialInfo": "Official model information",
@@ -299,12 +312,14 @@ export const en: Record<TextKey, string> = {
   "settings.intervalHint": "Periodically query all enabled accounts",
   "settings.minutes": "Every {minutes} min",
   "settings.minuteUnit": "min",
-  "settings.threshold": "Low-balance alert threshold (used %)",
+  "settings.threshold": "Low-balance alert threshold (remaining %)",
   "settings.thresholdTitle": "Low-balance alert",
-  "settings.thresholdHint": "Alert when usage reaches this percentage",
+  // 判定契约含等号（low_balance_breach / 托盘 ⚠ 用 >=），措辞为
+  // "at or below" 而非 "falls below"（PR #146 review 修复）
+  "settings.thresholdHint": "Alert when the remaining balance is at or below this percentage",
   "settings.recoveryThresholdTitle": "Balance recovery alert",
   "settings.recoveryThresholdHint": "Alert when quota recovers to this remaining percentage",
-  "settings.recoveryThresholdConflict": "Recovery threshold must be above the remaining threshold of the low-balance alert (100 - used). Adjust before saving",
+  "settings.recoveryThresholdConflict": "Recovery threshold must be higher than the low-balance threshold (both in remaining percentage). Adjust before saving",
   "settings.autostart": "Launch at startup",
   "settings.autostartHint": "Run in the tray after signing in to Windows",
   "settings.notificationsTitle": "System notifications",
@@ -472,7 +487,7 @@ export const en: Record<TextKey, string> = {
   "msgCenter.viewUpdate": "View update",
   "msgCenter.updateGoToHint": "Download and install in Settings · Update",
   "msgCenter.lowBalanceTitle": "Low balance",
-  "msgCenter.lowBalanceBody": "{name} is {percent}% used",
+  "msgCenter.lowBalanceBody": "{name} has {remaining}% left",
   "msgCenter.balanceRecoveredTitle": "Balance recovered",
   "msgCenter.balanceRecoveredBody": "{name} balance recovered, {remaining}% remaining",
   "settings.manualUrl": "No installer for this version; release page: {url}",

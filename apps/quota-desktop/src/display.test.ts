@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { dataSummary, exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, metricFallbackWindows, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -110,6 +110,160 @@ describe("定位线净消耗", () => {
     // 舍入到 0 的微弱未观测变化不带符号（零无方向）
     expect(markerUnobservedText(-0.004, "percent", "%")).toBe("0%");
     expect(markerUnobservedText(0.004, "percent", "%")).toBe("0%");
+  });
+});
+
+describe("已用与剩余百分比口径", () => {
+  it("usedPercent：'%' 直读，金额走 used/total 换算，数据不足 null", () => {
+    expect(usedPercent({ used: 42, unit: "%" })).toBe(42);
+    expect(usedPercent({ used: 30, total: 200, unit: "USD" })).toBe(15);
+    expect(usedPercent({ used: 10, total: 0 })).toBeNull();
+    expect(usedPercent({})).toBeNull();
+    expect(usedPercent({ unit: "%" })).toBeNull();
+  });
+
+  it("remainingPercent：与 core remaining_percent 镜像——100−已用，数据不足 null", () => {
+    // "%" 单位：100 − used（订阅/限额窗口的剩余百分比）
+    expect(remainingPercent({ used: 42, unit: "%" })).toBe(58);
+    // 金额单位：100 − used/total 换算
+    expect(remainingPercent({ used: 30, total: 200, unit: "USD" })).toBe(85);
+    // 与 usedPercent 互补：两口径之和恒为 100
+    expect(
+      (usedPercent({ used: 30, total: 200, unit: "USD" }) ?? 0) +
+        (remainingPercent({ used: 30, total: 200, unit: "USD" }) ?? 0),
+    ).toBe(100);
+    // 数据不足同 usedPercent：total<=0、字段缺失、'%' 缺 used
+    expect(remainingPercent({ used: 10, total: 0 })).toBeNull();
+    expect(remainingPercent({})).toBeNull();
+    expect(remainingPercent({ unit: "%" })).toBeNull();
+  });
+});
+
+describe("单窗口主文案 dataSummary（剩余口径，T-22）", () => {
+  it("能算百分比 → 剩余 N%（与 tray.rs remaining_percent_text 成对：zh 剩余 / en Left）", () => {
+    // '%' 直读 used 后取补：used 42 → 剩余 58
+    expect(dataSummary({ used: 42, unit: "%" }, "zh")).toBe("剩余 58%");
+    expect(dataSummary({ used: 42, unit: "%" }, "en")).toBe("Left 58%");
+    // 金额窗口：used/total 换算后取补（30/200 = 15% 已用 → 85% 剩余）
+    expect(dataSummary({ used: 30, total: 200, unit: "USD" }, "zh")).toBe("剩余 85%");
+    expect(dataSummary({ used: 30, total: 200, unit: "USD" }, "en")).toBe("Left 85%");
+  });
+
+  it("无百分比有 remaining → 剩余金额（与 tray.rs remaining_text 成对，不变）", () => {
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "zh")).toBe("剩余 62.97 CNY");
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "en")).toBe("Left 62.97 CNY");
+    expect(dataSummary({ remaining: 5 }, "zh")).toBe("剩余 5.00");
+  });
+
+  it("两者皆缺 → 已获取回退（双语不变）", () => {
+    expect(dataSummary({ used: 10 }, "zh")).toBe("已获取");
+    expect(dataSummary({ used: 10 }, "en")).toBe("Fetched");
+  });
+});
+
+describe("主度量偏好分档 dataSummary（T-24，与 tray.rs entry_lines 成对）", () => {
+  // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+  const both = { used: 30, total: 200, remaining: 62.97, unit: "CNY" };
+
+  it("auto/percent 档维持推断基线：百分比优先（现状顺序不回归）", () => {
+    expect(dataSummary(both, "zh", "auto")).toBe("剩余 85%");
+    expect(dataSummary(both, "en", "auto")).toBe("Left 85%");
+    expect(dataSummary(both, "zh", "percent")).toBe("剩余 85%");
+    expect(dataSummary(both, "en", "percent")).toBe("Left 85%");
+  });
+
+  it("amount 档金额文案优先——即使可算百分比（本 spec 原始诉求：余额型主看金额）", () => {
+    expect(dataSummary(both, "zh", "amount")).toBe("剩余 62.97 CNY");
+    expect(dataSummary(both, "en", "amount")).toBe("Left 62.97 CNY");
+  });
+
+  it("指定度量算不出时静默回退另一度量（逐窗口独立判定）", () => {
+    // amount 档无 remaining → 回退剩余百分比
+    expect(dataSummary({ used: 42, unit: "%" }, "zh", "amount")).toBe("剩余 58%");
+    expect(dataSummary({ used: 42, unit: "%" }, "en", "amount")).toBe("Left 58%");
+    // percent 档算不出百分比 → 回退金额
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "zh", "percent")).toBe("剩余 62.97 CNY");
+    expect(dataSummary({ remaining: 62.97, unit: "CNY" }, "en", "percent")).toBe("Left 62.97 CNY");
+  });
+
+  it("两度量皆缺：各档统一已获取回退（双语）", () => {
+    expect(dataSummary({ used: 10 }, "zh", "amount")).toBe("已获取");
+    expect(dataSummary({ used: 10 }, "en", "percent")).toBe("Fetched");
+  });
+});
+
+describe("主度量偏好回退检测 metricFallbackWindows（T-23，spec #137）", () => {
+  it("auto 恒空清单：按数据推断无回退概念，即使数据完全不支持百分比", () => {
+    const balanceOnly: import("./types").UsageData[] = [
+      { remaining: 62.97, unit: "CNY", plan_name: "余额" },
+    ];
+    expect(metricFallbackWindows("auto", balanceOnly, "zh")).toEqual([]);
+  });
+
+  it("percent 偏好：无百分比原材料（remainingPercent 算不出）的窗口回退金额", () => {
+    // 纯余额窗口算不出剩余百分比 → 回退
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [{ remaining: 62.97, unit: "CNY", plan_name: "MCP 窗口" }],
+        "zh",
+      ),
+    ).toEqual(["MCP 窗口"]);
+    // '%' 直读与 used/total 换算两条百分比原材料路径都算得出 → 不回退
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [{ used: 42, unit: "%" }, { used: 30, total: 200, unit: "USD" }],
+        "zh",
+      ),
+    ).toEqual([]);
+  });
+
+  it("amount 偏好：无 remaining 的窗口回退百分比", () => {
+    expect(
+      metricFallbackWindows(
+        "amount",
+        [{ used: 42, unit: "%", plan_name: "5h 窗口" }],
+        "zh",
+      ),
+    ).toEqual(["5h 窗口"]);
+    // 有 remaining（含可换算出 remaining 的金额窗口）→ 不回退
+    expect(
+      metricFallbackWindows("amount", [{ remaining: 5, plan_name: "余额" }], "zh"),
+    ).toEqual([]);
+  });
+
+  it("混合窗口只列回退者；窗口名取 plan_name、无名回退序数（双语）", () => {
+    const windows: import("./types").UsageData[] = [
+      { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+      { remaining: 3.2, unit: "CNY" },
+      { used: 1, total: 10, unit: "CNY", plan_name: "月度" },
+    ];
+    // 第 1、3 窗口有百分比原材料（'%' 直读 / used÷total 换算），仅第 2 回退
+    expect(metricFallbackWindows("percent", windows, "zh")).toEqual(["窗口 2"]);
+    expect(metricFallbackWindows("percent", windows, "en")).toEqual(["window 2"]);
+  });
+
+  it("回退目标也算不出（两度量皆缺）的窗口不列入：数据不足非回退（PR #146 review）", () => {
+    // 裸已用（无 total 换不出百分比、无 remaining）：percent 偏好下回退目标
+    // （金额）同样缺，展示层走已获取兜底——toast 不得预告"将按金额显示"
+    expect(metricFallbackWindows("percent", [{ used: 10, plan_name: "裸已用" }], "zh"))
+      .toEqual([]);
+    // amount 偏好镜像：回退目标（百分比）算不出同样不列入
+    expect(metricFallbackWindows("amount", [{ used: 10, plan_name: "裸已用" }], "zh"))
+      .toEqual([]);
+    // 混合：可回退者照列、两缺者剔除、偏好直接可算者不列
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [
+          { remaining: 1, unit: "CNY", plan_name: "MCP" },
+          { used: 10 },
+          { used: 42, unit: "%" },
+        ],
+        "zh",
+      ),
+    ).toEqual(["MCP"]);
   });
 });
 

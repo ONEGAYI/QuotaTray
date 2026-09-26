@@ -43,6 +43,10 @@ export interface UsageComparisonSeries {
   provider_id: string;
   window_key: string;
   color_slot: number;
+  /** 度量维度（core `UsageComparisonSeries.metric` 镜像，serde snake_case）：
+   *  缺省 = 存量单选形态（按现有派生 percent 优先匹配）；显式时同窗口可与
+   *  另一度量并存（issue #143 双产）。缺省不落键（skip_serializing_if）。 */
+  metric?: "absolute" | "percent";
 }
 
 /** 导出档位选项（与 Rust core `ExportOptions` 一一对应；serde externally
@@ -145,6 +149,8 @@ export interface ProviderEntry {
   pricing?: PricingConfig;
   /** 订阅套餐变体（缺省 = auto 自动推断；智谱系 v1 无周限 / v2+ 有周限） */
   plan_variant?: PlanVariant;
+  /** 主度量展示偏好（缺省 = auto 按可用数据推断；优先展示剩余百分比还是剩余金额） */
+  primary_metric?: PrimaryMetric;
   /** 查询走代理（条目级开关，缺省 false；端口取设置的网络代理端口） */
   use_proxy?: boolean;
   /** 控制台直达 URL 覆盖（明文，非敏感；缺省 = native 条目回退预置默认） */
@@ -153,6 +159,10 @@ export interface ProviderEntry {
 
 /** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */
 export type PlanVariant = "auto" | "no_weekly" | "weekly";
+
+/** 主度量展示偏好（core PrimaryMetric 镜像，serde snake_case）：
+ *  优先展示剩余百分比还是剩余金额，缺省 auto 按可用数据推断。 */
+export type PrimaryMetric = "auto" | "percent" | "amount";
 
 // ---- 峰谷定价（core pricing 模块镜像，snake_case 与宿主一致） ----
 
@@ -247,8 +257,9 @@ export interface CustomModelDef {
 /** GUI 设置（settings.json，桌面/Android 共用字段，与 Rust Settings 一一对应）。 */
 export interface Settings {
   refresh_interval_minutes: number;
-  low_balance_threshold_percent: number;
-  /** 额度恢复提醒阈值（剩余 %，#132）；合法组合须高于 100 − 低额度已用阈值 */
+  /** 低余额提醒阈值（剩余 %，≤ 该值触发；T-21 口径翻转）。 */
+  low_balance_remaining_percent: number;
+  /** 额度恢复提醒阈值（剩余 %，#132）；合法组合须严格高于低余额剩余阈值 */
   balance_recovery_threshold_percent: number;
   autostart: boolean;
   /** "zh" | "en" | "system" */
@@ -290,7 +301,7 @@ export interface Settings {
  * 嵌套可空字段（如 tray_icon_entry_id）显式传 null 表示清空。 */
 export interface SettingsPatch {
   refresh_interval_minutes?: number;
-  low_balance_threshold_percent?: number;
+  low_balance_remaining_percent?: number;
   balance_recovery_threshold_percent?: number;
   autostart?: boolean;
   language?: string;

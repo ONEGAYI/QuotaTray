@@ -157,12 +157,14 @@ impl Lang {
         }
     }
 
-    /// 已用百分比文案：`已用 42%` / `Used 42%`。
+    /// 剩余百分比文案：`剩余 42%` / `Left 42%`（T-21 托盘行体措辞
+    /// 翻转后与 [`remaining_text`] 成对——百分比型与余额型行体统一
+    /// 剩余口径）。
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub fn used_text(&self, percent: &str) -> String {
+    pub fn remaining_percent_text(&self, percent: &str) -> String {
         match self {
-            Self::Zh => format!("已用 {percent}"),
-            Self::En => format!("Used {percent}"),
+            Self::Zh => format!("剩余 {percent}"),
+            Self::En => format!("Left {percent}"),
         }
     }
 
@@ -497,11 +499,12 @@ impl Lang {
         }
     }
 
-    /// 「低余额提醒」系统通知正文（percent 已取整；消费方同上，两端）。
-    pub fn low_balance_notify_body(&self, name: &str, percent: u32) -> String {
+    /// 「低余额提醒」系统通知正文（remaining 已取整，剩余口径；T-21
+    /// 翻转后与恢复通知同语义；消费方同上，两端）。
+    pub fn low_balance_notify_body(&self, name: &str, remaining: u32) -> String {
         match self {
-            Self::Zh => format!("{name} 已用 {percent}%"),
-            Self::En => format!("{name} is {percent}% used"),
+            Self::Zh => format!("{name} 剩余 {remaining}%"),
+            Self::En => format!("{name} has {remaining}% left"),
         }
     }
 
@@ -523,18 +526,16 @@ impl Lang {
         }
     }
 
-    /// 阈值组合非法的保存拒绝文案（#132）：恢复剩余阈值须高于低额度
-    /// 对应的剩余阈值（100 − 已用阈值）。前端就地校验提示
+    /// 阈值组合非法的保存拒绝文案（#132；T-21 起两阈值同为剩余语义）：
+    /// 恢复剩余阈值须严格高于低余额剩余阈值。前端就地校验提示
     /// （`settings.recoveryThresholdConflict`）与后端 persist_settings
     /// 硬门禁共用同一语义（成对约定见文件头）。
     pub fn err_recovery_threshold_conflict(&self) -> String {
         match self {
-            Self::Zh => "恢复阈值须高于低额度对应的剩余阈值（100 − 已用阈值），请调整后保存".into(),
-            Self::En => {
-                "Recovery threshold must be above the remaining threshold of the low-balance \
-                 alert (100 − used). Adjust before saving"
-                    .into()
-            }
+            Self::Zh => "恢复阈值须高于低余额提醒阈值（均为剩余比例），请调整后保存".into(),
+            Self::En => "Recovery threshold must be higher than the low-balance threshold \
+                 (both in remaining percentage). Adjust before saving"
+                .into(),
         }
     }
 
@@ -716,7 +717,8 @@ mod tests {
         }
     }
 
-    /// 契约：行内格式化双语（剩余/已用/窗口名）。
+    /// 契约：行内格式化双语（剩余余额/剩余百分比/窗口名——T-21 起
+    /// 百分比与余额行体统一剩余口径）。
     #[test]
     fn line_formats_both_langs() {
         assert_eq!(
@@ -728,10 +730,26 @@ mod tests {
             "Left 62.97 CNY"
         );
         assert_eq!(Lang::Zh.remaining_text("5.00", None), "剩余 5.00");
-        assert_eq!(Lang::Zh.used_text("42%"), "已用 42%");
-        assert_eq!(Lang::En.used_text("42%"), "Used 42%");
+        assert_eq!(Lang::Zh.remaining_percent_text("42%"), "剩余 42%");
+        assert_eq!(Lang::En.remaining_percent_text("42%"), "Left 42%");
         assert_eq!(Lang::Zh.window_name(2), "窗口2");
         assert_eq!(Lang::En.window_name(2), "Window 2");
+    }
+
+    /// 契约：低余额系统通知双语（标题 + 带条目名与剩余比例正文——
+    /// T-21 翻转后通知措辞与恢复通知同为剩余口径）。
+    #[test]
+    fn low_balance_notification_both_langs() {
+        assert_eq!(Lang::Zh.low_balance_notify_title(), "余额提醒");
+        assert_eq!(Lang::En.low_balance_notify_title(), "Low balance");
+        assert_eq!(
+            Lang::Zh.low_balance_notify_body("Kimi", 15),
+            "Kimi 剩余 15%"
+        );
+        assert_eq!(
+            Lang::En.low_balance_notify_body("Kimi", 15),
+            "Kimi has 15% left"
+        );
     }
 
     /// 契约：峰谷行双语（类型/标签/三价与单位；缺价字段跳过）。

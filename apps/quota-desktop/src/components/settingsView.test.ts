@@ -464,27 +464,26 @@ describe("目录自动更新周期小字（#134）", () => {
   });
 });
 
-describe("阈值组合校验（恢复剩余阈值 vs 低额度已用阈值）", () => {
-  it("合法组合：恢复剩余阈值高于低额度对应的剩余阈值（100 − 已用阈值）", () => {
-    // 默认组合
-    expect(thresholdCombinationValid(80, 95)).toBe(true);
-    // 和恰超 100
-    expect(thresholdCombinationValid(80, 21)).toBe(true);
-    expect(thresholdCombinationValid(6, 95)).toBe(true);
-    // 边界极端值（0+100 恰衔接：已用 0 同时落在两个判定区间，非法）
-    expect(thresholdCombinationValid(100, 1)).toBe(true);
-    expect(thresholdCombinationValid(1, 100)).toBe(true);
-    expect(thresholdCombinationValid(0, 100)).toBe(false);
+describe("阈值组合校验（双剩余口径：恢复剩余阈值 vs 低余额剩余阈值）", () => {
+  it("合法组合：恢复剩余阈值严格高于低余额剩余阈值", () => {
+    // 默认组合（低余额 20、恢复 95，均剩余语义）
+    expect(thresholdCombinationValid(20, 95)).toBe(true);
+    // 恢复线高出一点即合法
+    expect(thresholdCombinationValid(20, 21)).toBe(true);
+    expect(thresholdCombinationValid(5, 95)).toBe(true);
+    // 边界极端值
+    expect(thresholdCombinationValid(0, 1)).toBe(true);
+    expect(thresholdCombinationValid(99, 100)).toBe(true);
   });
 
-  it("非法组合：两阈值之和 ≤ 100（恢复线不高于低额度剩余线）", () => {
-    // 和恰为 100：恢复线贴住低额度线
-    expect(thresholdCombinationValid(80, 20)).toBe(false);
-    expect(thresholdCombinationValid(6, 94)).toBe(false);
-    // 和低于 100
-    expect(thresholdCombinationValid(50, 50)).toBe(false);
-    // 极端：低额度线拉满时恢复线 0 非法
-    expect(thresholdCombinationValid(100, 0)).toBe(false);
+  it("非法组合：恢复线 ≤ 低余额线（恢复线不高于低余额线）", () => {
+    // 两线相等：恢复线贴住低余额线
+    expect(thresholdCombinationValid(20, 20)).toBe(false);
+    expect(thresholdCombinationValid(6, 6)).toBe(false);
+    // 恢复线低于低余额线
+    expect(thresholdCombinationValid(50, 30)).toBe(false);
+    // 极端：两线同拉满（剩余 100 同时落在两个判定区间，非法）
+    expect(thresholdCombinationValid(100, 100)).toBe(false);
   });
 });
 
@@ -513,5 +512,38 @@ describe("代理字段 draft 往返（#133 网络环境页）", () => {
     // null（未配置/直连）经显示格式化（?? "" / String）归空串，再保存仍 null
     expect(proxyHostFromInput("")).toBeNull();
     expect(proxyPortFromInput("")).toBeNull();
+  });
+});
+
+describe("低余额阈值与消息文案（剩余语义，T-22）", () => {
+  it("settings 阈值说明为剩余方向（双语成对，不含已用措辞）", () => {
+    expect(zh["settings.thresholdHint"]).toContain("剩余");
+    expect(zh["settings.thresholdHint"]).not.toContain("已用");
+    expect(en["settings.thresholdHint"]).toContain("remaining");
+    expect(en["settings.thresholdHint"]).not.toContain("usage reaches");
+    // 判定契约含等号（commands.rs low_balance_breach / tray.rs ⚠ 为剩余口径
+    // 的 <=，测试已锁定）：文案不得说成严格低于（PR #146 review 修复）
+    expect(zh["settings.thresholdHint"]).toContain("不超过");
+    expect(zh["settings.thresholdHint"]).not.toContain("低于");
+    expect(en["settings.thresholdHint"]).toContain("at or below");
+    expect(en["settings.thresholdHint"]).not.toContain("falls below");
+    // 与恢复阈值提示同为剩余比例口径（T-21 已改，方向一致不回退）
+    expect(zh["settings.recoveryThresholdHint"]).toContain("剩余");
+    expect(en["settings.recoveryThresholdHint"]).toContain("remaining");
+  });
+
+  it("msgCenter 低余额正文与后端 low_balance_notify_body 成对：剩余措辞、占位 remaining", () => {
+    expect(zh["msgCenter.lowBalanceBody"]).toBe("{name} 剩余 {remaining}%");
+    expect(en["msgCenter.lowBalanceBody"]).toBe("{name} has {remaining}% left");
+  });
+
+  it("hover 主数值 label 翻转为剩余额度（键随语义更名，双语成对）", () => {
+    expect(zh["hover.remainingQuota"]).toBe("剩余额度");
+    // en 用词与 Rust i18n.rs remaining_text/remaining_percent_text 的
+    // 「Left」成对（PR #146 review：全前端摘要位措辞族统一，不残留 Remaining）
+    expect(en["hover.remainingQuota"]).toBe("Left");
+    // 旧键不得残留（防止引用悬空或口径回退）
+    expect("hover.usedQuota" in zh).toBe(false);
+    expect("hover.usedQuota" in en).toBe(false);
   });
 });

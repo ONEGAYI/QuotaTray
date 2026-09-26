@@ -22,15 +22,16 @@ import {
   amountText,
   exactTime,
   kindLabel,
+  preferMetric,
   relativeTime,
+  remainingPercent,
   resetCountdown,
-  usedPercent,
   windowShortLabel,
 } from "../display";
 import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { DragHandleProps } from "../useCardDragSort";
-import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
+import type { NativeMeta, PrimaryMetric, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText, resolveConsoleUrl } from "./providerCardView";
 import { isLightLogo, providerIconUrl, templateProviderIconUrl } from "./providerIcon";
 import {
@@ -63,32 +64,49 @@ interface Props {
   isDragSource?: boolean;
 }
 
-/** 主数值区取值：百分比优先，否则剩余额度。多窗口时 label 带窗口短标签。 */
-function primaryValue(data: UsageData | undefined, lang: "zh" | "en", windowLabel?: string) {
+/** 主数值区取值（T-22 剩余口径）：百分比优先（剩余百分比），否则剩余
+ *  额度。多窗口时 label 带窗口短标签。金额分支 label 保留「可用余额」——
+ *  其值本就是 remaining 绝对值、无方向可翻，与百分比分支的「剩余」族
+ *  语义等价（双语契约见 ProviderCard.test）。
+ *  主度量偏好分档经 display.preferMetric 骨架（T-24，#142；PR #146
+ *  review 抽取）：amount 档金额优先（label 走「可用余额」族）、
+ *  auto/percent 维持百分比优先推断基线（「剩余 N%」族）；指定度量某
+ *  窗口算不出时静默回退另一度量（逐窗口独立）。
+ *  英文措辞族与 Rust i18n.rs 成对（PR #146 review）：百分比 label 用
+ *  「Left」（remaining_percent_text 同词），不混用 Remaining。 */
+function primaryValue(
+  data: UsageData | undefined,
+  lang: "zh" | "en",
+  windowLabel?: string,
+  metric: PrimaryMetric = "auto",
+) {
   if (!data) return { value: "—", unit: "", label: lang === "zh" ? "暂无数据" : "No data" };
   const zh = lang === "zh";
-  const percent = usedPercent(data);
-  if (percent != null) {
+  const percentPart = () => {
+    const percent = remainingPercent(data);
+    if (percent == null) return null;
     return {
       value: `${Math.round(percent)}%`,
       unit: "",
       label: windowLabel
         ? zh
-          ? `已用 ${windowLabel}`
-          : `Used ${windowLabel}`
+          ? `剩余 ${windowLabel}`
+          : `Left ${windowLabel}`
         : zh
-          ? "已用额度"
-          : "Used",
+          ? "剩余额度"
+          : "Left",
     };
-  }
-  if (data.remaining != null) {
+  };
+  const amountPart = () => {
+    if (data.remaining == null) return null;
     return {
       value: amountText(data.remaining),
       unit: data.unit ?? "",
       label: windowLabel ?? (zh ? "可用余额" : "Available"),
     };
-  }
-  return { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
+  };
+  const fallback = { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
+  return preferMetric(metric, percentPart, amountPart) ?? fallback;
 }
 
 function providerInitials(name: string) {
@@ -167,7 +185,7 @@ export const ProviderCard = memo(function ProviderCard({
     entry.kind.type === "native" && nativeMeta?.uses_cli_credentials === true;
   const mainData = view.data[0];
   const multiWindow = view.data.length > 1;
-  const primary = primaryValue(mainData, lang);
+  const primary = primaryValue(mainData, lang, undefined, entry.primary_metric);
   const mainReset = resetCountdown(mainData?.reset_at);
   const pricingView = resolveProviderPricingView(entry, nativeMeta, peakTick, mainData?.unit);
   const modelChoices = pricingModelChoices(
@@ -203,8 +221,10 @@ export const ProviderCard = memo(function ProviderCard({
     : (entry.pricing?.model ?? undefined);
   const hasImplicitDefaultChoice = modelChoices.some((choice) => choice.value === "default");
   const showModelSelect = modelChoices.length > (hasImplicitDefaultChoice ? 1 : 0);
+  // 红色高亮（T-22 方向翻转）：剩余 ≤ 阈值触发，与后端 low_balance_breach
+  // 同时机；算不出剩余百分比（null）视为永不触发（Infinity 占位）。
   const thresholdStates = view.data.map(
-    (data) => (usedPercent(data) ?? -1) >= thresholdPercent,
+    (data) => (remainingPercent(data) ?? Infinity) <= thresholdPercent,
   );
   const overThreshold = thresholdStates[0] ?? false;
   const anyOverThreshold = thresholdStates.some(Boolean);
@@ -403,6 +423,7 @@ export const ProviderCard = memo(function ProviderCard({
                 item,
                 lang,
                 windowShortLabel(item.plan_name, index, lang),
+                entry.primary_metric,
               );
               const itemReset = resetCountdown(item.reset_at);
               return (
@@ -521,7 +542,7 @@ export const ProviderCard = memo(function ProviderCard({
               {t("card.refreshEvery", { minutes: intervalMinutes })}
             </div>
           )}
-          {view.data.length === 1 && mainData?.total != null && usedPercent(mainData) == null && (
+          {view.data.length === 1 && mainData?.total != null && remainingPercent(mainData) == null && (
             <p className="qt-provider-total">
               {t("card.totalQuota", { total: mainData.total })}
             </p>

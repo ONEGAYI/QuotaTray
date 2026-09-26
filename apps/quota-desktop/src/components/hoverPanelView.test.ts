@@ -27,6 +27,18 @@ describe("hoverRingView", () => {
     expect(hoverRingView({ remaining: 1_250 }, 100)).toEqual({ fillPercent: 100, center: "1250" });
     expect(hoverRingView(undefined, 100)).toBeNull();
   });
+
+  it("主度量偏好分档（T-24）：amount 档余额环优先、auto/percent 百分比优先，互为回退", () => {
+    // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+    const both = { used: 30, total: 200, remaining: 170 };
+    expect(hoverRingView(both, 100, "auto")).toEqual({ fillPercent: 85, center: "85%" });
+    expect(hoverRingView(both, 100, "percent")).toEqual({ fillPercent: 85, center: "85%" });
+    // amount 档：余额环走每圈单位机制（170/100 = 1 满圈 + 0.7 顶层弧）
+    expect(hoverRingView(both, 100, "amount")).toEqual({ fillPercent: 70, center: "170" });
+    // 指定度量算不出时静默回退另一度量
+    expect(hoverRingView({ unit: "%", used: 42 }, 100, "amount")).toEqual({ fillPercent: 58, center: "58%" });
+    expect(hoverRingView({ remaining: 180 }, 100, "percent")).toEqual({ fillPercent: 80, center: "180" });
+  });
 });
 
 describe("isCompactViewport", () => {

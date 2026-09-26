@@ -7,7 +7,7 @@ import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate } from "./UsageComparisonDialog";
-import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, removeUsageComparison, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
+import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, removeUsageComparison, resolveUsageComparisonMetrics, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, DialogShell, SegmentedControl, Tooltip } from "./ui";
 import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, pressUsageMarkerToggle, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerNet, usageMarkerNetBreakdown, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageNetBreakdown, type UsageRange, type UsageSample } from "./usageChartView";
 import { createLegendHoverController, focusPlatformInfo, legendTriggerVisible, buildLegendItems, pressLegendRemove, toggleSeriesFocus, type LegendHoverController, type LegendItem } from "./usageLegendView";
@@ -110,14 +110,20 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const candidates = useMemo<UsageComparisonCandidate[]>(() => providers.flatMap((provider, providerIndex) => {
     const points = histories[providerIndex]?.data ?? [];
     return buildHistorySeries(points, USAGE_RANGES["7d"].bucketMs).map((series, index) => ({
-      id: usageComparisonId(provider.id, series.windowKey), providerId: provider.id, providerName: provider.name,
+      id: usageComparisonId(provider.id, series.windowKey, series.metric), providerId: provider.id, providerName: provider.name,
       windowKey: series.windowKey, windowName: scopeName(series.windowKey, index, lang), metric: series.metric, unit: series.unit,
     }));
   }), [histories, lang, providers]);
 
   const storedSelection = settings.data?.usage_comparison_series;
   const effectiveSelection = useMemo<UsageComparisonSeries[]>(() => {
-    return initialUsageComparisons(storedSelection ?? null, candidates);
+    // 存量无 metric 的组合按现有派生回填度量（percent 优先），用于本轮
+    // 匹配与展示（增删组合保存时随选区显式化落盘，惰性迁移）；窗口无
+    // 候选（失效条目）保持缺省
+    return initialUsageComparisons(
+      storedSelection == null ? null : resolveUsageComparisonMetrics(storedSelection, candidates),
+      candidates,
+    );
   }, [candidates, storedSelection]);
   const saveSelection = useCallback(async (next: UsageComparisonSeries[]) => {
     await api.patchSettings({ usage_comparison_series: next });
@@ -182,7 +188,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     }
     if (candidates.length === 0 || autoInitRef.current) return;
     autoInitRef.current = true;
-    void saveSelection([{ provider_id: candidates[0].providerId, window_key: candidates[0].windowKey, color_slot: 0 }]).catch(() => { autoInitRef.current = false; });
+    void saveSelection([{ provider_id: candidates[0].providerId, window_key: candidates[0].windowKey, metric: candidates[0].metric, color_slot: 0 }]).catch(() => { autoInitRef.current = false; });
   }, [candidates, saveSelection, settings.data?.usage_comparison_series]);
 
   const scopePartition = useMemo(() => {
@@ -192,11 +198,13 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
       const provider = providers[providerIndex];
       const points = (histories[providerIndex]?.data ?? []).filter((point) => point.sampled_at >= totalDomain[0] && point.sampled_at <= totalDomain[1]);
       const built = buildHistorySeries(points, rangeConfig.bucketMs);
-      const seriesIndex = built.findIndex((item) => item.windowKey === selection.window_key);
+      // 度量维度参与匹配（issue #143 双产）：同窗口的金额与百分比是两条
+      // 独立曲线，selection 各自锚定自己度量的那条
+      const seriesIndex = built.findIndex((item) => item.windowKey === selection.window_key && item.metric === selection.metric);
       if (seriesIndex < 0) return [];
       const series = built[seriesIndex];
-      const stableName = candidates.find((candidate) => candidate.id === usageComparisonId(provider.id, series.windowKey))?.windowName;
-      return [{ ...series, id: usageComparisonId(provider.id, series.windowKey), providerId: provider.id, providerName: provider.name, name: stableName ?? scopeName(series.windowKey, seriesIndex, lang), colorSlot: selection.color_slot, bucketMs: rangeConfig.bucketMs }];
+      const stableName = candidates.find((candidate) => candidate.id === usageComparisonId(provider.id, series.windowKey, series.metric))?.windowName;
+      return [{ ...series, id: usageComparisonId(provider.id, series.windowKey, series.metric), providerId: provider.id, providerName: provider.name, name: stableName ?? scopeName(series.windowKey, seriesIndex, lang), colorSlot: selection.color_slot, bucketMs: rangeConfig.bucketMs }];
     });
     return partitionCompatibleUsageScopes(builtScopes);
   }, [candidates, effectiveSelection, histories, lang, providers, rangeConfig.bucketMs, totalDomain]);
@@ -221,7 +229,7 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     setArmedRemoveId(null);
     setLegendError(null);
     setRemovePending(true);
-    void saveSelection(removeUsageComparison(effectiveSelection, item.providerId, item.windowKey)).catch((err) => { setLegendError(t("usage.saveFailed", { msg: String(err) })); }).finally(() => setRemovePending(false));
+    void saveSelection(removeUsageComparison(effectiveSelection, item.providerId, item.windowKey, item.metric)).catch((err) => { setLegendError(t("usage.saveFailed", { msg: String(err) })); }).finally(() => setRemovePending(false));
   };
 
   const absoluteScale = niceAbsoluteScale(scopes.filter((scope) => scope.metric === "absolute").flatMap((scope) => scope.samples.map((sample) => sample.value)));

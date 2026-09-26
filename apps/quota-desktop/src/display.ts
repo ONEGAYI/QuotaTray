@@ -2,7 +2,7 @@
 // 语义与 Rust 侧 tray.rs / i18n.rs 纯函数成对——分档边界、剩余/已用措辞
 // 两端保持一致，修改任一侧须同步另一侧。
 import type { UiLang } from "./i18n/zh";
-import type { ProviderEntry, UsageData } from "./types";
+import type { PrimaryMetric, ProviderEntry, UsageData } from "./types";
 
 /** 条目类型标签（平台副标题）：native 用平台名，模板/脚本各归各
  *  （与 CLI render.rs kind_label 成对，script 不得落入模板文案）。 */
@@ -66,24 +66,58 @@ export function usedPercent(d: UsageData): number | null {
   return null;
 }
 
+/** 剩余百分比（0-100，展示口径）：100−已用百分比；数据不足返回 null。
+ *  与 core model.rs 的 remaining_percent 互为镜像——两口径之和恒为 100，
+ *  消费方不得各自局部反向换算。 */
+export function remainingPercent(d: UsageData): number | null {
+  const used = usedPercent(d);
+  return used == null ? null : 100 - used;
+}
+
 /** 余额文案："62.97 CNY" / "62.97"。 */
 export function amountText(v: number): string {
   return v.toFixed(2);
 }
 
-/** 单窗口数据的主文案（与 tray.rs 行体措辞成对：已用/剩余/已获取）。 */
-export function dataSummary(d: UsageData, lang: UiLang): string {
+/** 主度量偏好分档骨架（spec #137 T-24，PR #146 review 抽取）：amount 档
+ *  金额件优先、auto/percent 百分比件优先；指定度量算不出（件返回 null）时
+ *  静默回退另一件。四个消费面（dataSummary、ProviderCard/HoverPanel 的
+ *  primaryValue、hoverPanelView 的 hoverRingView）共用本骨架，不得再各自
+ *  手写分档。与 Rust 侧 ring.rs 的 prefer_metric 镜像成对（tray.rs 消费
+ *  同一 Rust 骨架）——两端分档与回退次序保持一致。 */
+export function preferMetric<T>(
+  metric: PrimaryMetric,
+  percentPart: () => T | null,
+  amountPart: () => T | null,
+): T | null {
+  if (metric === "amount") return amountPart() ?? percentPart();
+  return percentPart() ?? amountPart();
+}
+
+/** 单窗口数据的主文案（与 tray.rs 行体措辞成对：剩余/剩余/已获取——
+ *  T-22 起百分比行体为 remaining_percent_text 的「剩余 N%」，金额为
+ *  remaining_text 的「剩余 X 币」，两分支统一剩余口径）。
+ *  主度量偏好分档经 preferMetric 骨架（T-24，#142）——多窗口条目每
+ *  窗口独立调用本函数，回退天然逐窗口。 */
+export function dataSummary(
+  d: UsageData,
+  lang: UiLang,
+  metric: PrimaryMetric = "auto",
+): string {
   const zh = lang === "zh";
-  const pct = usedPercent(d);
-  if (pct != null) {
+  const percentLine = () => {
+    const pct = remainingPercent(d);
+    if (pct == null) return null;
     const p = `${Math.round(pct)}%`;
-    return zh ? `已用 ${p}` : `Used ${p}`;
-  }
-  if (d.remaining != null) {
+    return zh ? `剩余 ${p}` : `Left ${p}`;
+  };
+  const amountLine = () => {
+    if (d.remaining == null) return null;
     const amount = amountText(d.remaining) + (d.unit ? ` ${d.unit}` : "");
     return zh ? `剩余 ${amount}` : `Left ${amount}`;
-  }
-  return zh ? "已获取" : "Fetched";
+  };
+  const fallback = zh ? "已获取" : "Fetched";
+  return preferMetric(metric, percentLine, amountLine) ?? fallback;
 }
 
 /** 额度重置倒计时（语言中性缩写，与 CLI fmt_reset_countdown 成对）：
@@ -175,4 +209,35 @@ export function windowShortLabel(
   if (!raw) return zh ? `窗口 ${index + 1}` : `window ${index + 1}`;
   if (raw === "week") return zh ? "周限" : "weekly";
   return raw;
+}
+
+/** 主度量偏好回退检测（spec #137 T-23，纯函数）：条目偏好与各窗口数据
+ *  形态比对，返回需回退的窗口名清单——percent 偏好下无百分比原材料
+ *  （remainingPercent 算不出）的窗口回退金额；amount 偏好下无剩余金额
+ *  （remaining 缺失）的窗口回退百分比；auto 按数据推断、无回退概念，
+ *  恒返回空清单。回退方向由偏好唯一决定（percent→金额 / amount→百分比），
+ *  调用方（试查回退 toast 等）直接按偏好取文案，不重复判定。
+ *  回退目标可算性校验（PR #146 review 修复）：回退目标也算不出的窗口
+ *  （两度量皆缺）不列入——它属于数据不足而非回退，展示层走已获取兜底，
+ *  清单不得预告"将按回退度量显示"。
+ *  窗口名取 plan_name 全名（toast 要可识别的窗口名，不做括号短化），
+ *  无名窗口回退序数（与 windowShortLabel 的无名分支同措辞）。 */
+export function metricFallbackWindows(
+  preference: PrimaryMetric,
+  windows: UsageData[],
+  lang: UiLang,
+): string[] {
+  if (preference !== "percent" && preference !== "amount") return [];
+  const zh = lang === "zh";
+  const names: string[] = [];
+  windows.forEach((d, index) => {
+    const missingPreferred =
+      preference === "percent" ? remainingPercent(d) == null : d.remaining == null;
+    if (!missingPreferred) return;
+    const fallbackComputable =
+      preference === "percent" ? d.remaining != null : remainingPercent(d) != null;
+    if (!fallbackComputable) return;
+    names.push(d.plan_name ?? (zh ? `窗口 ${index + 1}` : `window ${index + 1}`));
+  });
+  return names;
 }

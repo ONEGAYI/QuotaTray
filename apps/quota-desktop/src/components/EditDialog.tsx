@@ -15,6 +15,7 @@ import { useTheme } from "../theme";
 import type {
   NativeMeta,
   PlanVariant,
+  PrimaryMetric,
   PricingConfig,
   ProviderEntry,
   ProviderKind,
@@ -26,6 +27,7 @@ import { AiAssistPanel } from "./AiAssistPanel";
 import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } from "./presetTemplates";
 import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
+import { useMetricFallbackToast } from "./MetricFallbackToast";
 import { isValidConsoleUrlInput } from "./providerCardView";
 import { resolveSaveKeys } from "./editDialogView";
 import { resolveGuideDoc } from "./guideDocs";
@@ -98,6 +100,10 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
   );
   const [planVariant, setPlanVariant] = useState<PlanVariant>(
     initial?.plan_variant ?? "auto",
+  );
+  // 主度量展示偏好（spec #137）：三段控件读写，缺省 auto
+  const [primaryMetric, setPrimaryMetric] = useState<PrimaryMetric>(
+    initial?.primary_metric ?? "auto",
   );
   const [templateJson, setTemplateJson] = useState(() => {
     if (initial?.kind.type !== "template") return presetJsonOf("custom");
@@ -238,6 +244,8 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         pricing: pricingRef.current,
         // 智谱系订阅套餐的限额窗口声明；非订阅平台后端忽略
         plan_variant: planVariant,
+        // 主度量展示偏好（摘要位优先度量；后端随条目整体落盘，auto 省略）
+        primary_metric: primaryMetric,
         // 编辑无代理表单字段：保留卡片 Globe 开关的当前值
         //（缺失会被后端 serde 读成 false，静默重置用户开关）
         use_proxy: initial?.use_proxy,
@@ -300,6 +308,25 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
         className={inputCls}
       />
     </label>
+  );
+  // 主度量展示偏好（spec #137 T-23）：展示相关区，位于凭据与查询配置
+  // （baseUrl/控制台直达）之后、峰谷定价之前——三段 SegmentedControl
+  // 读写条目 primary_metric，缺省 auto；全形态（native/模板/脚本）同字段
+  const primaryMetricField = (
+    <div className="qt-field">
+      <span className={labelCls}>{t("edit.primaryMetric")}</span>
+      <SegmentedControl
+        value={primaryMetric}
+        compact
+        options={[
+          { value: "auto", label: t("edit.primaryMetricAuto") },
+          { value: "percent", label: t("edit.primaryMetricPercent") },
+          { value: "amount", label: t("edit.primaryMetricAmount") },
+        ]}
+        onChange={setPrimaryMetric}
+      />
+      <small className="qt-field-hint">{t("edit.primaryMetricHint")}</small>
+    </div>
   );
   const credentialField = (
     <label className="qt-field">
@@ -469,6 +496,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 {credential2Field}
               </div>
               {consoleUrlField}
+              {primaryMetricField}
               {pricingSection}
             </div>
             {/* 子页「设置模板」：条件渲染——内部校验/试查结论允许丢失，
@@ -483,6 +511,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
                 mobile={mobile}
+                primaryMetric={primaryMetric}
               />
             )}
           </>
@@ -500,6 +529,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 {credential2Field}
               </div>
               {consoleUrlField}
+              {primaryMetricField}
               {pricingSection}
             </div>
             {/* 子页「查询脚本」：条件渲染——校验/试查结论允许丢失，
@@ -516,6 +546,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                 apiKey2={apiKey2}
                 entryId={initial?.id ?? null}
                 mobile={mobile}
+                primaryMetric={primaryMetric}
               />
             )}
           </>
@@ -577,6 +608,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
               {nativeKey2Required && credential2Field}
             </div>
             {consoleUrlField}
+            {primaryMetricField}
             {pricingSection}
           </>
         )}
@@ -602,6 +634,10 @@ function TemplateForm(props: {
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
   mobile: boolean;
+  /** 主度量偏好（对话框草稿态，T-23 控件接线）：试查反馈区 dataSummary
+   *  分档（T-24）与回退警告 toast 判据（spec #137 T-23）共用同一来源
+   *  （primary_metric，缺省 auto）——草稿值优先于已保存值，控件改动即时生效 */
+  primaryMetric: PrimaryMetric;
 }) {
   const { t, lang } = useLang();
   const theme = useTheme();
@@ -610,6 +646,8 @@ function TemplateForm(props: {
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
   const [assistOpen, setAssistOpen] = useState(false);
+  // 回退提示（spec #137 T-23）：关闭态由共享 hook 门控，新试查重开
+  const fallbackToast = useMetricFallbackToast(props.primaryMetric, testResult?.data ?? []);
   const activePreset = matchedPresetId(props.templateJson);
   const presetLabels: Record<PresetTemplate["id"], TextKey> = {
     custom: "edit.preset.custom",
@@ -642,6 +680,8 @@ function TemplateForm(props: {
   const test = async () => {
     setTesting(true);
     setTestResult(null);
+    // 新一轮试查重新点亮回退提示（旧结论随旧数据一起作废）
+    fallbackToast.reopen();
     try {
       const r = await api.testTemplate(
         props.templateJson,
@@ -734,9 +774,12 @@ function TemplateForm(props: {
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
-                  {dataSummary(d, lang)}
+                  {dataSummary(d, lang, props.primaryMetric)}
                 </p>
               ))}
+              {/* 回退警告（spec #137 T-23）：偏好与窗口数据形态不符时点名
+                  窗口，右对齐不自动消失，供对照试查结果逐窗口看 */}
+              {fallbackToast.node}
             </div>
           ) : (
             <p className={testResult.error?.kind === "transient" ? "qt-text-subdued" : "qt-text-danger"}>
@@ -778,6 +821,10 @@ function ScriptForm(props: {
   /** 编辑已保存条目时的 id（新增为 null）：诊断包携带供 assist test 端测 */
   entryId: string | null;
   mobile: boolean;
+  /** 主度量偏好（对话框草稿态，T-23 控件接线）：试查反馈区 dataSummary
+   *  分档（T-24）与回退警告 toast 判据（spec #137 T-23）共用同一来源
+   *  （primary_metric，缺省 auto）——草稿值优先于已保存值，控件改动即时生效 */
+  primaryMetric: PrimaryMetric;
 }) {
   const { t, lang } = useLang();
   const theme = useTheme();
@@ -786,6 +833,8 @@ function ScriptForm(props: {
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
   const [assistOpen, setAssistOpen] = useState(false);
+  // 回退提示（spec #137 T-23）：关闭态由共享 hook 门控，新试查重开
+  const fallbackToast = useMetricFallbackToast(props.primaryMetric, testResult?.data ?? []);
 
   // 后端 IPC 形状：ScriptConfig JSON（code + allowInsecure）
   const configJson = JSON.stringify({
@@ -815,6 +864,8 @@ function ScriptForm(props: {
   const test = async () => {
     setTesting(true);
     setTestResult(null);
+    // 新一轮试查重新点亮回退提示（旧结论随旧数据一起作废）
+    fallbackToast.reopen();
     try {
       const r = await api.testScript(
         configJson,
@@ -893,9 +944,12 @@ function ScriptForm(props: {
               {(testResult.data ?? []).map((d, i) => (
                 <p key={i}>
                   {d.plan_name ? `${d.plan_name} · ` : ""}
-                  {dataSummary(d, lang)}
+                  {dataSummary(d, lang, props.primaryMetric)}
                 </p>
               ))}
+              {/* 回退警告（spec #137 T-23）：偏好与窗口数据形态不符时点名
+                  窗口，右对齐不自动消失，供对照试查结果逐窗口看 */}
+              {fallbackToast.node}
             </div>
           ) : (
             <p className={testResult.error?.kind === "transient" ? "qt-text-subdued" : "qt-text-danger"}>

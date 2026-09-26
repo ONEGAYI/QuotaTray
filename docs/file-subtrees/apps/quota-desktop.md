@@ -42,6 +42,7 @@ QuotaTray/
         │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
         │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
         │   │   ├── dragSortView.ts              # 拖拽排序几何纯逻辑
+        │   │   ├── EditDialog.test.tsx          # 编辑页控件渲染测试
         │   │   ├── EditDialog.tsx               # 跨端添加编辑页
         │   │   ├── editDialogView.test.ts       # 保存键策略测试
         │   │   ├── editDialogView.ts            # 编辑弹窗保存键策略纯函数
@@ -58,9 +59,12 @@ QuotaTray/
         │   │   ├── MainPanelTabs.tsx            # 页签与鼠标聚光
         │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
         │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
+        │   │   ├── MessageCenter.test.tsx       # 消息卡片文案渲染测试
         │   │   ├── MessageCenter.tsx            # 标题栏铃铛消息中心
         │   │   ├── messageCenterView.test.ts    # 消息中心逻辑测试
         │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
+        │   │   ├── MetricFallbackToast.test.tsx # 回退toast渲染测试
+        │   │   ├── MetricFallbackToast.tsx      # 试查回退警告toast
         │   │   ├── MobileChrome.tsx             # 移动端应用壳组件
         │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
         │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑

@@ -273,14 +273,14 @@ export const CATALOG_SCHEDULE_HINT_KEYS: Record<CatalogScheduleHint, TextKey> = 
 };
 
 /** 阈值组合校验（#132，与后端 settings.rs threshold_combination_valid
- *  成对镜像）：恢复剩余阈值必须高于低额度对应的剩余阈值
- *  （100 − 已用阈值），即两者之和严格大于 100。非法组合由设置页就地
- *  说明并阻止保存（后端 persist_settings 另有硬门禁兜底）。 */
+ *  成对镜像；T-21 起两阈值同为剩余语义）：恢复剩余阈值必须严格高于
+ *  低余额剩余阈值。非法组合由设置页就地说明并阻止保存（后端
+ *  persist_settings 另有硬门禁兜底）。 */
 export function thresholdCombinationValid(
-  lowUsedPercent: number,
+  lowRemainingPercent: number,
   recoveryRemainingPercent: number,
 ): boolean {
-  return lowUsedPercent + recoveryRemainingPercent > 100;
+  return recoveryRemainingPercent > lowRemainingPercent;
 }
 
 /** 代理主机输入 → draft 值（#133 网络环境页，纯函数）：空串归 null

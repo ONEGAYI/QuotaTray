@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, kindLabel, relativeTime, resetCountdown, usedPercent, windowShortLabel } from "../display";
+import { amountText, dataSummary, kindLabel, preferMetric, relativeTime, remainingPercent, resetCountdown, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -14,7 +14,7 @@ import {
   useSnapshots,
 } from "../queries";
 import { ThemeProvider } from "../theme";
-import type { ProviderEntry, Settings } from "../types";
+import type { PrimaryMetric, ProviderEntry, Settings } from "../types";
 import { hoverRingView, isCompactViewport, resolveHoverProvider } from "./hoverPanelView";
 import { BrandMark } from "./BrandMark";
 import { deriveProviderCardState } from "./providerCardView";
@@ -27,16 +27,30 @@ import { formatPrice } from "./pricingDraft";
 
 const hoverQueryClient = new QueryClient();
 
-function primaryValue(data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined) {
-  if (!data) return { label: "empty" as const, value: "—", unit: "" };
-  const percent = usedPercent(data);
-  if (percent != null) {
-    return { label: "used" as const, value: `${Math.round(percent)}%`, unit: "" };
-  }
-  if (data.remaining != null) {
-    return { label: "available" as const, value: amountText(data.remaining), unit: data.unit ?? "" };
-  }
-  return { label: "empty" as const, value: "—", unit: data.unit ?? "" };
+/** hero 主数值形状：label 为语义键（文案由调用处 i18n 渲染）。 */
+type HeroValue = { label: "remaining" | "available" | "empty"; value: string; unit: string };
+
+/** 悬停面板 hero 主数值（label 为语义键，文案由调用处 i18n 渲染）。
+ *  主度量偏好分档经 display.preferMetric 骨架（T-24，#142；PR #146
+ *  review 抽取）：amount 档金额优先（「可用余额」族）、auto/percent
+ *  百分比优先（「剩余」族）；算不出时静默回退另一度量。
+ *  与 ProviderCard 的 primaryValue 同款分档。 */
+function primaryValue(
+  data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined,
+  metric: PrimaryMetric = "auto",
+): HeroValue {
+  if (!data) return { label: "empty", value: "—", unit: "" };
+  const percentPart = (): HeroValue | null => {
+    const percent = remainingPercent(data);
+    if (percent == null) return null;
+    return { label: "remaining", value: `${Math.round(percent)}%`, unit: "" };
+  };
+  const amountPart = (): HeroValue | null => {
+    if (data.remaining == null) return null;
+    return { label: "available", value: amountText(data.remaining), unit: data.unit ?? "" };
+  };
+  const fallback: HeroValue = { label: "empty", value: "—", unit: data.unit ?? "" };
+  return preferMetric(metric, percentPart, amountPart) ?? fallback;
 }
 
 function statusKey(kind: ReturnType<typeof deriveProviderCardState>["kind"]) {
@@ -111,13 +125,15 @@ function HoverPanelInner() {
     isFetching: query.isFetching || refreshProvider.isPending,
   });
   const mainData = view.data[0];
-  const primary = primaryValue(mainData);
-  // 多窗口时 hero 标签带窗口短标注（"已用 5h"），单窗口保持通用文案
+  // 条目级主度量偏好（T-24）：hero/圆环/用量列表统一消费
+  const primaryMetric = entry?.primary_metric;
+  const primary = primaryValue(mainData, primaryMetric);
+  // 多窗口时 hero 标签带窗口短标注（"剩余 5h"），单窗口保持通用文案
   const heroWindow = view.data.length > 1
     ? windowShortLabel(mainData?.plan_name, 0, lang)
     : null;
   const heroReset = resetCountdown(mainData?.reset_at);
-  const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100);
+  const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100, primaryMetric);
   const nativeProviderId = entry?.kind.type === "native" ? entry.kind.provider : undefined;
   const nativeMeta = nativeProviderId
     ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
@@ -193,8 +209,10 @@ function HoverPanelInner() {
     if (entry) refreshProvider.mutate(entry.id);
   };
   const visibleWindows = view.data.filter((item) => item.is_valid !== false).slice(0, 3);
+  // T-22：阈值为剩余语义（默认 20），高亮方向为剩余 ≤ 阈值
+  // （与后端 breach 同时机）；算不出剩余百分比视为永不触发。
   const overThreshold = view.data.some(
-    (item) => (usedPercent(item) ?? -1) >= (settings.data?.low_balance_threshold_percent ?? 80),
+    (item) => (remainingPercent(item) ?? Infinity) <= (settings.data?.low_balance_remaining_percent ?? 20),
   );
   const renderedStatus = overThreshold ? t("settings.thresholdTitle") : t(statusKey(view.kind));
   const renderedTone = overThreshold ? "danger" : statusTone(view.kind);
@@ -270,7 +288,7 @@ function HoverPanelInner() {
           <main className="qt-hover-content">
             <section className="qt-hover-hero">
               <div>
-                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "used" ? (heroWindow ? (lang === "zh" ? `已用 ${heroWindow}` : `Used ${heroWindow}`) : t("hover.usedQuota")) : t("card.noData")}</span>
+                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "remaining" ? (heroWindow ? (lang === "zh" ? `剩余 ${heroWindow}` : `Left ${heroWindow}`) : t("hover.remainingQuota")) : t("card.noData")}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
                 {heroReset && <small className="qt-hover-reset" data-tooltip={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>
@@ -299,16 +317,19 @@ function HoverPanelInner() {
               </section>
             )}
 
-            {!compact && visibleWindows.some((item) => usedPercent(item) != null) && (
+            {!compact && visibleWindows.some((item) => remainingPercent(item) != null) && (
               <section className="qt-hover-usage-list">
                 {visibleWindows.map((item, index) => {
-                  const percent = usedPercent(item);
+                  // 进度条按剩余比例填充（PR #146 review）：与同行文案
+                  // 「剩余 N%」、圆环三口径一致——剩余越多填充越多，
+                  // 不再按已用填充（文案与视觉方向相反即 spec Problem 原句）。
+                  const percent = remainingPercent(item);
                   const reset = resetCountdown(item.reset_at);
                   return (
                     <div className="qt-hover-usage" key={`${item.plan_name ?? "window"}-${index}`}>
                       <div>
                         <span>{item.plan_name ?? t("card.windowN", { n: index + 1 })}</span>
-                        <b>{dataSummary(item, lang)}</b>
+                        <b>{dataSummary(item, lang, primaryMetric)}</b>
                         {reset && <small className="qt-hover-usage-reset">{reset}</small>}
                       </div>
                       {percent != null && (

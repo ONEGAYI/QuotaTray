@@ -451,6 +451,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -480,6 +481,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -548,6 +550,7 @@ mod tests {
             provider_id: provider.into(),
             window_key: "five_hour".into(),
             color_slot: slot,
+            metric: None,
         }
     }
 

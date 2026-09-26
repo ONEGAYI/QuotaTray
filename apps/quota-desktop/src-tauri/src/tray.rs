@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use quota_core::pricing::{self, PeakKind};
-use quota_core::{AppConfig, CustomModelDef, PlanKind, ProviderEntry, UsageData};
+use quota_core::{AppConfig, CustomModelDef, PlanKind, PrimaryMetric, ProviderEntry};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -34,20 +34,6 @@ pub const PEAK_FLIP_EVENT: &str = "peak-flip";
 
 // ---- 展示纯函数 -----------------------------------------------------------
 
-/// 已用百分比（0-100）。
-///
-/// 约定：unit 为 "%" 时 used 即已用百分比；否则按 used/total 换算；
-/// 数据不足返回 None（不猜测）。
-pub fn used_percent(d: &UsageData) -> Option<f64> {
-    if d.unit.as_deref() == Some("%") {
-        return d.used;
-    }
-    match (d.used, d.total) {
-        (Some(used), Some(total)) if total > 0.0 => Some(used / total * 100.0),
-        _ => None,
-    }
-}
-
 /// 相对时间文案（分档见 [`Lang::relative_time`]，与前端 display.ts 成对）。
 pub fn relative_time(at_ms: u64, now_ms: u64, lang: Lang) -> String {
     let secs = now_ms.saturating_sub(at_ms) / 1000;
@@ -70,20 +56,26 @@ pub(crate) const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
 
 /// 条目展示行（多窗口一窗口一行）。
 ///
-/// 形状（GUI-spec §3）：
-/// - 成功：`名称 · 剩余 62.97 CNY · 3 分钟前` 或 `名称 · 已用 42% · 3 分钟前`；
-/// - 多窗口行带窗口名：`名称 · five_hour 已用 42% · 3 分钟前`；
+/// 形状（GUI-spec §3；T-21 起百分比行与余额行统一剩余口径）：
+/// - 成功：`名称 · 剩余 62.97 CNY · 3 分钟前` 或 `名称 · 剩余 58% · 3 分钟前`；
+/// - 多窗口行带窗口名：`名称 · five_hour 剩余 58% · 3 分钟前`；
 /// - 瞬时失败且旧值在 keep-last-good 窗口内：正常行尾追加 `⟳ 暂不可达`；
 /// - 瞬时失败但无旧值或已超窗：`名称 · ⟳ 网络波动`；
 /// - 确定性失败：`名称 · ⚠ 错误摘要`（立即透出，不展示旧值）；
 /// - `is_valid=false`：`名称 · ⚠ 已失效：原因`；
-/// - 已用百分比 ≥ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
+/// - 剩余百分比 ≤ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
+///
+/// 主度量偏好分档（T-24，#142）：`metric` 来自条目 `primary_metric`——
+/// amount 档金额行优先、auto/percent 维持推断基线（百分比优先）；指定
+/// 度量某窗口算不出时逐窗口静默回退另一度量（与前端 display.ts 的
+/// dataSummary 成对）。⚠ 判定不随偏好变化（阈值恒为剩余百分比口径）。
 pub fn entry_lines(
     name: &str,
     state: &EntryState,
     threshold_percent: u8,
     now_ms: u64,
     lang: Lang,
+    metric: PrimaryMetric,
 ) -> Vec<String> {
     let t = lang.texts();
     let warn = |line: String, over: bool| {
@@ -149,27 +141,29 @@ pub fn entry_lines(
                     .unwrap_or_else(|| lang.window_name(i + 1))
             ),
         };
-        let body = if let Some(pct) = used_percent(d) {
-            format!("{name} · {window}{}", lang.used_text(&percent_text(pct)))
-        } else if let (Some(rem), unit) = (d.remaining, d.unit.clone()) {
-            match unit {
-                Some(u) if !u.is_empty() => {
-                    format!(
-                        "{name} · {window}{}",
-                        lang.remaining_text(&amount_text(rem), Some(&u))
-                    )
-                }
-                Some(_) | None => {
-                    format!(
-                        "{name} · {window}{}",
-                        lang.remaining_text(&amount_text(rem), None)
-                    )
-                }
-            }
-        } else {
-            format!("{name} · {window}{}", t.fetched)
+        // 两度量各自可算才有行体；偏好只定先后（T-24，经 ring::prefer_metric
+        // 骨架——PR #146 review 抽取，与 ring.rs/前端 display.ts 成对），
+        // 算不出回退另一度量
+        let percent_line = || {
+            let pct = quota_core::remaining_percent(d)?;
+            Some(format!(
+                "{name} · {window}{}",
+                lang.remaining_percent_text(&percent_text(pct))
+            ))
         };
-        let over = used_percent(d).is_some_and(|p| p >= f64::from(threshold_percent));
+        let amount_line = || {
+            let rem = d.remaining?;
+            let unit = d.unit.as_deref().filter(|u| !u.is_empty());
+            Some(format!(
+                "{name} · {window}{}",
+                lang.remaining_text(&amount_text(rem), unit)
+            ))
+        };
+        let fetched_line = || format!("{name} · {window}{}", t.fetched);
+        let body =
+            ring::prefer_metric(metric, percent_line, amount_line).unwrap_or_else(fetched_line);
+        let over =
+            quota_core::remaining_percent(d).is_some_and(|p| p <= f64::from(threshold_percent));
         lines.push(warn(time_suffix(body, state.at), over) + &transient_mark);
     }
     if lines.is_empty() {
@@ -247,7 +241,8 @@ pub(crate) fn state_is_displayable(st: &EntryState, now: u64) -> bool {
     }
 }
 
-/// 是否有条目超过低额度阈值（圆环右上角红点的依据）。
+/// 是否有条目低于低余额阈值（圆环右上角红点的依据；T-21 剩余口径：
+/// 任一窗口剩余 ≤ 阈值即告警）。
 ///
 /// 门控与圆环/菜单行一致（`state_is_displayable`）：确定性失败或超窗瞬时
 /// 失败的条目，其旧值不再作为告警依据。
@@ -265,8 +260,8 @@ pub fn any_alert(
         .filter_map(|st| st.data.as_ref())
         .any(|data| {
             data.iter().filter(|d| d.is_valid != Some(false)).any(|d| {
-                used_percent(d)
-                    .is_some_and(|p| p >= f64::from(settings.low_balance_threshold_percent))
+                quota_core::remaining_percent(d)
+                    .is_some_and(|p| p <= f64::from(settings.low_balance_remaining_percent))
             })
         })
 }
@@ -508,9 +503,10 @@ fn build_menu(
                 Some(st) => entry_lines(
                     &entry.name,
                     st,
-                    settings.low_balance_threshold_percent,
+                    settings.low_balance_remaining_percent,
                     now,
                     lang,
+                    entry.primary_metric,
                 ),
                 None => vec![format!("{} · {}", entry.name, t.no_data)],
             };
@@ -741,14 +737,27 @@ mod tests {
 
     const NOW: u64 = 1_755_000_000_000;
 
-    /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行。
+    /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行（阈值硬编码 20，
+    /// 与新默认同值——剩余口径）。
     fn assert_both(name: &str, st: &EntryState, zh: Vec<&str>, en: Vec<&str>) {
+        assert_both_metric(name, st, quota_core::PrimaryMetric::Auto, zh, en);
+    }
+
+    /// 双语断言辅助（带主度量偏好，T-24）：同一状态在 zh/en 下各自匹配
+    /// 期望行（阈值硬编码 20，与 assert_both 同源）。
+    fn assert_both_metric(
+        name: &str,
+        st: &EntryState,
+        metric: quota_core::PrimaryMetric,
+        zh: Vec<&str>,
+        en: Vec<&str>,
+    ) {
         assert_eq!(
-            entry_lines(name, st, 80, NOW, Lang::Zh),
+            entry_lines(name, st, 20, NOW, Lang::Zh, metric),
             zh.into_iter().map(String::from).collect::<Vec<_>>()
         );
         assert_eq!(
-            entry_lines(name, st, 80, NOW, Lang::En),
+            entry_lines(name, st, 20, NOW, Lang::En, metric),
             en.into_iter().map(String::from).collect::<Vec<_>>()
         );
     }
@@ -808,6 +817,7 @@ mod tests {
             base_url: None,
             pricing,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         }
@@ -1027,19 +1037,140 @@ mod tests {
         );
     }
 
-    /// 契约：百分比型行——unit="%" 时 used 即已用百分比。
+    /// 契约：百分比型行（T-21 剩余口径）——unit="%" 时按 `100−used`
+    /// 展示剩余百分比（core remaining_percent）。
     #[test]
     fn percent_line_shape() {
         let st = ok_state(vec![percent_data(Some(42.0))], NOW - 180_000);
         assert_both(
             "GLM",
             &st,
-            vec!["GLM · 已用 42% · 3 分钟前"],
-            vec!["GLM · Used 42% · 3m ago"],
+            vec!["GLM · 剩余 58% · 3 分钟前"],
+            vec!["GLM · Left 58% · 3m ago"],
+        );
+        // 金额窗口（used/total 可换算，非 %）同样走剩余百分比换算
+        let amount = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            ..Default::default()
+        };
+        let st = ok_state(vec![amount], NOW - 180_000);
+        assert_both(
+            "GLM",
+            &st,
+            vec!["GLM · 剩余 85% · 3 分钟前"],
+            vec!["GLM · Left 85% · 3m ago"],
         );
     }
 
-    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」。
+    /// 契约：主度量偏好分档（T-24）——amount 档金额行优先（即使可算
+    /// 百分比），auto/percent 维持推断基线（百分比优先）；指定度量算不出
+    /// 时静默回退另一度量（与前端 display.ts dataSummary 成对）。
+    #[test]
+    fn primary_metric_preference_branching() {
+        use quota_core::PrimaryMetric;
+        // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+        let both = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            remaining: Some(62.97),
+            unit: Some("CNY".into()),
+            ..Default::default()
+        };
+        let st = ok_state(vec![both], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Auto,
+            vec!["X · 剩余 85% · 刚刚"],
+            vec!["X · Left 85% · just now"],
+        );
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Percent,
+            vec!["X · 剩余 85% · 刚刚"],
+            vec!["X · Left 85% · just now"],
+        );
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 62.97 CNY · 刚刚"],
+            vec!["X · Left 62.97 CNY · just now"],
+        );
+
+        // 回退：amount 档无 remaining → 剩余百分比
+        let st = ok_state(vec![percent_data(Some(42.0))], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 58% · 刚刚"],
+            vec!["X · Left 58% · just now"],
+        );
+        // 回退：percent 档算不出百分比 → 剩余金额
+        let st = ok_state(vec![data(Some(62.97), Some("CNY"))], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Percent,
+            vec!["X · 剩余 62.97 CNY · 刚刚"],
+            vec!["X · Left 62.97 CNY · just now"],
+        );
+    }
+
+    /// 契约：amount 档混合窗口逐窗口回退——金额窗口（有 remaining）用
+    /// 金额行，纯百分比窗口静默回退百分比行；金额单位为空串时不带单位。
+    #[test]
+    fn amount_preference_per_window_fallback() {
+        use quota_core::PrimaryMetric;
+        let mcp = UsageData {
+            plan_name: Some("mcp".into()),
+            used: Some(30.0),
+            total: Some(200.0),
+            remaining: Some(62.97),
+            unit: Some("CNY".into()),
+            ..Default::default()
+        };
+        let five_hour = UsageData {
+            plan_name: Some("five_hour".into()),
+            used: Some(42.0),
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        let st = ok_state(vec![mcp, five_hour], NOW);
+        assert_both_metric(
+            "GLM",
+            &st,
+            PrimaryMetric::Amount,
+            vec![
+                "GLM · mcp 剩余 62.97 CNY · 刚刚",
+                "GLM · five_hour 剩余 58% · 刚刚",
+            ],
+            vec![
+                "GLM · mcp Left 62.97 CNY · just now",
+                "GLM · five_hour Left 58% · just now",
+            ],
+        );
+        // 金额单位缺失/空串：金额行不带单位后缀（现状分支语义保持）
+        let no_unit = UsageData {
+            plan_name: None,
+            remaining: Some(5.0),
+            ..Default::default()
+        };
+        let st = ok_state(vec![no_unit], NOW);
+        assert_both_metric(
+            "X",
+            &st,
+            PrimaryMetric::Amount,
+            vec!["X · 剩余 5.00 · 刚刚"],
+            vec!["X · Left 5.00 · just now"],
+        );
+    }
+
+    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」
+    /// （百分比行剩余口径）。
     #[test]
     fn multi_window_lines() {
         let d1 = UsageData {
@@ -1059,12 +1190,12 @@ mod tests {
             "GLM",
             &st,
             vec![
-                "GLM · five_hour 已用 42% · 5 分钟前",
-                "GLM · 窗口2 已用 10% · 5 分钟前",
+                "GLM · five_hour 剩余 58% · 5 分钟前",
+                "GLM · 窗口2 剩余 90% · 5 分钟前",
             ],
             vec![
-                "GLM · five_hour Used 42% · 5m ago",
-                "GLM · Window 2 Used 10% · 5m ago",
+                "GLM · five_hour Left 58% · 5m ago",
+                "GLM · Window 2 Left 90% · 5m ago",
             ],
         );
     }
@@ -1139,7 +1270,7 @@ mod tests {
             ..Default::default()
         };
         for lang in [Lang::Zh, Lang::En] {
-            let line = &entry_lines("X", &st, 80, NOW, lang)[0];
+            let line = &entry_lines("X", &st, 80, NOW, lang, quota_core::PrimaryMetric::Auto)[0];
             // X · ⚠ + 60 字符
             assert!(line.chars().count() < 70, "应截断：{line}");
             assert!(!line.contains(&"错".repeat(61)), "不得超出截断上限");
@@ -1198,41 +1329,26 @@ mod tests {
         );
     }
 
-    /// 契约：超阈值行首加 ⚠（恰等于阈值触发）。
+    /// 契约：剩余百分比 ≤ 阈值的行首加 ⚠（T-21 方向翻转；恰等于阈值
+    /// 触发）。
     #[test]
     fn threshold_adds_warning_prefix() {
+        // used 80 → 剩余 20 = 阈值 20：恰达阈值触发
         let st = ok_state(vec![percent_data(Some(80.0))], NOW);
         assert_both(
             "X",
             &st,
-            vec!["⚠ X · 已用 80% · 刚刚"],
-            vec!["⚠ X · Used 80% · just now"],
+            vec!["⚠ X · 剩余 20% · 刚刚"],
+            vec!["⚠ X · Left 20% · just now"],
         );
-        let below = ok_state(vec![percent_data(Some(79.9))], NOW);
+        // used 79 → 剩余 21 > 20：不触发
+        let below = ok_state(vec![percent_data(Some(79.0))], NOW);
         assert_both(
             "X",
             &below,
-            vec!["X · 已用 80% · 刚刚"],
-            vec!["X · Used 80% · just now"],
+            vec!["X · 剩余 21% · 刚刚"],
+            vec!["X · Left 21% · just now"],
         );
-    }
-
-    /// 契约：已用百分比换算——used/total 与 unit="%" 直读。
-    #[test]
-    fn used_percent_calculation() {
-        let mut d = UsageData {
-            used: Some(42.0),
-            total: Some(200.0),
-            ..Default::default()
-        };
-        assert_eq!(used_percent(&d), Some(21.0));
-        d.unit = Some("%".into());
-        assert_eq!(used_percent(&d), Some(42.0));
-        // total 为 0 / 缺 used → None（不猜测）
-        d.total = Some(0.0);
-        d.unit = None;
-        assert_eq!(used_percent(&d), None);
-        assert_eq!(used_percent(&UsageData::default()), None);
     }
 
     /// 契约：相对时间分档（双语委托 i18n，此处锁端到端形状）。
@@ -1250,7 +1366,8 @@ mod tests {
         assert_eq!(relative_time(NOW - 172_800_000, NOW, Lang::En), "2d ago");
     }
 
-    /// 契约：any_alert——enabled + 超阈值才触发；disabled / 失效条目不触发。
+    /// 契约：any_alert——enabled + 剩余 ≤ 阈值才触发；disabled / 失效
+    /// 条目不触发（T-21 剩余口径：used 85 → 剩余 15 ≤ 默认阈值 20）。
     #[test]
     fn any_alert_rules() {
         use quota_core::{ProviderEntry, ProviderKind};
@@ -1266,6 +1383,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -1273,7 +1391,7 @@ mod tests {
             custom_models: Default::default(),
             providers: vec![entry("a", true), entry("b", false)],
         };
-        let settings = Settings::default(); // 阈值 80
+        let settings = Settings::default(); // 剩余阈值 20
 
         let mut results = HashMap::new();
         results.insert("a".into(), ok_state(vec![percent_data(Some(85.0))], NOW));
@@ -1319,6 +1437,7 @@ mod tests {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
         };
@@ -1326,7 +1445,7 @@ mod tests {
             custom_models: Default::default(),
             providers: vec![entry("a")],
         };
-        let settings = Settings::default(); // 阈值 80
+        let settings = Settings::default(); // 剩余阈值 20
 
         let over = ok_state(vec![percent_data(Some(85.0))], NOW);
         let mut results = HashMap::new();

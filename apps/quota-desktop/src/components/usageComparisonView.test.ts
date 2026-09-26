@@ -6,6 +6,7 @@ import {
   initialUsageComparisons,
   partitionCompatibleUsageScopes,
   removeUsageComparison,
+  resolveUsageComparisonMetrics,
   shouldShowFocusedGap,
   usageComparisonConflict,
   usageTooltipDock,
@@ -13,38 +14,68 @@ import {
 } from "./usageComparisonView";
 
 const base: UsageComparisonSeries[] = [
-  { provider_id: "p1", window_key: "w1", color_slot: 2 },
-  { provider_id: "p2", window_key: "w2", color_slot: 0 },
+  { provider_id: "p1", window_key: "w1", color_slot: 2, metric: "percent" },
+  { provider_id: "p2", window_key: "w2", color_slot: 0, metric: "absolute" },
 ];
 
 describe("使用统计比较组合逻辑", () => {
-  it("新增组合分配最低空闲色槽，重复与四条上限被拒绝", () => {
-    expect(addUsageComparison(base, { providerId: "p3", windowKey: "w3" })).toEqual({
+  it("新增组合分配最低空闲色槽：同窗口异度量可共存，同度量重复与四条上限被拒绝", () => {
+    expect(addUsageComparison(base, { providerId: "p3", windowKey: "w3", metric: "percent" })).toEqual({
       ok: true,
-      value: [...base, { provider_id: "p3", window_key: "w3", color_slot: 1 }],
+      value: [...base, { provider_id: "p3", window_key: "w3", metric: "percent", color_slot: 1 }],
     });
-    expect(addUsageComparison(base, { providerId: "p1", windowKey: "w1" }).ok).toBe(false);
+    expect(addUsageComparison(base, { providerId: "p1", windowKey: "w1", metric: "percent" }).ok).toBe(false);
+    // 同窗口另一度量是独立组合项（issue #143 双产），占独立色槽
+    expect(addUsageComparison(base, { providerId: "p1", windowKey: "w1", metric: "absolute" })).toEqual({
+      ok: true,
+      value: [...base, { provider_id: "p1", window_key: "w1", metric: "absolute", color_slot: 1 }],
+    });
     expect(addUsageComparison([
       ...base,
-      { provider_id: "p3", window_key: "w3", color_slot: 1 },
-      { provider_id: "p4", window_key: "w4", color_slot: 3 },
-    ], { providerId: "p5", windowKey: "w5" }).ok).toBe(false);
+      { provider_id: "p3", window_key: "w3", metric: "percent", color_slot: 1 },
+      { provider_id: "p4", window_key: "w4", metric: "absolute", color_slot: 3 },
+    ], { providerId: "p5", windowKey: "w5", metric: "percent" }).ok).toBe(false);
   });
 
-  it("组合 ID 对包含分隔控制字符的键仍无拼接碰撞", () => {
-    expect(usageComparisonId("a\u0000b", "c")).not.toBe(usageComparisonId("a", "b\u0000c"));
+  it("组合 ID 含度量维度：同窗口两条度量不撞键，分隔控制字符仍无拼接碰撞", () => {
+    expect(usageComparisonId("p1", "w1", "percent")).not.toBe(usageComparisonId("p1", "w1", "absolute"));
+    expect(usageComparisonId("a\u0000b", "c", "percent")).not.toBe(usageComparisonId("a", "b\u0000c", "percent"));
   });
 
-  it("删除仅移除指定组合并保留其余色槽", () => {
-    expect(removeUsageComparison(base, "p1", "w1")).toEqual([base[1]]);
+  it("删除仅移除指定度量的组合并保留同窗口另一度量", () => {
+    expect(removeUsageComparison(base, "p1", "w1", "percent")).toEqual([base[1]]);
+    const dual: UsageComparisonSeries[] = [
+      { provider_id: "p1", window_key: "w1", color_slot: 2, metric: "percent" },
+      { provider_id: "p1", window_key: "w1", color_slot: 3, metric: "absolute" },
+    ];
+    expect(removeUsageComparison(dual, "p1", "w1", "percent")).toEqual([dual[1]]);
   });
 
-  it("未初始化时自动选择首个候选，显式空数组保持空态", () => {
-    expect(initialUsageComparisons(null, [{ providerId: "p1", windowKey: "w1" }])).toEqual([
-      { provider_id: "p1", window_key: "w1", color_slot: 0 },
+  it("未初始化时自动选择首个候选（携带度量），显式空数组保持空态", () => {
+    expect(initialUsageComparisons(null, [{ providerId: "p1", windowKey: "w1", metric: "absolute" }])).toEqual([
+      { provider_id: "p1", window_key: "w1", metric: "absolute", color_slot: 0 },
     ]);
-    expect(initialUsageComparisons([], [{ providerId: "p1", windowKey: "w1" }])).toEqual([]);
+    expect(initialUsageComparisons([], [{ providerId: "p1", windowKey: "w1", metric: "percent" }])).toEqual([]);
     expect(initialUsageComparisons(null, [])).toEqual([]);
+  });
+
+  it("存量无 metric 组合按现有派生回填度量：percent 优先、无百分比退金额、无候选保持缺省", () => {
+    const candidates = [
+      { providerId: "p1", windowKey: "w1", metric: "percent" as const },
+      { providerId: "p1", windowKey: "w1", metric: "absolute" as const },
+      { providerId: "p2", windowKey: "w2", metric: "absolute" as const },
+    ];
+    expect(resolveUsageComparisonMetrics([
+      { provider_id: "p1", window_key: "w1", color_slot: 0 },
+      { provider_id: "p2", window_key: "w2", color_slot: 1 },
+      { provider_id: "p9", window_key: "w9", color_slot: 2 },
+      { provider_id: "p1", window_key: "w1", color_slot: 3, metric: "absolute" },
+    ], candidates)).toEqual([
+      { provider_id: "p1", window_key: "w1", color_slot: 0, metric: "percent" },
+      { provider_id: "p2", window_key: "w2", color_slot: 1, metric: "absolute" },
+      { provider_id: "p9", window_key: "w9", color_slot: 2 },
+      { provider_id: "p1", window_key: "w1", color_slot: 3, metric: "absolute" },
+    ]);
   });
 
   it("百分比可与一种绝对单位共存，不允许第二种绝对单位", () => {
@@ -73,7 +104,7 @@ describe("使用统计比较组合逻辑", () => {
   });
 
   it("删除不存在的组合保持原数组语义不变", () => {
-    expect(removeUsageComparison(base, "missing", "missing")).toEqual(base);
+    expect(removeUsageComparison(base, "missing", "missing", "percent")).toEqual(base);
   });
 
   it("长期缺失灰区只在单条聚焦时显示于聚焦项", () => {
