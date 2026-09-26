@@ -30,7 +30,7 @@ import {
 import { useLang } from "../i18n";
 import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { DragHandleProps } from "../useCardDragSort";
-import type { NativeMeta, ProviderEntry, SnapshotEntry, UsageData } from "../types";
+import type { NativeMeta, PrimaryMetric, ProviderEntry, SnapshotEntry, UsageData } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText, resolveConsoleUrl } from "./providerCardView";
 import { isLightLogo, providerIconUrl, templateProviderIconUrl } from "./providerIcon";
 import {
@@ -66,12 +66,21 @@ interface Props {
 /** 主数值区取值（T-22 剩余口径）：百分比优先（剩余百分比），否则剩余
  *  额度。多窗口时 label 带窗口短标签。金额分支 label 保留「可用余额」——
  *  其值本就是 remaining 绝对值、无方向可翻，与百分比分支的「剩余」族
- *  语义等价（双语契约见 ProviderCard.test）。 */
-function primaryValue(data: UsageData | undefined, lang: "zh" | "en", windowLabel?: string) {
+ *  语义等价（双语契约见 ProviderCard.test）。
+ *  主度量偏好分档（T-24，#142）：amount 档金额优先（label 走「可用余额」
+ *  族）、auto/percent 维持百分比优先推断基线（「剩余 N%」族）；指定度量
+ *  某窗口算不出时静默回退另一度量（逐窗口独立）。 */
+function primaryValue(
+  data: UsageData | undefined,
+  lang: "zh" | "en",
+  windowLabel?: string,
+  metric: PrimaryMetric = "auto",
+) {
   if (!data) return { value: "—", unit: "", label: lang === "zh" ? "暂无数据" : "No data" };
   const zh = lang === "zh";
-  const percent = remainingPercent(data);
-  if (percent != null) {
+  const percentPart = () => {
+    const percent = remainingPercent(data);
+    if (percent == null) return null;
     return {
       value: `${Math.round(percent)}%`,
       unit: "",
@@ -83,15 +92,20 @@ function primaryValue(data: UsageData | undefined, lang: "zh" | "en", windowLabe
           ? "剩余额度"
           : "Remaining",
     };
-  }
-  if (data.remaining != null) {
+  };
+  const amountPart = () => {
+    if (data.remaining == null) return null;
     return {
       value: amountText(data.remaining),
       unit: data.unit ?? "",
       label: windowLabel ?? (zh ? "可用余额" : "Available"),
     };
+  };
+  const fallback = { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
+  if (metric === "amount") {
+    return amountPart() ?? percentPart() ?? fallback;
   }
-  return { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
+  return percentPart() ?? amountPart() ?? fallback;
 }
 
 function providerInitials(name: string) {
@@ -170,7 +184,7 @@ export const ProviderCard = memo(function ProviderCard({
     entry.kind.type === "native" && nativeMeta?.uses_cli_credentials === true;
   const mainData = view.data[0];
   const multiWindow = view.data.length > 1;
-  const primary = primaryValue(mainData, lang);
+  const primary = primaryValue(mainData, lang, undefined, entry.primary_metric);
   const mainReset = resetCountdown(mainData?.reset_at);
   const pricingView = resolveProviderPricingView(entry, nativeMeta, peakTick, mainData?.unit);
   const modelChoices = pricingModelChoices(
@@ -408,6 +422,7 @@ export const ProviderCard = memo(function ProviderCard({
                 item,
                 lang,
                 windowShortLabel(item.plan_name, index, lang),
+                entry.primary_metric,
               );
               const itemReset = resetCountdown(item.reset_at);
               return (

@@ -14,7 +14,7 @@ import {
   useSnapshots,
 } from "../queries";
 import { ThemeProvider } from "../theme";
-import type { ProviderEntry, Settings } from "../types";
+import type { PrimaryMetric, ProviderEntry, Settings } from "../types";
 import { hoverRingView, isCompactViewport, resolveHoverProvider } from "./hoverPanelView";
 import { BrandMark } from "./BrandMark";
 import { deriveProviderCardState } from "./providerCardView";
@@ -27,16 +27,29 @@ import { formatPrice } from "./pricingDraft";
 
 const hoverQueryClient = new QueryClient();
 
-function primaryValue(data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined) {
+/** 悬停面板 hero 主数值（label 为语义键，文案由调用处 i18n 渲染）。
+ *  主度量偏好分档（T-24，#142）：amount 档金额优先（「可用余额」族）、
+ *  auto/percent 百分比优先（「剩余」族）；算不出时静默回退另一度量。
+ *  与 ProviderCard 的 primaryValue 同款分档。 */
+function primaryValue(
+  data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined,
+  metric: PrimaryMetric = "auto",
+) {
   if (!data) return { label: "empty" as const, value: "—", unit: "" };
-  const percent = remainingPercent(data);
-  if (percent != null) {
+  const percentPart = () => {
+    const percent = remainingPercent(data);
+    if (percent == null) return null;
     return { label: "remaining" as const, value: `${Math.round(percent)}%`, unit: "" };
-  }
-  if (data.remaining != null) {
+  };
+  const amountPart = () => {
+    if (data.remaining == null) return null;
     return { label: "available" as const, value: amountText(data.remaining), unit: data.unit ?? "" };
+  };
+  const fallback = { label: "empty" as const, value: "—", unit: data.unit ?? "" };
+  if (metric === "amount") {
+    return amountPart() ?? percentPart() ?? fallback;
   }
-  return { label: "empty" as const, value: "—", unit: data.unit ?? "" };
+  return percentPart() ?? amountPart() ?? fallback;
 }
 
 function statusKey(kind: ReturnType<typeof deriveProviderCardState>["kind"]) {
@@ -111,13 +124,15 @@ function HoverPanelInner() {
     isFetching: query.isFetching || refreshProvider.isPending,
   });
   const mainData = view.data[0];
-  const primary = primaryValue(mainData);
+  // 条目级主度量偏好（T-24）：hero/圆环/用量列表统一消费
+  const primaryMetric = entry?.primary_metric;
+  const primary = primaryValue(mainData, primaryMetric);
   // 多窗口时 hero 标签带窗口短标注（"剩余 5h"），单窗口保持通用文案
   const heroWindow = view.data.length > 1
     ? windowShortLabel(mainData?.plan_name, 0, lang)
     : null;
   const heroReset = resetCountdown(mainData?.reset_at);
-  const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100);
+  const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100, primaryMetric);
   const nativeProviderId = entry?.kind.type === "native" ? entry.kind.provider : undefined;
   const nativeMeta = nativeProviderId
     ? nativeMetas.data?.find((meta) => meta.id === nativeProviderId)
@@ -310,7 +325,7 @@ function HoverPanelInner() {
                     <div className="qt-hover-usage" key={`${item.plan_name ?? "window"}-${index}`}>
                       <div>
                         <span>{item.plan_name ?? t("card.windowN", { n: index + 1 })}</span>
-                        <b>{dataSummary(item, lang)}</b>
+                        <b>{dataSummary(item, lang, primaryMetric)}</b>
                         {reset && <small className="qt-hover-usage-reset">{reset}</small>}
                       </div>
                       {percent != null && (

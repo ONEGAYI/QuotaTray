@@ -2,7 +2,7 @@
 // 语义与 Rust 侧 tray.rs / i18n.rs 纯函数成对——分档边界、剩余/已用措辞
 // 两端保持一致，修改任一侧须同步另一侧。
 import type { UiLang } from "./i18n/zh";
-import type { ProviderEntry, UsageData } from "./types";
+import type { PrimaryMetric, ProviderEntry, UsageData } from "./types";
 
 /** 条目类型标签（平台副标题）：native 用平台名，模板/脚本各归各
  *  （与 CLI render.rs kind_label 成对，script 不得落入模板文案）。 */
@@ -81,19 +81,32 @@ export function amountText(v: number): string {
 
 /** 单窗口数据的主文案（与 tray.rs 行体措辞成对：剩余/剩余/已获取——
  *  T-22 起百分比行体为 remaining_percent_text 的「剩余 N%」，金额为
- *  remaining_text 的「剩余 X 币」，两分支统一剩余口径）。 */
-export function dataSummary(d: UsageData, lang: UiLang): string {
+ *  remaining_text 的「剩余 X 币」，两分支统一剩余口径）。
+ *  主度量偏好分档（T-24，#142）：amount 档金额文案优先、auto/percent
+ *  维持推断基线（百分比优先）；指定度量算不出时静默回退另一度量——
+ *  多窗口条目每窗口独立调用本函数，回退天然逐窗口。 */
+export function dataSummary(
+  d: UsageData,
+  lang: UiLang,
+  metric: PrimaryMetric = "auto",
+): string {
   const zh = lang === "zh";
-  const pct = remainingPercent(d);
-  if (pct != null) {
+  const percentLine = () => {
+    const pct = remainingPercent(d);
+    if (pct == null) return null;
     const p = `${Math.round(pct)}%`;
     return zh ? `剩余 ${p}` : `Left ${p}`;
-  }
-  if (d.remaining != null) {
+  };
+  const amountLine = () => {
+    if (d.remaining == null) return null;
     const amount = amountText(d.remaining) + (d.unit ? ` ${d.unit}` : "");
     return zh ? `剩余 ${amount}` : `Left ${amount}`;
+  };
+  const fallback = zh ? "已获取" : "Fetched";
+  if (metric === "amount") {
+    return amountLine() ?? percentLine() ?? fallback;
   }
-  return zh ? "已获取" : "Fetched";
+  return percentLine() ?? amountLine() ?? fallback;
 }
 
 /** 额度重置倒计时（语言中性缩写，与 CLI fmt_reset_countdown 成对）：

@@ -37,13 +37,18 @@ function render(model: string, suppliedMeta = meta) {
 }
 
 /** 主数值区与高亮方向（T-22 剩余口径）：经启动快照注入数据渲染，
- *  与主页真实链路同构（deriveProviderCardState 的 snapshot 分支）。 */
+ *  与主页真实链路同构（deriveProviderCardState 的 snapshot 分支）。
+ *  primaryMetric 模拟条目级主度量偏好（T-24，缺省 = auto）。 */
 function renderWithSnapshot(
   data: SnapshotEntry["data"],
   thresholdPercent: number,
+  primaryMetric?: ProviderEntry["primary_metric"],
 ): string {
   const client = new QueryClient();
-  const entry: ProviderEntry = { id: "test", name: "账户", kind: { type: "native", provider: "deepseek" }, enabled: true };
+  const entry: ProviderEntry = {
+    id: "test", name: "账户", kind: { type: "native", provider: "deepseek" }, enabled: true,
+    primary_metric: primaryMetric,
+  };
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <ProviderCard
@@ -134,5 +139,42 @@ describe("主数值区与高亮方向（T-22 剩余口径）", () => {
     ).toContain("has-balance-alert");
     // 金额窗口算不出剩余百分比：即使余额很低也不走高亮路径（与后端 breach 仅 % 口径一致）
     expect(renderWithSnapshot([{ remaining: 1.5, unit: "CNY" }], 20)).not.toContain("has-balance-alert");
+  });
+});
+
+describe("主数值区主度量偏好分档（T-24）", () => {
+  it("amount 档主数值优先金额：label「可用余额」，即使可算百分比", () => {
+    // used/total 可换算 85% + remaining 有值 → auto 显示百分比、amount 显示金额
+    const html = renderWithSnapshot(
+      [{ used: 30, total: 200, remaining: 62.97, unit: "CNY" }],
+      20,
+      "amount",
+    );
+    expect(html).toContain("可用余额");
+    expect(html).toContain("62.97");
+    expect(html).not.toContain("剩余额度");
+  });
+
+  it("amount 档混合窗口逐窗口回退：金额窗口用金额、纯百分比窗口回退百分比", () => {
+    const html = renderWithSnapshot(
+      [
+        { used: 30, total: 200, remaining: 62.97, unit: "CNY", plan_name: "GLM Coding Plan（MCP）" },
+        { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+      ],
+      20,
+      "amount",
+    );
+    // MCP 窗口有金额 → 金额值（多窗口金额档 label 带窗口名）
+    expect(html).toContain("62.97");
+    // 5h 窗口无 remaining → 静默回退百分比「剩余 5h」族
+    expect(html).toContain("剩余 5h");
+    expect(html).toContain("58%");
+  });
+
+  it("percent/auto 档维持推断基线：可算百分比优先（不回归）", () => {
+    const both = [{ used: 30, total: 200, remaining: 62.97, unit: "CNY" }];
+    expect(renderWithSnapshot(both, 20)).toContain("剩余额度");
+    expect(renderWithSnapshot(both, 20, "auto")).toContain("85%");
+    expect(renderWithSnapshot(both, 20, "percent")).toContain("85%");
   });
 });

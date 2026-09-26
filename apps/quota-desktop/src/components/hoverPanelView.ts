@@ -1,5 +1,5 @@
 import { remainingPercent } from "../display";
-import type { ProviderEntry, UsageData } from "../types";
+import type { PrimaryMetric, ProviderEntry, UsageData } from "../types";
 
 export interface HoverRingView {
   fillPercent: number;
@@ -25,29 +25,42 @@ export function resolveHoverProvider(
   return selected ?? providers.find((provider) => provider.enabled) ?? null;
 }
 
+/** 悬停面板圆环视图（与托盘 ring.rs 圆环语义成对）。
+ *  主度量偏好分档（T-24，#142）：amount 档余额环优先（走每圈单位
+ *  分层机制），auto/percent 百分比环优先；指定度量算不出时静默回退
+ *  另一度量。 */
 export function hoverRingView(
   data: UsageData | undefined,
   unitsPerCircle: number,
+  metric: PrimaryMetric = "auto",
 ): HoverRingView | null {
   if (!data || data.is_valid === false) return null;
 
   // T-22 收敛：百分比剩余换算统一走 display.remainingPercent（与 core
   // remaining_percent 镜像），不再局部做 100−used 反向换算；clamp 保留
   // 圆环视觉防护（越界数据不出界）。
-  const percent = remainingPercent(data);
-  if (percent != null && Number.isFinite(percent)) {
+  const percentView = (): HoverRingView | null => {
+    const percent = remainingPercent(data);
+    if (percent == null || !Number.isFinite(percent)) return null;
     const remaining = Math.max(0, Math.min(100, percent));
     return { fillPercent: remaining, center: `${Math.round(remaining)}%` };
-  }
+  };
 
-  if (data.remaining == null || !Number.isFinite(data.remaining)) return null;
-  const remaining = Math.max(0, data.remaining);
-  const perRing = Number.isFinite(unitsPerCircle) && unitsPerCircle > 0 ? unitsPerCircle : 100;
-  const full = Math.floor(remaining / perRing);
-  const fraction = (remaining % perRing) / perRing;
-  const layerCount = full + (fraction > 0 ? 1 : 0);
-  const fillPercent = layerCount > 4 ? 100 : fraction > 0 ? fraction * 100 : remaining > 0 ? 100 : 0;
-  return { fillPercent, center: compactAmount(remaining) };
+  const balanceView = (): HoverRingView | null => {
+    if (data.remaining == null || !Number.isFinite(data.remaining)) return null;
+    const remaining = Math.max(0, data.remaining);
+    const perRing = Number.isFinite(unitsPerCircle) && unitsPerCircle > 0 ? unitsPerCircle : 100;
+    const full = Math.floor(remaining / perRing);
+    const fraction = (remaining % perRing) / perRing;
+    const layerCount = full + (fraction > 0 ? 1 : 0);
+    const fillPercent = layerCount > 4 ? 100 : fraction > 0 ? fraction * 100 : remaining > 0 ? 100 : 0;
+    return { fillPercent, center: compactAmount(remaining) };
+  };
+
+  if (metric === "amount") {
+    return balanceView() ?? percentView();
+  }
+  return percentView() ?? balanceView();
 }
 
 function compactAmount(value: number): string {
