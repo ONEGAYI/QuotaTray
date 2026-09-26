@@ -158,7 +158,9 @@ export const en: Record<TextKey, string> = {
   "hover.account": "Account",
   "hover.model": "Model",
   "hover.availableBalance": "Available balance",
-  "hover.remainingQuota": "Remaining",
+  // 摘要位剩余措辞族与 Rust i18n.rs 的 remaining_percent_text/remaining_text
+  // 成对用 Left（PR #146 review：全前端统一，不混用 Remaining）
+  "hover.remainingQuota": "Left",
   "hover.openMain": "Open main window",
   "hover.close": "Close panel",
   "hover.noEnabled": "No enabled accounts",

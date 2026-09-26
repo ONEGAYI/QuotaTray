@@ -98,3 +98,29 @@ describe("用量列表进度条方向（剩余填充，PR #146 review 修复项 
     expect(html).not.toContain("qt-hover-progress");
   });
 });
+
+describe("hero 措辞（PR #146 review 修复项 2：en 与 Rust i18n.rs 的 Left 成对）", () => {
+  it("en 单窗口 hero label 为 Left（zh 剩余额度），不残留 Remaining", () => {
+    ctx.lang = "en";
+    const html = renderPanel([{ used: 42, unit: "%" }]);
+    expect(html).toContain("Left");
+    expect(html).not.toContain("Remaining");
+    ctx.lang = "zh";
+    expect(renderPanel([{ used: 42, unit: "%" }])).toContain("剩余额度");
+  });
+
+  it("en 多窗口 hero label 带剩余短标注：Left 5h（zh 剩余 5h）", () => {
+    ctx.lang = "en";
+    const html = renderPanel([
+      { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+      { used: 80, unit: "%", plan_name: "GLM Coding Plan（week）" },
+    ]);
+    expect(html).toContain("Left 5h");
+    expect(html).not.toContain("Remaining");
+    ctx.lang = "zh";
+    expect(renderPanel([
+      { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+      { used: 80, unit: "%", plan_name: "GLM Coding Plan（week）" },
+    ])).toContain("剩余 5h");
+  });
+});

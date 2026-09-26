@@ -69,7 +69,9 @@ interface Props {
  *  语义等价（双语契约见 ProviderCard.test）。
  *  主度量偏好分档（T-24，#142）：amount 档金额优先（label 走「可用余额」
  *  族）、auto/percent 维持百分比优先推断基线（「剩余 N%」族）；指定度量
- *  某窗口算不出时静默回退另一度量（逐窗口独立）。 */
+ *  某窗口算不出时静默回退另一度量（逐窗口独立）。
+ *  英文措辞族与 Rust i18n.rs 成对（PR #146 review）：百分比 label 用
+ *  「Left」（remaining_percent_text 同词），不混用 Remaining。 */
 function primaryValue(
   data: UsageData | undefined,
   lang: "zh" | "en",
@@ -87,10 +89,10 @@ function primaryValue(
       label: windowLabel
         ? zh
           ? `剩余 ${windowLabel}`
-          : `Remaining ${windowLabel}`
+          : `Left ${windowLabel}`
         : zh
           ? "剩余额度"
-          : "Remaining",
+          : "Left",
     };
   };
   const amountPart = () => {

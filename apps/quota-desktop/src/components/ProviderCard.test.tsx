@@ -1,11 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { en } from "../i18n/en";
 import { zh } from "../i18n/zh";
 import type { NativeMeta, ProviderEntry, SnapshotEntry } from "../types";
 import { ProviderCard } from "./ProviderCard";
 
-vi.mock("../i18n", () => ({ useLang: () => ({ lang: "zh", t: (key: keyof typeof zh) => zh[key] }) }));
+// 渲染语言可切换（zh/en 成对断言用）：vi.hoisted 先于模块求值初始化
+const mockLang = vi.hoisted(() => ({ current: "zh" as "zh" | "en" }));
+vi.mock("../i18n", () => ({
+  useLang: () => ({
+    lang: mockLang.current,
+    t: (key: keyof typeof zh) => (mockLang.current === "zh" ? zh : en)[key],
+  }),
+}));
 vi.mock("../queries", () => ({
   useProviderQuery: () => ({ data: undefined, isFetching: false }),
   usePeakFlipTick: () => Date.UTC(2026, 8, 10),
@@ -176,5 +184,33 @@ describe("主数值区主度量偏好分档（T-24）", () => {
     expect(renderWithSnapshot(both, 20)).toContain("剩余额度");
     expect(renderWithSnapshot(both, 20, "auto")).toContain("85%");
     expect(renderWithSnapshot(both, 20, "percent")).toContain("85%");
+  });
+});
+
+describe("主数值区英文措辞（PR #146 review：与 Rust i18n.rs 的 Left 成对）", () => {
+  afterEach(() => {
+    mockLang.current = "zh";
+  });
+
+  it("en 百分比 label 为 Left（单窗口），不残留 Remaining", () => {
+    mockLang.current = "en";
+    const html = renderWithSnapshot([{ used: 42, unit: "%" }], 20);
+    expect(html).toContain("Left");
+    expect(html).not.toContain("Remaining");
+    expect(html).toContain("58%");
+  });
+
+  it("en 多窗口 label 带剩余短标注：Left 5h / Left weekly（与 zh 剩余 5h 成对）", () => {
+    mockLang.current = "en";
+    const html = renderWithSnapshot(
+      [
+        { used: 42, unit: "%", plan_name: "GLM Coding Plan（5h）" },
+        { used: 80, unit: "%", plan_name: "GLM Coding Plan（week）" },
+      ],
+      20,
+    );
+    expect(html).toContain("Left 5h");
+    expect(html).toContain("Left weekly");
+    expect(html).not.toContain("Remaining");
   });
 });

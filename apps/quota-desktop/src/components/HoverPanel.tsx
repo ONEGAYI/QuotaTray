@@ -287,7 +287,7 @@ function HoverPanelInner() {
           <main className="qt-hover-content">
             <section className="qt-hover-hero">
               <div>
-                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "remaining" ? (heroWindow ? (lang === "zh" ? `剩余 ${heroWindow}` : `Remaining ${heroWindow}`) : t("hover.remainingQuota")) : t("card.noData")}</span>
+                <span>{primary.label === "available" ? t("hover.availableBalance") : primary.label === "remaining" ? (heroWindow ? (lang === "zh" ? `剩余 ${heroWindow}` : `Left ${heroWindow}`) : t("hover.remainingQuota")) : t("card.noData")}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
                 {heroReset && <small className="qt-hover-reset" data-tooltip={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>

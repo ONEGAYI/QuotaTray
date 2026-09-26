@@ -533,7 +533,9 @@ describe("低余额阈值与消息文案（剩余语义，T-22）", () => {
 
   it("hover 主数值 label 翻转为剩余额度（键随语义更名，双语成对）", () => {
     expect(zh["hover.remainingQuota"]).toBe("剩余额度");
-    expect(en["hover.remainingQuota"]).toBe("Remaining");
+    // en 用词与 Rust i18n.rs remaining_text/remaining_percent_text 的
+    // 「Left」成对（PR #146 review：全前端摘要位措辞族统一，不残留 Remaining）
+    expect(en["hover.remainingQuota"]).toBe("Left");
     // 旧键不得残留（防止引用悬空或口径回退）
     expect("hover.usedQuota" in zh).toBe(false);
     expect("hover.usedQuota" in en).toBe(false);
