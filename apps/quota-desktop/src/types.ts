@@ -145,6 +145,8 @@ export interface ProviderEntry {
   pricing?: PricingConfig;
   /** 订阅套餐变体（缺省 = auto 自动推断；智谱系 v1 无周限 / v2+ 有周限） */
   plan_variant?: PlanVariant;
+  /** 主度量展示偏好（缺省 = auto 按可用数据推断；优先展示剩余百分比还是剩余金额） */
+  primary_metric?: PrimaryMetric;
   /** 查询走代理（条目级开关，缺省 false；端口取设置的网络代理端口） */
   use_proxy?: boolean;
   /** 控制台直达 URL 覆盖（明文，非敏感；缺省 = native 条目回退预置默认） */
@@ -153,6 +155,10 @@ export interface ProviderEntry {
 
 /** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */
 export type PlanVariant = "auto" | "no_weekly" | "weekly";
+
+/** 主度量展示偏好（core PrimaryMetric 镜像，serde snake_case）：
+ *  优先展示剩余百分比还是剩余金额，缺省 auto 按可用数据推断。 */
+export type PrimaryMetric = "auto" | "percent" | "amount";
 
 // ---- 峰谷定价（core pricing 模块镜像，snake_case 与宿主一致） ----
 

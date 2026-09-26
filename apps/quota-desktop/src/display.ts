@@ -66,6 +66,14 @@ export function usedPercent(d: UsageData): number | null {
   return null;
 }
 
+/** 剩余百分比（0-100，展示口径）：100−已用百分比；数据不足返回 null。
+ *  与 core model.rs 的 remaining_percent 互为镜像——两口径之和恒为 100，
+ *  消费方不得各自局部反向换算。 */
+export function remainingPercent(d: UsageData): number | null {
+  const used = usedPercent(d);
+  return used == null ? null : 100 - used;
+}
+
 /** 余额文案："62.97 CNY" / "62.97"。 */
 export function amountText(v: number): string {
   return v.toFixed(2);

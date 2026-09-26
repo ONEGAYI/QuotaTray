@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, remainingPercent, resetCountdown, usedPercent, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -110,6 +110,32 @@ describe("定位线净消耗", () => {
     // 舍入到 0 的微弱未观测变化不带符号（零无方向）
     expect(markerUnobservedText(-0.004, "percent", "%")).toBe("0%");
     expect(markerUnobservedText(0.004, "percent", "%")).toBe("0%");
+  });
+});
+
+describe("已用与剩余百分比口径", () => {
+  it("usedPercent：'%' 直读，金额走 used/total 换算，数据不足 null", () => {
+    expect(usedPercent({ used: 42, unit: "%" })).toBe(42);
+    expect(usedPercent({ used: 30, total: 200, unit: "USD" })).toBe(15);
+    expect(usedPercent({ used: 10, total: 0 })).toBeNull();
+    expect(usedPercent({})).toBeNull();
+    expect(usedPercent({ unit: "%" })).toBeNull();
+  });
+
+  it("remainingPercent：与 core remaining_percent 镜像——100−已用，数据不足 null", () => {
+    // "%" 单位：100 − used（订阅/限额窗口的剩余百分比）
+    expect(remainingPercent({ used: 42, unit: "%" })).toBe(58);
+    // 金额单位：100 − used/total 换算
+    expect(remainingPercent({ used: 30, total: 200, unit: "USD" })).toBe(85);
+    // 与 usedPercent 互补：两口径之和恒为 100
+    expect(
+      (usedPercent({ used: 30, total: 200, unit: "USD" }) ?? 0) +
+        (remainingPercent({ used: 30, total: 200, unit: "USD" }) ?? 0),
+    ).toBe(100);
+    // 数据不足同 usedPercent：total<=0、字段缺失、'%' 缺 used
+    expect(remainingPercent({ used: 10, total: 0 })).toBeNull();
+    expect(remainingPercent({})).toBeNull();
+    expect(remainingPercent({ unit: "%" })).toBeNull();
   });
 });
 
