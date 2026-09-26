@@ -45,29 +45,40 @@ pub enum RingInput {
     Empty,
 }
 
-/// 从单窗口用量数据取圆环输入（T-24 主度量偏好分档）：amount 档余额环
-/// 优先，auto/percent 先试百分比（core 剩余口径函数：unit="%" 或
-/// used/total 可算，T-21 收敛——圆环本就剩余语义）再试余额；指定度量
-/// 算不出时静默回退另一度量（Empty 兜底）。
+/// 主度量偏好分档骨架（spec #137 T-24，PR #146 review 抽取）：amount 档
+/// 金额件优先，auto/percent 百分比件优先；指定度量算不出（None）时静默
+/// 回退另一件。datum_ring_input 与 tray::entry_lines 共用本骨架，不得
+/// 各自手写分档。与前端 display.ts 的 preferMetric 镜像成对——两端分档
+/// 与回退次序保持一致。
+pub(crate) fn prefer_metric<T>(
+    metric: PrimaryMetric,
+    percent_part: impl FnOnce() -> Option<T>,
+    amount_part: impl FnOnce() -> Option<T>,
+) -> Option<T> {
+    match metric {
+        PrimaryMetric::Amount => amount_part().or_else(percent_part),
+        PrimaryMetric::Auto | PrimaryMetric::Percent => percent_part().or_else(amount_part),
+    }
+}
+
+/// 从单窗口用量数据取圆环输入（T-24 主度量偏好分档，经 [`prefer_metric`]
+/// 骨架）：amount 档余额环优先，auto/percent 先试百分比（core 剩余口径
+/// 函数：unit="%" 或 used/total 可算，T-21 收敛——圆环本就剩余语义）再试
+/// 余额；指定度量算不出时静默回退另一度量（Empty 兜底）。
 fn datum_ring_input(d: &UsageData, metric: PrimaryMetric) -> RingInput {
     let percent = || {
         quota_core::remaining_percent(d).map(|remaining_pct| RingInput::Percent {
             remaining_pct: remaining_pct.clamp(0.0, 100.0),
         })
     };
-    let balance = || match d.remaining {
-        Some(rem) if rem.is_finite() => RingInput::Balance {
-            remaining: rem.max(0.0),
-        },
-        _ => RingInput::Empty,
+    let balance = || {
+        d.remaining
+            .filter(|rem| rem.is_finite())
+            .map(|rem| RingInput::Balance {
+                remaining: rem.max(0.0),
+            })
     };
-    match metric {
-        PrimaryMetric::Amount => match balance() {
-            RingInput::Empty => percent().unwrap_or(RingInput::Empty),
-            input => input,
-        },
-        PrimaryMetric::Auto | PrimaryMetric::Percent => percent().unwrap_or_else(balance),
-    }
+    prefer_metric(metric, percent, balance).unwrap_or(RingInput::Empty)
 }
 
 /// 从多窗口数据取圆环输入：取第一个可用窗口（跳过 is_valid=false 与无值窗口）。

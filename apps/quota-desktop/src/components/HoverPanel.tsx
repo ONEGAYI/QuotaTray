@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@
 import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { amountText, dataSummary, kindLabel, relativeTime, remainingPercent, resetCountdown, windowShortLabel } from "../display";
+import { amountText, dataSummary, kindLabel, preferMetric, relativeTime, remainingPercent, resetCountdown, windowShortLabel } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
   useNativeMetas,
@@ -27,29 +27,30 @@ import { formatPrice } from "./pricingDraft";
 
 const hoverQueryClient = new QueryClient();
 
+/** hero 主数值形状：label 为语义键（文案由调用处 i18n 渲染）。 */
+type HeroValue = { label: "remaining" | "available" | "empty"; value: string; unit: string };
+
 /** 悬停面板 hero 主数值（label 为语义键，文案由调用处 i18n 渲染）。
- *  主度量偏好分档（T-24，#142）：amount 档金额优先（「可用余额」族）、
- *  auto/percent 百分比优先（「剩余」族）；算不出时静默回退另一度量。
+ *  主度量偏好分档经 display.preferMetric 骨架（T-24，#142；PR #146
+ *  review 抽取）：amount 档金额优先（「可用余额」族）、auto/percent
+ *  百分比优先（「剩余」族）；算不出时静默回退另一度量。
  *  与 ProviderCard 的 primaryValue 同款分档。 */
 function primaryValue(
   data: ReturnType<typeof deriveProviderCardState>["data"][number] | undefined,
   metric: PrimaryMetric = "auto",
-) {
-  if (!data) return { label: "empty" as const, value: "—", unit: "" };
-  const percentPart = () => {
+): HeroValue {
+  if (!data) return { label: "empty", value: "—", unit: "" };
+  const percentPart = (): HeroValue | null => {
     const percent = remainingPercent(data);
     if (percent == null) return null;
-    return { label: "remaining" as const, value: `${Math.round(percent)}%`, unit: "" };
+    return { label: "remaining", value: `${Math.round(percent)}%`, unit: "" };
   };
-  const amountPart = () => {
+  const amountPart = (): HeroValue | null => {
     if (data.remaining == null) return null;
-    return { label: "available" as const, value: amountText(data.remaining), unit: data.unit ?? "" };
+    return { label: "available", value: amountText(data.remaining), unit: data.unit ?? "" };
   };
-  const fallback = { label: "empty" as const, value: "—", unit: data.unit ?? "" };
-  if (metric === "amount") {
-    return amountPart() ?? percentPart() ?? fallback;
-  }
-  return percentPart() ?? amountPart() ?? fallback;
+  const fallback: HeroValue = { label: "empty", value: "—", unit: data.unit ?? "" };
+  return preferMetric(metric, percentPart, amountPart) ?? fallback;
 }
 
 function statusKey(kind: ReturnType<typeof deriveProviderCardState>["kind"]) {

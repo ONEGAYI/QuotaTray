@@ -1,4 +1,4 @@
-import { remainingPercent } from "../display";
+import { preferMetric, remainingPercent } from "../display";
 import type { PrimaryMetric, ProviderEntry, UsageData } from "../types";
 
 export interface HoverRingView {
@@ -26,9 +26,9 @@ export function resolveHoverProvider(
 }
 
 /** 悬停面板圆环视图（与托盘 ring.rs 圆环语义成对）。
- *  主度量偏好分档（T-24，#142）：amount 档余额环优先（走每圈单位
- *  分层机制），auto/percent 百分比环优先；指定度量算不出时静默回退
- *  另一度量。 */
+ *  主度量偏好分档经 display.preferMetric 骨架（T-24，#142；PR #146
+ *  review 抽取）：amount 档余额环优先（走每圈单位分层机制）、
+ *  auto/percent 百分比环优先；指定度量算不出时静默回退另一度量。 */
 export function hoverRingView(
   data: UsageData | undefined,
   unitsPerCircle: number,
@@ -57,10 +57,7 @@ export function hoverRingView(
     return { fillPercent, center: compactAmount(remaining) };
   };
 
-  if (metric === "amount") {
-    return balanceView() ?? percentView();
-  }
-  return percentView() ?? balanceView();
+  return preferMetric(metric, percentView, balanceView);
 }
 
 function compactAmount(value: number): string {

@@ -79,12 +79,26 @@ export function amountText(v: number): string {
   return v.toFixed(2);
 }
 
+/** 主度量偏好分档骨架（spec #137 T-24，PR #146 review 抽取）：amount 档
+ *  金额件优先、auto/percent 百分比件优先；指定度量算不出（件返回 null）时
+ *  静默回退另一件。四个消费面（dataSummary、ProviderCard/HoverPanel 的
+ *  primaryValue、hoverPanelView 的 hoverRingView）共用本骨架，不得再各自
+ *  手写分档。与 Rust 侧 ring.rs 的 prefer_metric 镜像成对（tray.rs 消费
+ *  同一 Rust 骨架）——两端分档与回退次序保持一致。 */
+export function preferMetric<T>(
+  metric: PrimaryMetric,
+  percentPart: () => T | null,
+  amountPart: () => T | null,
+): T | null {
+  if (metric === "amount") return amountPart() ?? percentPart();
+  return percentPart() ?? amountPart();
+}
+
 /** 单窗口数据的主文案（与 tray.rs 行体措辞成对：剩余/剩余/已获取——
  *  T-22 起百分比行体为 remaining_percent_text 的「剩余 N%」，金额为
  *  remaining_text 的「剩余 X 币」，两分支统一剩余口径）。
- *  主度量偏好分档（T-24，#142）：amount 档金额文案优先、auto/percent
- *  维持推断基线（百分比优先）；指定度量算不出时静默回退另一度量——
- *  多窗口条目每窗口独立调用本函数，回退天然逐窗口。 */
+ *  主度量偏好分档经 preferMetric 骨架（T-24，#142）——多窗口条目每
+ *  窗口独立调用本函数，回退天然逐窗口。 */
 export function dataSummary(
   d: UsageData,
   lang: UiLang,
@@ -103,10 +117,7 @@ export function dataSummary(
     return zh ? `剩余 ${amount}` : `Left ${amount}`;
   };
   const fallback = zh ? "已获取" : "Fetched";
-  if (metric === "amount") {
-    return amountLine() ?? percentLine() ?? fallback;
-  }
-  return percentLine() ?? amountLine() ?? fallback;
+  return preferMetric(metric, percentLine, amountLine) ?? fallback;
 }
 
 /** 额度重置倒计时（语言中性缩写，与 CLI fmt_reset_countdown 成对）：

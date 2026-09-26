@@ -22,6 +22,7 @@ import {
   amountText,
   exactTime,
   kindLabel,
+  preferMetric,
   relativeTime,
   remainingPercent,
   resetCountdown,
@@ -67,9 +68,10 @@ interface Props {
  *  额度。多窗口时 label 带窗口短标签。金额分支 label 保留「可用余额」——
  *  其值本就是 remaining 绝对值、无方向可翻，与百分比分支的「剩余」族
  *  语义等价（双语契约见 ProviderCard.test）。
- *  主度量偏好分档（T-24，#142）：amount 档金额优先（label 走「可用余额」
- *  族）、auto/percent 维持百分比优先推断基线（「剩余 N%」族）；指定度量
- *  某窗口算不出时静默回退另一度量（逐窗口独立）。
+ *  主度量偏好分档经 display.preferMetric 骨架（T-24，#142；PR #146
+ *  review 抽取）：amount 档金额优先（label 走「可用余额」族）、
+ *  auto/percent 维持百分比优先推断基线（「剩余 N%」族）；指定度量某
+ *  窗口算不出时静默回退另一度量（逐窗口独立）。
  *  英文措辞族与 Rust i18n.rs 成对（PR #146 review）：百分比 label 用
  *  「Left」（remaining_percent_text 同词），不混用 Remaining。 */
 function primaryValue(
@@ -104,10 +106,7 @@ function primaryValue(
     };
   };
   const fallback = { value: "—", unit: data.unit ?? "", label: zh ? "已获取" : "Fetched" };
-  if (metric === "amount") {
-    return amountPart() ?? percentPart() ?? fallback;
-  }
-  return percentPart() ?? amountPart() ?? fallback;
+  return preferMetric(metric, percentPart, amountPart) ?? fallback;
 }
 
 function providerInitials(name: string) {

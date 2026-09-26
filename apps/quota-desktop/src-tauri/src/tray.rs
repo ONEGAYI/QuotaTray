@@ -141,7 +141,9 @@ pub fn entry_lines(
                     .unwrap_or_else(|| lang.window_name(i + 1))
             ),
         };
-        // 两度量各自可算才有行体；偏好只定先后（T-24），算不出回退另一度量
+        // 两度量各自可算才有行体；偏好只定先后（T-24，经 ring::prefer_metric
+        // 骨架——PR #146 review 抽取，与 ring.rs/前端 display.ts 成对），
+        // 算不出回退另一度量
         let percent_line = || {
             let pct = quota_core::remaining_percent(d)?;
             Some(format!(
@@ -158,15 +160,8 @@ pub fn entry_lines(
             ))
         };
         let fetched_line = || format!("{name} · {window}{}", t.fetched);
-        let body = if metric == PrimaryMetric::Amount {
-            amount_line()
-                .or_else(percent_line)
-                .unwrap_or_else(fetched_line)
-        } else {
-            percent_line()
-                .or_else(amount_line)
-                .unwrap_or_else(fetched_line)
-        };
+        let body =
+            ring::prefer_metric(metric, percent_line, amount_line).unwrap_or_else(fetched_line);
         let over =
             quota_core::remaining_percent(d).is_some_and(|p| p <= f64::from(threshold_percent));
         lines.push(warn(time_suffix(body, state.at), over) + &transient_mark);
