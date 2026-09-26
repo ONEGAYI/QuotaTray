@@ -9,11 +9,11 @@ import {
 describe("消息中心纯逻辑", () => {
   const msg = (version: string): CenterMessage => ({ kind: "update-ready", version });
   const avail = (version: string): CenterMessage => ({ kind: "update-available", version });
-  const low = (providerId: string, percent = 92): CenterMessage => ({
+  const low = (providerId: string, remainingPercent = 8): CenterMessage => ({
     kind: "low-balance",
     providerId,
     name: providerId,
-    percent,
+    remainingPercent,
   });
   const recovered = (providerId: string, remainingPercent = 96): CenterMessage => ({
     kind: "balance-recovered",

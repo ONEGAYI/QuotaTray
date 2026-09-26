@@ -458,7 +458,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               disabled={
                 save.isPending ||
                 !thresholdCombinationValid(
-                  draft.low_balance_threshold_percent,
+                  draft.low_balance_remaining_percent,
                   draft.balance_recovery_threshold_percent,
                 )
               }
@@ -533,9 +533,9 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     min={0}
                     max={100}
                     step={1}
-                    value={draft.low_balance_threshold_percent}
+                    value={draft.low_balance_remaining_percent}
                     onChange={(event) =>
-                      setDraft({ ...draft, low_balance_threshold_percent: Number(event.target.value) })
+                      setDraft({ ...draft, low_balance_remaining_percent: Number(event.target.value) })
                     }
                   />
                   <span>%</span>
@@ -564,7 +564,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                 </div>
               </SettingRow>
               {!thresholdCombinationValid(
-                draft.low_balance_threshold_percent,
+                draft.low_balance_remaining_percent,
                 draft.balance_recovery_threshold_percent,
               ) && (
                 <p className="qt-inline-error" role="alert">

@@ -65,7 +65,8 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   // 分流产生：
   // - update-ready（桌面）：自动下载完成 / 重启后探测恢复；
   // - update-available（移动）：手动检测发现新版本且本会话未广播过；
-  // - low-balance（两端）：成功查询后任一窗口已用百分比达阈值；
+  // - low-balance（两端）：成功查询后任一窗口剩余百分比达阈值（T-21
+  //   起剩余口径，负载携带最低达标剩余）；
   // - balance-recovered（两端）：先前低额度的条目所有百分比窗口剩余
   //   达恢复阈值；收到广播后回执 ack 清掉 Worker 可能抢先落盘的同条目
   //   待展示消息（本会话已展示，不再等下次启动重复入列）。
@@ -103,14 +104,14 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
     const lowBalance = listen<{
       provider_id: string;
       name: string;
-      percent: number;
+      remaining_percent: number;
     }>("low-balance", (event) => {
       setMessages((prev) =>
         mergeMessage(prev, {
           kind: "low-balance",
           providerId: event.payload.provider_id,
           name: event.payload.name,
-          percent: event.payload.percent,
+          remainingPercent: event.payload.remaining_percent,
         }),
       );
     });
@@ -184,7 +185,8 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   );
 
   const intervalMinutes = settings.data?.refresh_interval_minutes ?? 5;
-  const threshold = settings.data?.low_balance_threshold_percent ?? 80;
+  // T-21 起为剩余语义阈值（默认 20）；高亮方向翻转属 T-22，此处仅同步取值。
+  const threshold = settings.data?.low_balance_remaining_percent ?? 20;
 
   const listRef = useRef<HTMLDivElement>(null);
   const providerIds = useMemo(

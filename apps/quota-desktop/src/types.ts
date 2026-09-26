@@ -253,8 +253,9 @@ export interface CustomModelDef {
 /** GUI 设置（settings.json，桌面/Android 共用字段，与 Rust Settings 一一对应）。 */
 export interface Settings {
   refresh_interval_minutes: number;
-  low_balance_threshold_percent: number;
-  /** 额度恢复提醒阈值（剩余 %，#132）；合法组合须高于 100 − 低额度已用阈值 */
+  /** 低余额提醒阈值（剩余 %，≤ 该值触发；T-21 口径翻转）。 */
+  low_balance_remaining_percent: number;
+  /** 额度恢复提醒阈值（剩余 %，#132）；合法组合须严格高于低余额剩余阈值 */
   balance_recovery_threshold_percent: number;
   autostart: boolean;
   /** "zh" | "en" | "system" */
@@ -296,7 +297,7 @@ export interface Settings {
  * 嵌套可空字段（如 tray_icon_entry_id）显式传 null 表示清空。 */
 export interface SettingsPatch {
   refresh_interval_minutes?: number;
-  low_balance_threshold_percent?: number;
+  low_balance_remaining_percent?: number;
   balance_recovery_threshold_percent?: number;
   autostart?: boolean;
   language?: string;

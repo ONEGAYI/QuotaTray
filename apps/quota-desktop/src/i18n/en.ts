@@ -304,7 +304,7 @@ export const en: Record<TextKey, string> = {
   "settings.thresholdHint": "Alert when usage reaches this percentage",
   "settings.recoveryThresholdTitle": "Balance recovery alert",
   "settings.recoveryThresholdHint": "Alert when quota recovers to this remaining percentage",
-  "settings.recoveryThresholdConflict": "Recovery threshold must be above the remaining threshold of the low-balance alert (100 - used). Adjust before saving",
+  "settings.recoveryThresholdConflict": "Recovery threshold must be higher than the low-balance threshold (both in remaining percentage). Adjust before saving",
   "settings.autostart": "Launch at startup",
   "settings.autostartHint": "Run in the tray after signing in to Windows",
   "settings.notificationsTitle": "System notifications",
