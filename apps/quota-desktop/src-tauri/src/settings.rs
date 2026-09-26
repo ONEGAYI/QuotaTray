@@ -13,12 +13,14 @@ pub struct Settings {
     /// 自动刷新间隔（分钟）。
     #[serde(default = "default_interval")]
     pub refresh_interval_minutes: u32,
-    /// 低额度提醒阈值（已用百分比，≥ 该值触发提醒）。
+    /// 低额度提醒阈值（剩余百分比，≤ 该值触发提醒；T-21 口径翻转，
+    /// 与恢复阈值同语义）。旧字段 `low_balance_threshold_percent`
+    /// （已用语义，≥ 触发）升级时在 [`Settings::load`] 显式迁移。
     #[serde(default = "default_threshold")]
-    pub low_balance_threshold_percent: u8,
+    pub low_balance_remaining_percent: u8,
     /// 额度恢复提醒阈值（剩余百分比，≤ 该值即已用 ≤ 100−该值时允许
-    /// 触发恢复；#132）。合法组合要求高于低额度对应的剩余阈值
-    /// （100 − 已用阈值），由保存路径校验（见 [`threshold_combination_valid`]），
+    /// 触发恢复；#132）。合法组合要求严格高于低余额剩余阈值，
+    /// 由保存路径校验（见 [`threshold_combination_valid`]），
     /// sanitize 只做单字段收口不静默改写组合。
     #[serde(default = "default_recovery_threshold")]
     pub balance_recovery_threshold_percent: u8,
@@ -102,23 +104,26 @@ fn default_interval() -> u32 {
 }
 
 fn default_threshold() -> u8 {
-    80
+    20
 }
 
 fn default_recovery_threshold() -> u8 {
     95
 }
 
-/// 阈值组合校验（#132 纯函数，保存路径消费）：恢复剩余阈值必须高于
-/// 低额度对应的剩余阈值（100 − 已用阈值），即两者之和严格大于 100。
-/// 合法组合下「低额度已用区间（≥ low）」与「恢复已用区间
-/// （≤ 100 − recovery < low）」互斥——恢复隐含已回落，同一份数据
-/// 不会同时触发两种判定。消费方：前端 SettingsDialog 就地拦截
-/// （`settingsView.ts thresholdCombinationValid` 镜像）与
-/// `persist_settings` 硬门禁（阻止非法组合落盘）；sanitize 不做组合
-/// 改写（磁盘手改非法组合时由判定层的 breach 优先兜底）。
-pub fn threshold_combination_valid(low_used_percent: u8, recovery_remaining_percent: u8) -> bool {
-    u16::from(low_used_percent) + u16::from(recovery_remaining_percent) > 100
+/// 阈值组合校验（#132 纯函数，保存路径消费；T-21 起两阈值同为剩余
+/// 语义）：恢复剩余阈值必须严格高于低余额剩余阈值。合法组合下
+/// 「低余额区间（剩余 ≤ low）」与「恢复区间（剩余 ≥ recovery > low）」
+/// 互斥——恢复隐含回升，同一份数据不会同时触发两种判定。消费方：
+/// 前端 SettingsDialog 就地拦截（`settingsView.ts
+/// thresholdCombinationValid` 镜像）与 `persist_settings` 硬门禁
+/// （阻止非法组合落盘）；sanitize 不做组合改写（磁盘手改非法组合时
+/// 由判定层的 breach 优先兜底）。
+pub fn threshold_combination_valid(
+    low_remaining_percent: u8,
+    recovery_remaining_percent: u8,
+) -> bool {
+    recovery_remaining_percent > low_remaining_percent
 }
 
 fn default_language() -> String {
@@ -149,7 +154,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             refresh_interval_minutes: default_interval(),
-            low_balance_threshold_percent: default_threshold(),
+            low_balance_remaining_percent: default_threshold(),
             balance_recovery_threshold_percent: default_recovery_threshold(),
             autostart: false,
             language: default_language(),
@@ -176,11 +181,12 @@ fn default_true() -> bool {
 }
 
 impl Settings {
-    /// 合法性收口：间隔 1..=1440 分钟、阈值 0..=100、语言/主题白名单、
-    /// 每圈单位 1.0..=1e6（NaN/无穷回默认——JSON 正常解析不会产生，双保险）。
+    /// 合法性收口：间隔 1..=1440 分钟、阈值 0..=100（两阈值均剩余语义）、
+    /// 语言/主题白名单、每圈单位 1.0..=1e6（NaN/无穷回默认——JSON 正常
+    /// 解析不会产生，双保险）。
     pub fn sanitize(&mut self) {
         self.refresh_interval_minutes = self.refresh_interval_minutes.clamp(1, 1440);
-        self.low_balance_threshold_percent = self.low_balance_threshold_percent.min(100);
+        self.low_balance_remaining_percent = self.low_balance_remaining_percent.min(100);
         // 恢复阈值：单字段收口（组合校验在保存路径，见 threshold_combination_valid）
         self.balance_recovery_threshold_percent = self.balance_recovery_threshold_percent.min(100);
         if !matches!(self.language.as_str(), "zh" | "en" | "system") {
@@ -268,11 +274,21 @@ impl Settings {
     /// 等）与"缺失"分流：缺失是正常态直接默认；IO 失败短重试后仍失败
     /// 才回退——静默回退会让引擎以"无代理端口"的幽灵默认运行，且启动
     /// 首检（run_check）会把默认值全量落盘、连磁盘上的真实设置一起抹掉。
+    ///
+    /// 反序列化前先做口径迁移（T-21）：旧低余额阈值字段（已用语义）
+    /// 见 [`migrate_legacy_low_balance_threshold`]。
     pub fn load(path: &Path) -> Self {
         let Some(text) = read_with_retry(path) else {
             return Self::default();
         };
-        match serde_json::from_str::<Self>(&text) {
+        let migrated = match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(mut value) => {
+                migrate_legacy_low_balance_threshold(&mut value);
+                serde_json::from_value::<Self>(value).map_err(|e| e.to_string())
+            }
+            Err(e) => Err(e.to_string()),
+        };
+        match migrated {
             Ok(mut s) => {
                 s.sanitize();
                 s
@@ -299,6 +315,41 @@ impl Settings {
             let _ = std::fs::remove_file(&tmp);
         })?;
         Ok(())
+    }
+}
+
+/// 旧版低余额阈值字段名（已用语义，≥ 触发；T-21 前的 settings.json）。
+const LEGACY_LOW_BALANCE_THRESHOLD_KEY: &str = "low_balance_threshold_percent";
+
+/// 低余额阈值口径迁移（T-21）：旧字段存已用百分比，新字段
+/// `low_balance_remaining_percent` 存剩余百分比（≤ 触发）。serde 对
+/// 未知键宽容忽略是锁定行为（见 `legacy_removed_field_is_ignored`），
+/// 字段改名迁移不能依赖 serde 报错路径，必须在反序列化前于
+/// `serde_json::Value` 层显式改写：
+///
+/// - 见旧键且无新键：写 `100 − 旧值`（旧值 clamp 0..=100，手改越界
+///   值与 sanitize 同向收口）到新键；
+/// - 新键已存在：新值优先（不覆盖用户已保存的新语义值），无论旧键
+///   是否存在；
+/// - 旧键一律删除（迁移后保存即不再落盘，幂等由「迁移是磁盘内容的
+///   纯函数」保证）；
+/// - 旧值非整数（手改坏值）：视为无效丢弃，新键走默认值——与旧程序
+///   「u8 解析失败回默认 80（已用）= 剩余 20」的行为数值等价。
+fn migrate_legacy_low_balance_threshold(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    let Some(old) = map.remove(LEGACY_LOW_BALANCE_THRESHOLD_KEY) else {
+        return;
+    };
+    if !map.contains_key("low_balance_remaining_percent")
+        && let Some(old_pct) = old.as_u64()
+    {
+        let remaining = 100 - old_pct.min(100);
+        map.insert(
+            "low_balance_remaining_percent".into(),
+            serde_json::Value::from(remaining),
+        );
     }
 }
 
@@ -341,7 +392,7 @@ mod tests {
         let path = temp_path("roundtrip");
         let s = Settings {
             refresh_interval_minutes: 10,
-            low_balance_threshold_percent: 70,
+            low_balance_remaining_percent: 30,
             balance_recovery_threshold_percent: 96,
             autostart: true,
             language: "en".into(),
@@ -369,13 +420,16 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 契约：默认值——间隔 5 分钟、阈值 80%、语言/主题跟随系统、
-    /// 每圈单位 100、图标条目自动（None）、不自启。
+    /// 契约：默认值——间隔 5 分钟、低余额阈值 20%（剩余语义）、
+    /// 语言/主题跟随系统、每圈单位 100、图标条目自动（None）、不自启。
     #[test]
     fn defaults() {
         let s = Settings::default();
         assert_eq!(s.refresh_interval_minutes, 5);
-        assert_eq!(s.low_balance_threshold_percent, 80);
+        assert_eq!(
+            s.low_balance_remaining_percent, 20,
+            "低余额阈值默认 20（剩余语义，T-21）"
+        );
         assert_eq!(
             s.balance_recovery_threshold_percent, 95,
             "恢复阈值默认 95（剩余语义）"
@@ -523,7 +577,7 @@ mod tests {
         std::fs::write(&path, r#"{"refresh_interval_minutes": 30}"#).unwrap();
         let s = Settings::load(&path);
         assert_eq!(s.refresh_interval_minutes, 30);
-        assert_eq!(s.low_balance_threshold_percent, 80);
+        assert_eq!(s.low_balance_remaining_percent, 20);
         assert_eq!(
             s.balance_recovery_threshold_percent, 95,
             "老版本配置缺恢复阈值字段回退默认"
@@ -569,7 +623,7 @@ mod tests {
     fn sanitize_clamps_out_of_range() {
         let mut s = Settings {
             refresh_interval_minutes: 0,
-            low_balance_threshold_percent: 150,
+            low_balance_remaining_percent: 150,
             balance_recovery_threshold_percent: 150,
             autostart: false,
             language: "fr".into(),
@@ -590,7 +644,10 @@ mod tests {
         };
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
-        assert_eq!(s.low_balance_threshold_percent, 100);
+        assert_eq!(
+            s.low_balance_remaining_percent, 100,
+            "低余额剩余阈值越界收到 100（clamp sanitize 沿用）"
+        );
         assert_eq!(
             s.balance_recovery_threshold_percent, 100,
             "恢复阈值越界收到 100（组合校验在保存路径拦截，sanitize 只 clamp 单字段）"
@@ -720,7 +777,8 @@ mod tests {
         }
     }
 
-    /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值。
+    /// 契约：既有 v1 settings（M3 旧字段集）加载不丢新字段默认值；
+    /// 旧低余额阈值字段（已用语义）经口径迁移翻转为新字段（剩余语义）。
     #[test]
     fn legacy_config_without_m4_fields() {
         let path = temp_path("legacy");
@@ -732,8 +790,8 @@ mod tests {
         let s = Settings::load(&path);
         assert_eq!(s.language, "zh", "旧文件已存语言应保留");
         assert_eq!(
-            s.low_balance_threshold_percent, 90,
-            "新增恢复阈值字段不改写既有低额度阈值"
+            s.low_balance_remaining_percent, 10,
+            "旧低余额阈值 90（已用）迁移为新字段 10（剩余）"
         );
         assert_eq!(
             s.balance_recovery_threshold_percent, 95,
@@ -762,28 +820,72 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 契约：阈值组合校验——恢复剩余阈值必须高于低额度对应的剩余阈值
-    /// （100 − 已用阈值），即两者之和严格大于 100。合法组合下「低额度
-    /// 已用区间」与「恢复已用区间」互斥（恢复隐含回落，不会同数据双判）；
-    /// 等于 100（如 80+20）非法：恢复线恰好贴住低额度线，剩余刚跌破
-    /// 低额度线即算恢复，语义不自洽。保存路径（前端就地拦截 + 后端
-    /// persist_settings 硬门禁）阻止非法组合落盘，sanitize 不做组合改写。
+    /// 契约：阈值组合校验（T-21 双剩余口径）——恢复剩余阈值必须严格
+    /// 高于低余额剩余阈值。合法组合下「低余额区间（剩余 ≤ low）」与
+    /// 「恢复区间（剩余 ≥ recovery > low）」互斥（恢复隐含回升，不会
+    /// 同数据双判）；等于（如 20/20）非法：恢复线恰好贴住低余额线，
+    /// 剩余刚跌破低余额线即算恢复，语义不自洽。保存路径（前端就地
+    /// 拦截 + 后端 persist_settings 硬门禁）阻止非法组合落盘，sanitize
+    /// 不做组合改写。
     #[test]
     fn threshold_combination_validation() {
-        // 默认组合合法
-        assert!(threshold_combination_valid(80, 95));
-        // 边界：和恰为 100（恢复线 = 低额度剩余线）非法
-        assert!(!threshold_combination_valid(80, 20));
-        assert!(!threshold_combination_valid(6, 94));
-        // 和恰超 100 一点即合法
-        assert!(threshold_combination_valid(80, 21));
-        assert!(threshold_combination_valid(6, 95));
-        // 低额度线拉满时恢复须 ≥1
-        assert!(threshold_combination_valid(100, 1));
-        assert!(!threshold_combination_valid(100, 0));
-        // 恢复线拉满时低额度线须 ≥1（0+100 恰衔接：已用 0 同时落在
-        // 两个判定区间，非法）
-        assert!(threshold_combination_valid(1, 100));
-        assert!(!threshold_combination_valid(0, 100));
+        // 默认组合合法（低余额 20、恢复 95，均剩余语义）
+        assert!(threshold_combination_valid(20, 95));
+        // 边界：两线相等（恢复线 = 低余额线）非法
+        assert!(!threshold_combination_valid(20, 20));
+        assert!(!threshold_combination_valid(6, 6));
+        // 恢复线高出一点即合法
+        assert!(threshold_combination_valid(20, 21));
+        assert!(threshold_combination_valid(5, 95));
+        // 低余额线 0（永不触发低余额）时恢复须 ≥1
+        assert!(threshold_combination_valid(0, 1));
+        assert!(!threshold_combination_valid(0, 0));
+        // 恢复线 100 时低余额线须 ≤99（100/100 恰衔接：剩余 100 同时
+        // 落在两个判定区间，非法）
+        assert!(threshold_combination_valid(99, 100));
+        assert!(!threshold_combination_valid(100, 100));
+    }
+
+    /// 契约：低余额阈值口径迁移（T-21）——旧字段（已用语义，≥ 触发）
+    /// 升级时在 `Settings::load` 的 serde_json::Value 层翻转为新字段
+    /// （剩余语义，≤ 触发）：旧 90 → 新 10；对同一磁盘文件重复加载
+    /// 结果一致（迁移是磁盘内容的纯函数）；迁移后保存落盘新字段、
+    /// 旧键消失，再次加载不重复翻转；无旧字段用默认 20；新旧并存时
+    /// 新值优先（旧键仅删除，不覆盖用户已保存的新语义值）。
+    #[test]
+    fn legacy_low_balance_threshold_migrates_to_remaining() {
+        let path = temp_path("migrate-threshold");
+        // 旧 90（已用）→ 新 10（剩余），触发时机数值等价
+        std::fs::write(&path, r#"{"low_balance_threshold_percent":90}"#).unwrap();
+        assert_eq!(Settings::load(&path).low_balance_remaining_percent, 10);
+        // 幂等：同一磁盘文件再次加载结果一致（不因多次加载交替翻转）
+        assert_eq!(Settings::load(&path).low_balance_remaining_percent, 10);
+        // 迁移后保存：新字段落盘、旧键消失，再加载不重复翻转
+        let migrated = Settings::load(&path);
+        migrated.save(&path).unwrap();
+        let saved_text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !saved_text.contains("low_balance_threshold_percent"),
+            "保存后旧键不再落盘：{saved_text}"
+        );
+        assert_eq!(Settings::load(&path).low_balance_remaining_percent, 10);
+        // 无旧字段：默认 20
+        std::fs::write(&path, r#"{"refresh_interval_minutes":10}"#).unwrap();
+        assert_eq!(
+            Settings::load(&path).low_balance_remaining_percent,
+            20,
+            "无旧字段走新默认值"
+        );
+        // 新旧并存：新值优先（仅删旧键，不做二次翻转）
+        std::fs::write(
+            &path,
+            r#"{"low_balance_threshold_percent":90,"low_balance_remaining_percent":30}"#,
+        )
+        .unwrap();
+        assert_eq!(Settings::load(&path).low_balance_remaining_percent, 30);
+        // 旧值越界（>100，手改文件）：clamp 收口后迁移（150 已用 → 0 剩余）
+        std::fs::write(&path, r#"{"low_balance_threshold_percent":150}"#).unwrap();
+        assert_eq!(Settings::load(&path).low_balance_remaining_percent, 0);
+        let _ = std::fs::remove_file(&path);
     }
 }

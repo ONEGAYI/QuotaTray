@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use quota_core::pricing::{self, PeakKind};
-use quota_core::{AppConfig, CustomModelDef, PlanKind, ProviderEntry, UsageData};
+use quota_core::{AppConfig, CustomModelDef, PlanKind, ProviderEntry};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
@@ -34,20 +34,6 @@ pub const PEAK_FLIP_EVENT: &str = "peak-flip";
 
 // ---- 展示纯函数 -----------------------------------------------------------
 
-/// 已用百分比（0-100）。
-///
-/// 约定：unit 为 "%" 时 used 即已用百分比；否则按 used/total 换算；
-/// 数据不足返回 None（不猜测）。
-pub fn used_percent(d: &UsageData) -> Option<f64> {
-    if d.unit.as_deref() == Some("%") {
-        return d.used;
-    }
-    match (d.used, d.total) {
-        (Some(used), Some(total)) if total > 0.0 => Some(used / total * 100.0),
-        _ => None,
-    }
-}
-
 /// 相对时间文案（分档见 [`Lang::relative_time`]，与前端 display.ts 成对）。
 pub fn relative_time(at_ms: u64, now_ms: u64, lang: Lang) -> String {
     let secs = now_ms.saturating_sub(at_ms) / 1000;
@@ -70,14 +56,14 @@ pub(crate) const KEEP_LAST_GOOD_MS: u64 = 10 * 60 * 1000;
 
 /// 条目展示行（多窗口一窗口一行）。
 ///
-/// 形状（GUI-spec §3）：
-/// - 成功：`名称 · 剩余 62.97 CNY · 3 分钟前` 或 `名称 · 已用 42% · 3 分钟前`；
-/// - 多窗口行带窗口名：`名称 · five_hour 已用 42% · 3 分钟前`；
+/// 形状（GUI-spec §3；T-21 起百分比行与余额行统一剩余口径）：
+/// - 成功：`名称 · 剩余 62.97 CNY · 3 分钟前` 或 `名称 · 剩余 58% · 3 分钟前`；
+/// - 多窗口行带窗口名：`名称 · five_hour 剩余 58% · 3 分钟前`；
 /// - 瞬时失败且旧值在 keep-last-good 窗口内：正常行尾追加 `⟳ 暂不可达`；
 /// - 瞬时失败但无旧值或已超窗：`名称 · ⟳ 网络波动`；
 /// - 确定性失败：`名称 · ⚠ 错误摘要`（立即透出，不展示旧值）；
 /// - `is_valid=false`：`名称 · ⚠ 已失效：原因`；
-/// - 已用百分比 ≥ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
+/// - 剩余百分比 ≤ 阈值的行首加 `⚠ `（原生菜单不支持着色，符号近似）。
 pub fn entry_lines(
     name: &str,
     state: &EntryState,
@@ -149,8 +135,11 @@ pub fn entry_lines(
                     .unwrap_or_else(|| lang.window_name(i + 1))
             ),
         };
-        let body = if let Some(pct) = used_percent(d) {
-            format!("{name} · {window}{}", lang.used_text(&percent_text(pct)))
+        let body = if let Some(pct) = quota_core::remaining_percent(d) {
+            format!(
+                "{name} · {window}{}",
+                lang.remaining_percent_text(&percent_text(pct))
+            )
         } else if let (Some(rem), unit) = (d.remaining, d.unit.clone()) {
             match unit {
                 Some(u) if !u.is_empty() => {
@@ -169,7 +158,8 @@ pub fn entry_lines(
         } else {
             format!("{name} · {window}{}", t.fetched)
         };
-        let over = used_percent(d).is_some_and(|p| p >= f64::from(threshold_percent));
+        let over =
+            quota_core::remaining_percent(d).is_some_and(|p| p <= f64::from(threshold_percent));
         lines.push(warn(time_suffix(body, state.at), over) + &transient_mark);
     }
     if lines.is_empty() {
@@ -247,7 +237,8 @@ pub(crate) fn state_is_displayable(st: &EntryState, now: u64) -> bool {
     }
 }
 
-/// 是否有条目超过低额度阈值（圆环右上角红点的依据）。
+/// 是否有条目低于低余额阈值（圆环右上角红点的依据；T-21 剩余口径：
+/// 任一窗口剩余 ≤ 阈值即告警）。
 ///
 /// 门控与圆环/菜单行一致（`state_is_displayable`）：确定性失败或超窗瞬时
 /// 失败的条目，其旧值不再作为告警依据。
@@ -265,8 +256,8 @@ pub fn any_alert(
         .filter_map(|st| st.data.as_ref())
         .any(|data| {
             data.iter().filter(|d| d.is_valid != Some(false)).any(|d| {
-                used_percent(d)
-                    .is_some_and(|p| p >= f64::from(settings.low_balance_threshold_percent))
+                quota_core::remaining_percent(d)
+                    .is_some_and(|p| p <= f64::from(settings.low_balance_remaining_percent))
             })
         })
 }
@@ -508,7 +499,7 @@ fn build_menu(
                 Some(st) => entry_lines(
                     &entry.name,
                     st,
-                    settings.low_balance_threshold_percent,
+                    settings.low_balance_remaining_percent,
                     now,
                     lang,
                 ),
@@ -741,14 +732,15 @@ mod tests {
 
     const NOW: u64 = 1_755_000_000_000;
 
-    /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行。
+    /// 双语断言辅助：同一状态在 zh/en 下各自匹配期望行（阈值硬编码 20，
+    /// 与新默认同值——剩余口径）。
     fn assert_both(name: &str, st: &EntryState, zh: Vec<&str>, en: Vec<&str>) {
         assert_eq!(
-            entry_lines(name, st, 80, NOW, Lang::Zh),
+            entry_lines(name, st, 20, NOW, Lang::Zh),
             zh.into_iter().map(String::from).collect::<Vec<_>>()
         );
         assert_eq!(
-            entry_lines(name, st, 80, NOW, Lang::En),
+            entry_lines(name, st, 20, NOW, Lang::En),
             en.into_iter().map(String::from).collect::<Vec<_>>()
         );
     }
@@ -1028,19 +1020,34 @@ mod tests {
         );
     }
 
-    /// 契约：百分比型行——unit="%" 时 used 即已用百分比。
+    /// 契约：百分比型行（T-21 剩余口径）——unit="%" 时按 `100−used`
+    /// 展示剩余百分比（core remaining_percent）。
     #[test]
     fn percent_line_shape() {
         let st = ok_state(vec![percent_data(Some(42.0))], NOW - 180_000);
         assert_both(
             "GLM",
             &st,
-            vec!["GLM · 已用 42% · 3 分钟前"],
-            vec!["GLM · Used 42% · 3m ago"],
+            vec!["GLM · 剩余 58% · 3 分钟前"],
+            vec!["GLM · Left 58% · 3m ago"],
+        );
+        // 金额窗口（used/total 可换算，非 %）同样走剩余百分比换算
+        let amount = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            ..Default::default()
+        };
+        let st = ok_state(vec![amount], NOW - 180_000);
+        assert_both(
+            "GLM",
+            &st,
+            vec!["GLM · 剩余 85% · 3 分钟前"],
+            vec!["GLM · Left 85% · 3m ago"],
         );
     }
 
-    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」。
+    /// 契约：多窗口一窗口一行，窗口名取 planName，缺省回退「窗口N」
+    /// （百分比行剩余口径）。
     #[test]
     fn multi_window_lines() {
         let d1 = UsageData {
@@ -1060,12 +1067,12 @@ mod tests {
             "GLM",
             &st,
             vec![
-                "GLM · five_hour 已用 42% · 5 分钟前",
-                "GLM · 窗口2 已用 10% · 5 分钟前",
+                "GLM · five_hour 剩余 58% · 5 分钟前",
+                "GLM · 窗口2 剩余 90% · 5 分钟前",
             ],
             vec![
-                "GLM · five_hour Used 42% · 5m ago",
-                "GLM · Window 2 Used 10% · 5m ago",
+                "GLM · five_hour Left 58% · 5m ago",
+                "GLM · Window 2 Left 90% · 5m ago",
             ],
         );
     }
@@ -1199,41 +1206,26 @@ mod tests {
         );
     }
 
-    /// 契约：超阈值行首加 ⚠（恰等于阈值触发）。
+    /// 契约：剩余百分比 ≤ 阈值的行首加 ⚠（T-21 方向翻转；恰等于阈值
+    /// 触发）。
     #[test]
     fn threshold_adds_warning_prefix() {
+        // used 80 → 剩余 20 = 阈值 20：恰达阈值触发
         let st = ok_state(vec![percent_data(Some(80.0))], NOW);
         assert_both(
             "X",
             &st,
-            vec!["⚠ X · 已用 80% · 刚刚"],
-            vec!["⚠ X · Used 80% · just now"],
+            vec!["⚠ X · 剩余 20% · 刚刚"],
+            vec!["⚠ X · Left 20% · just now"],
         );
-        let below = ok_state(vec![percent_data(Some(79.9))], NOW);
+        // used 79 → 剩余 21 > 20：不触发
+        let below = ok_state(vec![percent_data(Some(79.0))], NOW);
         assert_both(
             "X",
             &below,
-            vec!["X · 已用 80% · 刚刚"],
-            vec!["X · Used 80% · just now"],
+            vec!["X · 剩余 21% · 刚刚"],
+            vec!["X · Left 21% · just now"],
         );
-    }
-
-    /// 契约：已用百分比换算——used/total 与 unit="%" 直读。
-    #[test]
-    fn used_percent_calculation() {
-        let mut d = UsageData {
-            used: Some(42.0),
-            total: Some(200.0),
-            ..Default::default()
-        };
-        assert_eq!(used_percent(&d), Some(21.0));
-        d.unit = Some("%".into());
-        assert_eq!(used_percent(&d), Some(42.0));
-        // total 为 0 / 缺 used → None（不猜测）
-        d.total = Some(0.0);
-        d.unit = None;
-        assert_eq!(used_percent(&d), None);
-        assert_eq!(used_percent(&UsageData::default()), None);
     }
 
     /// 契约：相对时间分档（双语委托 i18n，此处锁端到端形状）。
@@ -1251,7 +1243,8 @@ mod tests {
         assert_eq!(relative_time(NOW - 172_800_000, NOW, Lang::En), "2d ago");
     }
 
-    /// 契约：any_alert——enabled + 超阈值才触发；disabled / 失效条目不触发。
+    /// 契约：any_alert——enabled + 剩余 ≤ 阈值才触发；disabled / 失效
+    /// 条目不触发（T-21 剩余口径：used 85 → 剩余 15 ≤ 默认阈值 20）。
     #[test]
     fn any_alert_rules() {
         use quota_core::{ProviderEntry, ProviderKind};
@@ -1275,7 +1268,7 @@ mod tests {
             custom_models: Default::default(),
             providers: vec![entry("a", true), entry("b", false)],
         };
-        let settings = Settings::default(); // 阈值 80
+        let settings = Settings::default(); // 剩余阈值 20
 
         let mut results = HashMap::new();
         results.insert("a".into(), ok_state(vec![percent_data(Some(85.0))], NOW));
@@ -1329,7 +1322,7 @@ mod tests {
             custom_models: Default::default(),
             providers: vec![entry("a")],
         };
-        let settings = Settings::default(); // 阈值 80
+        let settings = Settings::default(); // 剩余阈值 20
 
         let over = ok_state(vec![percent_data(Some(85.0))], NOW);
         let mut results = HashMap::new();

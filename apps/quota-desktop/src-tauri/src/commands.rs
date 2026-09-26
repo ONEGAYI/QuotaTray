@@ -1206,27 +1206,29 @@ pub async fn test_script(
     Ok(outcome)
 }
 
-/// 「低余额提醒」事件负载（两端共用）：查询成功且任一窗口已用百分比
-/// 达到设置阈值时随查询结果广播；前端消息中心按 provider_id 去重入列。
+/// 「低余额提醒」事件负载（两端共用）：查询成功且任一窗口剩余百分比
+/// 达到设置阈值（≤）时随查询结果广播；前端消息中心按 provider_id 去重
+/// 入列。T-21 起负载为剩余语义（与 `BalanceRecoveredEvent` 对齐）。
 #[derive(Clone, Serialize)]
 struct LowBalanceEvent<'a> {
     provider_id: &'a str,
     name: &'a str,
-    /// 已用百分比（0-100，取数据中最高的窗口；前端展示时取整）。
-    percent: f64,
+    /// 最低达标剩余百分比（0-100，取数据中最紧急的窗口；前端展示时取整）。
+    remaining_percent: f64,
 }
 
-/// 低余额判定（纯函数）：任一窗口已用百分比 ≥ 阈值时返回
-/// `Some(最高达标百分比)`，否则 None。百分比语义与前端卡片高亮共用
-/// core [`quota_core::used_percent`]（`display.ts usedPercent` 的镜像）。
+/// 低余额判定（纯函数，T-21 剩余口径）：任一窗口剩余百分比 ≤ 阈值时
+/// 返回 `Some(最低达标剩余)`（最紧急窗口），否则 None。百分比语义统一
+/// 走 core [`quota_core::remaining_percent`]（`display.ts
+/// remainingPercent` 的镜像），禁止局部反向换算。
 pub(crate) fn low_balance_breach(
     data: &[quota_core::UsageData],
     threshold_percent: u8,
 ) -> Option<f64> {
     data.iter()
-        .filter_map(quota_core::used_percent)
-        .filter(|p| *p >= f64::from(threshold_percent))
-        .fold(None::<f64>, |acc, p| Some(acc.map_or(p, |m| m.max(p))))
+        .filter_map(quota_core::remaining_percent)
+        .filter(|p| *p <= f64::from(threshold_percent))
+        .fold(None::<f64>, |acc, p| Some(acc.map_or(p, |m| m.min(p))))
 }
 
 /// 「额度恢复提醒」事件负载（两端共用，#132）：先前低额度的条目在
@@ -1242,23 +1244,24 @@ struct BalanceRecoveredEvent<'a> {
 
 /// 恢复判定（纯函数，#132）：仅 `unit == "%"` 且 `used` 为有限值的窗口
 /// 参与（金额或可换算百分比的窗口既不参与也不阻断）；所有相关窗口
-/// 剩余百分比（100 − used）均 ≥ 阈值时返回 `Some(最低剩余)`，否则
-/// None。无有效 % 窗口返回 None——窗口缺失/数据无效不推断恢复。
-/// 与 [`low_balance_breach`] 的 any-of（含换算）相对，这里是 % 窗口
-/// all-of（不含换算），票面口径。
+/// 剩余百分比均 ≥ 阈值时返回 `Some(最低剩余)`，否则 None。无有效
+/// % 窗口返回 None——窗口缺失/数据无效不推断恢复。与
+/// [`low_balance_breach`] 的 any-of（含换算）相对，这里是 % 窗口
+/// all-of（不含换算），票面口径。剩余换算统一走 core
+/// [`quota_core::remaining_percent`]（对 % 窗口即 `100 − used`；
+/// spec 禁局部反向换算，T-21 收敛）。
 pub(crate) fn balance_recovery_reached(
     data: &[quota_core::UsageData],
     recovery_threshold_percent: u8,
 ) -> Option<f64> {
     let threshold = f64::from(recovery_threshold_percent);
     let mut min_remaining: Option<f64> = None;
-    for used in data
+    for remaining in data
         .iter()
         .filter(|d| d.unit.as_deref() == Some("%"))
-        .filter_map(|d| d.used)
-        .filter(|used| used.is_finite())
+        .filter_map(quota_core::remaining_percent)
+        .filter(|remaining| remaining.is_finite())
     {
-        let remaining = 100.0 - used;
         if remaining < threshold {
             return None;
         }
@@ -1276,11 +1279,12 @@ pub(crate) fn balance_recovery_reached(
 /// 分支优先（低额度语义优先，不做双重广播）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum BalanceAlertAction {
-    /// 首次低额度达标：广播 low-balance + 按平台补发系统通知 + 登记。
-    LowNotify { percent: f64 },
+    /// 首次低额度达标（剩余 ≤ 阈值）：广播 low-balance + 按平台补发
+    /// 系统通知 + 登记。
+    LowNotify { remaining_percent: f64 },
     /// 持续低额度、持续高额度或无登记无变化：不打扰。
     Silent,
-    /// 曾低额度现回落但未达恢复线（或数据不足）：清除登记，不广播。
+    /// 曾低额度现回升但未达恢复线（或数据不足）：清除登记，不广播。
     LowReset,
     /// 先前低额度且所有 % 窗口剩余达恢复阈值：广播恢复事件 + 清除
     /// 登记（再入低额度后可重新触发）。
@@ -1292,11 +1296,11 @@ pub(crate) fn balance_alert_edge(
     breach: Option<f64>,
     reached: Option<f64>,
 ) -> BalanceAlertAction {
-    if let Some(percent) = breach {
+    if let Some(remaining_percent) = breach {
         if previously_low {
             return BalanceAlertAction::Silent;
         }
-        return BalanceAlertAction::LowNotify { percent };
+        return BalanceAlertAction::LowNotify { remaining_percent };
     }
     match (previously_low, reached) {
         (true, Some(remaining_percent)) => BalanceAlertAction::Recovered { remaining_percent },
@@ -1429,7 +1433,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         let (low_threshold, recovery_threshold) = {
             let s = state.settings.read().unwrap();
             (
-                s.low_balance_threshold_percent,
+                s.low_balance_remaining_percent,
                 s.balance_recovery_threshold_percent,
             )
         };
@@ -1451,7 +1455,7 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
             action
         };
         match action {
-            BalanceAlertAction::LowNotify { percent } => {
+            BalanceAlertAction::LowNotify { remaining_percent } => {
                 crate::alert_state::commit_alert_edge_quietly(
                     &state.paths.alert_state(),
                     "",
@@ -1464,12 +1468,13 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
                     LowBalanceEvent {
                         provider_id: &id,
                         name: &entry.name,
-                        percent,
+                        remaining_percent,
                     },
                 );
                 let lang = lang_of(&state);
                 let title = lang.low_balance_notify_title();
-                let body = lang.low_balance_notify_body(&entry.name, percent.round() as u32);
+                let body =
+                    lang.low_balance_notify_body(&entry.name, remaining_percent.round() as u32);
                 notify_platform(app, &state, &title, &body);
             }
             BalanceAlertAction::Recovered { remaining_percent } => {
@@ -1576,7 +1581,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct SettingsPatch {
     pub refresh_interval_minutes: Option<u32>,
-    pub low_balance_threshold_percent: Option<u8>,
+    pub low_balance_remaining_percent: Option<u8>,
     pub balance_recovery_threshold_percent: Option<u8>,
     pub autostart: Option<bool>,
     pub language: Option<String>,
@@ -1618,8 +1623,8 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     if let Some(v) = patch.refresh_interval_minutes {
         base.refresh_interval_minutes = v;
     }
-    if let Some(v) = patch.low_balance_threshold_percent {
-        base.low_balance_threshold_percent = v;
+    if let Some(v) = patch.low_balance_remaining_percent {
+        base.low_balance_remaining_percent = v;
     }
     if let Some(v) = patch.balance_recovery_threshold_percent {
         base.balance_recovery_threshold_percent = v;
@@ -1705,7 +1710,7 @@ fn persist_settings(
     // 实际生效值。阈值变更本身不触碰提醒判定状态（恢复只在成功查询
     // 中判定，票面口径）。
     if !crate::settings::threshold_combination_valid(
-        settings.low_balance_threshold_percent,
+        settings.low_balance_remaining_percent,
         settings.balance_recovery_threshold_percent,
     ) {
         return Err(lang.err_recovery_threshold_conflict());
@@ -2467,8 +2472,11 @@ mod tests {
         assert_eq!(runtime_platform_for("linux"), "desktop");
     }
 
-    /// 契约：低余额判定——百分比语义与前端卡片高亮一致（used_percent
-    /// 镜像），阈值含边界（=），多窗口取最高，数据不足不触发。
+    /// 契约：低余额判定（T-21 剩余口径）——百分比语义与前端展示共用
+    /// core [`quota_core::remaining_percent`]（`display.ts
+    /// remainingPercent` 的镜像），剩余 ≤ 阈值时触发（边界含 =），
+    /// 多窗口任一达标即触发、返回最低达标剩余（最紧急窗口），
+    /// 数据不足不触发。
     #[test]
     fn low_balance_breach_contract() {
         let window =
@@ -2478,23 +2486,29 @@ mod tests {
                 unit: unit.map(Into::into),
                 ..Default::default()
             };
-        // 低于阈值不触发
+        // 剩余高于阈值不触发（used 50/100 → 剩余 50 > 20）
         let healthy = vec![window(Some(50.0), Some(100.0), None)];
-        assert_eq!(low_balance_breach(&healthy, 80), None);
-        // 达到阈值触发（边界 = 阈值也算）
+        assert_eq!(low_balance_breach(&healthy, 20), None);
+        // 剩余恰达阈值触发（边界 = 阈值也算；used 80/100 → 剩余 20）
         let edge = vec![window(Some(80.0), Some(100.0), None)];
-        assert_eq!(low_balance_breach(&edge, 80), Some(80.0));
-        // 多窗口：任一达标即触发，取最高达标值
+        assert_eq!(low_balance_breach(&edge, 20), Some(20.0));
+        // 多窗口：任一达标即触发，返回最低达标剩余（最紧急窗口）
         let multi = vec![
             window(Some(50.0), Some(100.0), None),
             window(Some(92.0), None, Some("%")),
         ];
-        assert_eq!(low_balance_breach(&multi, 80), Some(92.0));
+        assert_eq!(low_balance_breach(&multi, 20), Some(8.0));
+        // 多窗口全部达标：仍取最低剩余（而非最高）
+        let all_over = vec![
+            window(Some(90.0), None, Some("%")),
+            window(Some(95.0), None, Some("%")),
+        ];
+        assert_eq!(low_balance_breach(&all_over, 20), Some(5.0));
         // 余额型（无 total、非 %）数据不足 → 不触发
         let balance_only = vec![window(Some(3.0), None, Some("CNY"))];
-        assert_eq!(low_balance_breach(&balance_only, 80), None);
+        assert_eq!(low_balance_breach(&balance_only, 20), None);
         // 空数据不触发
-        assert_eq!(low_balance_breach(&[], 80), None);
+        assert_eq!(low_balance_breach(&[], 20), None);
     }
 
     /// 契约：恢复判定——仅 `unit == "%"` 且 used 有限的窗口参与（金额或
@@ -2558,21 +2572,22 @@ mod tests {
         assert_eq!(balance_recovery_reached(&oversold, 95), None);
     }
 
-    /// 契约：条目级提醒裁决——低额度（any-of，含换算）与恢复（% 窗口
-    /// all-of）互斥分派；合法阈值组合下 breach 与 reached 不可能同时
-    /// 成立，breach 分支优先兜底（磁盘手改非法组合时低额度语义优先）；
+    /// 契约：条目级提醒裁决——低额度（any-of，含换算，剩余口径）与恢复
+    /// （% 窗口 all-of）互斥分派；合法阈值组合下 breach 与 reached 不可能
+    /// 同时成立，breach 分支优先兜底（磁盘手改非法组合时低额度语义优先）；
     /// 恢复仅在「先前低额度 + 当前无 breach + 恢复达标」三条件齐备时
-    /// 产生；持续高额度（从未低过）静默。
+    /// 产生；持续高额度（从未低过）静默。LowNotify 携带最低达标剩余
+    /// （T-21 翻转后与 Recovered 的 remaining_percent 同语义）。
     #[test]
     fn balance_alert_edge_contract() {
         use BalanceAlertAction::{LowNotify, LowReset, Recovered, Silent};
-        // 首次低额度达标 → 通知
+        // 首次低额度达标（剩余 15 ≤ 阈值）→ 通知（携带剩余值）
         assert!(matches!(
-            balance_alert_edge(false, Some(85.0), None),
-            LowNotify { percent } if percent == 85.0
+            balance_alert_edge(false, Some(15.0), None),
+            LowNotify { remaining_percent } if remaining_percent == 15.0
         ));
         // 持续低额度静默（含换算窗口维持 breach）
-        assert!(matches!(balance_alert_edge(true, Some(91.0), None), Silent));
+        assert!(matches!(balance_alert_edge(true, Some(9.0), None), Silent));
         // 从未低额度的高额度（含恢复达标）静默——持续高额度不重复提醒
         assert!(matches!(
             balance_alert_edge(false, None, Some(96.0)),
@@ -2591,14 +2606,15 @@ mod tests {
         // 非法组合兜底：breach 与 reached 并存（磁盘手改阈值绕过校验）
         // → 低额度分支优先
         assert!(matches!(
-            balance_alert_edge(false, Some(85.0), Some(10.0)),
+            balance_alert_edge(false, Some(15.0), Some(10.0)),
             LowNotify { .. }
         ));
     }
 
     /// 契约：生命周期序列（低→高→低→高防重）——一次低额度只对应一次
     /// 恢复事件；持续高额度不重复；再入低额度后恢复可重新触发；设置
-    /// 阈值变更不参与判定（裁决只在成功查询路径调用）。
+    /// 阈值变更不参与判定（裁决只在成功查询路径调用）。取值均为剩余
+    /// 口径（T-21）。
     #[test]
     fn balance_alert_lifecycle_prevents_duplicate_recovery() {
         use BalanceAlertAction::{LowNotify, LowReset, Recovered, Silent};
@@ -2610,17 +2626,17 @@ mod tests {
             balance_alert_edge(previously_low, None, Some(96.0)),
             Silent
         ));
-        // 低：首次达标 → 通知 + 登记
-        match balance_alert_edge(previously_low, Some(85.0), None) {
+        // 低（剩余 15）：首次达标 → 通知 + 登记
+        match balance_alert_edge(previously_low, Some(15.0), None) {
             LowNotify { .. } => previously_low = true,
             other => panic!("首次达标应通知，实际 {other:?}"),
         }
-        // 持续低：静默
+        // 持续低（剩余 10）：静默
         assert!(matches!(
-            balance_alert_edge(previously_low, Some(90.0), None),
+            balance_alert_edge(previously_low, Some(10.0), None),
             Silent
         ));
-        // 高：恢复事件一次 + 清登记
+        // 高（剩余 96）：恢复事件一次 + 清登记
         match balance_alert_edge(previously_low, None, Some(96.0)) {
             Recovered { .. } => previously_low = false,
             other => panic!("恢复应产生事件，实际 {other:?}"),
@@ -2630,8 +2646,8 @@ mod tests {
             balance_alert_edge(previously_low, None, Some(97.0)),
             Silent
         ));
-        // 再低：重新通知 + 登记
-        match balance_alert_edge(previously_low, Some(88.0), None) {
+        // 再低（剩余 12）：重新通知 + 登记
+        match balance_alert_edge(previously_low, Some(12.0), None) {
             LowNotify { .. } => previously_low = true,
             other => panic!("再入低额度应重新通知，实际 {other:?}"),
         }

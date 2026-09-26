@@ -147,7 +147,7 @@ fn collect_balance_alerts(job: BalanceAlertJob<'_>, out: &mut Vec<NotificationIt
         action
     };
     match action {
-        BalanceAlertAction::LowNotify { percent } => {
+        BalanceAlertAction::LowNotify { remaining_percent } => {
             crate::alert_state::commit_alert_edge_quietly(
                 &paths.alert_state(),
                 LOG_SOURCE,
@@ -157,7 +157,7 @@ fn collect_balance_alerts(job: BalanceAlertJob<'_>, out: &mut Vec<NotificationIt
             );
             out.push(NotificationItem {
                 title: lang.low_balance_notify_title(),
-                body: lang.low_balance_notify_body(name, percent.round() as u32),
+                body: lang.low_balance_notify_body(name, remaining_percent.round() as u32),
             });
         }
         BalanceAlertAction::Recovered { remaining_percent } => {
@@ -307,7 +307,7 @@ mod android {
                             id: &entry.id,
                             name: &entry.name,
                             data: &data,
-                            low_threshold: settings.low_balance_threshold_percent,
+                            low_threshold: settings.low_balance_remaining_percent,
                             recovery_threshold: settings.balance_recovery_threshold_percent,
                             at,
                         },
