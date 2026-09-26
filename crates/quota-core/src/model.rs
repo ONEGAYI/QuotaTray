@@ -140,6 +140,14 @@ pub fn used_percent(data: &UsageData) -> Option<f64> {
     }
 }
 
+/// 剩余百分比（0-100，展示口径）：`unit == "%"` 时 `100−used`，否则
+/// `100−used/total` 换算；数据不足返回 `None`。与前端 `display.ts` 的
+/// `remainingPercent` 互为镜像。这是 [`used_percent`]（协议口径）的展示侧
+/// 换算——两口径之和恒为 100，消费方不得各自局部反向换算。
+pub fn remaining_percent(data: &UsageData) -> Option<f64> {
+    used_percent(data).map(|p| 100.0 - p)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,6 +207,48 @@ mod tests {
             !display.contains("脱敏"),
             "Display 不应输出 detail：{display}"
         );
+    }
+
+    /// 契约：remaining_percent（剩余百分比展示口径）与前端 display.ts
+    /// remainingPercent 镜像——"%" 单位 100−used；否则 100−used/total 换算；
+    /// 数据不足 None；与 used_percent 之和恒为 100（两口径互补）。
+    #[test]
+    fn remaining_percent_mirrors_frontend_semantics() {
+        // "%" 单位：100 − used（订阅/限额窗口的剩余百分比）
+        let pct = UsageData {
+            used: Some(42.0),
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        assert_eq!(remaining_percent(&pct), Some(58.0));
+        // 金额单位走 100 − used/total 换算
+        let amount = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            unit: Some("USD".into()),
+            ..Default::default()
+        };
+        assert_eq!(remaining_percent(&amount), Some(85.0));
+        // 与 used_percent 互补：两口径之和恒为 100
+        assert_eq!(
+            used_percent(&amount).unwrap() + remaining_percent(&amount).unwrap(),
+            100.0
+        );
+        // total <= 0 无意义
+        let bad_total = UsageData {
+            used: Some(10.0),
+            total: Some(0.0),
+            ..Default::default()
+        };
+        assert_eq!(remaining_percent(&bad_total), None);
+        // 字段缺失（余额型无 total 等）
+        assert_eq!(remaining_percent(&UsageData::default()), None);
+        // "%" 单位但 used 缺失
+        let pct_missing = UsageData {
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        assert_eq!(remaining_percent(&pct_missing), None);
     }
 
     /// 契约：used_percent 与前端 display.ts usedPercent 镜像——

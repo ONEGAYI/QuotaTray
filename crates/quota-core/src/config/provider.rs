@@ -80,6 +80,28 @@ impl PlanVariant {
     }
 }
 
+/// 条目级主度量展示偏好（#137）：摘要位（主文案、圆环、托盘行体）优先
+/// 展示剩余百分比还是剩余金额；只管「想先看什么」，不改变查询与存储的
+/// 数据形状。指定的度量某窗口算不出时由消费方静默回退另一度量。
+///
+/// - [`PrimaryMetric::Auto`]：按可用数据推断（默认，缺省字段等价于 Auto）；
+/// - [`PrimaryMetric::Percent`]：优先展示剩余百分比（`remaining_percent` 口径）；
+/// - [`PrimaryMetric::Amount`]：优先展示剩余金额（`remaining` + `unit`）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrimaryMetric {
+    #[default]
+    Auto,
+    Percent,
+    Amount,
+}
+
+impl PrimaryMetric {
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -105,6 +105,7 @@ pub async fn run(key_file: Option<PathBuf>, proxy: bool, lang: Lang) -> i32 {
             base_url: None,
             pricing: None,
             plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
             use_proxy: proxy,
             console_url: None,
         };
