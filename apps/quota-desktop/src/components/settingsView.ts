@@ -271,3 +271,14 @@ export const CATALOG_SCHEDULE_HINT_KEYS: Record<CatalogScheduleHint, TextKey> = 
   "on-mobile": "settings.catalogScheduleOnMobile",
   off: "settings.catalogScheduleOff",
 };
+
+/** 阈值组合校验（#132，与后端 settings.rs threshold_combination_valid
+ *  成对镜像）：恢复剩余阈值必须高于低额度对应的剩余阈值
+ *  （100 − 已用阈值），即两者之和严格大于 100。非法组合由设置页就地
+ *  说明并阻止保存（后端 persist_settings 另有硬门禁兜底）。 */
+export function thresholdCombinationValid(
+  lowUsedPercent: number,
+  recoveryRemainingPercent: number,
+): boolean {
+  return lowUsedPercent + recoveryRemainingPercent > 100;
+}

@@ -138,6 +138,7 @@ QuotaTray/
         │   │   └── smoke_setup.rs # GUI 冒烟注入器
         │   ├── icons/                  # 应用图标集
         │   ├── src/                    # 后端源码
+        │   │   ├── alert_state.rs          # 提醒状态跨重启持久化
         │   │   ├── apk_install.rs          # APK安装JNI桥
         │   │   ├── background.rs           # Android 后台刷新编排核
         │   │   ├── catalog_sched.rs        # 跨端目录前台调度

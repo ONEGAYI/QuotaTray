@@ -302,6 +302,9 @@ export const en: Record<TextKey, string> = {
   "settings.threshold": "Low-balance alert threshold (used %)",
   "settings.thresholdTitle": "Low-balance alert",
   "settings.thresholdHint": "Alert when usage reaches this percentage",
+  "settings.recoveryThresholdTitle": "Balance recovery alert",
+  "settings.recoveryThresholdHint": "Alert when quota recovers to this remaining percentage",
+  "settings.recoveryThresholdConflict": "Recovery threshold must be above the remaining threshold of the low-balance alert (100 - used). Adjust before saving",
   "settings.autostart": "Launch at startup",
   "settings.autostartHint": "Run in the tray after signing in to Windows",
   "settings.notificationsTitle": "System notifications",
@@ -470,6 +473,8 @@ export const en: Record<TextKey, string> = {
   "msgCenter.updateGoToHint": "Download and install in Settings · Update",
   "msgCenter.lowBalanceTitle": "Low balance",
   "msgCenter.lowBalanceBody": "{name} is {percent}% used",
+  "msgCenter.balanceRecoveredTitle": "Balance recovered",
+  "msgCenter.balanceRecoveredBody": "{name} balance recovered, {remaining}% remaining",
   "settings.manualUrl": "No installer for this version; release page: {url}",
   // ---- Android updates (SAF save + system installer flow) ----
   "settings.apkDialogTitle": "Save update package",

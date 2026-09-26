@@ -52,6 +52,11 @@ impl DataPaths {
         self.root.join("history.db")
     }
 
+    /// 提醒状态（#132）：低额度登记镜像 + 待展示恢复消息。
+    pub fn alert_state(&self) -> PathBuf {
+        self.root.join("alert_state.json")
+    }
+
     /// 滚动日志目录（JSONL，7 天保留；目录由装配方按需创建）。
     pub fn logs(&self) -> PathBuf {
         self.root.join("logs")
@@ -167,10 +172,12 @@ pub static APP_FOREGROUND_CALIBRATED: std::sync::atomic::AtomicBool =
 /// 低余额提醒的会话级登记（条目 id 集合，边沿触发防重）：「已用 ≥
 /// 阈值」是持续状态，直接广播会随轮询周期重复打扰（后台时即重复
 /// 系统通知）——首次达标广播一次并登记，持续达标静默，回落阈值
-/// 以下清除登记（下次达标重新提醒）。会话内存，不持久化。
-/// C 项起为模块级静态——前台命令路径与后台刷新核共享同一防重
-/// （否则冷热两路各自首次达标会双份通知）。`HashSet::new` 非
-/// const，用 [`LazyLock`] 延迟构造。
+/// 以下清除登记（下次达标重新提醒）。C 项起为模块级静态——前台
+/// 命令路径与后台刷新核共享同一防重（否则冷热两路各自首次达标会
+/// 双份通知）。#132 起登记同时镜像到磁盘（`alert_state.json`，进程
+/// 启动/Worker 每轮经 `alert_state::hydrate_low_balance_notified`
+/// 灌入并集）——跨重启保留「先前已进入低额度状态」的恢复判定前提。
+/// `HashSet::new` 非 const，用 [`LazyLock`] 延迟构造。
 pub static LOW_BALANCE_NOTIFIED: std::sync::LazyLock<Mutex<std::collections::HashSet<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
 
@@ -353,6 +360,9 @@ impl AppState {
                 HistoryStore::open_in_memory().map_err(|e| e.to_string())?
             }
         };
+        // 低额度登记从磁盘灌入（#132 跨重启）：重启后既有条目的防重与
+        // 恢复判定前提（「先前已进入低额度状态」）从盘上恢复
+        crate::alert_state::hydrate_low_balance_notified(&paths.alert_state());
         // 启动惰性清理：删除下载目录中不新于当前版本的旧安装包/旧 zip
         // （安装成功后的回收路径；失败仅告警，见 update_ctl 契约）
         crate::update_ctl::cleanup_stale_installers();
@@ -492,6 +502,11 @@ mod tests {
         let p = DataPaths::new(Some(PathBuf::from("/tmp/sandbox"))).unwrap();
         assert_eq!(p.config(), PathBuf::from("/tmp/sandbox/config.json"));
         assert_eq!(p.snapshot(), PathBuf::from("/tmp/sandbox/cache.json"));
+        assert_eq!(
+            p.alert_state(),
+            PathBuf::from("/tmp/sandbox/alert_state.json"),
+            "提醒状态文件跟随数据根派生"
+        );
         assert_eq!(
             p.logs(),
             PathBuf::from("/tmp/sandbox/logs"),

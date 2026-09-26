@@ -6,7 +6,7 @@
 ## T-009 消息中心（铃铛 + 红点 + 点击展开面板）
 
 **标准样式**（2026-08-28 草案，随静默安装改造引入；2026-08-30 增移动形态
-与新消息类型）：
+与新消息类型；2026-09-26 #132 增恢复卡片与跨重启待展示消息）：
 
 - 触发钮：复用 `qt-icon-btn`（常规 34px / sm 圆角档）+ `qt-titlebar-menu-anchor`
   锚定（与语言/主题菜单同构）；tooltip 走 `IconButton` label 机制。
@@ -21,7 +21,11 @@
 - 空态：面板内居中文本（text-faint，12px），不另起空态卡（T-006 的
   empty-state 面向视图级，面板级轻量文本豁免）。
 - 已读语义：打开面板即全量已读（红点消失）；消息为会话级内存态，
-  不持久化。
+  不持久化——**例外（2026-09-26 #132）**：恢复消息（balance-recovered）
+  有跨重启待展示通道，Android 后台 Worker 触发的恢复事件落盘
+  `alert_state.json`，前端启动经 `take_recovery_messages` 读取即清并入列
+  （未读红点点亮）；广播路径入列后前端回执 `ack_recovery_message` 清盘，
+  防止已展示消息在下次启动重复亮红点。
 
 **消息类型**（按 kind 分支渲染，事件源头按平台分流——UI 不做平台判定）：
 
@@ -29,12 +33,21 @@
 - `update-available`（仅移动产生）：检测到新版本（无自动下载），按钮
   「查看更新」跳设置·更新页（`onViewUpdates` prop，面板随跳转收起）；
 - `low-balance`（两端）：某条目任一窗口已用百分比达阈值，纯展示无按钮；
-  按条目 id 去重并存，上限 5 条（超限丢最旧），其余 kind 每类仅留最新一条。
+- `balance-recovered`（两端，2026-09-26 #132）：先前低额度的条目所有
+  百分比窗口剩余达恢复阈值，纯展示无按钮；卡片标题「额度已恢复」、
+  正文写明条目名与剩余比例。
+- **条目级余额组**（#132）：low-balance 与 balance-recovered 反映同一
+  条目的互斥状态，同条目只保留最新一张卡片——恢复卡片替换过时的
+  低额度卡片（替换后作为新消息未读，红点点亮），再入低额度时反向
+  替换；两种 kind 合并计入上限 5 条（超限丢最旧），其余 kind 每类
+  仅留最新一条。
 
 **实现机制**：消息列表与已读集合由 App 级 state 持有、props 下传
 `TitleBar` / `MobileTopBar` → `MessageCenter`；`update-ready` /
-`update-available` / `low-balance` 三个后端事件驱动入列（合并语义见
-`messageCenterView.ts` 的 `mergeMessage`）。安装动作直调
+`update-available` / `low-balance` / `balance-recovered` 四个后端事件驱动
+入列（合并语义见 `messageCenterView.ts` 的 `mergeMessage`，余额组替换
+见 `balanceGroupKey`）；恢复消息另有启动补读（`api.takeRecoveryMessages`
+一次消费）与广播回执（`api.ackRecoveryMessage`）。安装动作直调
 `api.installUpdate()`——卡片文案已明示「退出并自动重启」后果，点击即
 确认，不再叠加系统 confirm（与设置页安装按钮的 confirm 入口语境不同）。
 

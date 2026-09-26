@@ -16,6 +16,12 @@ pub struct Settings {
     /// 低额度提醒阈值（已用百分比，≥ 该值触发提醒）。
     #[serde(default = "default_threshold")]
     pub low_balance_threshold_percent: u8,
+    /// 额度恢复提醒阈值（剩余百分比，≤ 该值即已用 ≤ 100−该值时允许
+    /// 触发恢复；#132）。合法组合要求高于低额度对应的剩余阈值
+    /// （100 − 已用阈值），由保存路径校验（见 [`threshold_combination_valid`]），
+    /// sanitize 只做单字段收口不静默改写组合。
+    #[serde(default = "default_recovery_threshold")]
+    pub balance_recovery_threshold_percent: u8,
     /// 开机自启（实际状态由 autostart 插件落系统，此处存用户意图）。
     #[serde(default)]
     pub autostart: bool,
@@ -99,6 +105,22 @@ fn default_threshold() -> u8 {
     80
 }
 
+fn default_recovery_threshold() -> u8 {
+    95
+}
+
+/// 阈值组合校验（#132 纯函数，保存路径消费）：恢复剩余阈值必须高于
+/// 低额度对应的剩余阈值（100 − 已用阈值），即两者之和严格大于 100。
+/// 合法组合下「低额度已用区间（≥ low）」与「恢复已用区间
+/// （≤ 100 − recovery < low）」互斥——恢复隐含已回落，同一份数据
+/// 不会同时触发两种判定。消费方：前端 SettingsDialog 就地拦截
+/// （`settingsView.ts thresholdCombinationValid` 镜像）与
+/// `persist_settings` 硬门禁（阻止非法组合落盘）；sanitize 不做组合
+/// 改写（磁盘手改非法组合时由判定层的 breach 优先兜底）。
+pub fn threshold_combination_valid(low_used_percent: u8, recovery_remaining_percent: u8) -> bool {
+    u16::from(low_used_percent) + u16::from(recovery_remaining_percent) > 100
+}
+
 fn default_language() -> String {
     "system".into()
 }
@@ -128,6 +150,7 @@ impl Default for Settings {
         Self {
             refresh_interval_minutes: default_interval(),
             low_balance_threshold_percent: default_threshold(),
+            balance_recovery_threshold_percent: default_recovery_threshold(),
             autostart: false,
             language: default_language(),
             theme: default_theme(),
@@ -158,6 +181,8 @@ impl Settings {
     pub fn sanitize(&mut self) {
         self.refresh_interval_minutes = self.refresh_interval_minutes.clamp(1, 1440);
         self.low_balance_threshold_percent = self.low_balance_threshold_percent.min(100);
+        // 恢复阈值：单字段收口（组合校验在保存路径，见 threshold_combination_valid）
+        self.balance_recovery_threshold_percent = self.balance_recovery_threshold_percent.min(100);
         if !matches!(self.language.as_str(), "zh" | "en" | "system") {
             self.language = default_language();
         }
@@ -317,6 +342,7 @@ mod tests {
         let s = Settings {
             refresh_interval_minutes: 10,
             low_balance_threshold_percent: 70,
+            balance_recovery_threshold_percent: 96,
             autostart: true,
             language: "en".into(),
             theme: "dark".into(),
@@ -350,6 +376,10 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.refresh_interval_minutes, 5);
         assert_eq!(s.low_balance_threshold_percent, 80);
+        assert_eq!(
+            s.balance_recovery_threshold_percent, 95,
+            "恢复阈值默认 95（剩余语义）"
+        );
         assert!(!s.autostart);
         assert_eq!(s.language, "system");
         assert_eq!(s.theme, "system");
@@ -494,6 +524,10 @@ mod tests {
         let s = Settings::load(&path);
         assert_eq!(s.refresh_interval_minutes, 30);
         assert_eq!(s.low_balance_threshold_percent, 80);
+        assert_eq!(
+            s.balance_recovery_threshold_percent, 95,
+            "老版本配置缺恢复阈值字段回退默认"
+        );
         assert_eq!(s.language, "system");
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 100.0);
@@ -536,6 +570,7 @@ mod tests {
         let mut s = Settings {
             refresh_interval_minutes: 0,
             low_balance_threshold_percent: 150,
+            balance_recovery_threshold_percent: 150,
             autostart: false,
             language: "fr".into(),
             theme: "blue".into(),
@@ -556,6 +591,10 @@ mod tests {
         s.sanitize();
         assert_eq!(s.refresh_interval_minutes, 1);
         assert_eq!(s.low_balance_threshold_percent, 100);
+        assert_eq!(
+            s.balance_recovery_threshold_percent, 100,
+            "恢复阈值越界收到 100（组合校验在保存路径拦截，sanitize 只 clamp 单字段）"
+        );
         assert_eq!(s.language, "system");
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 1.0, "低于下限应收到 1.0");
@@ -692,6 +731,14 @@ mod tests {
         .unwrap();
         let s = Settings::load(&path);
         assert_eq!(s.language, "zh", "旧文件已存语言应保留");
+        assert_eq!(
+            s.low_balance_threshold_percent, 90,
+            "新增恢复阈值字段不改写既有低额度阈值"
+        );
+        assert_eq!(
+            s.balance_recovery_threshold_percent, 95,
+            "旧文件缺恢复阈值字段回退默认（90+95 组合合法无需收口）"
+        );
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
@@ -713,5 +760,30 @@ mod tests {
         assert_eq!(s.language, "en", "已存字段正常读取");
         assert_eq!(s.update_last_check, Some(123));
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// 契约：阈值组合校验——恢复剩余阈值必须高于低额度对应的剩余阈值
+    /// （100 − 已用阈值），即两者之和严格大于 100。合法组合下「低额度
+    /// 已用区间」与「恢复已用区间」互斥（恢复隐含回落，不会同数据双判）；
+    /// 等于 100（如 80+20）非法：恢复线恰好贴住低额度线，剩余刚跌破
+    /// 低额度线即算恢复，语义不自洽。保存路径（前端就地拦截 + 后端
+    /// persist_settings 硬门禁）阻止非法组合落盘，sanitize 不做组合改写。
+    #[test]
+    fn threshold_combination_validation() {
+        // 默认组合合法
+        assert!(threshold_combination_valid(80, 95));
+        // 边界：和恰为 100（恢复线 = 低额度剩余线）非法
+        assert!(!threshold_combination_valid(80, 20));
+        assert!(!threshold_combination_valid(6, 94));
+        // 和恰超 100 一点即合法
+        assert!(threshold_combination_valid(80, 21));
+        assert!(threshold_combination_valid(6, 95));
+        // 低额度线拉满时恢复须 ≥1
+        assert!(threshold_combination_valid(100, 1));
+        assert!(!threshold_combination_valid(100, 0));
+        // 恢复线拉满时低额度线须 ≥1（0+100 恰衔接：已用 0 同时落在
+        // 两个判定区间，非法）
+        assert!(threshold_combination_valid(1, 100));
+        assert!(!threshold_combination_valid(0, 100));
     }
 }
