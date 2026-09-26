@@ -109,9 +109,11 @@ export function MessageCenter({
                 <>
                   <p className="qt-msg-card-title">{t("msgCenter.lowBalanceTitle")}</p>
                   <p className="qt-msg-card-body">
+                    {/* T-21：取值已为剩余口径（remainingPercent）；
+                        文案措辞与 i18n 占位名翻转属 T-22。 */}
                     {t("msgCenter.lowBalanceBody", {
                       name: message.name,
-                      percent: `${Math.round(message.percent)}`,
+                      percent: `${Math.round(message.remainingPercent)}`,
                     })}
                   </p>
                 </>

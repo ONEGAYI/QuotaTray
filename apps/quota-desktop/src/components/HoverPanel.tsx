@@ -193,8 +193,9 @@ function HoverPanelInner() {
     if (entry) refreshProvider.mutate(entry.id);
   };
   const visibleWindows = view.data.filter((item) => item.is_valid !== false).slice(0, 3);
+  // T-21：阈值为剩余语义（默认 20）；高亮比较方向翻转属 T-22，此处仅同步取值。
   const overThreshold = view.data.some(
-    (item) => (usedPercent(item) ?? -1) >= (settings.data?.low_balance_threshold_percent ?? 80),
+    (item) => (usedPercent(item) ?? -1) >= (settings.data?.low_balance_remaining_percent ?? 20),
   );
   const renderedStatus = overThreshold ? t("settings.thresholdTitle") : t(statusKey(view.kind));
   const renderedTone = overThreshold ? "danger" : statusTone(view.kind);

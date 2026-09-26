@@ -45,12 +45,12 @@ pub enum RingInput {
     Empty,
 }
 
-/// 从单窗口用量数据取圆环输入：先试百分比（与 `tray::used_percent`
-/// 同语义：unit="%" 或 used/total 可算），再试余额。
+/// 从单窗口用量数据取圆环输入：先试百分比（core 剩余口径函数：unit="%"
+/// 或 used/total 可算，T-21 收敛——圆环本就剩余语义，行为不变），再试余额。
 fn datum_ring_input(d: &UsageData) -> RingInput {
-    if let Some(used) = crate::tray::used_percent(d) {
+    if let Some(remaining_pct) = quota_core::remaining_percent(d) {
         return RingInput::Percent {
-            remaining_pct: (100.0 - used).clamp(0.0, 100.0),
+            remaining_pct: remaining_pct.clamp(0.0, 100.0),
         };
     }
     match d.remaining {

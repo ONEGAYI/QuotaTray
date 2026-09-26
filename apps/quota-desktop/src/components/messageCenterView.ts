@@ -27,8 +27,9 @@ export type CenterMessage =
       providerId: string;
       /** 条目显示名（消息卡片正文）。 */
       name: string;
-      /** 已用百分比（0-100，取数据中最高的窗口）。 */
-      percent: number;
+      /** 最低达标剩余百分比（0-100，最紧急窗口；T-21 剩余口径，
+       *  与 balance-recovered 的 remainingPercent 同语义）。 */
+      remainingPercent: number;
     }
   | {
       kind: "balance-recovered";

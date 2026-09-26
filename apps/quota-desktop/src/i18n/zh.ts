@@ -391,7 +391,7 @@ export const zh = {
   "settings.thresholdHint": "额度使用达到该比例时显示提醒",
   "settings.recoveryThresholdTitle": "额度恢复提醒",
   "settings.recoveryThresholdHint": "额度从低额度恢复至该剩余比例时提醒",
-  "settings.recoveryThresholdConflict": "恢复阈值须高于低额度对应的剩余阈值（100 − 已用阈值），请调整后再保存",
+  "settings.recoveryThresholdConflict": "恢复阈值须高于低余额提醒阈值（均为剩余比例），请调整后再保存",
   "settings.autostart": "开机自启",
   "settings.autostartHint": "登录 Windows 后自动运行到托盘",
   "settings.notificationsTitle": "系统通知",
