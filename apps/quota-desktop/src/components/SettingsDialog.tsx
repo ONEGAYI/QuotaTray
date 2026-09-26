@@ -13,6 +13,7 @@ import {
   FileDown,
   FileUp,
   FolderOpen,
+  Globe,
   PackageCheck,
   SlidersHorizontal,
   Trash2,
@@ -22,11 +23,21 @@ import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
 import { useCatalogStatus, useSettings, useUpdateState } from "../queries";
-import type { DownloadProgress, ExportOptions, ImportCounts, ImportOptions, Settings } from "../types";
+import type {
+  CatalogStatus,
+  DownloadProgress,
+  ExportOptions,
+  ImportCounts,
+  ImportOptions,
+  Settings,
+} from "../types";
 import {
   backgroundIntervalOptions,
+  CATALOG_SCHEDULE_HINT_KEYS,
+  catalogDescription,
   downloadPercent,
   formatDownloadProgress,
+  resolveCatalogScheduleHint,
   resolveNotificationPermissionAction,
   resolveTabOnOpen,
   resolveUpdateAction,
@@ -34,8 +45,12 @@ import {
   resolveUpdateErrorDetail,
   resolveErrorDetailExpanded,
   resolveUpdateStatus,
+  proxyHostFromInput,
+  proxyPortFromInput,
   runtimeLabel,
   savedApkIsCurrent,
+  type SettingsTab,
+  thresholdCombinationValid,
 } from "./settingsView";
 import {
   defaultTransferFileName,
@@ -53,18 +68,80 @@ interface Props {
   mobile?: boolean;
   /** 打开时定位到的页签（消息卡片「查看更新」直达更新页）；默认 general，
    * 每次打开消费一次。 */
-  initialTab?: Tab;
+  initialTab?: SettingsTab;
 }
 
-type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
-/** 目录状态行：revision · 来源 · 最近检查（后端 CatalogStatusDto）。 */
-function catalogDescription(
-  status: { revision: number; origin: "bundled" | "cached"; last_attempt_ms: number | null } | undefined,
-): string {
-  if (!status) return "";
-  return `revision ${status.revision} · ${status.origin}`;
+/** 目录设置区块（#134）：自动更新开关行 + 目录状态行 + 跟随开关状态的
+ *  周期口径小字。开关值与保存仍由父级 draft 管理（行为不变）；「立即
+ *  更新」的 busy/结果反馈自持于此。导出为纯 props 子组件，供渲染
+ *  内容检查（SettingsDialog.test.tsx，renderToStaticMarkup 直渲染）。 */
+export function CatalogSettingsSection({
+  mobile,
+  autoUpdate,
+  onAutoUpdateChange,
+  catalogStatus,
+}: {
+  mobile: boolean;
+  autoUpdate: boolean;
+  onAutoUpdateChange: (value: boolean) => void;
+  catalogStatus: CatalogStatus | undefined;
+}) {
+  const { t, lang } = useLang();
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
+  const hint = resolveCatalogScheduleHint({ enabled: autoUpdate, mobile });
+  return (
+    <>
+      <SettingRow title={t("settings.catalogAutoUpdateTitle")} description={t("settings.catalogAutoUpdateHint")}>
+        <Switch
+          label={t("settings.catalogAutoUpdateTitle")}
+          checked={autoUpdate}
+          onChange={onAutoUpdateChange}
+        />
+      </SettingRow>
+      <SettingRow
+        title={t("settings.catalogTitle")}
+        description={catalogDescription(catalogStatus, { lang, autoUpdate })}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={catalogBusy}
+            onClick={() => {
+              setCatalogBusy(true);
+              setCatalogMessage(null);
+              void api
+                .catalogUpdate()
+                .then((result) => {
+                  if (result.result === "updated") {
+                    setCatalogMessage(t("settings.catalogResultUpdated", { revision: String(result.revision) }));
+                  } else if (result.result === "unchanged") {
+                    setCatalogMessage(t("settings.catalogResultUnchanged", { revision: String(result.revision) }));
+                  } else if (result.result === "busy") {
+                    setCatalogMessage(t("settings.catalogResultBusy"));
+                  } else {
+                    setCatalogMessage(t("settings.catalogResultFailed", { msg: result.error ?? "" }));
+                  }
+                })
+                .catch((e: unknown) => {
+                  setCatalogMessage(t("settings.catalogResultFailed", { msg: String(e) }));
+                })
+                .finally(() => setCatalogBusy(false));
+            }}
+          >
+            {catalogBusy ? t("settings.catalogUpdating") : t("settings.catalogUpdateNow")}
+          </Button>
+          {catalogMessage && <span className="qt-hint">{catalogMessage}</span>}
+        </div>
+      </SettingRow>
+      {/* 周期口径小字（#134）：跟随开关状态二选一，紧跟目录状态行；
+          复用设置页行间小字样式（qt-settings-manual-hint），不新增样式约定 */}
+      <p className="qt-settings-manual-hint">{t(CATALOG_SCHEDULE_HINT_KEYS[hint])}</p>
+    </>
+  );
 }
 
 export function SettingsDialog({ open, onClose, mobile = false, initialTab = "general" }: Props) {
@@ -73,9 +150,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const settings = useSettings();
   const updateState = useUpdateState();
   const catalog = useCatalogStatus();
-  const [catalogBusy, setCatalogBusy] = useState(false);
-  const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<SettingsTab>("general");
   useEffect(() => {
     setTab((current) => resolveTabOnOpen(open, initialTab, current));
   }, [open, initialTab]);
@@ -378,7 +453,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
         ) : (
           <>
             <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+            <Button
+              variant="primary"
+              disabled={
+                save.isPending ||
+                !thresholdCombinationValid(
+                  draft.low_balance_threshold_percent,
+                  draft.balance_recovery_threshold_percent,
+                )
+              }
+              onClick={() => save.mutate(draft)}
+            >
               {save.isPending ? t("common.saving") : t("settings.save")}
             </Button>
           </>
@@ -402,6 +487,14 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
           >
             <PackageCheck size={16} aria-hidden="true" />
             {t("settings.tabUpdate")}
+          </button>
+          <button
+            type="button"
+            aria-selected={tab === "network"}
+            onClick={() => setTab("network")}
+          >
+            <Globe size={16} aria-hidden="true" />
+            {t("settings.tabNetwork")}
           </button>
           <button
             type="button"
@@ -448,6 +541,36 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   <span>%</span>
                 </div>
               </SettingRow>
+              <SettingRow
+                title={t("settings.recoveryThresholdTitle")}
+                description={t("settings.recoveryThresholdHint")}
+              >
+                <div className="qt-number-control">
+                  <input
+                    className="qt-input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft.balance_recovery_threshold_percent}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        balance_recovery_threshold_percent: Number(event.target.value),
+                      })
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </SettingRow>
+              {!thresholdCombinationValid(
+                draft.low_balance_threshold_percent,
+                draft.balance_recovery_threshold_percent,
+              ) && (
+                <p className="qt-inline-error" role="alert">
+                  {t("settings.recoveryThresholdConflict")}
+                </p>
+              )}
               {mobile && (
                 <SettingRow title={t("titlebar.language")} description={t("settings.mobileLanguageHint")}>
                   <select
@@ -472,49 +595,6 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     <option value="dark">{t("settings.themeDark")}</option>
                     <option value="system">{t("settings.themeSystem")}</option>
                   </select>
-                </SettingRow>
-              )}
-              {mobile && (
-                <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
-                  <input
-                    className="qt-input"
-                    type="text"
-                    placeholder="127.0.0.1"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    value={draft.update_proxy_host ?? ""}
-                    onChange={(event) => {
-                      // 空 → null（清空 = 回退本机 127.0.0.1）；
-                      // trim/scheme 剥离由后端 sanitize 收口
-                      setDraft({
-                        ...draft,
-                        update_proxy_host: event.target.value || null,
-                      });
-                    }}
-                  />
-                </SettingRow>
-              )}
-              {mobile && (
-                <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
-                  <input
-                    className="qt-input"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    step={1}
-                    value={draft.update_proxy_port ?? ""}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      const parsed = Number(raw);
-                      setDraft({
-                        ...draft,
-                        update_proxy_port:
-                          raw === "" || !Number.isFinite(parsed)
-                            ? null
-                            : Math.min(65535, Math.max(1, Math.round(parsed))),
-                      });
-                    }}
-                  />
                 </SettingRow>
               )}
               {!mobile && <SettingRow
@@ -791,95 +871,29 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   />
                 </SettingRow>
               )}
-              {/* 模型与价格目录：状态展示 + 立即更新（触摸可达，不依赖
-                  hover；Android 同一数据与状态） */}
-              <SettingRow
-                title={t("settings.catalogAutoUpdateTitle")}
-                description={t("settings.catalogAutoUpdateHint")}
-              >
-                <Switch
-                  label={t("settings.catalogAutoUpdateTitle")}
-                  checked={draft.auto_update_pricing_catalog}
-                  onChange={(auto_update_pricing_catalog) =>
-                    setDraft({ ...draft, auto_update_pricing_catalog })
-                  }
-                />
-              </SettingRow>
-              <SettingRow
-                title={t("settings.catalogTitle")}
-                description={catalogDescription(catalog.data)}
-              >
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-<Button
-                    type="button"
-                    variant="secondary"
-                    disabled={catalogBusy}
-                    onClick={() => {
-                      setCatalogBusy(true);
-                      setCatalogMessage(null);
-                      void api
-                        .catalogUpdate()
-                        .then((result) => {
-                          if (result.result === "updated") {
-                            setCatalogMessage(t("settings.catalogResultUpdated", { revision: String(result.revision) }));
-                          } else if (result.result === "unchanged") {
-                            setCatalogMessage(t("settings.catalogResultUnchanged", { revision: String(result.revision) }));
-                          } else if (result.result === "busy") {
-                            setCatalogMessage(t("settings.catalogResultBusy"));
-                          } else {
-                            setCatalogMessage(t("settings.catalogResultFailed", { msg: result.error ?? "" }));
-                          }
-                        })
-                        .catch((e: unknown) => {
-                          setCatalogMessage(t("settings.catalogResultFailed", { msg: String(e) }));
-                        })
-                        .finally(() => setCatalogBusy(false));
-                    }}
-                  >
-                    {catalogBusy ? t("settings.catalogUpdating") : t("settings.catalogUpdateNow")}
-                  </Button>
-                  {catalogMessage && <span className="qt-hint">{catalogMessage}</span>}
-                </div>
-              </SettingRow>
-              <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
-                <input
-                  className="qt-input"
-                  type="text"
-                  placeholder="127.0.0.1"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  value={draft.update_proxy_host ?? ""}
-                  onChange={(event) => {
-                    // 空 → null（清空 = 回退本机 127.0.0.1）；
-                    // trim/scheme 剥离由后端 sanitize 收口
-                    setDraft({
-                      ...draft,
-                      update_proxy_host: event.target.value || null,
-                    });
-                  }}
-                />
-              </SettingRow>
-              <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
-                <input
-                  className="qt-input"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  step={1}
-                  value={draft.update_proxy_port ?? ""}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    const parsed = Number(raw);
-                    // 空/非法输入 → null（直连）；超界收到 1..65535，
-                    // 与后端 sanitize 的兜底同语义
-                    const port =
-                      raw === "" || !Number.isFinite(parsed)
-                        ? null
-                        : Math.min(65535, Math.max(1, Math.round(parsed)));
-                    setDraft({ ...draft, update_proxy_port: port });
-                  }}
-                />
-              </SettingRow>
+              {/* 模型与价格目录（#134 抽区块子组件）：自动更新开关 + 状态行
+                  （revision · 来源 · 上次检查）+ 跟随开关状态的周期口径小字；
+                  「立即更新」触摸可达不依赖 hover，Android 同一数据与状态 */}
+              <CatalogSettingsSection
+                mobile={mobile}
+                autoUpdate={draft.auto_update_pricing_catalog}
+                onAutoUpdateChange={(auto_update_pricing_catalog) =>
+                  setDraft({ ...draft, auto_update_pricing_catalog })
+                }
+                catalogStatus={catalog.data}
+              />
+              {/* #133：代理主机/端口迁入「网络环境」页，此处只留指路入口
+                  （句中 qt-inline-link，移动端伪元素外扩热区见 T-010） */}
+              <p className="qt-settings-manual-hint">
+                {t("settings.proxyMovedHint")}{" "}
+                <button
+                  type="button"
+                  className="qt-inline-link"
+                  onClick={() => setTab("network")}
+                >
+                  {t("settings.proxyMovedOpen")}
+                </button>
+              </p>
               {available && !available.downloadable && (
                 <a
                   className="qt-settings-manual-link"
@@ -971,6 +985,42 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   )}
                 </p>
               )}
+            </>
+          ) : tab === "network" ? (
+            <>
+              {/* 代理设置统一入口（#133）：同时服务更新检测、安装包下载
+                  及选择走代理的条目查询；桌面与 Android 同渲染 */}
+              <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
+                <input
+                  className="qt-input"
+                  type="text"
+                  placeholder="127.0.0.1"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  value={draft.update_proxy_host ?? ""}
+                  onChange={(event) => {
+                    // 编辑变换（空 → null 等）收敛为纯函数，往返一致性
+                    // 由 settingsView 契约测试锁定
+                    setDraft({
+                      ...draft,
+                      update_proxy_host: proxyHostFromInput(event.target.value),
+                    });
+                  }}
+                />
+              </SettingRow>
+              <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
+                <input
+                  className="qt-input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={draft.update_proxy_port ?? ""}
+                  onChange={(event) => {
+                    setDraft({ ...draft, update_proxy_port: proxyPortFromInput(event.target.value) });
+                  }}
+                />
+              </SettingRow>
             </>
           ) : (
             <>

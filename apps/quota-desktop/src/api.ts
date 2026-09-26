@@ -9,6 +9,7 @@ import type {
   NativeMeta,
   ProviderEntry,
   QueryOutcome,
+  RecoveryNotice,
   Settings,
   SettingsPatch,
   SnapshotEntry,
@@ -107,6 +108,14 @@ export const api = {
    *  文件信息卡数据源）。 */
   inspectTransferPackage: (path: string): Promise<TransferContainerInfo> =>
     invoke("inspect_transfer_package", { path }),
+  /** 读取跨重启待展示的恢复消息并清空队列（#132，启动消费一次：
+   * Android 后台 Worker 触发的恢复事件落盘后在此交给会话内存接管）。 */
+  takeRecoveryMessages: (): Promise<RecoveryNotice[]> =>
+    invoke("take_recovery_messages"),
+  /** 恢复消息回执：广播入列后清除盘上同条目待展示消息，防止下次启动
+   * 重复入列亮红点（幂等）。 */
+  ackRecoveryMessage: (providerId: string): Promise<void> =>
+    invoke("ack_recovery_message", { providerId }),
   /** 推送解析后的实际主题（ThemeProvider 调用，托盘圆环图标配色取用）。 */
   setResolvedTheme: (theme: "light" | "dark"): Promise<void> =>
     invoke("set_resolved_theme", { theme }),

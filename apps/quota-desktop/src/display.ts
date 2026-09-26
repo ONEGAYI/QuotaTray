@@ -21,10 +21,15 @@ export function kindLabel(
   }
 }
 
-/** 相对时间："刚刚 / N 秒前 / …"（分档与 tray.rs relative_time 一致）。 */
-export function relativeTime(atMs: number | null | undefined, lang: UiLang): string {
+/** 相对时间："刚刚 / N 秒前 / …"（分档与 tray.rs relative_time 一致）。
+ *  nowMs 可选注入时钟（契约测试可控，缺省取当前时间）。 */
+export function relativeTime(
+  atMs: number | null | undefined,
+  lang: UiLang,
+  nowMs: number = Date.now(),
+): string {
   if (!atMs) return "—";
-  const secs = Math.floor((Date.now() - atMs) / 1000);
+  const secs = Math.floor((nowMs - atMs) / 1000);
   const zh = lang === "zh";
   if (secs < 10) return zh ? "刚刚" : "just now";
   if (secs < 60) return zh ? `${secs} 秒前` : `${secs}s ago`;
@@ -114,8 +119,9 @@ export function markerSpanText(diffMs: number, lang: UiLang): string {
 }
 
 /** 定位线平均消耗速率（"15%/h" / "3.5 CNY/h"）：最多 2 位小数并去尾零；
- *  曲线值是剩余量，负速率表示区间内回升（额度重置/充值；仅配 used 的
- *  模板曲线值为已用量，方向相反），舍入到 0 的微弱回升不显示负号。 */
+ *  正值表示区间消耗（已按曲线值方向——剩余量下降 / 已用量上升——换算为
+ *  消耗方向，见 usageChartView 的 consumptionDelta），负值表示区间内
+ *  回升（额度重置/充值），舍入到 0 的微弱回升不显示负号。 */
 export function markerRateText(
   ratePerHour: number,
   metric: "absolute" | "percent",
@@ -126,6 +132,33 @@ export function markerRateText(
   const value = Object.is(rounded, -0) ? "0" : String(rounded);
   const suffix = metric === "percent" ? "%" : unit ? ` ${unit}` : "";
   return `${value}${suffix}/h`;
+}
+
+/** 定位线区间净消耗（"30%" / "11.25 CNY"，issue #135）：最多 2 位小数
+ *  去尾零，负值表示净恢复，舍入到 0 的微弱净值显示 0（不得出现 "-0"）。
+ *  单位沿用聚焦曲线；与 markerRateText 同格式风格、无 /h 后缀。 */
+export function markerNetText(
+  value: number,
+  metric: "absolute" | "percent",
+  unit: string,
+): string {
+  const rounded = parseFloat(value.toFixed(2));
+  const normalized = Object.is(rounded, -0) || rounded === 0 ? "0" : String(rounded);
+  const suffix = metric === "percent" ? "%" : unit ? ` ${unit}` : "";
+  return `${normalized}${suffix}`;
+}
+
+/** 未观测净变化（"+18%" / "-29.75 CNY"）：断档上的带符号净值，非零值
+ *  恒带显式符号（正负都有方向含义），零值无符号（舍入到 0 同样归零）。 */
+export function markerUnobservedText(
+  value: number,
+  metric: "absolute" | "percent",
+  unit: string,
+): string {
+  const rounded = parseFloat(value.toFixed(2));
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "" : "";
+  const suffix = metric === "percent" ? "%" : unit ? ` ${unit}` : "";
+  return `${sign}${rounded}${suffix}`;
 }
 
 /** 多窗口短标签：取 plan_name 全角括号内的窗口标注

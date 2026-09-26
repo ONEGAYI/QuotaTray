@@ -505,6 +505,39 @@ impl Lang {
         }
     }
 
+    /// 「额度已恢复」系统通知标题（#132；后台时发送，两端共用文案与
+    /// 消费方：Android 走 notify_background、桌面走 notify_desktop）。
+    pub fn balance_recovered_notify_title(&self) -> String {
+        match self {
+            Self::Zh => "额度已恢复".into(),
+            Self::En => "Balance recovered".into(),
+        }
+    }
+
+    /// 「额度已恢复」系统通知正文（remaining 已取整；文案须写明恢复
+    /// 与剩余比例，票面口径；消费方同上，两端）。
+    pub fn balance_recovered_notify_body(&self, name: &str, remaining: u32) -> String {
+        match self {
+            Self::Zh => format!("{name} 额度已恢复，剩余 {remaining}%"),
+            Self::En => format!("{name} balance recovered, {remaining}% remaining"),
+        }
+    }
+
+    /// 阈值组合非法的保存拒绝文案（#132）：恢复剩余阈值须高于低额度
+    /// 对应的剩余阈值（100 − 已用阈值）。前端就地校验提示
+    /// （`settings.recoveryThresholdConflict`）与后端 persist_settings
+    /// 硬门禁共用同一语义（成对约定见文件头）。
+    pub fn err_recovery_threshold_conflict(&self) -> String {
+        match self {
+            Self::Zh => "恢复阈值须高于低额度对应的剩余阈值（100 − 已用阈值），请调整后保存".into(),
+            Self::En => {
+                "Recovery threshold must be above the remaining threshold of the low-balance \
+                 alert (100 − used). Adjust before saving"
+                    .into()
+            }
+        }
+    }
+
     /// 「跳系统通知设置页」命令在非 Android 平台的确定性拒绝文案
     /// （仅桌面命令分支消费，Android 侧不编译调用方）。
     #[cfg_attr(target_os = "android", allow(dead_code))]
@@ -624,6 +657,39 @@ mod tests {
         assert_eq!(
             Lang::En.update_ready_body("0.8.0"),
             "New version v0.8.0 downloaded. Click the tray icon to open QuotaTray and install"
+        );
+    }
+
+    /// 契约：额度恢复系统通知双语（标题 + 带条目名与剩余比例正文——
+    /// 票面要求文案清楚写明「额度已恢复」与剩余比例）。
+    #[test]
+    fn balance_recovery_notification_both_langs() {
+        assert_eq!(Lang::Zh.balance_recovered_notify_title(), "额度已恢复");
+        assert_eq!(
+            Lang::En.balance_recovered_notify_title(),
+            "Balance recovered"
+        );
+        assert_eq!(
+            Lang::Zh.balance_recovered_notify_body("Kimi", 96),
+            "Kimi 额度已恢复，剩余 96%"
+        );
+        assert_eq!(
+            Lang::En.balance_recovered_notify_body("Kimi", 96),
+            "Kimi balance recovered, 96% remaining"
+        );
+    }
+
+    /// 契约：阈值组合非法的保存拒绝文案双语（就地说明 + 后端硬门禁共用）。
+    #[test]
+    fn recovery_threshold_conflict_error_both_langs() {
+        let zh = Lang::Zh.err_recovery_threshold_conflict();
+        let en = Lang::En.err_recovery_threshold_conflict();
+        assert!(!zh.is_empty() && !en.is_empty());
+        assert_ne!(zh, en, "双语不应相同");
+        assert!(zh.contains("恢复"), "zh 文案应说明恢复阈值冲突：{zh}");
+        assert!(
+            en.to_lowercase().contains("recovery"),
+            "en 文案应说明恢复阈值冲突：{en}"
         );
     }
 

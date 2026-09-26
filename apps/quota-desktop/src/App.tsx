@@ -11,6 +11,7 @@ import { MainPanelTabs } from "./components/MainPanelTabs";
 import { MobileBottomNavigation, MobileTopBar } from "./components/MobileChrome";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
+import type { SettingsTab } from "./components/settingsView";
 import { TitleBar } from "./components/TitleBar";
 import { UsageStatsPage } from "./components/UsageStatsPage";
 import type { CenterMessage } from "./components/messageCenterView";
@@ -58,12 +59,36 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
     };
   }, []);
   // 消息中心：后端广播入列，铃铛红点由未读判定驱动；会话级内存态，
-  // 重启后由后端重新广播恢复。三类消息按平台分流产生：
+  // 重启后由后端重新广播恢复（#132 例外：恢复消息经 alert_state.json
+  // 落盘，启动时 take 补读一次——Android 后台 Worker 触发的恢复事件
+  // 无前端可广播，下次打开应用在此入列并点亮未读红点）。消息按平台
+  // 分流产生：
   // - update-ready（桌面）：自动下载完成 / 重启后探测恢复；
   // - update-available（移动）：手动检测发现新版本且本会话未广播过；
-  // - low-balance（两端）：成功查询后任一窗口已用百分比达阈值。
+  // - low-balance（两端）：成功查询后任一窗口已用百分比达阈值；
+  // - balance-recovered（两端）：先前低额度的条目所有百分比窗口剩余
+  //   达恢复阈值；收到广播后回执 ack 清掉 Worker 可能抢先落盘的同条目
+  //   待展示消息（本会话已展示，不再等下次启动重复入列）。
   const [messages, setMessages] = useState<CenterMessage[]>([]);
   const [messageSeen, setMessageSeen] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    // 启动补读跨重启待展示的恢复消息（读取即清；失败静默——下次启动
+    // 重试，不阻断主界面）
+    void api.takeRecoveryMessages().then((items) => {
+      setMessages((prev) =>
+        items.reduce(
+          (acc, item) =>
+            mergeMessage(acc, {
+              kind: "balance-recovered",
+              providerId: item.provider_id,
+              name: item.name,
+              remainingPercent: item.remaining_percent,
+            }),
+          prev,
+        ),
+      );
+    });
+  }, []);
   useEffect(() => {
     const ready = listen<{ version: string }>("update-ready", (event) => {
       setMessages((prev) =>
@@ -89,8 +114,25 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
         }),
       );
     });
+    const balanceRecovered = listen<{
+      provider_id: string;
+      name: string;
+      remaining_percent: number;
+    }>("balance-recovered", (event) => {
+      setMessages((prev) =>
+        mergeMessage(prev, {
+          kind: "balance-recovered",
+          providerId: event.payload.provider_id,
+          name: event.payload.name,
+          remainingPercent: event.payload.remaining_percent,
+        }),
+      );
+      // 回执：Worker 抢先落盘的同条目消息已由本会话展示，清掉防止下次
+      // 启动重复入列亮红点（fire-and-forget，失败仅遗留一次无害重复）
+      void api.ackRecoveryMessage(event.payload.provider_id);
+    });
     return () => {
-      for (const unlisten of [ready, available, lowBalance]) {
+      for (const unlisten of [ready, available, lowBalance, balanceRecovered]) {
         void unlisten.then((fn) => fn());
       }
     };
@@ -131,8 +173,8 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 设置页初始页签：消息卡片「查看更新」等入口需要直达特定页，
   // 每次打开消费一次（关闭后重置回默认 general）
-  const [settingsTab, setSettingsTab] = useState<"general" | "update" | "data">("general");
-  const openSettingsAt = (tab: "general" | "update" | "data") => {
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const openSettingsAt = (tab: SettingsTab) => {
     setSettingsTab(tab);
     setSettingsOpen(true);
   };

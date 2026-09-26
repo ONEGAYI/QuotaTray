@@ -14,6 +14,10 @@ mod apk_install;
 mod background;
 pub(crate) mod catalog_sched;
 
+/// 低额度/恢复提醒的跨重启持久化状态（#132：低额度登记镜像 + 待展示
+/// 恢复消息队列）。无条件编译：纯磁盘操作全平台参与 host 单测，
+/// 前台命令路径与 Android Worker 均消费。
+mod alert_state;
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod hover_panel;
@@ -326,6 +330,8 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::patch_settings,
+            commands::take_recovery_messages,
+            commands::ack_recovery_message,
             commands::set_resolved_theme,
             commands::get_snapshots,
             commands::get_boot_state,

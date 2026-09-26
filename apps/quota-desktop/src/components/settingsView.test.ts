@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { en } from "../i18n/en";
+import { zh } from "../i18n/zh";
 import {
+  catalogDescription,
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
+  proxyHostFromInput,
+  proxyPortFromInput,
   resolveNotificationPermissionAction,
   backgroundIntervalOptions,
+  SETTINGS_TAB_ORDER,
+  resolveCatalogScheduleHint,
   resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
@@ -13,6 +20,8 @@ import {
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
+  type SettingsTab,
+  thresholdCombinationValid,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -274,6 +283,21 @@ describe("设置页签消费时序", () => {
   });
 });
 
+describe("设置页签集合（#133 网络环境页）", () => {
+  it("页签顺序：常规 → 更新 → 网络环境 → 数据管理", () => {
+    expect([...SETTINGS_TAB_ORDER]).toEqual(["general", "update", "network", "data"]);
+  });
+
+  it("页签顺序与联合类型一致（导航渲染不出现类型外的页签）", () => {
+    const allTabs: SettingsTab[] = ["general", "update", "network", "data"];
+    for (const tab of SETTINGS_TAB_ORDER) expect(allTabs).toContain(tab);
+  });
+
+  it("打开设置可直达网络环境页（更新页指路入口的目标页签）", () => {
+    expect(resolveTabOnOpen<SettingsTab>(true, "network", "general")).toBe("network");
+  });
+});
+
 describe("后台刷新周期档位", () => {
   it("档位与后端 sanitize 区间一致且文案按分钟/小时分流", () => {
     const options = backgroundIntervalOptions();
@@ -287,5 +311,207 @@ describe("后台刷新周期档位", () => {
       expect(option.minutes).toBeGreaterThanOrEqual(15);
       expect(option.minutes).toBeLessThanOrEqual(360);
     }
+  });
+});
+
+describe("目录状态行描述（catalogDescription，#134）", () => {
+  const NOW = Date.UTC(2026, 8, 26, 12, 0, 0);
+  const base = {
+    revision: 42,
+    origin: "cached" as const,
+    fallback_reason: null,
+    last_success_ms: null,
+  };
+
+  it("未加载（undefined）返回空串", () => {
+    expect(catalogDescription(undefined, { lang: "zh", autoUpdate: true, nowMs: NOW })).toBe("");
+  });
+
+  it("基础态：revision 与来源标签双语（bundled / cached）", () => {
+    expect(
+      catalogDescription(
+        { ...base, origin: "bundled", last_attempt_ms: null, last_error: null },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 内置");
+    expect(
+      catalogDescription(
+        { ...base, origin: "bundled", last_attempt_ms: null, last_error: null },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · bundled");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: null, last_error: null },
+        { lang: "zh", autoUpdate: false, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: null, last_error: null },
+        { lang: "en", autoUpdate: false, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached");
+  });
+
+  it("最近检查跟随注入时钟：成功态呈现相对时间", () => {
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 2 * 3_600_000, last_error: null },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存 · 上次检查 2 小时前");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 2 * 3_600_000, last_error: null },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached · last checked 2h ago");
+  });
+
+  it("从未检查（last_attempt 缺失）不出现「上次检查」段", () => {
+    const text = catalogDescription(
+      { ...base, last_attempt_ms: null, last_error: null },
+      { lang: "zh", autoUpdate: true, nowMs: NOW },
+    );
+    expect(text).not.toContain("上次检查");
+  });
+
+  it("检查失败且自动更新开启：失败标记附 30 分钟重试口径", () => {
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存 · 上次检查 3 分钟前（失败，至少 30 分钟后自动重试）");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached · last checked 3m ago (failed; retries no sooner than 30 minutes later)");
+  });
+
+  it("检查失败且自动更新关闭：失败可见但不承诺自动重试", () => {
+    const zhText = catalogDescription(
+      { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+      { lang: "zh", autoUpdate: false, nowMs: NOW },
+    );
+    expect(zhText).toContain("失败");
+    expect(zhText).not.toContain("重试");
+    const enText = catalogDescription(
+      { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+      { lang: "en", autoUpdate: false, nowMs: NOW },
+    );
+    expect(enText).toContain("failed");
+    expect(enText).not.toContain("retr");
+  });
+});
+
+describe("目录自动更新周期小字（#134）", () => {
+  it("开关状态映射：开启分平台（桌面/移动措辞分叉），关闭统一", () => {
+    expect(resolveCatalogScheduleHint({ enabled: true, mobile: false })).toBe("on-desktop");
+    expect(resolveCatalogScheduleHint({ enabled: true, mobile: true })).toBe("on-mobile");
+    expect(resolveCatalogScheduleHint({ enabled: false, mobile: false })).toBe("off");
+    expect(resolveCatalogScheduleHint({ enabled: false, mobile: true })).toBe("off");
+  });
+
+  it("三键中英成对非空互异（漏键由 en 的 Record 类型在编译期拦截）", () => {
+    const keys = [
+      "settings.catalogScheduleOnDesktop",
+      "settings.catalogScheduleOnMobile",
+      "settings.catalogScheduleOff",
+    ] as const;
+    for (const key of keys) {
+      expect(zh[key].trim()).not.toBe("");
+      expect(en[key].trim()).not.toBe("");
+      expect(zh[key]).not.toBe(en[key]);
+    }
+  });
+
+  it("开启文案说明约每 6 小时检查（中英一致口径）", () => {
+    expect(zh["settings.catalogScheduleOnDesktop"]).toContain("6 小时");
+    expect(en["settings.catalogScheduleOnDesktop"]).toContain("6 hours");
+    expect(zh["settings.catalogScheduleOnMobile"]).toContain("6 小时");
+    expect(en["settings.catalogScheduleOnMobile"]).toContain("6 hours");
+  });
+
+  it("Android 口径：开启文案以前台为准，不暗示退后台仍定时联网", () => {
+    expect(zh["settings.catalogScheduleOnMobile"]).toContain("前台");
+    expect(en["settings.catalogScheduleOnMobile"]).toContain("foreground");
+    expect(zh["settings.catalogScheduleOnMobile"]).not.toContain("后台");
+    expect(en["settings.catalogScheduleOnMobile"].toLowerCase()).not.toContain("background");
+  });
+
+  it("关闭文案：说明仍可手动「立即更新」", () => {
+    expect(zh["settings.catalogScheduleOff"]).toContain("立即更新");
+    expect(en["settings.catalogScheduleOff"]).toContain("Update now");
+  });
+
+  it("目录相关文案不声称每日更新（开关说明与小字全量排查）", () => {
+    const keys = [
+      "settings.catalogAutoUpdateHint",
+      "settings.catalogScheduleOnDesktop",
+      "settings.catalogScheduleOnMobile",
+      "settings.catalogScheduleOff",
+    ] as const;
+    for (const key of keys) {
+      for (const text of [zh[key], en[key]]) {
+        const lowered = text.toLowerCase();
+        expect(lowered).not.toMatch(/每天|每日|daily|every day/);
+      }
+    }
+  });
+});
+
+describe("阈值组合校验（恢复剩余阈值 vs 低额度已用阈值）", () => {
+  it("合法组合：恢复剩余阈值高于低额度对应的剩余阈值（100 − 已用阈值）", () => {
+    // 默认组合
+    expect(thresholdCombinationValid(80, 95)).toBe(true);
+    // 和恰超 100
+    expect(thresholdCombinationValid(80, 21)).toBe(true);
+    expect(thresholdCombinationValid(6, 95)).toBe(true);
+    // 边界极端值（0+100 恰衔接：已用 0 同时落在两个判定区间，非法）
+    expect(thresholdCombinationValid(100, 1)).toBe(true);
+    expect(thresholdCombinationValid(1, 100)).toBe(true);
+    expect(thresholdCombinationValid(0, 100)).toBe(false);
+  });
+
+  it("非法组合：两阈值之和 ≤ 100（恢复线不高于低额度剩余线）", () => {
+    // 和恰为 100：恢复线贴住低额度线
+    expect(thresholdCombinationValid(80, 20)).toBe(false);
+    expect(thresholdCombinationValid(6, 94)).toBe(false);
+    // 和低于 100
+    expect(thresholdCombinationValid(50, 50)).toBe(false);
+    // 极端：低额度线拉满时恢复线 0 非法
+    expect(thresholdCombinationValid(100, 0)).toBe(false);
+  });
+});
+
+describe("代理字段 draft 往返（#133 网络环境页）", () => {
+  it("编辑变换：主机非空原样进 draft，空串归 null（清空语义）", () => {
+    expect(proxyHostFromInput("proxy.lan")).toBe("proxy.lan");
+    expect(proxyHostFromInput("")).toBeNull();
+  });
+
+  it("编辑变换：端口空/非法归 null（直连），数值收进 1..65535", () => {
+    expect(proxyPortFromInput("7890")).toBe(7890);
+    expect(proxyPortFromInput("")).toBeNull();
+    expect(proxyPortFromInput("abc")).toBeNull();
+    expect(proxyPortFromInput("0")).toBe(1);
+    expect(proxyPortFromInput("70000")).toBe(65535);
+    expect(proxyPortFromInput("7890.6")).toBe(7891);
+  });
+
+  it("打开→编辑→保存→重开往返一致：显示侧格式化与编辑变换互逆", () => {
+    // 已保存值经 input 显示格式化（?? "" / String）再走编辑变换，
+    // 不改值时回到原值——重开后表单显示与 draft 一致
+    const host = "proxy.lan";
+    expect(proxyHostFromInput(host ?? "")).toBe(host);
+    const port = 7890;
+    expect(proxyPortFromInput(String(port ?? ""))).toBe(port);
+    // null（未配置/直连）经显示格式化（?? "" / String）归空串，再保存仍 null
+    expect(proxyHostFromInput("")).toBeNull();
+    expect(proxyPortFromInput("")).toBeNull();
   });
 });

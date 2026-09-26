@@ -3,7 +3,8 @@
 // kind 分支：update-ready 仅桌面产生（「现在安装」直调后端静默安装，
 // 卡片文案已明示「退出并自动重启」后果，点击即确认，不叠加系统
 // confirm）；update-available 仅移动端产生（无自动下载，引导到设置·
-// 更新页）；low-balance 两端共用（纯展示）。
+// 更新页）；low-balance / balance-recovered 两端共用（纯展示，同条目
+// 互斥只留最新状态卡片）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useState } from "react";
@@ -111,6 +112,17 @@ export function MessageCenter({
                     {t("msgCenter.lowBalanceBody", {
                       name: message.name,
                       percent: `${Math.round(message.percent)}`,
+                    })}
+                  </p>
+                </>
+              )}
+              {message.kind === "balance-recovered" && (
+                <>
+                  <p className="qt-msg-card-title">{t("msgCenter.balanceRecoveredTitle")}</p>
+                  <p className="qt-msg-card-body">
+                    {t("msgCenter.balanceRecoveredBody", {
+                      name: message.name,
+                      remaining: `${Math.round(message.remainingPercent)}`,
                     })}
                   </p>
                 </>

@@ -19,6 +19,9 @@
 - 图表以触摸按下/拖动更新选中点；离开图表后保留最后一个选中点，点击空白或切页清除。
 - 纯操作图标依靠 `aria-label`；解释性长文必须常显或进入点击 disclosure，Android 下不
   渲染 `[data-tooltip]` 伪元素。
+- 定位线净消耗分解（2026-09-26 #135）：桌面悬停/键盘聚焦的富内容分解卡在 Android
+  改为点击行内文字钮展开（`aria-expanded`/`aria-controls`，`qt-touch-inline` 外扩
+  热区），展开块独占读数行一行，内容与桌面同一渲染函数——必要测量信息不依赖悬停。
 
 **触摸目标**：主要按钮、图标按钮、底部导航项、多级选择器项（NativePicker）与
 拖拽把手的可点击区域至少 44×44px；视觉图标可保持 16–24px。触摸拖拽只从把手
@@ -32,12 +35,14 @@
 **行内文字链接/文字钮**（2026-08-29 所有者定案，按语境分治）：嵌在句子或
 标签行中间的行内控件保持行内排版，命中区经透明伪元素外扩——`position:
 relative` + `::before { position: absolute; inset: -15px -8px }`（先例
-`.qt-page-tabs::before`）；更新页句中链接用 `qt-inline-link`（自带行内视觉），
+`.qt-page-tabs::before`）；更新页句中链接（安装授权引导、#133 代理指路
+入口——点击切换到设置「网络环境」页签）用 `qt-inline-link`（自带行内视觉），
 峰谷区行内文字钮（清除覆盖/添加时段/移除时段/重置档位）用 `qt-touch-inline`
 （通用热区类，不带视觉样式，视觉由各自既有类承担）。独立成行的文字链接
 （如发布页外链）直接 `min-height: 44px`。外扩热区允许覆盖相邻纯文本，但所在
 段落/行内不得存在其他可点元素。
 
 **代码锚点**：`runtimeView.ts`、`MobileChrome.tsx`、`ProviderCard.tsx`、
-`NativeProviderPicker.tsx`、`UsageStatsPage.tsx`、`PricingSection.tsx` 与
+`NativeProviderPicker.tsx`、`UsageStatsPage.tsx`、`PricingSection.tsx`、
+`SettingsDialog.tsx`（页签导航 44px 与 #133 指路链接）与
 `index.css` 的 `body.qt-mobile-runtime` 段。

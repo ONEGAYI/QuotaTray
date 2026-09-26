@@ -15,6 +15,12 @@ describe("消息中心纯逻辑", () => {
     name: providerId,
     percent,
   });
+  const recovered = (providerId: string, remainingPercent = 96): CenterMessage => ({
+    kind: "balance-recovered",
+    providerId,
+    name: providerId,
+    remainingPercent,
+  });
 
   it("messageId 由 kind + 版本构成", () => {
     expect(messageId(msg("0.8.0"))).toBe("update-ready:0.8.0");
@@ -87,5 +93,54 @@ describe("消息中心纯逻辑", () => {
     const second = mergeMessage(first, msg("0.9.0"));
     // 更晚的版本重新点亮红点
     expect(hasUnread(second, seen)).toBe(true);
+  });
+
+  describe("balance-recovered 恢复卡片", () => {
+    it("messageId 以 kind + providerId 构成（与 low-balance 可区分）", () => {
+      expect(messageId(recovered("p1"))).toBe("balance-recovered:p1");
+      expect(messageId(recovered("p1"))).not.toBe(messageId(low("p1")));
+    });
+
+    it("恢复卡片替换同条目的旧低额度卡片；其他条目消息不受影响", () => {
+      const base = [low("p1", 90), low("p2", 85), msg("0.8.0")];
+      const next = mergeMessage(base, recovered("p1", 96));
+      expect(next).toEqual([low("p2", 85), msg("0.8.0"), recovered("p1", 96)]);
+      expect(next.some((m) => m.kind === "low-balance" && m.providerId === "p1")).toBe(false);
+    });
+
+    it("再入低额度时低额度卡片同样替换过时的恢复卡片（同条目只留最新状态）", () => {
+      const base = [recovered("p1", 96)];
+      const next = mergeMessage(base, low("p1", 91));
+      expect(next).toEqual([low("p1", 91)]);
+      expect(next.some((m) => m.kind === "balance-recovered")).toBe(false);
+    });
+
+    it("同一恢复事件重复到达（启动补读与本会话广播重叠）不叠加不重排", () => {
+      const base = [low("p2", 85), recovered("p1", 96)];
+      expect(mergeMessage(base, recovered("p1", 96))).toEqual(base);
+    });
+
+    it("低额度与恢复卡片合并计入 5 条上限（同组丢最旧）", () => {
+      let messages: CenterMessage[] = [low("p0")];
+      for (const id of ["p1", "p2", "p3", "p4", "p5"]) {
+        messages = mergeMessage(messages, id === "p3" ? recovered(id) : low(id));
+      }
+      expect(messages).toEqual([
+        low("p1"),
+        low("p2"),
+        recovered("p3"),
+        low("p4"),
+        low("p5"),
+      ]);
+      expect(messages.some((m) => m.kind === "low-balance" && m.providerId === "p0")).toBe(false);
+    });
+
+    it("恢复消息入列后未读红点点亮（后台触发下次打开可见且未读）", () => {
+      const messages = [low("p2", 85)];
+      const seen = new Set(messages.map(messageId));
+      expect(hasUnread(messages, seen)).toBe(false);
+      const next = mergeMessage(messages, recovered("p1", 96));
+      expect(hasUnread(next, seen)).toBe(true);
+    });
   });
 });

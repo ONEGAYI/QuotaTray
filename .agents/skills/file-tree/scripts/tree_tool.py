@@ -86,6 +86,7 @@ git 之外（未被跟踪且被 ignore 规则覆盖，二者违反其一均报�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -148,6 +149,15 @@ def default_history_path(repo_root: Path, skill_dir: Path) -> Path:
 
 class ToolError(Exception):
     """确定性错误：路径非法、条目缺失、不变量冲突等。"""
+
+
+class MergeDecisionError(ToolError):
+    """Agent 决定文件与冲突清单不一致；保留机器可读的错误代码与定位信息。"""
+
+    def __init__(self, code: str, message: str, **details):
+        super().__init__(message)
+        self.code = code
+        self.details = details
 
 
 def sort_key(name: str):
@@ -381,6 +391,230 @@ def canonical_form(text: str) -> str | None:
 def is_canonical_text(text: str) -> bool:
     """判定 text 是否为脚本规范的两种序列化形态之一（新紧凑 / 旧两空格缩进）。"""
     return canonical_form(text) is not None
+
+
+_MERGE_MISSING = object()
+
+
+def _merge_location(parts: tuple[str, ...]) -> tuple[str, str | None, str | None]:
+    """把 JSON 递归位置投影为 Agent 可用的逻辑路径与字段。"""
+    if parts and parts[0] == "tree":
+        names = []
+        i = 1
+        while i < len(parts):
+            names.append(parts[i])
+            i += 1
+            if i < len(parts) and parts[i] == "children":
+                i += 1
+            else:
+                break
+        path = "/".join(names) or None
+        field = ".".join(parts[i:]) or None
+        return "tree", path, field
+    if parts and parts[0] in ("tags", "views"):
+        return parts[0], parts[1] if len(parts) > 1 else None, ".".join(parts[2:]) or None
+    return "root", None, ".".join(parts) or None
+
+
+def _merge_side(value):
+    return {"present": value is not _MERGE_MISSING, **({"value": value} if value is not _MERGE_MISSING else {})}
+
+
+def _validate_merged_refs(data: dict) -> None:
+    """合并落盘前校验需要跨条目才能判断的核心引用。"""
+    entries = list(walk_entries(data["tree"], []))
+    known_paths = {path for path, _node in entries}
+    vocab = data.get("tags", {})
+    for path, node in entries:
+        if "desc" not in node:
+            raise ToolError(f"合并结果条目缺 desc: {path}")
+        unknown = set(node) - set(FIELD_ORDER)
+        if unknown:
+            raise ToolError(f"合并结果条目含未知字段: {path} {sorted(unknown)}")
+        for tag in node.get("tags", []):
+            if tag not in vocab:
+                raise ToolError(f"合并结果使用未登记标签: {path} -> {tag}")
+        for ref in node.get("rel", []):
+            if ref == path or ref not in known_paths:
+                raise ToolError(f"合并结果 rel 无效: {path} -> {ref}")
+    for view_id, invalid in _merged_view_issues(data):
+        raise ToolError(f"合并结果视图引用无效: {view_id} -> {invalid}")
+
+
+def _merged_ref_issues(data: dict) -> list[tuple[str, str, str, list[str]]]:
+    """列出跨分支组合后失效的引用，交由 Agent 决定字段最终值。"""
+    entries = list(walk_entries(data["tree"], []))
+    paths = {path for path, _node in entries}
+    vocab = data.get("tags", {})
+    issues = []
+    for path, node in entries:
+        bad_rel = [ref for ref in node.get("rel", []) if ref == path or ref not in paths]
+        bad_tags = [tag for tag in node.get("tags", []) if tag not in vocab]
+        if bad_rel:
+            issues.append((path, "rel", "invalid_reference", bad_rel))
+        if bad_tags:
+            issues.append((path, "tags", "invalid_tag", bad_tags))
+    return issues
+
+
+def _merged_view_issues(data: dict) -> list[tuple[str, list[str]]]:
+    """视图过滤器与覆盖配置对合并后树、标签词表的悬空引用。"""
+    issues = []
+    tree = data["tree"]
+    vocab = data.get("tags", {})
+    for view_id, spec in sorted(data.get("views", {}).items(), key=lambda kv: sort_key(kv[0])):
+        invalid = []
+        for path, tag in iter_filter_refs(spec["filter"]):
+            if path is not None and not is_tree_dir(tree, path):
+                invalid.append(f"under:{path}")
+            elif tag is not None and tag not in vocab:
+                invalid.append(f"tag:{tag}")
+        for path, overrides in spec.get("render_overrides", {}).items():
+            node = find_node(tree, split_rel_path(path))
+            if node is None:
+                invalid.append(f"render_overrides:{path}")
+            elif "collapsed" in overrides and not is_dir(node):
+                invalid.append(f"render_overrides.collapsed:{path}")
+        if invalid:
+            issues.append((view_id, sorted(set(invalid), key=sort_key)))
+    return issues
+
+
+def merge_data(base: dict, ours: dict, theirs: dict, decisions: dict | None = None) -> dict:
+    """先按结构自动三方合并；仅把真正有歧义的位置交给 Agent 决定。无磁盘副作用。"""
+    versions = []
+    for label, value in (("base", base), ("ours", ours), ("theirs", theirs)):
+        try:
+            versions.append(normalize_data(value))
+        except ToolError as exc:
+            raise ToolError(f"{label} tree.json 结构非法: {exc}") from exc
+    provided = decisions is not None
+    decisions = decisions if decisions is not None else {}
+    if not isinstance(decisions, dict):
+        raise ToolError("decisions 必须是按冲突 id 索引的对象")
+    conflicts: list[dict] = []
+    unresolved: list[str] = []
+    auto_count = 0
+
+    def conflicted(old, local, remote, parts, reason, invalid_values=None):
+        scope, path, field = _merge_location(parts)
+        identity = [scope, path, field, reason, _merge_side(old), _merge_side(local),
+                    _merge_side(remote), invalid_values]
+        encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        conflict_id = "c_" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:20]
+        actions = ["base", "ours", "theirs", "set"]
+        if any(v is _MERGE_MISSING for v in (old, local, remote)) or invalid_values is not None:
+            actions.append("delete")
+        item = {
+            "id": conflict_id, "reason": reason, "scope": scope, "path": path,
+            "field": field, "base": _merge_side(old), "ours": _merge_side(local),
+            "theirs": _merge_side(remote), "actions": actions,
+        }
+        if invalid_values is not None:
+            item["invalid_values"] = invalid_values
+        conflicts.append(item)
+        choice = decisions.get(conflict_id)
+        if choice is None:
+            unresolved.append(conflict_id)
+            return old
+        if not isinstance(choice, dict) or choice.get("action") not in actions:
+            raise MergeDecisionError("invalid_action", f"{conflict_id} 的 action 不适用于该冲突",
+                                     id=conflict_id, allowed_actions=actions,
+                                     hint="按当前 merge 清单的 actions 重新提交该项决定")
+        action = choice["action"]
+        if action == "set":
+            if "value" not in choice:
+                raise MergeDecisionError("missing_value", f"{conflict_id} 的 set 决定缺 value",
+                                         id=conflict_id, hint="为该决定补充 value，或改选已有版本")
+            return choice["value"]
+        return {"base": old, "ours": local, "theirs": remote, "delete": _MERGE_MISSING}[action]
+
+    def combine(old, local, remote, parts=()):
+        nonlocal auto_count
+        if local == remote:
+            return local
+        if local == old:
+            auto_count += 1
+            return remote
+        if remote == old:
+            auto_count += 1
+            return local
+        is_tree_node = (parts and parts[0] == "tree" and len(parts) >= 2
+                        and len(parts) % 2 == 0
+                        and all(parts[i] == "children" for i in range(2, len(parts), 2)))
+        if is_tree_node:
+            if all(isinstance(v, dict) for v in (local, remote)) and (
+                ("children" in local) != ("children" in remote)
+            ):
+                return conflicted(old, local, remote, parts, "file_vs_dir")
+        if isinstance(local, dict) and isinstance(remote, dict) and (
+            isinstance(old, dict) or old is _MERGE_MISSING
+        ) and not (len(parts) == 3 and parts[0] == "views" and parts[2] == "filter"):
+            merged = {}
+            keys = set(local) | set(remote) | (set(old) if isinstance(old, dict) else set())
+            for key in sorted(keys, key=sort_key):
+                if key == "kind" and is_tree_node:
+                    continue  # 派生字段由 normalize_data 重新计算
+                value = combine(
+                    old.get(key, _MERGE_MISSING) if isinstance(old, dict) else _MERGE_MISSING,
+                    local.get(key, _MERGE_MISSING), remote.get(key, _MERGE_MISSING), parts + (key,),
+                )
+                if value is not _MERGE_MISSING:
+                    merged[key] = value
+            return merged
+        reason = "both_changed_field"
+        if old is _MERGE_MISSING:
+            reason = "both_added"
+        elif local is _MERGE_MISSING or remote is _MERGE_MISSING:
+            reason = "delete_vs_modify"
+        return conflicted(old, local, remote, parts, reason)
+
+    merged = combine(*versions)
+    try:
+        if not unresolved:
+            result = normalize_data(merged)
+            for path, field, reason, bad_values in _merged_ref_issues(result):
+                sides = []
+                for version in versions:
+                    node = find_node(version["tree"], split_rel_path(path))
+                    sides.append(node.get(field, _MERGE_MISSING) if node is not None else _MERGE_MISSING)
+                chosen = conflicted(*sides, ("tree", path, field), reason, bad_values)
+                node = find_node(result["tree"], split_rel_path(path))
+                if chosen is _MERGE_MISSING:
+                    node.pop(field, None)
+                else:
+                    node[field] = chosen
+            for view_id, bad_values in _merged_view_issues(result):
+                sides = [version.get("views", {}).get(view_id, _MERGE_MISSING) for version in versions]
+                chosen = conflicted(*sides, ("views", view_id), "invalid_view_reference", bad_values)
+                views = result.setdefault("views", {})
+                if chosen is _MERGE_MISSING:
+                    views.pop(view_id, None)
+                else:
+                    views[view_id] = chosen
+        unused = set(decisions) - {item["id"] for item in conflicts}
+        if provided and (unused or unresolved):
+            raise MergeDecisionError(
+                "decision_mismatch", "决定文件与当前冲突清单对不上账",
+                missing_ids=unresolved, unknown_ids=sorted(unused),
+                missing_conflicts=[item for item in conflicts if item["id"] in unresolved],
+                hint="按 missing_conflicts 补齐决定、移除 unknown_ids；每个 id 恰好提交一项决定",
+            )
+        if unresolved:
+            return {"status": "needs_decisions", "auto_merged_count": auto_count,
+                    "conflicts": conflicts, "unresolved": unresolved, "result": None}
+        result = normalize_data(result)
+        _validate_merged_refs(result)
+    except MergeDecisionError:
+        raise
+    except ToolError as exc:
+        if provided:
+            raise MergeDecisionError("invalid_result", f"提交的决定生成了无效 tree.json: {exc}",
+                                     decision_ids=sorted(decisions),
+                                     hint="核对列出的决定及相关条目，修正后重新运行 merge --decisions") from exc
+        raise
+    return {"status": "merged", "auto_merged_count": auto_count,
+            "conflicts": conflicts, "unresolved": [], "result": result}
 
 
 def _find_block(lines: list[str], begin: str, end: str, ordered: bool = False) -> tuple[int, int]:
@@ -2051,6 +2285,102 @@ class TreeTool:
 # ---------- CLI ----------
 
 
+def _git_merge_versions(tool: TreeTool) -> tuple[str, dict, dict, dict]:
+    """每次调用都从 Git 未解决的 index 阶段重建输入，不依赖后台进程或临时状态。"""
+    try:
+        rel = tool.tree_json.relative_to(tool.repo_root).as_posix()
+    except ValueError as exc:
+        raise ToolError("tree.json 不在仓库内，无法读取 Git 合并阶段") from exc
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--unmerged", "-z", "--", rel], cwd=tool.repo_root,
+            capture_output=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ToolError(f"读取 Git 冲突阶段失败: {exc}") from exc
+    stages: dict[int, str] = {}
+    for record in listed.stdout.split(b"\0"):
+        if not record:
+            continue
+        try:
+            header, name = record.split(b"\t", 1)
+            _mode, oid, stage = header.decode("ascii").split(" ")
+            if name.decode("utf-8") == rel:
+                stages[int(stage)] = oid
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ToolError("Git 冲突阶段格式无法解析") from exc
+    if 2 not in stages or 3 not in stages:
+        raise ToolError("tree.json 无完整的 Git 三方冲突阶段（需要 stage 2 和 3）；请先确认 git ls-files -u")
+
+    versions = []
+    for stage in (1, 2, 3):
+        if stage not in stages:
+            versions.append({"tree": {}})  # 双方新增同一路径时无共同祖先文件
+            continue
+        try:
+            blob = subprocess.run(
+                ["git", "cat-file", "blob", stages[stage]], cwd=tool.repo_root,
+                capture_output=True, check=True,
+            ).stdout
+            versions.append(json.loads(blob.decode("utf-8")))
+        except (OSError, subprocess.CalledProcessError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ToolError(f"Git stage {stage} 的 tree.json 无法读取或解析: {exc}") from exc
+    fingerprint = json.dumps([rel, stages.get(1), stages[2], stages[3]], separators=(",", ":"))
+    merge_id = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+    return merge_id, versions[0], versions[1], versions[2]
+
+
+def _read_merge_decisions(path: str, merge_id: str) -> dict:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MergeDecisionError("invalid_decision_file", f"决定文件无法读取或解析: {exc}",
+                                 hint="提供 UTF-8 JSON，包含 merge_id 和 decisions 数组") from exc
+    if not isinstance(payload, dict) or payload.get("merge_id") != merge_id:
+        raise MergeDecisionError("stale_merge_id", "决定文件的 merge_id 与当前 Git 冲突阶段不一致",
+                                 expected_merge_id=merge_id, supplied_merge_id=payload.get("merge_id") if isinstance(payload, dict) else None,
+                                 hint="重新运行 merge 获取当前清单，并据此重新提交决定")
+    entries = payload.get("decisions")
+    if not isinstance(entries, list):
+        raise MergeDecisionError("invalid_decision_file", "decisions 必须是数组",
+                                 hint="将 decisions 写为 [{\"id\":...,\"action\":...}] 数组")
+    decisions: dict[str, dict] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            raise MergeDecisionError("invalid_decision_file", "decisions 中每项须有字符串 id",
+                                     hint="按 merge 清单中的 id 为每项决定填写 id")
+        ident = entry["id"]
+        if ident in decisions:
+            raise MergeDecisionError("duplicate_decision", f"决定文件含重复冲突 id: {ident}",
+                                     id=ident, hint="每个冲突 id 只保留一项决定")
+        decisions[ident] = entry
+    return decisions
+
+
+def _cmd_merge(tool: TreeTool, args) -> None:
+    try:
+        merge_id, base, ours, theirs = _git_merge_versions(tool)
+        decisions = _read_merge_decisions(args.decisions, merge_id) if args.decisions else None
+        plan = merge_data(base, ours, theirs, decisions)
+    except MergeDecisionError as exc:
+        print(json.dumps({"schema_version": 1, "status": "invalid_decisions",
+                          "tree_json_written": False,
+                          "error": {"code": exc.code, "message": str(exc), **exc.details}},
+                         ensure_ascii=False, indent=2))
+        return 2
+    output = {"schema_version": 1, "merge_id": merge_id,
+              "status": plan["status"], "auto_merged_count": plan["auto_merged_count"],
+              "conflicts": plan["conflicts"], "unresolved": plan["unresolved"]}
+    if plan["status"] == "merged":
+        tool.write_data(plan["result"])
+        output["tree_json_written"] = True
+        output["next_actions"] = ["处理 AGENTS.md 等文档的合并冲突后运行 render", "运行 check --strict", "git add tree.json 及已解决的生成文档"]
+    else:
+        output["tree_json_written"] = False
+        output["next_actions"] = ["按冲突 id 编写累计 decisions.json，再运行 merge --decisions <文件>"]
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+
+
 def _cmd_add(tool: TreeTool, args) -> None:
     tool.add(
         args.path,
@@ -2357,6 +2687,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="项目文件树唯一维护入口")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p = sub.add_parser("merge", help="两阶段合并 Git 冲突：先自动合并并输出冲突 JSON，再用 --decisions 提交人工决定")
+    p.add_argument("--decisions", help="Agent 决定文件 JSON；不提供时仅执行自动阶段，存在冲突则不写盘")
+
     p = sub.add_parser("add", help="新增/更新条目（自动建父目录，写后自动渲染）")
     p.add_argument("path", help="仓库相对路径，如 apps/cli/src/main.rs")
     p.add_argument("-d", "--desc", help="一句话介绍（≤20 字）")
@@ -2499,6 +2832,7 @@ def main(argv=None) -> int:
         legacy_history_paths=(SKILL_DIR / ".history.json",),
     )
     handlers = {
+        "merge": _cmd_merge,
         "add": _cmd_add,
         "add-batch": _cmd_add_batch,
         "rm": _cmd_rm,

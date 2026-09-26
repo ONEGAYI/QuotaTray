@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { exactTime, kindLabel, markerRateText, markerSpanText, relativeTime, resetCountdown, windowShortLabel } from "./display";
+import { exactTime, kindLabel, markerNetText, markerRateText, markerSpanText, markerUnobservedText, relativeTime, resetCountdown, windowShortLabel } from "./display";
 
 describe("最后成功时间展示", () => {
   afterEach(() => vi.useRealTimers());
@@ -86,6 +86,30 @@ describe("定位线平均消耗速率", () => {
     expect(markerRateText(3.5, "absolute", "CNY")).toBe("3.5 CNY/h");
     expect(markerRateText(1234.567, "absolute", "credits")).toBe("1234.57 credits/h");
     expect(markerRateText(1.234, "absolute", "")).toBe("1.23/h");
+  });
+});
+
+describe("定位线净消耗", () => {
+  it("净消耗主数值：正负零清楚，最多 2 位小数去尾零，-0 归零", () => {
+    expect(markerNetText(30, "percent", "%")).toBe("30%");
+    expect(markerNetText(3.375, "percent", "%")).toBe("3.38%");
+    expect(markerNetText(-15, "percent", "%")).toBe("-15%");
+    expect(markerNetText(0.2, "percent", "%")).toBe("0.2%");
+    // 舍入到 0 的微弱净值显示 0，不得出现 "-0"
+    expect(markerNetText(-0.004, "percent", "%")).toBe("0%");
+    expect(markerNetText(0, "percent", "%")).toBe("0%");
+    expect(markerNetText(11.25, "absolute", "CNY")).toBe("11.25 CNY");
+    expect(markerNetText(-29.75, "absolute", "credits")).toBe("-29.75 credits");
+    expect(markerNetText(1.2, "absolute", "")).toBe("1.2");
+  });
+
+  it("未观测净变化恒带符号，零值无符号", () => {
+    expect(markerUnobservedText(18, "percent", "%")).toBe("+18%");
+    expect(markerUnobservedText(-29.75, "absolute", "CNY")).toBe("-29.75 CNY");
+    expect(markerUnobservedText(0, "percent", "%")).toBe("0%");
+    // 舍入到 0 的微弱未观测变化不带符号（零无方向）
+    expect(markerUnobservedText(-0.004, "percent", "%")).toBe("0%");
+    expect(markerUnobservedText(0.004, "percent", "%")).toBe("0%");
   });
 });
 

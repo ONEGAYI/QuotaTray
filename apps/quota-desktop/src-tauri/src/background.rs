@@ -4,15 +4,23 @@
 //! MainActivity 与 tauri run() 均不执行，本模块必须完全自足：按传入
 //! dataDir 现开 vault/engine/settings/history；结果只落 history.db
 //! （不碰内存 results 与 cache.json——避免与前台实例双写竞态，卡片
-//! 数值回前台由既有轮询/聚焦刷新追上）；低余额边沿判定与前台命令
-//! 路径共享 [`crate::state::LOW_BALANCE_NOTIFIED`] 全局静态（否则冷热
-//! 两路各自首次达标会双份通知）；通知不直接发送，以 JSON 返回由
-//! Kotlin Worker 直发（渠道元数据随返回值携带，Rust 是渠道 id/名称
+//! 数值回前台由既有轮询/聚焦刷新追上）；低余额/恢复边沿判定与前台命令
+//! 路径共享 [`crate::state::LOW_BALANCE_NOTIFIED`] 全局静态及其磁盘镜像
+//! `alert_state.json`（否则冷热两路各自首次达标会双份通知；恢复事件的
+//! 待展示消息落盘，前台下次启动读取入列——判定与落盘不受系统通知
+//! 开关影响，开关只拦系统 toast）；通知不直接发送，以 JSON
+//! 返回由 Kotlin Worker 直发（渠道元数据随返回值携带，Rust 是渠道 id/名称
 //! 的单一数据源，Kotlin 幂等建渠道）。
 //!
 //! 决策与组装纯函数全平台编译（host 单测）；IO 编排与 JNI 导出仅
 //! android 编译（模拟器/CI android-preview 验收）。
 
+use crate::commands::{
+    BalanceAlertAction, balance_alert_edge, balance_recovery_reached, low_balance_breach,
+};
+use crate::i18n::Lang;
+use crate::state::{DataPaths, LOW_BALANCE_NOTIFIED};
+use quota_core::UsageData;
 use serde::Serialize;
 
 /// Worker JNI 返回的 JSON 顶层形状（Kotlin 侧 org.json 同名解析）。
@@ -42,7 +50,11 @@ pub struct NotificationItem {
 /// host 侧仅测试使用故 allow(dead_code)，先例同 MESSAGES_CHANNEL_ID）：
 /// - `refresh`：`background_refresh_enabled` 关闭时整体跳过（用户关
 ///   后台刷新的核心诉求是别偷跑流量，查询本身也不做）；
-/// - `notify`：通知路径成立条件 = 系统通知开 && 应用后台（调用侧已把
+/// - `judge_alerts`：边沿判定路径成立条件 = 后台，**与系统通知开关
+///   解耦**（#132 修复）——恢复消息与低额度登记始终判定并落盘
+///   （「恢复消息始终进软件通知中心」的票面口径，桌面同场景 emit
+///   照达的对称面），开关只拦系统 toast；
+/// - `notify`：系统通知路径成立条件 = 系统通知开 && 应用后台（调用侧已把
 ///   「未校准」坍缩为后台）。Worker 可能在应用前台时被调度（15 分钟
 ///   周期到了而用户正开着 app）——查询照做写历史（无打扰），通知与
 ///   低余额边沿判定都留给前端轮询路径（红点归前台，否则 Worker 抢先
@@ -50,6 +62,7 @@ pub struct NotificationItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BackgroundDecision {
     pub refresh: bool,
+    pub judge_alerts: bool,
     pub notify: bool,
 }
 
@@ -61,6 +74,7 @@ pub fn decide_background_refresh(
 ) -> BackgroundDecision {
     BackgroundDecision {
         refresh: background_refresh_enabled,
+        judge_alerts: !app_foreground,
         notify: notifications_enabled && !app_foreground,
     }
 }
@@ -80,6 +94,104 @@ pub fn build_result(
     }
 }
 
+/// 单条目提醒判定的输入束（collect_balance_alerts 独参打包，
+/// 避免参数清单过长）。
+struct BalanceAlertJob<'a> {
+    lang: &'a Lang,
+    paths: &'a DataPaths,
+    id: &'a str,
+    name: &'a str,
+    data: &'a [UsageData],
+    low_threshold: u8,
+    recovery_threshold: u8,
+    at: u64,
+}
+
+/// 低额度/恢复边沿判定 + 通知文案组装（前台命令路径与 Worker 共用的
+/// 判定核；从 android 模块上移 host 编译，契约测试可直接覆盖）：复用
+/// 前台路径的裁决与全局登记；锁内只碰集合，文案组装在锁外。恢复事件
+/// 额外把待展示消息落盘（#132：Worker 无前端可广播，前台下次启动经
+/// take_recovery_messages 读取入列，读取即清）；落盘失败仅日志
+/// （回退会话语义，系统通知不受影响）。判定与落盘不受系统通知开关
+/// 影响——恢复消息始终进软件通知中心（与桌面 emit 照达对称），开关
+/// 只拦系统 toast（发送侧门控在 [`build_result`] 的 notify）。
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn collect_balance_alerts(job: BalanceAlertJob<'_>, out: &mut Vec<NotificationItem>) {
+    /// Worker 侧落盘失败的日志来源前缀（与前台路径共用
+    /// alert_state::commit_alert_edge_quietly 单一实现，以前缀区分）。
+    const LOG_SOURCE: &str = "后台刷新：";
+    let BalanceAlertJob {
+        lang,
+        paths,
+        id,
+        name,
+        data,
+        low_threshold,
+        recovery_threshold,
+        at,
+    } = job;
+    let breach = low_balance_breach(data, low_threshold);
+    let reached = balance_recovery_reached(data, recovery_threshold);
+    let action = {
+        let mut notified = LOW_BALANCE_NOTIFIED.lock().unwrap();
+        let action = balance_alert_edge(notified.contains(id), breach, reached);
+        match action {
+            BalanceAlertAction::LowNotify { .. } => {
+                notified.insert(id.to_string());
+            }
+            BalanceAlertAction::Recovered { .. } | BalanceAlertAction::LowReset => {
+                notified.remove(id);
+            }
+            BalanceAlertAction::Silent => {}
+        }
+        action
+    };
+    match action {
+        BalanceAlertAction::LowNotify { percent } => {
+            crate::alert_state::commit_alert_edge_quietly(
+                &paths.alert_state(),
+                LOG_SOURCE,
+                &[id],
+                &[],
+                None,
+            );
+            out.push(NotificationItem {
+                title: lang.low_balance_notify_title(),
+                body: lang.low_balance_notify_body(name, percent.round() as u32),
+            });
+        }
+        BalanceAlertAction::Recovered { remaining_percent } => {
+            let notice = crate::alert_state::RecoveryNotice {
+                provider_id: id.to_string(),
+                name: name.to_string(),
+                remaining_percent,
+                at,
+            };
+            crate::alert_state::commit_alert_edge_quietly(
+                &paths.alert_state(),
+                LOG_SOURCE,
+                &[],
+                &[id],
+                Some(notice),
+            );
+            out.push(NotificationItem {
+                title: lang.balance_recovered_notify_title(),
+                body: lang.balance_recovered_notify_body(name, remaining_percent.round() as u32),
+            });
+        }
+        BalanceAlertAction::LowReset => {
+            crate::alert_state::commit_alert_edge_quietly(
+                &paths.alert_state(),
+                LOG_SOURCE,
+                &[],
+                &[id],
+                None,
+            );
+        }
+        BalanceAlertAction::Silent => {}
+    }
+}
+
 // ---- Android IO 编排与 JNI 导出（host 不编译，模拟器/CI 验收） ----------
 
 #[cfg(target_os = "android")]
@@ -88,15 +200,14 @@ pub(crate) use android::schedule_background_work;
 #[cfg(target_os = "android")]
 mod android {
     use super::{
-        BackgroundRefreshResult, ChannelInfo, NotificationItem, build_result,
-        decide_background_refresh,
+        BackgroundRefreshResult, BalanceAlertJob, ChannelInfo, build_result,
+        collect_balance_alerts, decide_background_refresh,
     };
-    use crate::commands::{LowBalanceEdge, low_balance_breach, low_balance_edge};
     use crate::i18n::Lang;
     use crate::settings::Settings;
-    use crate::state::{DataPaths, LOW_BALANCE_NOTIFIED};
+    use crate::state::DataPaths;
     use crate::update_ctl::MESSAGES_CHANNEL_ID;
-    use quota_core::{AppConfig, ProviderKind, UsageData};
+    use quota_core::{AppConfig, ProviderKind};
     use std::path::Path;
 
     /// 单轮后台刷新（Worker 调入）：任何失败仅日志并以「仅渠道元数据」
@@ -163,6 +274,11 @@ mod android {
             log::warn!("后台刷新：配置读取失败，本轮跳过");
             return bail();
         };
+        // 低额度登记从磁盘灌入（#132 跨重启）：WorkManager 冷启动拉起的
+        // 新进程里 LOW_BALANCE_NOTIFIED 为空，不灌入会把已处于低额度
+        // （或已恢复待重新进入）的条目重复判定通知；并集语义不冲掉
+        // 本进程（前台实例同进程）已有登记
+        crate::alert_state::hydrate_low_balance_notified(&paths.alert_state());
         let mut fresh = Vec::new();
         for entry in cfg.providers.iter().filter(|p| p.enabled) {
             // 桌面 CLI 凭据条目在 Android 无凭据来源，跳过（同前台口径）
@@ -178,16 +294,23 @@ mod android {
                 if let Err(e) = history.record(&entry.id, &data, at) {
                     log::warn!("后台刷新：历史写入失败（{}）：{e}", entry.id);
                 }
-                // 边沿判定仅在通知路径成立时做：前台时跳过——否则
-                // Worker 抢先登记全局会吞掉前台命令路径的首次达标
-                // （refetch_and_store 变 Silent，红点与通知都不产生）
-                if decision.notify {
-                    collect_low_balance(
-                        &lang,
-                        &entry.id,
-                        &entry.name,
-                        &data,
-                        settings.low_balance_threshold_percent,
+                // 边沿判定仅在前台时跳过——Worker 抢先登记全局会吞掉前台
+                // 命令路径的首次达标（refetch_and_store 变 Silent，红点与
+                // 通知都不产生）；后台时无论系统通知开关如何都判定并落盘
+                // （#132 修复：恢复消息始终进软件通知中心，开关只拦
+                // build_result 组装的系统 toast）
+                if decision.judge_alerts {
+                    collect_balance_alerts(
+                        BalanceAlertJob {
+                            lang: &lang,
+                            paths: &paths,
+                            id: &entry.id,
+                            name: &entry.name,
+                            data: &data,
+                            low_threshold: settings.low_balance_threshold_percent,
+                            recovery_threshold: settings.balance_recovery_threshold_percent,
+                            at,
+                        },
                         &mut fresh,
                     );
                 }
@@ -201,39 +324,6 @@ mod android {
             decision.notify,
             fresh,
         )
-    }
-
-    /// 低余额边沿判定 + 通知文案组装（复用前台路径的判定三件套与
-    /// 全局登记；锁内只碰集合，文案组装在锁外）。
-    fn collect_low_balance(
-        lang: &Lang,
-        id: &str,
-        name: &str,
-        data: &[UsageData],
-        threshold: u8,
-        out: &mut Vec<NotificationItem>,
-    ) {
-        let breach = low_balance_breach(data, threshold);
-        let is_notify = {
-            let mut notified = LOW_BALANCE_NOTIFIED.lock().unwrap();
-            match low_balance_edge(notified.contains(id), breach) {
-                LowBalanceEdge::Notify => {
-                    notified.insert(id.to_string());
-                    true
-                }
-                LowBalanceEdge::Reset => {
-                    notified.remove(id);
-                    false
-                }
-                LowBalanceEdge::Silent => false,
-            }
-        };
-        if is_notify && let Some(percent) = breach {
-            out.push(NotificationItem {
-                title: lang.low_balance_notify_title(),
-                body: lang.low_balance_notify_body(name, percent.round() as u32),
-            });
-        }
     }
 
     /// Worker 兜底返回（Rust 侧 panic/参数异常时不带语言上下文的中性名；
@@ -353,7 +443,8 @@ mod tests {
     use super::*;
 
     /// 契约：决策矩阵——开关关整体不刷新（省流量是关它的核心诉求）；
-    /// 刷新开时通知仅在「系统通知开 && 后台」时随刷新携带。
+    /// 刷新开时通知仅在「系统通知开 && 后台」时随刷新携带；边沿判定
+    /// 路径只看后台（与通知开关解耦，#132 修复）。
     #[test]
     fn decide_background_refresh_matrix() {
         // 开关关：无论通知/前后台，整体跳过
@@ -367,17 +458,26 @@ mod tests {
             decide_background_refresh(true, true, false),
             BackgroundDecision {
                 refresh: true,
+                judge_alerts: true,
                 notify: true
             },
-            "后台 + 通知开 → 发通知"
+            "后台 + 通知开 → 判定并发通知"
         );
         assert!(
             !decide_background_refresh(true, true, true).notify,
             "前台不发（留前端路径产生红点）"
         );
         assert!(
+            !decide_background_refresh(true, true, true).judge_alerts,
+            "前台不做边沿判定（Worker 抢先登记会吞掉前台首次达标）"
+        );
+        assert!(
             !decide_background_refresh(true, false, false).notify,
             "通知开关关不发"
+        );
+        assert!(
+            decide_background_refresh(true, false, false).judge_alerts,
+            "通知开关关仍做边沿判定与落盘（恢复消息始终进软件通知中心）"
         );
         assert!(
             decide_background_refresh(true, false, true).refresh,
@@ -402,5 +502,69 @@ mod tests {
         assert!(gated.notifications.is_empty(), "notify=false 丢弃通知项");
         let sent = build_result(channel.clone(), true, items.clone());
         assert_eq!(sent.notifications, items, "notify=true 原样携带");
+    }
+
+    /// 契约（#132 修复）：系统通知开关关闭且应用后台时，恢复事件仍判定、
+    /// 待展示消息仍落盘（前台下次启动进软件通知中心），仅系统 toast 被
+    /// 拦——与桌面同场景（前台 emit 照达消息中心、开关只拦系统通知）
+    /// 对称。三层组合取证：决策层（judge_alerts 与 notify 分离）→ 判定层
+    /// （collect_balance_alerts 落盘）→ 发送层（build_result 按 notify 拦）。
+    #[test]
+    fn recovery_judged_and_persisted_when_notify_disabled() {
+        // 决策层：通知开关关（notify=false）不影响判定路径（judge_alerts）
+        let decision = decide_background_refresh(true, false, false);
+        assert!(decision.refresh);
+        assert!(decision.judge_alerts, "通知开关关仍做边沿判定与落盘");
+        assert!(!decision.notify, "系统 toast 被通知开关拦截");
+
+        // 判定层：Worker 判定路径（judge_alerts 门控下的调用）——预置
+        // 「先前低额度」登记 + 恢复数据 → 恢复事件产生且待展示消息落盘。
+        // 独特 id 避免与其他并行测试共享的 LOW_BALANCE_NOTIFIED 全局集合踩踏
+        let dir = std::env::temp_dir().join(format!("qt-bg-notify-off-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = crate::state::DataPaths::new(Some(dir.clone())).unwrap();
+        let id = "notify-off-recovery";
+        crate::alert_state::commit_low_edge(&paths.alert_state(), &[id], &[], None).unwrap();
+        crate::alert_state::hydrate_low_balance_notified(&paths.alert_state());
+
+        let data = vec![quota_core::UsageData {
+            used: Some(3.0),
+            total: None,
+            unit: Some("%".into()),
+            ..Default::default()
+        }];
+        let lang = crate::i18n::Lang::parse("zh");
+        let mut fresh = Vec::new();
+        collect_balance_alerts(
+            BalanceAlertJob {
+                lang: &lang,
+                paths: &paths,
+                id,
+                name: "恢复条目",
+                data: &data,
+                low_threshold: 80,
+                recovery_threshold: 95,
+                at: 1_755_000_000_000,
+            },
+            &mut fresh,
+        );
+
+        assert_eq!(fresh.len(), 1, "恢复事件产生（通知文案已组装）");
+        let pending = crate::alert_state::take_pending_recovery(&paths.alert_state());
+        assert_eq!(pending.len(), 1, "待展示恢复消息落盘（下次打开应用可见）");
+        assert_eq!(pending[0].provider_id, id);
+
+        // 发送层：notify=false 时组装结果不携带系统通知（不发 toast）
+        let result = build_result(
+            ChannelInfo {
+                id: "quotatray-messages".into(),
+                name: "测试渠道".into(),
+            },
+            decision.notify,
+            fresh,
+        );
+        assert!(result.notifications.is_empty(), "系统 toast 不发");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

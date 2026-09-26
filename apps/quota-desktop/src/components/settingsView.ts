@@ -1,4 +1,6 @@
-import type { DownloadProgress } from "../types";
+import type { UiLang, TextKey } from "../i18n/zh";
+import { relativeTime } from "../display";
+import type { CatalogStatus, DownloadProgress } from "../types";
 
 export type UpdateViewStatus = "checking" | "available" | "error" | "current";
 
@@ -174,12 +176,20 @@ export function resolveNotificationPermissionAction({
 }
 
 /** 设置页签的消费时序（纯函数）：对话框打开时消费 initialTab——含
- * 「开着期间 prop 变化」的直达场景（消息卡片「查看更新」在设置页已开
- * 时再次触发也要生效）；关闭/未打开不消费（关闭重置由调用方 onClose
- * 负责，此后自然回退默认页签）。 */
+ *  「开着期间 prop 变化」的直达场景（消息卡片「查看更新」在设置页已开
+ *  时再次触发也要生效）；关闭/未打开不消费（关闭重置由调用方 onClose
+ *  负责，此后自然回退默认页签）。 */
 export function resolveTabOnOpen<T extends string>(open: boolean, initialTab: T, current: T): T {
   return open ? initialTab : current;
 }
+
+/** 设置对话框的页签联合（#133 新增网络环境页）：SettingsDialog 的
+ *  页签 state 与 App 的直达入口（openSettingsAt）此前各持一份字面量、
+ *  加页签时常漏同步，收敛为单一事实源。导航顺序见 SETTINGS_TAB_ORDER。 */
+export type SettingsTab = "general" | "update" | "network" | "data";
+
+/** 页签导航顺序（nav 按钮渲染序）：常规 → 更新 → 网络环境 → 数据管理。 */
+export const SETTINGS_TAB_ORDER: readonly SettingsTab[] = ["general", "update", "network", "data"];
 
 /** 后台刷新周期的可选档位（分钟）：与后端 sanitize 收口区间（15..=360）
  * 一致；小于 60 分钟的档位以分钟文案呈现，更长档位以小时呈现（调用方
@@ -197,4 +207,95 @@ export function backgroundIntervalOptions(): BackgroundIntervalOption[] {
       ? { minutes, kind: "minutes" as const, unit: minutes }
       : { minutes, kind: "hours" as const, unit: minutes / 60 },
   );
+}
+
+/** 目录状态行描述（#134，纯函数、双语）：revision · 来源 · 上次检查。
+ *  来源标签本地化（bundled=内置 / cached=已缓存）；最近检查跟随
+ *  last_attempt_ms（无论成败）；失败时附重试口径——仅自动更新开启时
+ *  承诺「至少 30 分钟后自动重试」（关闭后无自动重试可说）。
+ *  nowMs 可选注入时钟（契约测试可控，缺省取当前时间）。 */
+export function catalogDescription(
+  status: CatalogStatus | undefined,
+  opts: { lang: UiLang; autoUpdate: boolean; nowMs?: number },
+): string {
+  if (!status) return "";
+  const zh = opts.lang === "zh";
+  const parts = [
+    `revision ${status.revision}`,
+    zh
+      ? status.origin === "bundled"
+        ? "内置"
+        : "已缓存"
+      : status.origin === "bundled"
+        ? "bundled"
+        : "cached",
+  ];
+  if (status.last_attempt_ms != null) {
+    const time = relativeTime(status.last_attempt_ms, opts.lang, opts.nowMs);
+    if (status.last_error) {
+      parts.push(
+        opts.autoUpdate
+          ? zh
+            ? `上次检查 ${time}（失败，至少 30 分钟后自动重试）`
+            : `last checked ${time} (failed; retries no sooner than 30 minutes later)`
+          : zh
+            ? `上次检查 ${time}（失败）`
+            : `last checked ${time} (failed)`,
+      );
+    } else {
+      parts.push(zh ? `上次检查 ${time}` : `last checked ${time}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+/** 目录自动更新周期小字（#134）的逻辑键：开关状态 × 平台 → i18n 键。
+ *  开启态桌面/移动措辞分叉——Android 调度仅前台执行（回前台补检），
+ *  文案不得暗示退后台或进程结束后仍定时联网；关闭态两平台统一
+ *  （说明仍可手动「立即更新」）。 */
+export type CatalogScheduleHint = "on-desktop" | "on-mobile" | "off";
+
+export function resolveCatalogScheduleHint({
+  enabled,
+  mobile,
+}: {
+  enabled: boolean;
+  mobile: boolean;
+}): CatalogScheduleHint {
+  if (!enabled) return "off";
+  return mobile ? "on-mobile" : "on-desktop";
+}
+
+export const CATALOG_SCHEDULE_HINT_KEYS: Record<CatalogScheduleHint, TextKey> = {
+  "on-desktop": "settings.catalogScheduleOnDesktop",
+  "on-mobile": "settings.catalogScheduleOnMobile",
+  off: "settings.catalogScheduleOff",
+};
+
+/** 阈值组合校验（#132，与后端 settings.rs threshold_combination_valid
+ *  成对镜像）：恢复剩余阈值必须高于低额度对应的剩余阈值
+ *  （100 − 已用阈值），即两者之和严格大于 100。非法组合由设置页就地
+ *  说明并阻止保存（后端 persist_settings 另有硬门禁兜底）。 */
+export function thresholdCombinationValid(
+  lowUsedPercent: number,
+  recoveryRemainingPercent: number,
+): boolean {
+  return lowUsedPercent + recoveryRemainingPercent > 100;
+}
+
+/** 代理主机输入 → draft 值（#133 网络环境页，纯函数）：空串归 null
+ *  （清空 = 回退本机 127.0.0.1 直连语义由后端处理）；trim/scheme 剥离
+ *  由后端 sanitize 收口。与 input 显示侧（`host ?? ""`）互逆——
+ *  「打开 → 编辑 → 保存 → 重开」经同一路径往返保持一致。 */
+export function proxyHostFromInput(raw: string): string | null {
+  return raw || null;
+}
+
+/** 代理端口输入 → draft 值（#133 网络环境页，纯函数）：空/非法输入
+ *  归 null（直连）；超界收进 1..65535（与后端 sanitize 兜底同语义）。
+ *  与 input 显示侧（`port ?? ""`，Number → 字符串）互逆。 */
+export function proxyPortFromInput(raw: string): number | null {
+  const parsed = Number(raw);
+  if (raw === "" || !Number.isFinite(parsed)) return null;
+  return Math.min(65535, Math.max(1, Math.round(parsed)));
 }

@@ -22,7 +22,8 @@ QuotaTray/
         │   ├── dev.contract.mjs               # dev端口探测避让契约测试
         │   ├── dev.mjs                        # dev端口探测避让入口
         │   ├── edit-dialog-style.contract.mjs # 编辑弹窗样式契约测试
-        │   └── mobile-style.contract.mjs      # 移动样式契约测试
+        │   ├── mobile-style.contract.mjs      # 移动样式契约测试
+        │   └── settings-style.contract.mjs    # 设置页结构契约测试
         ├── src/                # React 前端源码
         │   ├── api.ts                  # invoke 封装
         │   ├── App.tsx                 # 跨端主界面壳层
@@ -79,6 +80,7 @@ QuotaTray/
         │   │   ├── providerIcon.ts              # Provider 图标映射
         │   │   ├── providerPricing.test.ts      # 定价镜像测试
         │   │   ├── providerPricing.ts           # 前端定价解析镜像
+        │   │   ├── SettingsDialog.test.tsx      # 目录设置区块渲染测试
         │   │   ├── SettingsDialog.tsx           # 跨端设置页
         │   │   ├── settingsView.test.ts         # 设置视图测试
         │   │   ├── settingsView.ts              # 设置视图纯逻辑
@@ -136,6 +138,7 @@ QuotaTray/
         │   │   └── smoke_setup.rs # GUI 冒烟注入器
         │   ├── icons/                  # 应用图标集
         │   ├── src/                    # 后端源码
+        │   │   ├── alert_state.rs          # 提醒状态跨重启持久化
         │   │   ├── apk_install.rs          # APK安装JNI桥
         │   │   ├── background.rs           # Android 后台刷新编排核
         │   │   ├── catalog_sched.rs        # 跨端目录前台调度
