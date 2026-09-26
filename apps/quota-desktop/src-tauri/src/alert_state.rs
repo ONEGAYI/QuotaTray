@@ -70,6 +70,22 @@ impl AlertState {
     }
 }
 
+/// 边沿变化落盘的告警包装（#132，前台命令路径与 Android Worker 共用
+/// 的单一实现，取代两处同签名重复）：失败仅日志（回退会话语义），
+/// 不阻断查询主链路——与快照/历史写入同口径。`log_source` 为日志
+/// 来源前缀（前台空串、Worker「后台刷新：」），用于区分调用方。
+pub fn commit_alert_edge_quietly(
+    path: &Path,
+    log_source: &str,
+    low_added: &[&str],
+    low_removed: &[&str],
+    recovery: Option<RecoveryNotice>,
+) {
+    if let Err(e) = commit_low_edge(path, low_added, low_removed, recovery) {
+        log::warn!("{log_source}提醒状态落盘失败（本次运行不跨重启保留）：{e}");
+    }
+}
+
 /// 把本进程本轮的边沿变化合并进盘上状态（读-改-写）：低额度登记增删、
 /// 恢复事件消息。失败由调用方告警（回退会话语义，不阻断查询主链路）。
 pub fn commit_low_edge(

@@ -1303,19 +1303,14 @@ pub(crate) fn balance_alert_edge(
     }
 }
 
-/// 边沿变化落盘的告警包装（#132）：失败仅日志（回退会话语义），
-/// 不阻断查询主链路——与快照/历史写入同口径。
-fn commit_alert_edge_quietly(
-    paths: &crate::state::DataPaths,
-    low_added: &[&str],
-    low_removed: &[&str],
-    recovery: Option<crate::alert_state::RecoveryNotice>,
-) {
-    if let Err(e) =
-        crate::alert_state::commit_low_edge(&paths.alert_state(), low_added, low_removed, recovery)
-    {
-        log::warn!("提醒状态落盘失败（本次运行不跨重启保留）：{e}");
-    }
+/// 按平台补发系统通知（#132 低额度/恢复两分支共用的小助手）：Android
+/// 走 notify_background、桌面走 notify_desktop；通知开关关闭两函数均
+/// 拦截，前台不弹由 notify 函数内部门控。
+fn notify_platform(app: &AppHandle, state: &AppState, title: &str, body: &str) {
+    #[cfg(target_os = "android")]
+    crate::update_ctl::notify_background(app, state, title, body);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    crate::update_ctl::notify_desktop(app, state, title, body);
 }
 
 /// 查询单条目并落入共享结果表：成功更新结果与快照并重建托盘；失败按
@@ -1455,7 +1450,13 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
         };
         match action {
             BalanceAlertAction::LowNotify { percent } => {
-                commit_alert_edge_quietly(&state.paths, &[&id], &[], None);
+                crate::alert_state::commit_alert_edge_quietly(
+                    &state.paths.alert_state(),
+                    "",
+                    &[&id],
+                    &[],
+                    None,
+                );
                 let _ = app.emit(
                     "low-balance",
                     LowBalanceEvent {
@@ -1467,15 +1468,18 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
                 let lang = lang_of(&state);
                 let title = lang.low_balance_notify_title();
                 let body = lang.low_balance_notify_body(&entry.name, percent.round() as u32);
-                #[cfg(target_os = "android")]
-                crate::update_ctl::notify_background(app, &state, &title, &body);
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                crate::update_ctl::notify_desktop(app, &state, &title, &body);
+                notify_platform(app, &state, &title, &body);
             }
             BalanceAlertAction::Recovered { remaining_percent } => {
                 // 前台路径不写待展示队列（emit 即达前端消息中心）；前端
                 // 收到广播后会回执 ack 清掉 Worker 可能抢先落盘的同条目
-                commit_alert_edge_quietly(&state.paths, &[], &[&id], None);
+                crate::alert_state::commit_alert_edge_quietly(
+                    &state.paths.alert_state(),
+                    "",
+                    &[],
+                    &[&id],
+                    None,
+                );
                 let _ = app.emit(
                     "balance-recovered",
                     BalanceRecoveredEvent {
@@ -1488,13 +1492,16 @@ async fn refetch_and_store(app: &AppHandle, id: String) -> Result<QueryOutcome, 
                 let title = lang.balance_recovered_notify_title();
                 let body = lang
                     .balance_recovered_notify_body(&entry.name, remaining_percent.round() as u32);
-                #[cfg(target_os = "android")]
-                crate::update_ctl::notify_background(app, &state, &title, &body);
-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                crate::update_ctl::notify_desktop(app, &state, &title, &body);
+                notify_platform(app, &state, &title, &body);
             }
             BalanceAlertAction::LowReset => {
-                commit_alert_edge_quietly(&state.paths, &[], &[&id], None);
+                crate::alert_state::commit_alert_edge_quietly(
+                    &state.paths.alert_state(),
+                    "",
+                    &[],
+                    &[&id],
+                    None,
+                );
             }
             BalanceAlertAction::Silent => {}
         }

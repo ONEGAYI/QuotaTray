@@ -66,9 +66,13 @@ test("保存链保持：footer 仅 data 页收起保存，network 页有取消+�
 });
 
 test("代理字段编辑语义保持：空主机→null、端口空/非法→null、越界 clamp", () => {
-  // 空主机 = 回退本机 127.0.0.1（#133 不改清洗规则与空值语义）
-  assert.match(dialog, /update_proxy_host: event\.target\.value \|\| null/);
-  assert.match(dialog, /Math\.min\(65535, Math\.max\(1, Math\.round\(parsed\)\)\)/);
+  // 空主机 = 回退本机 127.0.0.1（#133 不改清洗规则与空值语义）。
+  // 编辑变换收敛为 settingsView 纯函数（往返一致性由 vitest 锁定），
+  // 组件只做绑定，语义断言落在纯函数实现上
+  assert.match(dialog, /update_proxy_host: proxyHostFromInput\(event\.target\.value\)/);
+  assert.match(dialog, /update_proxy_port: proxyPortFromInput\(event\.target\.value\)/);
+  assert.match(view, /return raw \|\| null;/);
+  assert.match(view, /Math\.min\(65535, Math\.max\(1, Math\.round\(parsed\)\)\)/);
 });
 
 test("网络环境页与指路文案中英双语齐全", () => {

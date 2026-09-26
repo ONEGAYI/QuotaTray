@@ -6,6 +6,8 @@ import {
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
+  proxyHostFromInput,
+  proxyPortFromInput,
   resolveNotificationPermissionAction,
   backgroundIntervalOptions,
   SETTINGS_TAB_ORDER,
@@ -483,5 +485,33 @@ describe("阈值组合校验（恢复剩余阈值 vs 低额度已用阈值）", 
     expect(thresholdCombinationValid(50, 50)).toBe(false);
     // 极端：低额度线拉满时恢复线 0 非法
     expect(thresholdCombinationValid(100, 0)).toBe(false);
+  });
+});
+
+describe("代理字段 draft 往返（#133 网络环境页）", () => {
+  it("编辑变换：主机非空原样进 draft，空串归 null（清空语义）", () => {
+    expect(proxyHostFromInput("proxy.lan")).toBe("proxy.lan");
+    expect(proxyHostFromInput("")).toBeNull();
+  });
+
+  it("编辑变换：端口空/非法归 null（直连），数值收进 1..65535", () => {
+    expect(proxyPortFromInput("7890")).toBe(7890);
+    expect(proxyPortFromInput("")).toBeNull();
+    expect(proxyPortFromInput("abc")).toBeNull();
+    expect(proxyPortFromInput("0")).toBe(1);
+    expect(proxyPortFromInput("70000")).toBe(65535);
+    expect(proxyPortFromInput("7890.6")).toBe(7891);
+  });
+
+  it("打开→编辑→保存→重开往返一致：显示侧格式化与编辑变换互逆", () => {
+    // 已保存值经 input 显示格式化（?? "" / String）再走编辑变换，
+    // 不改值时回到原值——重开后表单显示与 draft 一致
+    const host = "proxy.lan";
+    expect(proxyHostFromInput(host ?? "")).toBe(host);
+    const port = 7890;
+    expect(proxyPortFromInput(String(port ?? ""))).toBe(port);
+    // null（未配置/直连）经显示格式化（?? "" / String）归空串，再保存仍 null
+    expect(proxyHostFromInput("")).toBeNull();
+    expect(proxyPortFromInput("")).toBeNull();
   });
 });

@@ -282,3 +282,20 @@ export function thresholdCombinationValid(
 ): boolean {
   return lowUsedPercent + recoveryRemainingPercent > 100;
 }
+
+/** 代理主机输入 → draft 值（#133 网络环境页，纯函数）：空串归 null
+ *  （清空 = 回退本机 127.0.0.1 直连语义由后端处理）；trim/scheme 剥离
+ *  由后端 sanitize 收口。与 input 显示侧（`host ?? ""`）互逆——
+ *  「打开 → 编辑 → 保存 → 重开」经同一路径往返保持一致。 */
+export function proxyHostFromInput(raw: string): string | null {
+  return raw || null;
+}
+
+/** 代理端口输入 → draft 值（#133 网络环境页，纯函数）：空/非法输入
+ *  归 null（直连）；超界收进 1..65535（与后端 sanitize 兜底同语义）。
+ *  与 input 显示侧（`port ?? ""`，Number → 字符串）互逆。 */
+export function proxyPortFromInput(raw: string): number | null {
+  const parsed = Number(raw);
+  if (raw === "" || !Number.isFinite(parsed)) return null;
+  return Math.min(65535, Math.max(1, Math.round(parsed)));
+}

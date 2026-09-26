@@ -45,6 +45,8 @@ import {
   resolveUpdateErrorDetail,
   resolveErrorDetailExpanded,
   resolveUpdateStatus,
+  proxyHostFromInput,
+  proxyPortFromInput,
   runtimeLabel,
   savedApkIsCurrent,
   type SettingsTab,
@@ -997,11 +999,11 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   autoCorrect="off"
                   value={draft.update_proxy_host ?? ""}
                   onChange={(event) => {
-                    // 空 → null（清空 = 回退本机 127.0.0.1）；
-                    // trim/scheme 剥离由后端 sanitize 收口
+                    // 编辑变换（空 → null 等）收敛为纯函数，往返一致性
+                    // 由 settingsView 契约测试锁定
                     setDraft({
                       ...draft,
-                      update_proxy_host: event.target.value || null,
+                      update_proxy_host: proxyHostFromInput(event.target.value),
                     });
                   }}
                 />
@@ -1015,15 +1017,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   step={1}
                   value={draft.update_proxy_port ?? ""}
                   onChange={(event) => {
-                    const raw = event.target.value;
-                    const parsed = Number(raw);
-                    // 空/非法输入 → null（直连）；超界收到 1..65535，
-                    // 与后端 sanitize 的兜底同语义
-                    const port =
-                      raw === "" || !Number.isFinite(parsed)
-                        ? null
-                        : Math.min(65535, Math.max(1, Math.round(parsed)));
-                    setDraft({ ...draft, update_proxy_port: port });
+                    setDraft({ ...draft, update_proxy_port: proxyPortFromInput(event.target.value) });
                   }}
                 />
               </SettingRow>
