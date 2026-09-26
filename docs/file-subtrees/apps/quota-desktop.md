@@ -80,6 +80,7 @@ QuotaTray/
         │   │   ├── providerIcon.ts              # Provider 图标映射
         │   │   ├── providerPricing.test.ts      # 定价镜像测试
         │   │   ├── providerPricing.ts           # 前端定价解析镜像
+        │   │   ├── SettingsDialog.test.tsx      # 目录设置区块渲染测试
         │   │   ├── SettingsDialog.tsx           # 跨端设置页
         │   │   ├── settingsView.test.ts         # 设置视图测试
         │   │   ├── settingsView.ts              # 设置视图纯逻辑
