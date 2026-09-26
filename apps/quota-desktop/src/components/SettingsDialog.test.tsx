@@ -2,14 +2,30 @@
 // revision/来源/最近检查/立即更新入口的可见性。目录区块抽为纯 props
 // 子组件（自持 busy/结果反馈），renderToStaticMarkup 可直接渲染，
 // 无需 jsdom；useLang/api 以 vi.mock 提供（ProviderCard.test 先例）。
+// #130 迁移反馈：resolveImportFeedback 纯函数（计数口径 + 降级文案
+// 组装）与 TransferFeedbackView（warning 条渲染）。
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { interpolate, type TextKey } from "../i18n";
 import { zh } from "../i18n/zh";
-import type { CatalogStatus } from "../types";
-import { CatalogSettingsSection } from "./SettingsDialog";
+import type { CatalogStatus, ImportCounts, TransferDegraded } from "../types";
+import { CatalogSettingsSection, TransferFeedbackView, resolveImportFeedback } from "./SettingsDialog";
 
 vi.mock("../i18n", () => ({
-  useLang: () => ({ lang: "zh", t: (key: keyof typeof zh) => zh[key] }),
+  // 插值版 t（#130 测试需要 reason/计数插值断言）
+  interpolate: (template: string, params?: Record<string, string | number>) =>
+    template.replace(/\{(\w+)\}/g, (match, key: string) =>
+      params && key in params ? String(params[key]) : match,
+    ),
+  useLang: () => ({
+    lang: "zh",
+    t: (key: TextKey, params?: Record<string, string | number>) => {
+      const template = zh[key];
+      return params
+        ? template.replace(/\{(\w+)\}/g, (m, k: string) => (k in params ? String(params[k]) : m))
+        : template;
+    },
+  }),
 }));
 vi.mock("../api", () => ({ api: { catalogUpdate: vi.fn() } }));
 
@@ -88,5 +104,117 @@ describe("目录设置区块渲染（#134）", () => {
     expect(html).not.toContain("上次检查");
     expect(html).toContain(zh["settings.catalogScheduleOnDesktop"]);
     expect(html).toContain(zh["settings.catalogUpdateNow"]);
+  });
+});
+
+/** #130 测试用 t：插值语义与 i18n.interpolate 一致。 */
+const t = (key: TextKey, params?: Record<string, string | number>) =>
+  interpolate(zh[key], params);
+
+const counts = (overrides: Partial<ImportCounts> = {}): ImportCounts => ({
+  providers_added: 2,
+  providers_skipped: 1,
+  series_added: 3,
+  series_skipped: 4,
+  ...overrides,
+});
+
+describe("导入成功反馈组装（#130）", () => {
+  it("无降级：合并模展示全部四计数", () => {
+    const result = resolveImportFeedback(
+      { counts: counts(), degraded: [] },
+      "Merge",
+      t,
+    );
+    expect(result.text).toContain("供应商新增 2 个");
+    expect(result.text).toContain("跳过 1 个重复");
+    expect(result.text).toContain("比较组合新增 3 条");
+    expect(result.text).toContain("跳过 4 条");
+    expect(result.degradedTexts).toEqual([]);
+  });
+
+  it("无降级：覆盖模展示供应商与组合计数", () => {
+    const result = resolveImportFeedback(
+      { counts: counts(), degraded: [] },
+      "Overwrite",
+      t,
+    );
+    expect(result.text).toContain("已导入 2 个供应商");
+    expect(result.text).toContain("3 条比较组合");
+  });
+
+  it("比较组合写失败：合并模改用 providers-only 文案，未落盘计数不出现", () => {
+    const degraded: TransferDegraded[] = [
+      { kind: "usage_comparison", reason: "设置写入失败：disk full" },
+    ];
+    const result = resolveImportFeedback({ counts: counts(), degraded }, "Merge", t);
+    expect(result.text).toContain("供应商新增 2 个");
+    expect(result.text).toContain("跳过 1 个重复");
+    // 组合计数（3/4）是「已生效」陈述，未落盘时不得出现（#130 计数口径）
+    expect(result.text).not.toContain("比较组合");
+    expect(result.degradedTexts).toEqual([
+      interpolate(zh["settings.importDegradedUsageComparison"], {
+        reason: "设置写入失败：disk full",
+      }),
+    ]);
+  });
+
+  it("比较组合写失败：覆盖模同样改用 providers-only 文案", () => {
+    const degraded: TransferDegraded[] = [
+      { kind: "usage_comparison", reason: "设置写入失败：disk full" },
+    ];
+    const result = resolveImportFeedback({ counts: counts(), degraded }, "Overwrite", t);
+    expect(result.text).toContain("已导入 2 个供应商");
+    expect(result.text).not.toContain("比较组合");
+  });
+
+  it("历史写失败：成功文案不动（计数真实），降级条说明原因与恢复手段", () => {
+    const degraded: TransferDegraded[] = [
+      { kind: "history", reason: "历史库读写失败：locked" },
+    ];
+    const result = resolveImportFeedback({ counts: counts(), degraded }, "Merge", t);
+    expect(result.text).toContain("比较组合新增 3 条");
+    expect(result.degradedTexts[0]).toContain("历史库读写失败：locked");
+    expect(result.degradedTexts[0]).toContain("重新导入");
+  });
+});
+
+describe("迁移反馈区渲染（#130）", () => {
+  it("降级明细存在：成功文案下出现 warning 块，分条呈现", () => {
+    const html = renderToStaticMarkup(
+      <TransferFeedbackView
+        feedback={{
+          kind: "success",
+          text: "合并完成：供应商新增 2 个、跳过 1 个重复。",
+          degradedTexts: [
+            "历史数据未写入本机（历史库读写失败：locked）；重新导入可恢复。",
+            "比较组合未写入本机（设置写入失败：disk full）；重新导入可恢复。",
+          ],
+        }}
+      />,
+    );
+    expect(html).toContain("qt-inline-warning");
+    expect(html).toContain("qt-settings-success");
+    expect(html).toContain("历史库读写失败：locked");
+    expect(html).toContain("disk full");
+  });
+
+  it("无降级明细：不渲染 warning 块", () => {
+    const html = renderToStaticMarkup(
+      <TransferFeedbackView
+        feedback={{ kind: "success", text: "配置已导出至：D:\\backup.qtray-export" }}
+      />,
+    );
+    expect(html).not.toContain("qt-inline-warning");
+    expect(html).toContain("qt-settings-success");
+  });
+
+  it("错误态：沿用 inline-error 样式，降级块不参与", () => {
+    const html = renderToStaticMarkup(
+      <TransferFeedbackView feedback={{ kind: "error", text: "导入失败：口令错误" }} />,
+    );
+    expect(html).toContain("qt-inline-error");
+    expect(html).not.toContain("qt-settings-success");
+    expect(html).not.toContain("qt-inline-warning");
   });
 });

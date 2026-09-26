@@ -3584,6 +3584,7 @@ dependencies = [
  "log",
  "ndk-context",
  "quota-core",
+ "rusqlite",
  "serde",
  "serde_json",
  "sys-locale",

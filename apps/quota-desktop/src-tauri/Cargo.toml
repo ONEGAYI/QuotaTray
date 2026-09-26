@@ -57,3 +57,4 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+rusqlite = { workspace = true } # 迁移降级契约测试：并发独占连接注入历史库写失败（#130）

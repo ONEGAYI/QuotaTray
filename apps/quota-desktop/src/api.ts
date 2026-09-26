@@ -3,9 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   BootStateDto,
   ExportOptions,
+  ExportOutcome,
   HistoryPoint,
-  ImportCounts,
   ImportOptions,
+  ImportOutcome,
   NativeMeta,
   ProviderEntry,
   QueryOutcome,
@@ -98,11 +99,13 @@ export const api = {
   /** 局部更新设置：后端读现值合并 patch，避免前端缓存全量回写。 */
   patchSettings: (patch: SettingsPatch): Promise<void> =>
     invoke("patch_settings", { patch }),
-  /** 将完整配置按指定档位导出到系统保存对话框选定的路径（默认便捷档）。 */
-  exportConfiguration: (path: string, options: ExportOptions = "Convenient"): Promise<void> =>
+  /** 将完整配置按指定档位导出到系统保存对话框选定的路径（默认便捷档）；
+   *  返回降级明细（#130，空 = 历史数据也完整包含）。 */
+  exportConfiguration: (path: string, options: ExportOptions = "Convenient"): Promise<ExportOutcome> =>
     invoke("export_configuration", { path, options }),
-  /** 导入迁移包并按策略（合并/覆盖）应用到本机，返回生效计数。 */
-  importConfiguration: (path: string, options: ImportOptions): Promise<ImportCounts> =>
+  /** 导入迁移包并按策略（合并/覆盖）应用到本机，返回生效计数与降级
+   *  明细（#130：历史/比较组合写失败不阻断导入，明细供反馈区提示）。 */
+  importConfiguration: (path: string, options: ImportOptions): Promise<ImportOutcome> =>
     invoke("import_configuration", { path, options }),
   /** 只读识别迁移容器（版本 + 档位），不解密、不验证密码（导入模态
    *  文件信息卡数据源）。 */

@@ -256,6 +256,30 @@ pub fn validate_entry(entry: &ProviderEntry, lang: Lang) -> Result<(), String> {
 
 // ---- 命令 -----------------------------------------------------------------
 
+/// 迁移命令的降级明细（#130）：尽力而为数据（历史/比较组合）写失败时随
+/// 命令返回的用户可见反馈。kind 为 snake_case 数据类名；reason 为 core
+/// 错误文本（技术性内容不翻译，与 CLI 降级文案括号内 reason 同口径）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TransferDegraded {
+    History { reason: String },
+    UsageComparison { reason: String },
+}
+
+/// `import_configuration` 的 IPC 返回（#130）：生效计数 + 降级明细。
+#[derive(Debug, serde::Serialize)]
+pub struct ImportOutcome {
+    pub counts: quota_core::ImportCounts,
+    pub degraded: Vec<TransferDegraded>,
+}
+
+/// `export_configuration` 的 IPC 返回（#130）：降级明细（空 = 完整导出；
+/// 导出侧比较组合取自内存 settings，无失败路径）。
+#[derive(Debug, serde::Serialize)]
+pub struct ExportOutcome {
+    pub degraded: Vec<TransferDegraded>,
+}
+
 fn export_configuration_at(
     config_path: &std::path::Path,
     export_path: &std::path::Path,
@@ -303,26 +327,26 @@ fn inspect_transfer_package_at(
 /// 清空本机后重插备份行（与 CLI `apply_history_by_strategy` 同口径：
 /// 备份未携带历史字段（`None`，仅 v1 老包；v2/v3 恒携带）时不清空本机
 /// ——「备份没有这部分数据」不等于「备份断言历史为空」，`Some([])`
-/// 是备份明确断言空历史，照常清空重插）。写入失败仅告警（配置已导入
-/// 成功，历史属尽力而为数据）。
+/// 是备份明确断言空历史，照常清空重插）。空/缺失载荷视为无事发生返回
+/// Ok；写失败以 Err 透出（调用方转降级反馈，#130），不再静默吞成日志。
 fn apply_history_import(
     store: &quota_core::HistoryStore,
     history: Option<&[quota_core::HistoryExportRow]>,
     strategy: quota_core::ImportStrategy,
-) {
-    let result = match strategy {
+) -> Result<(), String> {
+    match strategy {
         quota_core::ImportStrategy::Merge => match history {
             Some(rows) if !rows.is_empty() => store.merge_rows(rows),
-            _ => return,
+            _ => return Ok(()),
         },
         quota_core::ImportStrategy::Overwrite => {
-            let Some(rows) = history else { return };
+            let Some(rows) = history else {
+                return Ok(());
+            };
             store.replace_rows(rows)
         }
-    };
-    if let Err(e) = result {
-        log::warn!("导入历史写入失败：{e}");
     }
+    .map_err(|e| e.to_string())
 }
 
 /// 导入策略对比较组合的写入决策：Unchanged = 不动本机（合并模导入
@@ -479,13 +503,18 @@ pub async fn export_configuration(
     state: State<'_, AppState>,
     path: String,
     options: Option<quota_core::ExportOptions>,
-) -> Result<(), String> {
+) -> Result<ExportOutcome, String> {
     let options = options.unwrap_or(quota_core::ExportOptions::Convenient);
-    // 历史读取失败降级为不带历史，导出主任务继续
+    // 历史读取失败降级为不带历史，导出主任务继续；失败明细随返回值
+    // 透出给前端（#130），告警同步落 JSONL 滚动日志
+    let mut degraded = Vec::new();
     let history = match state.history.lock().unwrap().export_rows() {
         Ok(rows) => Some(rows),
         Err(e) => {
             log::warn!("导出携带历史失败（将不含历史数据）：{e}");
+            degraded.push(TransferDegraded::History {
+                reason: e.to_string(),
+            });
             None
         }
     };
@@ -497,14 +526,15 @@ pub async fn export_configuration(
         .clone();
     #[cfg(target_os = "android")]
     if is_android_document_uri(&path) {
-        return export_configuration_to_uri(
+        export_configuration_to_uri(
             &app,
             &state,
             &path,
             history.as_deref(),
             usage_comparison_series.as_deref(),
             &options,
-        );
+        )?;
+        return Ok(ExportOutcome { degraded });
     }
     let _ = app;
     export_configuration_at(
@@ -514,7 +544,8 @@ pub async fn export_configuration(
         history.as_deref(),
         usage_comparison_series.as_deref(),
         &options,
-    )
+    )?;
+    Ok(ExportOutcome { degraded })
 }
 
 /// 只读识别迁移包容器（版本 + 档位），不解密、不验证密码：供导入模态
@@ -548,7 +579,7 @@ pub async fn import_configuration(
     state: State<'_, AppState>,
     path: String,
     options: Option<quota_core::ImportOptions>,
-) -> Result<quota_core::ImportCounts, String> {
+) -> Result<ImportOutcome, String> {
     // 缺省维持既有「整体替换」现状语义（显式 Overwrite + 无口令）
     let options = options.unwrap_or(quota_core::ImportOptions {
         password: None,
@@ -572,14 +603,18 @@ pub async fn import_configuration(
         &state.vault,
         &options,
     )?;
-    // 调用端策略接线：历史库与比较组合按 strategy 写入；失败仅告警
-    // （配置已导入成功，两者属尽力而为数据）。GUI 无 stderr 可见面，
-    // 告警经 log facade 进 JSONL 滚动日志保持可观测。
-    apply_history_import(
+    // 调用端策略接线：历史库与比较组合按 strategy 写入；失败降级为
+    // 明细透出（配置已导入成功，两者属尽力而为数据，#130），告警同步
+    // 落 JSONL 滚动日志
+    let mut degraded = Vec::new();
+    if let Err(e) = apply_history_import(
         &state.history.lock().unwrap(),
         bundle.history.as_deref(),
         options.strategy,
-    );
+    ) {
+        log::warn!("导入历史写入失败：{e}");
+        degraded.push(TransferDegraded::History { reason: e });
+    }
     let local_series = state
         .settings
         .read()
@@ -598,6 +633,7 @@ pub async fn import_configuration(
         && let Err(e) = persist_usage_comparison_settings(&state, value)
     {
         log::warn!("导入使用统计比较组合失败（配置已导入）：{e}");
+        degraded.push(TransferDegraded::UsageComparison { reason: e });
     }
     state.results.write().unwrap().clear();
     after_state_change(&app, &state);
@@ -605,7 +641,7 @@ pub async fn import_configuration(
     if let Err(e) = app.emit("configuration-imported", provider_count) {
         log::warn!("配置导入事件发送失败：{e}");
     }
-    Ok(counts)
+    Ok(ImportOutcome { counts, degraded })
 }
 
 #[tauri::command]
@@ -3166,7 +3202,7 @@ mod tests {
 
         let store = quota_core::HistoryStore::open_in_memory().unwrap();
         store.merge_rows(&[local_row(1)]).unwrap();
-        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Merge);
+        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Merge).unwrap();
         assert_eq!(
             store.range("local", 0).unwrap().len(),
             1,
@@ -3178,21 +3214,21 @@ mod tests {
             "备份行并入本机库"
         );
         // 合并 + 空/缺失载荷：不动本机
-        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Merge);
-        apply_history_import(&store, None, quota_core::ImportStrategy::Merge);
+        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Merge).unwrap();
+        apply_history_import(&store, None, quota_core::ImportStrategy::Merge).unwrap();
         assert_eq!(store.export_rows().unwrap().len(), 3);
 
-        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Overwrite);
+        apply_history_import(&store, Some(&backup), quota_core::ImportStrategy::Overwrite).unwrap();
         let rows = store.export_rows().unwrap();
         assert_eq!(rows.len(), 2, "覆盖后库 = 备份内容");
         assert!(rows.iter().all(|row| row.provider_id == "backup"));
-        apply_history_import(&store, None, quota_core::ImportStrategy::Overwrite);
+        apply_history_import(&store, None, quota_core::ImportStrategy::Overwrite).unwrap();
         assert_eq!(
             store.export_rows().unwrap().len(),
             2,
             "覆盖导入未携带历史字段的包（v1 老包）不清空本机"
         );
-        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Overwrite);
+        apply_history_import(&store, Some(&[]), quota_core::ImportStrategy::Overwrite).unwrap();
         assert_eq!(
             store.export_rows().unwrap().len(),
             0,
@@ -3269,6 +3305,67 @@ mod tests {
             ),
             SeriesImportDecision::Replace(None)
         ));
+    }
+
+    /// 契约（#130）：历史写入失败必须以 Err 透出（调用方转降级反馈，
+    /// 不再静默吞成日志）——并发独占连接真实复现「库被占用」场景，
+    /// busy_timeout 耗尽后写事务失败。成功路径的 Ok 语义由下方
+    /// 策略接线测试的 unwrap 断言覆盖。
+    #[test]
+    fn apply_history_import_reports_write_failure() {
+        let db = transfer_path("history-busy", "history.db");
+        let _ = std::fs::remove_file(&db);
+        let store = quota_core::HistoryStore::open(&db).unwrap();
+        // 独占连接持写锁（BEGIN IMMEDIATE 事务内真实写入才持锁），
+        // store 的写事务在 3s busy_timeout 后失败
+        let blocker = rusqlite::Connection::open(&db).unwrap();
+        blocker
+            .execute_batch("BEGIN IMMEDIATE; CREATE TABLE _block(x);")
+            .unwrap();
+        let row = quota_core::HistoryExportRow {
+            provider_id: "p".into(),
+            window_key: "w0".into(),
+            sampled_at: 1,
+            used: None,
+            remaining: Some(1.0),
+            total: None,
+            unit: None,
+        };
+        let result =
+            apply_history_import(&store, Some(&[row]), quota_core::ImportStrategy::Overwrite);
+        assert!(result.is_err(), "库被占用时写入失败必须透出");
+        assert!(
+            !result.unwrap_err().is_empty(),
+            "Err 携带错误文本（降级 reason）"
+        );
+    }
+
+    /// 契约（#130）：降级明细的 IPC 形状——kind tag 为 snake_case 数据类
+    /// 名、reason 为字符串；空明细序列化为空数组（前端据此免渲染）。
+    #[test]
+    fn transfer_outcome_degraded_serialization_shape() {
+        let outcome = ImportOutcome {
+            counts: quota_core::ImportCounts::default(),
+            degraded: vec![
+                TransferDegraded::History {
+                    reason: "历史库读写失败：locked".into(),
+                },
+                TransferDegraded::UsageComparison {
+                    reason: "设置写入失败：disk full".into(),
+                },
+            ],
+        };
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(json["counts"]["providers_added"], 0);
+        assert_eq!(json["degraded"][0]["kind"], "history");
+        assert_eq!(json["degraded"][0]["reason"], "历史库读写失败：locked");
+        assert_eq!(json["degraded"][1]["kind"], "usage_comparison");
+        let export = serde_json::to_value(ExportOutcome { degraded: vec![] }).unwrap();
+        assert_eq!(json_array_len(&export["degraded"]), Some(0));
+    }
+
+    fn json_array_len(value: &serde_json::Value) -> Option<usize> {
+        value.as_array().map(Vec::len)
     }
 
     /// 契约（T-17）：合并/覆盖两模端到端（写入层 options 透传）——合并

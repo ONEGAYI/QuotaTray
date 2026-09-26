@@ -22,13 +22,15 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../api";
 import { relativeTime } from "../display";
 import { useLang } from "../i18n";
+import type { TextKey } from "../i18n";
 import { useCatalogStatus, useSettings, useUpdateState } from "../queries";
 import type {
   CatalogStatus,
   DownloadProgress,
   ExportOptions,
-  ImportCounts,
   ImportOptions,
+  ImportOutcome,
+  ImportStrategyPayload,
   Settings,
 } from "../types";
 import {
@@ -71,7 +73,72 @@ interface Props {
   initialTab?: SettingsTab;
 }
 
-type TransferFeedback = { kind: "success" | "error"; text: string };
+type TransferFeedback = {
+  kind: "success" | "error";
+  text: string;
+  /** 降级明细文案（#130）：设置时已按场景解析好的双语句子。 */
+  degradedTexts?: string[];
+};
+
+/** 导入成功反馈组装（#130，纯函数供测试）：计数口径 + 降级文案。
+ *  比较组合写失败时成功文案改用 providers-only 变体——未落盘的计数
+ *  不出现在「已生效」陈述里（由紧随的降级条说明），避免同一反馈区
+ *  先报数再否认的自相矛盾。 */
+export function resolveImportFeedback(
+  outcome: ImportOutcome,
+  strategy: ImportStrategyPayload,
+  t: (key: TextKey, params?: Record<string, string | number>) => string,
+): { text: string; degradedTexts: string[] } {
+  const c = outcome.counts;
+  const seriesDegraded = outcome.degraded.some((d) => d.kind === "usage_comparison");
+  const text =
+    strategy === "Overwrite"
+      ? seriesDegraded
+        ? t("settings.importSuccessOverwriteProviders", {
+            providersAdded: String(c.providers_added),
+          })
+        : t("settings.importSuccessOverwrite", {
+            providersAdded: String(c.providers_added),
+            seriesAdded: String(c.series_added),
+          })
+      : seriesDegraded
+        ? t("settings.importSuccessMergeProviders", {
+            providersAdded: String(c.providers_added),
+            providersSkipped: String(c.providers_skipped),
+          })
+        : t("settings.importSuccessMerge", {
+            providersAdded: String(c.providers_added),
+            providersSkipped: String(c.providers_skipped),
+            seriesAdded: String(c.series_added),
+            seriesSkipped: String(c.series_skipped),
+          });
+  const degradedTexts = outcome.degraded.map((d) =>
+    d.kind === "history"
+      ? t("settings.importDegradedHistory", { reason: d.reason })
+      : t("settings.importDegradedUsageComparison", { reason: d.reason }),
+  );
+  return { text, degradedTexts };
+}
+
+/** 迁移反馈区（#130）：成功/错误文案 + 降级明细 warning 块（复用统计页
+ *  部分失败的 qt-inline-warning 先例）。纯 props 展示，导出供
+ *  renderToStaticMarkup 内容检查。 */
+export function TransferFeedbackView({ feedback }: { feedback: TransferFeedback }) {
+  return (
+    <>
+      <p className={feedback.kind === "success" ? "qt-settings-success" : "qt-inline-error"}>
+        {feedback.text}
+      </p>
+      {feedback.degradedTexts && feedback.degradedTexts.length > 0 && (
+        <div className="qt-inline-warning" style={{ display: "grid", gap: 4 }}>
+          {feedback.degradedTexts.map((text) => (
+            <p key={text}>{text}</p>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 /** 目录设置区块（#134）：自动更新开关行 + 目录状态行 + 跟随开关状态的
  *  周期口径小字。开关值与保存仍由父级 draft 管理（行为不变）；「立即
@@ -291,8 +358,15 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const exportConfiguration = useMutation({
     mutationFn: (vars: { path: string; options: ExportOptions }) =>
       api.exportConfiguration(vars.path, vars.options),
-    onSuccess: (_, vars) => {
-      setTransferFeedback({ kind: "success", text: t("settings.exportSuccess", { path: vars.path }) });
+    onSuccess: (outcome, vars) => {
+      // 历史读取失败不阻断导出（#130）：成功反馈照常，降级条补充说明
+      setTransferFeedback({
+        kind: "success",
+        text: t("settings.exportSuccess", { path: vars.path }),
+        degradedTexts: outcome.degraded.map((d) =>
+          t("settings.exportDegradedHistory", { reason: d.reason }),
+        ),
+      });
     },
     onError: (error) => {
       setTransferFeedback({ kind: "error", text: transferErrorMessage(error) });
@@ -304,22 +378,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
       api.importConfiguration(vars.path, vars.options),
     // 成功反馈按策略带新增/跳过计数（覆盖模无跳过概念，单独文案）；
     // 失败不落 transferFeedback——导入模态保持打开，错误由模态就地展示
-    onSuccess: (counts, vars) => {
-      setTransferFeedback({
-        kind: "success",
-        text:
-          vars.options.strategy === "Overwrite"
-            ? t("settings.importSuccessOverwrite", {
-                providersAdded: String(counts.providers_added),
-                seriesAdded: String(counts.series_added),
-              })
-            : t("settings.importSuccessMerge", {
-                providersAdded: String(counts.providers_added),
-                providersSkipped: String(counts.providers_skipped),
-                seriesAdded: String(counts.series_added),
-                seriesSkipped: String(counts.series_skipped),
-              }),
-      });
+    onSuccess: (outcome, vars) => {
+      const { text, degradedTexts } = resolveImportFeedback(
+        outcome,
+        vars.options.strategy,
+        t,
+      );
+      setTransferFeedback(
+        degradedTexts.length > 0
+          ? { kind: "success", text, degradedTexts }
+          : { kind: "success", text },
+      );
       void qc.invalidateQueries({ queryKey: ["providers"] });
       void qc.invalidateQueries({ queryKey: ["provider"] });
       void qc.invalidateQueries({ queryKey: ["snapshots"] });
@@ -350,7 +419,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   /** 导入模态确认后的执行段：模态只交付最终 path + options，成功反馈
    *  （新增/跳过计数）落在数据页 transferFeedback；失败 reject 由模态
    *  就地展示（弹窗不关）。 */
-  const runImport = (path: string, options: ImportOptions): Promise<ImportCounts> =>
+  const runImport = (path: string, options: ImportOptions): Promise<ImportOutcome> =>
     importConfiguration.mutateAsync({ path, options });
 
   // 安装会退出应用（NSIS 覆盖安装需先解锁自身文件），确认后再触发
@@ -1063,15 +1132,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     : t("settings.importButton")}
                 </Button>
               </SettingRow>
-              {transferFeedback && (
-                <p className={
-                  transferFeedback.kind === "success"
-                    ? "qt-settings-success"
-                    : "qt-inline-error"
-                }>
-                  {transferFeedback.text}
-                </p>
-              )}
+              {transferFeedback && <TransferFeedbackView feedback={transferFeedback} />}
               {!mobile && (
                 <>
                   <SettingRow

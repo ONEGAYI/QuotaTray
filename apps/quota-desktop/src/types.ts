@@ -86,6 +86,24 @@ export interface ImportCounts {
   series_skipped: number;
 }
 
+/** 迁移命令的降级明细（#130）：尽力而为数据（历史/比较组合）写失败时
+ *  随命令返回的用户可见反馈（Rust `TransferDegraded` 镜像，kind 为
+ *  snake_case 数据类名；reason 为后端错误文本，技术性内容不翻译）。 */
+export type TransferDegraded =
+  | { kind: "history"; reason: string }
+  | { kind: "usage_comparison"; reason: string };
+
+/** import_configuration 返回（#130）：生效计数 + 降级明细。 */
+export interface ImportOutcome {
+  counts: ImportCounts;
+  degraded: TransferDegraded[];
+}
+
+/** export_configuration 返回（#130）：降级明细（空 = 完整导出）。 */
+export interface ExportOutcome {
+  degraded: TransferDegraded[];
+}
+
 /** 模板请求定义。 */
 export interface TemplateRequest {
   method?: "GET" | "POST";
