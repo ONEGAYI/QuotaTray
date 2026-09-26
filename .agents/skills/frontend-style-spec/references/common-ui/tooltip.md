@@ -52,6 +52,11 @@
 - `<option title>`：原生下拉选项由操作系统渲染，CSS 无法作用，允许保留（技术限制）。
 - `qt-usage-tooltip`（使用统计图表数据悬浮卡）：富内容数据卡（时间 + 数值 + 说明，
   跟随数据点定位），不适用纯文字气泡形态，整体豁免本条目（2026-08-28 所有者确认）。
+- `.qt-usage-marker-net-detail.is-popover`（定位线净消耗分解卡，2026-09-26 #135）：
+  富内容（三行数值 + 代数说明小字），从读数行净消耗锚点向上弹（读数行贴卡片底缘，
+  向下弹会被图表卡片 `overflow:hidden` 裁掉——同 `.qt-usage-head-actions` 向下变体的
+  反向约束）；键盘路径为锚点 span 的 focus/blur（`tabIndex` + 焦点环），悬停宽限收起
+  复用聚焦浮层控制器。Android 不渲染此形态，分解走点击 disclosure（T-010）。
 - `.qt-gate-info-btn[data-tooltip]::after` 右对齐变体（便携首启确认页问号钮）：
   `left: auto; right: 0; transform: none` 覆盖居中锚定与 3px 上浮——按钮贴卡片右缘，
   居中锚定的气泡会被滚动卡片（overflow 裁剪容器）右缘裁掉（2026-08-28，技术限制）。
