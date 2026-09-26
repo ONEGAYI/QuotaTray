@@ -117,8 +117,9 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
 
   const storedSelection = settings.data?.usage_comparison_series;
   const effectiveSelection = useMemo<UsageComparisonSeries[]>(() => {
-    // 存量无 metric 的组合按现有派生回填度量（percent 优先），仅用于本轮
-    // 匹配与展示；窗口无候选（失效条目）保持缺省
+    // 存量无 metric 的组合按现有派生回填度量（percent 优先），用于本轮
+    // 匹配与展示（增删组合保存时随选区显式化落盘，惰性迁移）；窗口无
+    // 候选（失效条目）保持缺省
     return initialUsageComparisons(
       storedSelection == null ? null : resolveUsageComparisonMetrics(storedSelection, candidates),
       candidates,

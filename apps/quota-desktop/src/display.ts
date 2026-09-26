@@ -217,6 +217,9 @@ export function windowShortLabel(
  *  （remaining 缺失）的窗口回退百分比；auto 按数据推断、无回退概念，
  *  恒返回空清单。回退方向由偏好唯一决定（percent→金额 / amount→百分比），
  *  调用方（试查回退 toast 等）直接按偏好取文案，不重复判定。
+ *  回退目标可算性校验（PR #146 review 修复）：回退目标也算不出的窗口
+ *  （两度量皆缺）不列入——它属于数据不足而非回退，展示层走已获取兜底，
+ *  清单不得预告"将按回退度量显示"。
  *  窗口名取 plan_name 全名（toast 要可识别的窗口名，不做括号短化），
  *  无名窗口回退序数（与 windowShortLabel 的无名分支同措辞）。 */
 export function metricFallbackWindows(
@@ -228,9 +231,12 @@ export function metricFallbackWindows(
   const zh = lang === "zh";
   const names: string[] = [];
   windows.forEach((d, index) => {
-    const needsFallback =
+    const missingPreferred =
       preference === "percent" ? remainingPercent(d) == null : d.remaining == null;
-    if (!needsFallback) return;
+    if (!missingPreferred) return;
+    const fallbackComputable =
+      preference === "percent" ? d.remaining != null : remainingPercent(d) != null;
+    if (!fallbackComputable) return;
     names.push(d.plan_name ?? (zh ? `窗口 ${index + 1}` : `window ${index + 1}`));
   });
   return names;

@@ -243,6 +243,28 @@ describe("主度量偏好回退检测 metricFallbackWindows（T-23，spec #137�
     expect(metricFallbackWindows("percent", windows, "zh")).toEqual(["窗口 2"]);
     expect(metricFallbackWindows("percent", windows, "en")).toEqual(["window 2"]);
   });
+
+  it("回退目标也算不出（两度量皆缺）的窗口不列入：数据不足非回退（PR #146 review）", () => {
+    // 裸已用（无 total 换不出百分比、无 remaining）：percent 偏好下回退目标
+    // （金额）同样缺，展示层走已获取兜底——toast 不得预告"将按金额显示"
+    expect(metricFallbackWindows("percent", [{ used: 10, plan_name: "裸已用" }], "zh"))
+      .toEqual([]);
+    // amount 偏好镜像：回退目标（百分比）算不出同样不列入
+    expect(metricFallbackWindows("amount", [{ used: 10, plan_name: "裸已用" }], "zh"))
+      .toEqual([]);
+    // 混合：可回退者照列、两缺者剔除、偏好直接可算者不列
+    expect(
+      metricFallbackWindows(
+        "percent",
+        [
+          { remaining: 1, unit: "CNY", plan_name: "MCP" },
+          { used: 10 },
+          { used: 42, unit: "%" },
+        ],
+        "zh",
+      ),
+    ).toEqual(["MCP"]);
+  });
 });
 
 describe("多窗口短标签", () => {

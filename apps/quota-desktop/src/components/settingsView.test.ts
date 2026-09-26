@@ -521,6 +521,12 @@ describe("低余额阈值与消息文案（剩余语义，T-22）", () => {
     expect(zh["settings.thresholdHint"]).not.toContain("已用");
     expect(en["settings.thresholdHint"]).toContain("remaining");
     expect(en["settings.thresholdHint"]).not.toContain("usage reaches");
+    // 判定契约含等号（commands.rs low_balance_breach / tray.rs ⚠ 用 >=，
+    // 测试已锁定）：文案不得说成严格低于（PR #146 review 修复）
+    expect(zh["settings.thresholdHint"]).toContain("不超过");
+    expect(zh["settings.thresholdHint"]).not.toContain("低于");
+    expect(en["settings.thresholdHint"]).toContain("at or below");
+    expect(en["settings.thresholdHint"]).not.toContain("falls below");
     // 与恢复阈值提示同为剩余比例口径（T-21 已改，方向一致不回退）
     expect(zh["settings.recoveryThresholdHint"]).toContain("剩余");
     expect(en["settings.recoveryThresholdHint"]).toContain("remaining");

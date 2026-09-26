@@ -397,7 +397,9 @@ export const zh = {
   "settings.minuteUnit": "分钟",
   "settings.threshold": "低额度提醒阈值（剩余 %）",
   "settings.thresholdTitle": "低余额提醒",
-  "settings.thresholdHint": "额度剩余低于该比例时显示提醒",
+  // 判定契约含等号（low_balance_breach / 托盘 ⚠ 用 >=），措辞为
+  // 「不超过」而非「低于」（PR #146 review 修复）
+  "settings.thresholdHint": "额度剩余不超过该比例时显示提醒",
   "settings.recoveryThresholdTitle": "额度恢复提醒",
   "settings.recoveryThresholdHint": "额度从低额度恢复至该剩余比例时提醒",
   "settings.recoveryThresholdConflict": "恢复阈值须高于低余额提醒阈值（均为剩余比例），请调整后再保存",

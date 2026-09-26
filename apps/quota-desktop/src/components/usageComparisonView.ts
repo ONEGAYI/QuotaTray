@@ -37,7 +37,9 @@ export function initialUsageComparisons(
 }
 
 /** 存量无 metric 的组合按现有单选派生回填度量（percent 优先、无百分比
- *  原材料退金额）：仅用于匹配与展示层，不主动落盘；窗口无候选（Provider
+ *  原材料退金额）：用于本轮匹配与展示；回填不主动写盘，但回填产物是
+ *  增删组合操作的基底数组——用户增删组合保存时随选区整体显式化落盘
+ *  （惰性迁移语义，PR #146 review 修正口径）。窗口无候选（Provider
  *  已删或无数据）时保持缺省，图表侧按不可绘制处理。 */
 export function resolveUsageComparisonMetrics(
   selections: readonly UsageComparisonSeries[],

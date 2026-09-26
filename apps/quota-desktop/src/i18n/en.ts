@@ -226,8 +226,10 @@ export const en: Record<TextKey, string> = {
   "edit.primaryMetricAmount": "Amount",
   "edit.primaryMetricHint":
     "Preferred metric for summary display; windows lacking its data fall back individually (flagged by test query)",
-  "edit.metricFallbackToAmount": "{windows} has no percent data; showing amount instead",
-  "edit.metricFallbackToPercent": "{windows} has no remaining amount; showing percent instead",
+  // 回退 toast 用无谓语句式点名窗口："{windows} has no …" 在多窗口
+  // （"MCP, backup has …"）下主谓不一致（PR #146 review 修复）
+  "edit.metricFallbackToAmount": "No percent data for {windows}; showing amount instead",
+  "edit.metricFallbackToPercent": "No remaining amount for {windows}; showing percent instead",
   "edit.metricFallbackClose": "Dismiss fallback notice",
   "pricing.retiredTag": "retired",
   "pricing.unknownPrice": "Price unknown",
@@ -312,7 +314,9 @@ export const en: Record<TextKey, string> = {
   "settings.minuteUnit": "min",
   "settings.threshold": "Low-balance alert threshold (remaining %)",
   "settings.thresholdTitle": "Low-balance alert",
-  "settings.thresholdHint": "Alert when the remaining balance falls below this percentage",
+  // 判定契约含等号（low_balance_breach / 托盘 ⚠ 用 >=），措辞为
+  // "at or below" 而非 "falls below"（PR #146 review 修复）
+  "settings.thresholdHint": "Alert when the remaining balance is at or below this percentage",
   "settings.recoveryThresholdTitle": "Balance recovery alert",
   "settings.recoveryThresholdHint": "Alert when quota recovers to this remaining percentage",
   "settings.recoveryThresholdConflict": "Recovery threshold must be higher than the low-balance threshold (both in remaining percentage). Adjust before saving",

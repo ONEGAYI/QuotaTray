@@ -4,21 +4,30 @@
 // auto 或清单空时组件自判不呈现（调用方只喂偏好与窗口数据）。
 // mock i18n 的 t 内联与真实 interpolate 同语义的占位替换
 // （vi.mock 工厂 hoisting 不能引用顶层导入，见 ProviderCard 先例）。
+// mockLang 可变槽位供测试切换语言（工厂体内仅创建闭包、调用时才读取，
+// 与 t 闭包内 zh[key] 的晚绑定同机制）。
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { en } from "../i18n/en";
 import { zh } from "../i18n/zh";
 import type { UsageData } from "../types";
 import { MetricFallbackToast } from "./MetricFallbackToast";
 
+let mockLang: "zh" | "en" = "zh";
+
 vi.mock("../i18n", () => ({
   useLang: () => ({
-    lang: "zh",
+    lang: mockLang,
     t: (key: keyof typeof zh, params?: Record<string, string | number>) =>
-      zh[key].replace(/\{(\w+)\}/g, (match, name: string) =>
+      (mockLang === "zh" ? zh : en)[key].replace(/\{(\w+)\}/g, (match, name: string) =>
         params && name in params ? String(params[name]) : match,
       ),
   }),
 }));
+
+beforeEach(() => {
+  mockLang = "zh";
+});
 
 function render(preference: "auto" | "percent" | "amount", windows: UsageData[]): string {
   return renderToStaticMarkup(
@@ -55,5 +64,29 @@ describe("试查回退警告 toast（T-23）", () => {
   it("auto 恒不呈现；清单空（数据全支持偏好）同样不呈现", () => {
     expect(render("auto", balanceOnly)).toBe("");
     expect(render("percent", [{ used: 42, unit: "%" }])).toBe("");
+  });
+
+  // PR #146 review 修复：英文原模板 "{windows} has no percent data" 在
+  // 多窗口（"MCP, backup has …"）下主谓不一致，措辞改为无谓语句式规避
+  it("英文多窗口：无谓语句式点名窗口，规避主谓一致问题（percent 档）", () => {
+    mockLang = "en";
+    const html = render("percent", [
+      { remaining: 1, unit: "CNY", plan_name: "MCP" },
+      { remaining: 2, unit: "CNY", plan_name: "backup" },
+    ]);
+    expect(html).toContain("No percent data for MCP, backup; showing amount instead");
+    expect(html).not.toContain("has no percent data");
+  });
+
+  it("英文单窗口与 amount 档反向文案同句式（无名窗口取英文序数）", () => {
+    mockLang = "en";
+    expect(render("percent", [{ remaining: 62.97, unit: "CNY", plan_name: "MCP window" }]))
+      .toContain("No percent data for MCP window; showing amount instead");
+    const html = render("amount", [
+      { used: 42, unit: "%", plan_name: "5h" },
+      { used: 10, unit: "%" },
+    ]);
+    expect(html).toContain("No remaining amount for 5h, window 2; showing percent instead");
+    expect(html).not.toContain("has no remaining amount");
   });
 });
