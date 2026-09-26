@@ -93,6 +93,12 @@ export const zh = {
   "usage.markerDelta": "时间差 {span}",
   "usage.markerRate": "平均消耗 {rate}",
   "usage.markerPeakBurn": "峰值消耗 {rate}（{at}）",
+  "usage.markerNet": "净消耗 {value}",
+  "usage.markerNetObservedBurn": "已观测累计消耗 {value}",
+  "usage.markerNetObservedRecovery": "已观测累计恢复 {value}",
+  "usage.markerNetUnobserved": "未观测净变化 {value}",
+  "usage.markerNetHint": "已观测消耗 − 已观测恢复 + 未观测净变化 = 净消耗；断档期间的变化无法拆分，仅计净值",
+  "usage.markerNetDetailToggle": "展开或收起净消耗分解",
 
   // ---- 供应商卡片 ----
   "card.disabled": "已停用",

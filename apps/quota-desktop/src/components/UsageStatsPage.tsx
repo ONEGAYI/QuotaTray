@@ -1,15 +1,15 @@
 import { Focus, LocateFixed, Maximize2, MousePointer2, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
 import { api } from "../api";
-import { markerRateText, markerSpanText } from "../display";
+import { markerNetText, markerRateText, markerSpanText, markerUnobservedText } from "../display";
 import { useLang } from "../i18n";
 import { useHistories, useSettings } from "../queries";
 import type { ProviderEntry, Settings, UsageComparisonSeries } from "../types";
 import { UsageComparisonDialog, type UsageComparisonCandidate } from "./UsageComparisonDialog";
 import { detailComparisonIds, initialUsageComparisons, partitionCompatibleUsageScopes, removeUsageComparison, shouldShowFocusedGap, usageComparisonId, usageTooltipDock } from "./usageComparisonView";
 import { Button, DialogShell, SegmentedControl, Tooltip } from "./ui";
-import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, pressUsageMarkerToggle, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageRange, type UsageSample } from "./usageChartView";
+import { addUsageMarker, advanceUsageViewDomain, buildHistorySeries, buildLineGeometry, isolatedUsageSamples, moveUsageMarker, nearestUsageSample, niceAbsoluteScale, pressUsageMarkerToggle, shouldZoomUsageChart, snapUsageMarkerTimestamp, splitUsageSeries, usageMarkerBurnRate, usageMarkerNet, usageMarkerNetBreakdown, usageMarkerPeakBurn, USAGE_MARKER_LIMIT, USAGE_RANGES, usageSmoothingRadius, type HistorySeries, type UsageDomain, type UsageNetBreakdown, type UsageRange, type UsageSample } from "./usageChartView";
 import { createLegendHoverController, focusPlatformInfo, legendTriggerVisible, buildLegendItems, pressLegendRemove, toggleSeriesFocus, type LegendHoverController, type LegendItem } from "./usageLegendView";
 
 interface UsageScope extends HistorySeries {
@@ -80,6 +80,9 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const [markerDragActive, setMarkerDragActive] = useState(false);
   const [markerMode, setMarkerMode] = useState(false);
   const [markersOverride, setMarkersOverride] = useState<number[] | null>(null);
+  // 净消耗分解展开态：桌面悬停/键盘聚焦（宽限收起）、Android 点击 disclosure 共用
+  const [netDetailOpen, setNetDetailOpen] = useState(false);
+  const netDetailId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const previousTotalRef = useRef<UsageDomain>(viewDomain);
   const autoInitRef = useRef(false);
@@ -148,17 +151,30 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
     legendHoverRef.current = controller;
     return () => { controller.dispose(); legendHoverRef.current = null; };
   }, [closeLegend]);
-  // 单一 Esc 监听按层级收起：先收读数 popover，再退定位线模式，避免一次按键双退出
+  // 净消耗分解浮层（桌面）：悬停宽限收起复用聚焦浮层同款控制器——鼠标穿越
+  // 净消耗文本与上方分解卡片之间的空隙时先挂起 240ms，回到任一侧即取消；
+  // Android 不绑定悬停（分解走点击 disclosure），控制器实例无害空转
+  const netDetailHoverRef = useRef<LegendHoverController | null>(null);
+  const closeNetDetail = useCallback(() => { netDetailHoverRef.current?.cancelClose(); setNetDetailOpen(false); }, []);
+  const openNetDetail = useCallback(() => { netDetailHoverRef.current?.cancelClose(); setNetDetailOpen(true); }, []);
   useEffect(() => {
-    if (!markerMode && !legendOpen) return;
+    const controller = createLegendHoverController(closeNetDetail);
+    netDetailHoverRef.current = controller;
+    return () => { controller.dispose(); netDetailHoverRef.current = null; };
+  }, [closeNetDetail]);
+  // 单一 Esc 监听按层级收起：先收净消耗分解，再收读数 popover，最后退定位线模式，
+  // 避免一次按键双退出
+  useEffect(() => {
+    if (!markerMode && !legendOpen && !netDetailOpen) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (legendOpen) closeLegend();
+      if (netDetailOpen) closeNetDetail();
+      else if (legendOpen) closeLegend();
       else setMarkerMode(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeLegend, legendOpen, markerMode]);
+  }, [closeLegend, closeNetDetail, legendOpen, markerMode, netDetailOpen]);
   useEffect(() => {
     if (settings.data?.usage_comparison_series !== null) {
       autoInitRef.current = false;
@@ -307,6 +323,13 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
   const pageState = providersLoading || settings.isLoading ? { kind: "loading", message: t("usage.loadingProviders") } : providersError ? { kind: "error", message: t("usage.providersError", { msg: String(providersError) }) } : settings.isError ? { kind: "error", message: t("usage.settingsError", { msg: String(settings.error) }) } : providers.length === 0 ? { kind: "empty", message: t("usage.noProviders") } : effectiveSelection.length === 0 ? { kind: "empty", message: t("usage.emptySelection") } : scopes.length === 0 && histories.some((query) => query.isLoading) ? { kind: "loading", message: t("usage.loadingHistory") } : scopes.length === 0 ? { kind: "empty", message: t("usage.emptyHistory") } : null;
   const partialErrors = histories.filter((query) => query.isError).length;
   const cursorRows = cursor ? detailScopes.map((scope) => ({ scope, sample: nearestSample(scope, cursor.timestamp) })) : [];
+  // 净消耗分解行（桌面悬停浮层与 Android 点击展开块共用同一内容）
+  const renderNetDetailRows = (rows: UsageNetBreakdown, metric: HistorySeries["metric"], unit: string) => <>
+    <span>{t("usage.markerNetObservedBurn", { value: markerNetText(rows.observedBurn, metric, unit) })}</span>
+    <span>{t("usage.markerNetObservedRecovery", { value: markerNetText(rows.observedRecovery, metric, unit) })}</span>
+    <span>{t("usage.markerNetUnobserved", { value: markerUnobservedText(rows.unobservedNet, metric, unit) })}</span>
+    <span className="qt-usage-marker-net-hint">{t("usage.markerNetHint")}</span>
+  </>;
   // 聚焦组合行列表为桌面浮层与移动端模态窗共用：同一组件、同一样式、同一删除流程
   const legendRows = legendItems.map((item) => { const armed = armedRemoveId === item.id; const scope = item.available ? scopes.find((entry) => entry.id === item.id) ?? null : null; const current = scope ? scope.samples[scope.samples.length - 1] : null; return <div key={item.id} className="qt-usage-legend-row" style={{ "--qt-series-color": SERIES_COLORS[item.colorSlot] } as CSSProperties}>{scope ? <button type="button" className="qt-usage-legend-focus" aria-pressed={focusedId === item.id} onClick={() => setFocusedId((value) => toggleSeriesFocus(value, item.id))}><i /><span>{item.name}</span><strong>{current ? formatNumber(current.value, scope.metric) : "—"}</strong></button> : <span className="qt-usage-legend-offline" data-tooltip={t("usage.unavailable")}><i /><span>{item.name}</span><strong>—</strong></span>}<button type="button" className={`qt-usage-legend-remove ${armed ? "is-armed" : ""}`} aria-label={armed ? t("usage.legendRemoveArmed") : t("usage.remove")} data-tooltip={armed ? t("usage.legendRemoveArmed") : ""} disabled={removePending} onClick={() => removeScope(item)}>{armed ? <Trash2 size={13} aria-hidden="true" /> : <X size={13} aria-hidden="true" />}</button></div>; });
 
@@ -328,9 +351,38 @@ export function UsageStatsPage({ providers, providersLoading, providersError, mo
           {sorted.length === 2 && <span className="qt-usage-marker-delta">{t("usage.markerDelta", { span: markerSpanText(Math.abs(sorted[1] - sorted[0]), lang) })}{focusedScope && (() => {
             const rate = usageMarkerBurnRate(focusedScope, sorted);
             const peak = usageMarkerPeakBurn(focusedScope, sorted);
-            return <>{rate != null && <span className="qt-usage-marker-rate">{t("usage.markerRate", { rate: markerRateText(rate, focusedScope.metric, focusedScope.unit) })}</span>}
-              {peak && <span className="qt-usage-marker-rate">{t("usage.markerPeakBurn", { rate: markerRateText(peak.ratePerHour, focusedScope.metric, focusedScope.unit), at: dateFormatter.format(peak.from.timestamp) })}</span>}</>;
+            const net = usageMarkerNet(focusedScope, sorted);
+            const breakdown = usageMarkerNetBreakdown(focusedScope, sorted);
+            return <>
+              {net != null && breakdown && <span
+                className="qt-usage-marker-net-wrap"
+                onMouseEnter={mobile ? undefined : openNetDetail}
+                onMouseLeave={mobile ? undefined : () => netDetailHoverRef.current?.scheduleClose()}
+              >
+                {!mobile ? <span
+                  className="qt-usage-marker-net"
+                  tabIndex={0}
+                  aria-describedby={netDetailOpen ? netDetailId : undefined}
+                  onFocus={openNetDetail}
+                  onBlur={closeNetDetail}
+                >{t("usage.markerNet", { value: markerNetText(net, focusedScope.metric, focusedScope.unit) })}</span> : <button
+                  type="button"
+                  className="qt-usage-marker-net qt-usage-marker-net-toggle qt-touch-inline"
+                  aria-expanded={netDetailOpen}
+                  aria-controls={netDetailId}
+                  aria-label={t("usage.markerNetDetailToggle")}
+                  onClick={() => setNetDetailOpen((value) => !value)}
+                >{t("usage.markerNet", { value: markerNetText(net, focusedScope.metric, focusedScope.unit) })}</button>}
+                {netDetailOpen && !mobile && <span className="qt-usage-marker-net-detail is-popover" id={netDetailId} role="tooltip">{renderNetDetailRows(breakdown, focusedScope.metric, focusedScope.unit)}</span>}
+              </span>}
+              {rate != null && <span className="qt-usage-marker-rate">{t("usage.markerRate", { rate: markerRateText(rate, focusedScope.metric, focusedScope.unit) })}</span>}
+              {peak && <span className="qt-usage-marker-rate">{t("usage.markerPeakBurn", { rate: markerRateText(peak.ratePerHour, focusedScope.metric, focusedScope.unit), at: dateFormatter.format(peak.from.timestamp) })}</span>}
+            </>;
           })()}</span>}
+          {mobile && sorted.length === 2 && focusedScope && netDetailOpen && (() => {
+            const breakdown = usageMarkerNetBreakdown(focusedScope, sorted);
+            return breakdown ? <div className="qt-usage-marker-net-detail is-expanded" id={netDetailId}>{renderNetDetailRows(breakdown, focusedScope.metric, focusedScope.unit)}</div> : null;
+          })()}
         </>;
       })()}</div>
       <div className={`qt-usage-chart-wrap ${isDragging ? "is-dragging" : ""}`} onWheelCapture={onWheel}>
