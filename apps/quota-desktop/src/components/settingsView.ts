@@ -174,12 +174,20 @@ export function resolveNotificationPermissionAction({
 }
 
 /** 设置页签的消费时序（纯函数）：对话框打开时消费 initialTab——含
- * 「开着期间 prop 变化」的直达场景（消息卡片「查看更新」在设置页已开
- * 时再次触发也要生效）；关闭/未打开不消费（关闭重置由调用方 onClose
- * 负责，此后自然回退默认页签）。 */
+ *  「开着期间 prop 变化」的直达场景（消息卡片「查看更新」在设置页已开
+ *  时再次触发也要生效）；关闭/未打开不消费（关闭重置由调用方 onClose
+ *  负责，此后自然回退默认页签）。 */
 export function resolveTabOnOpen<T extends string>(open: boolean, initialTab: T, current: T): T {
   return open ? initialTab : current;
 }
+
+/** 设置对话框的页签联合（#133 新增网络环境页）：SettingsDialog 的
+ *  页签 state 与 App 的直达入口（openSettingsAt）此前各持一份字面量、
+ *  加页签时常漏同步，收敛为单一事实源。导航顺序见 SETTINGS_TAB_ORDER。 */
+export type SettingsTab = "general" | "update" | "network" | "data";
+
+/** 页签导航顺序（nav 按钮渲染序）：常规 → 更新 → 网络环境 → 数据管理。 */
+export const SETTINGS_TAB_ORDER: readonly SettingsTab[] = ["general", "update", "network", "data"];
 
 /** 后台刷新周期的可选档位（分钟）：与后端 sanitize 收口区间（15..=360）
  * 一致；小于 60 分钟的档位以分钟文案呈现，更长档位以小时呈现（调用方

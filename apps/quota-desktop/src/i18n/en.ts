@@ -322,6 +322,7 @@ export const en: Record<TextKey, string> = {
   "settings.ringUnitsHint": "Balance represented by each tray ring",
   "settings.tabGeneral": "General",
   "settings.tabUpdate": "Update",
+  "settings.tabNetwork": "Network",
   "settings.tabData": "Data",
   "settings.transferTitle": "Cross-machine transfer",
   "settings.transferDescription": "Move providers, credentials, pricing, custom models, and query history",
@@ -415,6 +416,9 @@ export const en: Record<TextKey, string> = {
   "settings.updateProxyHost": "Network proxy host",
   "settings.updateProxyHostTitle": "Network proxy host",
   "settings.updateProxyHostHint": "IP or hostname of the proxy; empty means local (127.0.0.1). On Android, enter your PC's LAN IP to use its proxy (enable Allow LAN in the proxy app)",
+  // #133: pointer shown on the Update tab after proxy fields moved to Network
+  "settings.proxyMovedHint": "Proxy host and port are configured on the Network page.",
+  "settings.proxyMovedOpen": "Go to Network",
   "settings.updateAutoDownloadTitle": "Auto-download installer",
   "settings.updateAutoDownloadHint": "Silently download new versions when detected (installed builds only); you will be asked before installing",
   "settings.currentVersion": "Current version",

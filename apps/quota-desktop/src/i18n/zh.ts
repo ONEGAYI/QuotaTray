@@ -290,6 +290,7 @@ export const zh = {
   "settings.save": "保存设置",
   "settings.tabGeneral": "常规",
   "settings.tabUpdate": "更新",
+  "settings.tabNetwork": "网络环境",
   "settings.tabData": "数据管理",
   "settings.transferTitle": "跨机器迁移",
   "settings.transferDescription": "迁移供应商、凭据、定价、自定义模型与查询历史",
@@ -414,6 +415,9 @@ export const zh = {
   "settings.updateProxyHost": "网络代理主机",
   "settings.updateProxyHostTitle": "网络代理主机",
   "settings.updateProxyHostHint": "代理主机的 IP 或域名，留空走本机（127.0.0.1）；Android 端要经电脑代理时填其局域网 IP，且代理软件需允许局域网连接",
+  // #133：代理字段迁入「网络环境」页后，更新页的指路提示
+  "settings.proxyMovedHint": "代理主机与端口可在「网络环境」页配置。",
+  "settings.proxyMovedOpen": "前往网络环境",
   "settings.updateAutoDownloadTitle": "自动下载安装包",
   "settings.updateAutoDownloadHint": "检测到新版本时静默下载（仅安装版），完成后经消息与通知询问安装",
   "settings.currentVersion": "当前版本",

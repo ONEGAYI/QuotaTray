@@ -11,6 +11,7 @@ import { MainPanelTabs } from "./components/MainPanelTabs";
 import { MobileBottomNavigation, MobileTopBar } from "./components/MobileChrome";
 import { ProviderCard } from "./components/ProviderCard";
 import { SettingsDialog } from "./components/SettingsDialog";
+import type { SettingsTab } from "./components/settingsView";
 import { TitleBar } from "./components/TitleBar";
 import { UsageStatsPage } from "./components/UsageStatsPage";
 import type { CenterMessage } from "./components/messageCenterView";
@@ -131,8 +132,8 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 设置页初始页签：消息卡片「查看更新」等入口需要直达特定页，
   // 每次打开消费一次（关闭后重置回默认 general）
-  const [settingsTab, setSettingsTab] = useState<"general" | "update" | "data">("general");
-  const openSettingsAt = (tab: "general" | "update" | "data") => {
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const openSettingsAt = (tab: SettingsTab) => {
     setSettingsTab(tab);
     setSettingsOpen(true);
   };

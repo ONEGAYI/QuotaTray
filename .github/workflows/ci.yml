@@ -73,6 +73,7 @@ jobs:
           pnpm test:android-tauri
           pnpm test:mobile-style
           pnpm test:edit-style
+          pnpm test:settings-style
           pnpm test:dev
       - name: Lint
         run: pnpm lint

@@ -5,6 +5,7 @@ import {
   formatDownloadProgress,
   resolveNotificationPermissionAction,
   backgroundIntervalOptions,
+  SETTINGS_TAB_ORDER,
   resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
@@ -13,6 +14,7 @@ import {
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
+  type SettingsTab,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -271,6 +273,21 @@ describe("设置页签消费时序", () => {
 
   it("关闭/未打开不消费——页签状态保持（重置由 onClose 负责）", () => {
     expect(resolveTabOnOpen(false, "update", "general")).toBe("general");
+  });
+});
+
+describe("设置页签集合（#133 网络环境页）", () => {
+  it("页签顺序：常规 → 更新 → 网络环境 → 数据管理", () => {
+    expect([...SETTINGS_TAB_ORDER]).toEqual(["general", "update", "network", "data"]);
+  });
+
+  it("页签顺序与联合类型一致（导航渲染不出现类型外的页签）", () => {
+    const allTabs: SettingsTab[] = ["general", "update", "network", "data"];
+    for (const tab of SETTINGS_TAB_ORDER) expect(allTabs).toContain(tab);
+  });
+
+  it("打开设置可直达网络环境页（更新页指路入口的目标页签）", () => {
+    expect(resolveTabOnOpen<SettingsTab>(true, "network", "general")).toBe("network");
   });
 });
 
