@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from tree_tool import (  # noqa: E402
     ToolError,
+    MergeDecisionError,
     TreeTool,
     _cmd_add,
     _cmd_add_batch,
@@ -39,6 +42,7 @@ from tree_tool import (  # noqa: E402
     insert_block_at_line,
     is_canonical_text,
     normalize_data,
+    merge_data,
     remove_view_block,
     render_silhouette,
     replace_block,
@@ -119,6 +123,235 @@ class SortKeyTest(unittest.TestCase):
     def test_case_insensitive_then_codepoint(self):
         names = ["b.ts", "A.ts", "a.ts", "B.ts", "_x", "Zz"]
         self.assertEqual(sorted(names, key=sort_key), ["_x", "A.ts", "a.ts", "B.ts", "b.ts", "Zz"])
+
+
+class MergeDataTest(unittest.TestCase):
+    def test_entry_named_filter_merges_independent_fields(self):
+        base = {"tree": {"filter": {"desc": "旧", "detail": ["旧"]}}}
+        ours = {"tree": {"filter": {"desc": "新", "detail": ["旧"]}}}
+        theirs = {"tree": {"filter": {"desc": "旧", "detail": ["新"]}}}
+        merged = merge_data(base, ours, theirs)
+        self.assertEqual(merged["status"], "merged")
+        self.assertEqual(merged["result"]["tree"]["filter"]["desc"], "新")
+        self.assertEqual(merged["result"]["tree"]["filter"]["detail"], ["新"])
+
+    def test_decision_for_new_conflict_cannot_retarget_after_prior_choice_changes(self):
+        node = lambda desc: {"desc": desc, "detail": [desc]}
+        base = {"tree": {"a.md": node("甲"), "b.md": node("乙"), "c.md": node("丙")}}
+        ours = {"tree": {"b.md": node("乙")}}
+        theirs = {"tree": {
+            "a.md": {**node("甲"), "rel": ["c.md"]},
+            "b.md": {**node("乙"), "rel": ["a.md"]},
+            "c.md": node("丙"),
+        }}
+        first = merge_data(base, ours, theirs)
+        primary = first["conflicts"][0]["id"]
+        with self.assertRaises(MergeDecisionError) as discovered:
+            merge_data(base, ours, theirs, {primary: {"action": "theirs"}})
+        old_secondary = discovered.exception.details["missing_conflicts"][0]
+        self.assertEqual(old_secondary["path"], "a.md")
+        with self.assertRaises(MergeDecisionError) as changed:
+            merge_data(base, ours, theirs, {
+                primary: {"action": "ours"},
+                old_secondary["id"]: {"action": "delete"},
+            })
+        self.assertEqual(changed.exception.code, "decision_mismatch")
+        self.assertIn(old_secondary["id"], changed.exception.details["unknown_ids"])
+        self.assertEqual(changed.exception.details["missing_conflicts"][0]["path"], "b.md")
+
+    def test_view_anchor_deleted_on_other_branch_becomes_agent_conflict(self):
+        anchor = {"desc": "锚点", "children": {}}
+        base = {"tree": {"a": anchor}}
+        ours = {"tree": {"a": anchor},
+                "views": {"v": {"filter": {"op": "under", "path": "a"}}}}
+        theirs = {"tree": {}}
+        plan = merge_data(base, ours, theirs)
+        self.assertEqual(plan["status"], "needs_decisions")
+        self.assertEqual((plan["conflicts"][0]["reason"], plan["conflicts"][0]["scope"],
+                          plan["conflicts"][0]["path"]),
+                         ("invalid_view_reference", "views", "v"))
+        fixed = merge_data(base, ours, theirs, {plan["conflicts"][0]["id"]: {"action": "delete"}})
+        self.assertEqual(fixed["status"], "merged")
+        self.assertNotIn("views", fixed["result"])
+
+    def test_entry_named_kind_survives_recursive_merge(self):
+        base = {"tree": {"kind": {"desc": "保留", "detail": ["原文件"]}}}
+        ours = {"tree": {"kind": {"desc": "保留", "detail": ["原文件"]},
+                         "a.md": {"desc": "甲", "detail": ["甲"]}}}
+        theirs = {"tree": {"kind": {"desc": "保留", "detail": ["原文件"]},
+                           "b.md": {"desc": "乙", "detail": ["乙"]}}}
+        merged = merge_data(base, ours, theirs)
+        self.assertEqual(set(merged["result"]["tree"]), {"kind", "a.md", "b.md"})
+
+    def test_new_semantic_conflict_after_first_decision_is_fully_reported(self):
+        base = {"tree": {"a.md": {"desc": "旧", "detail": ["甲"]},
+                         "b.md": {"desc": "乙", "detail": ["乙"]}}}
+        ours = {"tree": {"a.md": {"desc": "本", "detail": ["甲"], "rel": ["b.md"]},
+                         "b.md": {"desc": "乙", "detail": ["乙"]}}}
+        theirs = {"tree": {"a.md": {"desc": "对", "detail": ["甲"]}}}
+        first = merge_data(base, ours, theirs)
+        first_id = first["conflicts"][0]["id"]
+        self.assertEqual(first["unresolved"], [first_id])
+        with self.assertRaises(MergeDecisionError) as caught:
+            merge_data(base, ours, theirs, {first_id: {"action": "ours"}})
+        self.assertEqual(caught.exception.code, "decision_mismatch")
+        missing = caught.exception.details["missing_conflicts"]
+        self.assertEqual((missing[0]["reason"], missing[0]["path"], missing[0]["field"]),
+                         ("invalid_reference", "a.md", "rel"))
+        self.assertTrue(missing[0]["id"].startswith("c_"))
+
+    def test_reference_broken_by_independent_changes_becomes_agent_conflict(self):
+        base = {"tree": {"a.md": {"desc": "甲", "detail": ["甲"]},
+                         "b.md": {"desc": "乙", "detail": ["乙"]}}}
+        ours = {"tree": {"a.md": {"desc": "甲", "detail": ["甲"], "rel": ["b.md"]},
+                         "b.md": {"desc": "乙", "detail": ["乙"]}}}
+        theirs = {"tree": {"a.md": {"desc": "甲", "detail": ["甲"]}}}
+        plan = merge_data(base, ours, theirs)
+        self.assertEqual(plan["status"], "needs_decisions")
+        self.assertEqual((plan["conflicts"][0]["reason"], plan["conflicts"][0]["path"],
+                          plan["conflicts"][0]["field"]),
+                         ("invalid_reference", "a.md", "rel"))
+        fixed = merge_data(base, ours, theirs, {plan["conflicts"][0]["id"]: {"action": "delete"}})
+        self.assertEqual(fixed["status"], "merged")
+        self.assertNotIn("rel", fixed["result"]["tree"]["a.md"])
+
+    def test_nested_entry_conflict_has_exact_path_and_field(self):
+        base = {"tree": {"apps": {"desc": "目录", "children": {
+            "a.md": {"desc": "旧", "detail": ["详情"]},
+        }}}}
+        ours = {"tree": {"apps": {"desc": "目录", "children": {
+            "a.md": {"desc": "甲", "detail": ["详情"]},
+        }}}}
+        theirs = {"tree": {"apps": {"desc": "目录", "children": {
+            "a.md": {"desc": "乙", "detail": ["详情"]},
+        }}}}
+        conflict = merge_data(base, ours, theirs)["conflicts"][0]
+        self.assertEqual((conflict["path"], conflict["field"]), ("apps/a.md", "desc"))
+
+    def test_merges_independent_entries_and_fields(self):
+        base = {"tree": {"a.md": {"desc": "旧", "detail": ["旧详情"]}}}
+        ours = {"tree": {"a.md": {"desc": "新", "detail": ["旧详情"]},
+                         "b.md": {"desc": "乙", "detail": ["乙详情"]}}}
+        theirs = {"tree": {"a.md": {"desc": "旧", "detail": ["新详情"]},
+                           "c.md": {"desc": "丙", "detail": ["丙详情"]}}}
+        plan = merge_data(base, ours, theirs)
+        self.assertEqual(plan["status"], "merged")
+        self.assertEqual(plan["conflicts"], [])
+        self.assertEqual(set(plan["result"]["tree"]), {"a.md", "b.md", "c.md"})
+        self.assertEqual(plan["result"]["tree"]["a.md"]["desc"], "新")
+        self.assertEqual(plan["result"]["tree"]["a.md"]["detail"], ["新详情"])
+
+    def test_reports_same_field_conflict_and_applies_agent_decision(self):
+        base = {"tree": {"a.md": {"desc": "旧", "detail": ["详情"]}}}
+        ours = {"tree": {"a.md": {"desc": "甲", "detail": ["详情"]}}}
+        theirs = {"tree": {"a.md": {"desc": "乙", "detail": ["详情"]}}}
+        plan = merge_data(base, ours, theirs)
+        self.assertEqual(plan["status"], "needs_decisions")
+        self.assertIsNone(plan["result"])
+        self.assertEqual(plan["conflicts"], [{
+            "id": plan["conflicts"][0]["id"], "reason": "both_changed_field", "scope": "tree",
+            "path": "a.md", "field": "desc",
+            "base": {"present": True, "value": "旧"},
+            "ours": {"present": True, "value": "甲"},
+            "theirs": {"present": True, "value": "乙"},
+            "actions": ["base", "ours", "theirs", "set"],
+        }])
+        resolved = merge_data(base, ours, theirs, {plan["conflicts"][0]["id"]: {"action": "set", "value": "合并"}})
+        self.assertEqual(resolved["status"], "merged")
+        self.assertEqual(resolved["result"]["tree"]["a.md"]["desc"], "合并")
+
+
+class MergeCommandTest(unittest.TestCase):
+    def test_two_phase_merge_reads_git_stages_and_writes_only_after_decisions(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        script = root / ".agents" / "skills" / "file-tree" / "scripts" / "tree_tool.py"
+        script.parent.mkdir(parents=True)
+        shutil.copy2(Path(__file__).with_name("tree_tool.py"), script)
+        tree_path = script.parent.parent / "tree.json"
+        tree_path.write_text("<<<<<<< ours\n=======\n>>>>>>> theirs\n", encoding="utf-8")
+        (root / "AGENTS.md").write_text("# AGENTS\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        rel = ".agents/skills/file-tree/tree.json"
+        subprocess.run(["git", "add", "-f", "--", rel], cwd=root, check=True)
+        versions = [
+            {"tree": {"a.md": {"desc": "旧", "detail": ["详情"]}}},
+            {"tree": {"a.md": {"desc": "甲", "detail": ["详情"]},
+                      "b.md": {"desc": "新增", "detail": ["新增"]}}},
+            {"tree": {"a.md": {"desc": "乙", "detail": ["详情"]}}},
+        ]
+        index_lines = [f"0 {'0' * 40}\t{rel}\n"]
+        for stage, data in enumerate(versions, 1):
+            blob = subprocess.run(
+                ["git", "hash-object", "-w", "--stdin"], cwd=root, check=True,
+                input=compact_dumps(normalize_data(data)), text=True, capture_output=True,
+                encoding="utf-8",
+            ).stdout.strip()
+            index_lines.append(f"100644 {blob} {stage}\t{rel}\n")
+        subprocess.run(["git", "update-index", "--add", "--index-info"], cwd=root, check=True,
+                       input="".join(index_lines).encode("ascii"))
+
+        first = subprocess.run([sys.executable, str(script), "merge"], cwd=root,
+                               text=True, capture_output=True, encoding="utf-8")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        plan = json.loads(first.stdout)
+        self.assertEqual(plan["status"], "needs_decisions")
+        self.assertEqual(plan["conflicts"][0]["field"], "desc")
+        self.assertEqual(tree_path.read_text(encoding="utf-8"), "<<<<<<< ours\n=======\n>>>>>>> theirs\n")
+
+        conflict_id = plan["conflicts"][0]["id"]
+        invalid_cases = [
+            ("missing", {"merge_id": plan["merge_id"], "decisions": []}, "decision_mismatch", [conflict_id]),
+            ("unknown", {"merge_id": plan["merge_id"], "decisions": [
+                {"id": conflict_id, "action": "ours"}, {"id": "c999", "action": "ours"},
+            ]}, "decision_mismatch", ["c999"]),
+            ("duplicate", {"merge_id": plan["merge_id"], "decisions": [
+                {"id": conflict_id, "action": "ours"}, {"id": conflict_id, "action": "theirs"},
+            ]}, "duplicate_decision", [conflict_id]),
+            ("stale", {"merge_id": "stale", "decisions": [
+                {"id": conflict_id, "action": "ours"},
+            ]}, "stale_merge_id", ["重新运行 merge"]),
+            ("action", {"merge_id": plan["merge_id"], "decisions": [
+                {"id": conflict_id, "action": "guess"},
+            ]}, "invalid_action", [conflict_id]),
+            ("value", {"merge_id": plan["merge_id"], "decisions": [
+                {"id": conflict_id, "action": "set"},
+            ]}, "missing_value", [conflict_id]),
+            ("shape", {"merge_id": plan["merge_id"], "decisions": {}},
+             "invalid_decision_file", ["decisions"]),
+            ("invalid_result", {"merge_id": plan["merge_id"], "decisions": [
+                {"id": conflict_id, "action": "set", "value": 17},
+            ]}, "invalid_result", [conflict_id, "desc"]),
+        ]
+        for label, payload, code, hints in invalid_cases:
+            with self.subTest(label=label):
+                bad_path = root / f"{label}.json"
+                bad_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                bad = subprocess.run([sys.executable, str(script), "merge", "--decisions", str(bad_path)],
+                                     cwd=root, text=True, capture_output=True, encoding="utf-8")
+                self.assertEqual(bad.returncode, 2, bad.stderr)
+                error = json.loads(bad.stdout)
+                self.assertEqual(error["status"], "invalid_decisions")
+                self.assertEqual(error["error"]["code"], code)
+                self.assertFalse(error["tree_json_written"])
+                for hint in hints:
+                    self.assertIn(hint, json.dumps(error, ensure_ascii=False))
+                self.assertEqual(tree_path.read_text(encoding="utf-8"),
+                                 "<<<<<<< ours\n=======\n>>>>>>> theirs\n")
+
+        decisions = root / "decisions.json"
+        decisions.write_text(json.dumps({"merge_id": plan["merge_id"], "decisions": [
+            {"id": plan["conflicts"][0]["id"], "action": "set", "value": "合并"},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        second = subprocess.run([sys.executable, str(script), "merge", "--decisions", str(decisions)],
+                                cwd=root, text=True, capture_output=True, encoding="utf-8")
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(second.stdout)["status"], "merged")
+        merged = json.loads(tree_path.read_text(encoding="utf-8"))
+        self.assertEqual(merged["tree"]["a.md"]["desc"], "合并")
+        self.assertIn("b.md", merged["tree"])
+        self.assertEqual(tree_path.read_text(encoding="utf-8"), compact_dumps(merged))
 
 
 class SplitPathTest(unittest.TestCase):
