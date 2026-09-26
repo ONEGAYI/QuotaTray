@@ -1,4 +1,6 @@
-import type { DownloadProgress } from "../types";
+import type { UiLang, TextKey } from "../i18n/zh";
+import { relativeTime } from "../display";
+import type { CatalogStatus, DownloadProgress } from "../types";
 
 export type UpdateViewStatus = "checking" | "available" | "error" | "current";
 
@@ -198,3 +200,66 @@ export function backgroundIntervalOptions(): BackgroundIntervalOption[] {
       : { minutes, kind: "hours" as const, unit: minutes / 60 },
   );
 }
+
+/** 目录状态行描述（#134，纯函数、双语）：revision · 来源 · 上次检查。
+ *  来源标签本地化（bundled=内置 / cached=已缓存）；最近检查跟随
+ *  last_attempt_ms（无论成败）；失败时附重试口径——仅自动更新开启时
+ *  承诺「至少 30 分钟后自动重试」（关闭后无自动重试可说）。
+ *  nowMs 可选注入时钟（契约测试可控，缺省取当前时间）。 */
+export function catalogDescription(
+  status: CatalogStatus | undefined,
+  opts: { lang: UiLang; autoUpdate: boolean; nowMs?: number },
+): string {
+  if (!status) return "";
+  const zh = opts.lang === "zh";
+  const parts = [
+    `revision ${status.revision}`,
+    zh
+      ? status.origin === "bundled"
+        ? "内置"
+        : "已缓存"
+      : status.origin === "bundled"
+        ? "bundled"
+        : "cached",
+  ];
+  if (status.last_attempt_ms != null) {
+    const time = relativeTime(status.last_attempt_ms, opts.lang, opts.nowMs);
+    if (status.last_error) {
+      parts.push(
+        opts.autoUpdate
+          ? zh
+            ? `上次检查 ${time}（失败，至少 30 分钟后自动重试）`
+            : `last checked ${time} (failed; retries no sooner than 30 minutes later)`
+          : zh
+            ? `上次检查 ${time}（失败）`
+            : `last checked ${time} (failed)`,
+      );
+    } else {
+      parts.push(zh ? `上次检查 ${time}` : `last checked ${time}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+/** 目录自动更新周期小字（#134）的逻辑键：开关状态 × 平台 → i18n 键。
+ *  开启态桌面/移动措辞分叉——Android 调度仅前台执行（回前台补检），
+ *  文案不得暗示退后台或进程结束后仍定时联网；关闭态两平台统一
+ *  （说明仍可手动「立即更新」）。 */
+export type CatalogScheduleHint = "on-desktop" | "on-mobile" | "off";
+
+export function resolveCatalogScheduleHint({
+  enabled,
+  mobile,
+}: {
+  enabled: boolean;
+  mobile: boolean;
+}): CatalogScheduleHint {
+  if (!enabled) return "off";
+  return mobile ? "on-mobile" : "on-desktop";
+}
+
+export const CATALOG_SCHEDULE_HINT_KEYS: Record<CatalogScheduleHint, TextKey> = {
+  "on-desktop": "settings.catalogScheduleOnDesktop",
+  "on-mobile": "settings.catalogScheduleOnMobile",
+  off: "settings.catalogScheduleOff",
+};

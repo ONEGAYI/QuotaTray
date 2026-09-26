@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { en } from "../i18n/en";
+import { zh } from "../i18n/zh";
 import {
+  catalogDescription,
   downloadPercent,
   formatBytes,
   formatDownloadProgress,
   resolveNotificationPermissionAction,
   backgroundIntervalOptions,
+  resolveCatalogScheduleHint,
   resolveTabOnOpen,
   resolveUpdateAction,
   resolveUpdateError,
@@ -286,6 +290,156 @@ describe("后台刷新周期档位", () => {
     for (const option of options) {
       expect(option.minutes).toBeGreaterThanOrEqual(15);
       expect(option.minutes).toBeLessThanOrEqual(360);
+    }
+  });
+});
+
+describe("目录状态行描述（catalogDescription，#134）", () => {
+  const NOW = Date.UTC(2026, 8, 26, 12, 0, 0);
+  const base = {
+    revision: 42,
+    origin: "cached" as const,
+    fallback_reason: null,
+    last_success_ms: null,
+  };
+
+  it("未加载（undefined）返回空串", () => {
+    expect(catalogDescription(undefined, { lang: "zh", autoUpdate: true, nowMs: NOW })).toBe("");
+  });
+
+  it("基础态：revision 与来源标签双语（bundled / cached）", () => {
+    expect(
+      catalogDescription(
+        { ...base, origin: "bundled", last_attempt_ms: null, last_error: null },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 内置");
+    expect(
+      catalogDescription(
+        { ...base, origin: "bundled", last_attempt_ms: null, last_error: null },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · bundled");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: null, last_error: null },
+        { lang: "zh", autoUpdate: false, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: null, last_error: null },
+        { lang: "en", autoUpdate: false, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached");
+  });
+
+  it("最近检查跟随注入时钟：成功态呈现相对时间", () => {
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 2 * 3_600_000, last_error: null },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存 · 上次检查 2 小时前");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 2 * 3_600_000, last_error: null },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached · last checked 2h ago");
+  });
+
+  it("从未检查（last_attempt 缺失）不出现「上次检查」段", () => {
+    const text = catalogDescription(
+      { ...base, last_attempt_ms: null, last_error: null },
+      { lang: "zh", autoUpdate: true, nowMs: NOW },
+    );
+    expect(text).not.toContain("上次检查");
+  });
+
+  it("检查失败且自动更新开启：失败标记附 30 分钟重试口径", () => {
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+        { lang: "zh", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · 已缓存 · 上次检查 3 分钟前（失败，至少 30 分钟后自动重试）");
+    expect(
+      catalogDescription(
+        { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+        { lang: "en", autoUpdate: true, nowMs: NOW },
+      ),
+    ).toBe("revision 42 · cached · last checked 3m ago (failed; retries no sooner than 30 minutes later)");
+  });
+
+  it("检查失败且自动更新关闭：失败可见但不承诺自动重试", () => {
+    const zhText = catalogDescription(
+      { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+      { lang: "zh", autoUpdate: false, nowMs: NOW },
+    );
+    expect(zhText).toContain("失败");
+    expect(zhText).not.toContain("重试");
+    const enText = catalogDescription(
+      { ...base, last_attempt_ms: NOW - 3 * 60_000, last_error: "HTTP 500" },
+      { lang: "en", autoUpdate: false, nowMs: NOW },
+    );
+    expect(enText).toContain("failed");
+    expect(enText).not.toContain("retr");
+  });
+});
+
+describe("目录自动更新周期小字（#134）", () => {
+  it("开关状态映射：开启分平台（桌面/移动措辞分叉），关闭统一", () => {
+    expect(resolveCatalogScheduleHint({ enabled: true, mobile: false })).toBe("on-desktop");
+    expect(resolveCatalogScheduleHint({ enabled: true, mobile: true })).toBe("on-mobile");
+    expect(resolveCatalogScheduleHint({ enabled: false, mobile: false })).toBe("off");
+    expect(resolveCatalogScheduleHint({ enabled: false, mobile: true })).toBe("off");
+  });
+
+  it("三键中英成对非空互异（漏键由 en 的 Record 类型在编译期拦截）", () => {
+    const keys = [
+      "settings.catalogScheduleOnDesktop",
+      "settings.catalogScheduleOnMobile",
+      "settings.catalogScheduleOff",
+    ] as const;
+    for (const key of keys) {
+      expect(zh[key].trim()).not.toBe("");
+      expect(en[key].trim()).not.toBe("");
+      expect(zh[key]).not.toBe(en[key]);
+    }
+  });
+
+  it("开启文案说明约每 6 小时检查（中英一致口径）", () => {
+    expect(zh["settings.catalogScheduleOnDesktop"]).toContain("6 小时");
+    expect(en["settings.catalogScheduleOnDesktop"]).toContain("6 hours");
+    expect(zh["settings.catalogScheduleOnMobile"]).toContain("6 小时");
+    expect(en["settings.catalogScheduleOnMobile"]).toContain("6 hours");
+  });
+
+  it("Android 口径：开启文案以前台为准，不暗示退后台仍定时联网", () => {
+    expect(zh["settings.catalogScheduleOnMobile"]).toContain("前台");
+    expect(en["settings.catalogScheduleOnMobile"]).toContain("foreground");
+    expect(zh["settings.catalogScheduleOnMobile"]).not.toContain("后台");
+    expect(en["settings.catalogScheduleOnMobile"].toLowerCase()).not.toContain("background");
+  });
+
+  it("关闭文案：说明仍可手动「立即更新」", () => {
+    expect(zh["settings.catalogScheduleOff"]).toContain("立即更新");
+    expect(en["settings.catalogScheduleOff"]).toContain("Update now");
+  });
+
+  it("目录相关文案不声称每日更新（开关说明与小字全量排查）", () => {
+    const keys = [
+      "settings.catalogAutoUpdateHint",
+      "settings.catalogScheduleOnDesktop",
+      "settings.catalogScheduleOnMobile",
+      "settings.catalogScheduleOff",
+    ] as const;
+    for (const key of keys) {
+      for (const text of [zh[key], en[key]]) {
+        const lowered = text.toLowerCase();
+        expect(lowered).not.toMatch(/每天|每日|daily|every day/);
+      }
     }
   });
 });

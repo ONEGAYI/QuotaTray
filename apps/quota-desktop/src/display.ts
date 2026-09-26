@@ -21,10 +21,15 @@ export function kindLabel(
   }
 }
 
-/** 相对时间："刚刚 / N 秒前 / …"（分档与 tray.rs relative_time 一致）。 */
-export function relativeTime(atMs: number | null | undefined, lang: UiLang): string {
+/** 相对时间："刚刚 / N 秒前 / …"（分档与 tray.rs relative_time 一致）。
+ *  nowMs 可选注入时钟（契约测试可控，缺省取当前时间）。 */
+export function relativeTime(
+  atMs: number | null | undefined,
+  lang: UiLang,
+  nowMs: number = Date.now(),
+): string {
   if (!atMs) return "—";
-  const secs = Math.floor((Date.now() - atMs) / 1000);
+  const secs = Math.floor((nowMs - atMs) / 1000);
   const zh = lang === "zh";
   if (secs < 10) return zh ? "刚刚" : "just now";
   if (secs < 60) return zh ? `${secs} 秒前` : `${secs}s ago`;
