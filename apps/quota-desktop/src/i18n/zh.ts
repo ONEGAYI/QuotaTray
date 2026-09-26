@@ -382,6 +382,9 @@ export const zh = {
   "settings.threshold": "低额度提醒阈值（已用 %）",
   "settings.thresholdTitle": "低余额提醒",
   "settings.thresholdHint": "额度使用达到该比例时显示提醒",
+  "settings.recoveryThresholdTitle": "额度恢复提醒",
+  "settings.recoveryThresholdHint": "额度从低额度恢复至该剩余比例时提醒",
+  "settings.recoveryThresholdConflict": "恢复阈值须高于低额度对应的剩余阈值（100 − 已用阈值），请调整后再保存",
   "settings.autostart": "开机自启",
   "settings.autostartHint": "登录 Windows 后自动运行到托盘",
   "settings.notificationsTitle": "系统通知",
@@ -469,6 +472,8 @@ export const zh = {
   "msgCenter.updateGoToHint": "到「设置 · 更新」下载并安装",
   "msgCenter.lowBalanceTitle": "余额提醒",
   "msgCenter.lowBalanceBody": "{name} 已用 {percent}%",
+  "msgCenter.balanceRecoveredTitle": "额度已恢复",
+  "msgCenter.balanceRecoveredBody": "{name} 额度已恢复，剩余 {remaining}%",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "峰谷定价",
   "pricing.unit": "所有价格单位均为每百万 Tokens",

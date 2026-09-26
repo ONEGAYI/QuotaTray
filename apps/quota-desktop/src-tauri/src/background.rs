@@ -4,10 +4,11 @@
 //! MainActivity 与 tauri run() 均不执行，本模块必须完全自足：按传入
 //! dataDir 现开 vault/engine/settings/history；结果只落 history.db
 //! （不碰内存 results 与 cache.json——避免与前台实例双写竞态，卡片
-//! 数值回前台由既有轮询/聚焦刷新追上）；低余额边沿判定与前台命令
-//! 路径共享 [`crate::state::LOW_BALANCE_NOTIFIED`] 全局静态（否则冷热
-//! 两路各自首次达标会双份通知）；通知不直接发送，以 JSON 返回由
-//! Kotlin Worker 直发（渠道元数据随返回值携带，Rust 是渠道 id/名称
+//! 数值回前台由既有轮询/聚焦刷新追上）；低余额/恢复边沿判定与前台命令
+//! 路径共享 [`crate::state::LOW_BALANCE_NOTIFIED`] 全局静态及其磁盘镜像
+//! `alert_state.json`（否则冷热两路各自首次达标会双份通知；恢复事件的
+//! 待展示消息落盘，前台下次启动读取入列）；通知不直接发送，以 JSON
+//! 返回由 Kotlin Worker 直发（渠道元数据随返回值携带，Rust 是渠道 id/名称
 //! 的单一数据源，Kotlin 幂等建渠道）。
 //!
 //! 决策与组装纯函数全平台编译（host 单测）；IO 编排与 JNI 导出仅
@@ -91,7 +92,9 @@ mod android {
         BackgroundRefreshResult, ChannelInfo, NotificationItem, build_result,
         decide_background_refresh,
     };
-    use crate::commands::{LowBalanceEdge, low_balance_breach, low_balance_edge};
+    use crate::commands::{
+        BalanceAlertAction, balance_alert_edge, balance_recovery_reached, low_balance_breach,
+    };
     use crate::i18n::Lang;
     use crate::settings::Settings;
     use crate::state::{DataPaths, LOW_BALANCE_NOTIFIED};
@@ -163,6 +166,11 @@ mod android {
             log::warn!("后台刷新：配置读取失败，本轮跳过");
             return bail();
         };
+        // 低额度登记从磁盘灌入（#132 跨重启）：WorkManager 冷启动拉起的
+        // 新进程里 LOW_BALANCE_NOTIFIED 为空，不灌入会把已处于低额度
+        // （或已恢复待重新进入）的条目重复判定通知；并集语义不冲掉
+        // 本进程（前台实例同进程）已有登记
+        crate::alert_state::hydrate_low_balance_notified(&paths.alert_state());
         let mut fresh = Vec::new();
         for entry in cfg.providers.iter().filter(|p| p.enabled) {
             // 桌面 CLI 凭据条目在 Android 无凭据来源，跳过（同前台口径）
@@ -182,12 +190,17 @@ mod android {
                 // Worker 抢先登记全局会吞掉前台命令路径的首次达标
                 // （refetch_and_store 变 Silent，红点与通知都不产生）
                 if decision.notify {
-                    collect_low_balance(
-                        &lang,
-                        &entry.id,
-                        &entry.name,
-                        &data,
-                        settings.low_balance_threshold_percent,
+                    collect_balance_alerts(
+                        BalanceAlertJob {
+                            lang: &lang,
+                            paths: &paths,
+                            id: &entry.id,
+                            name: &entry.name,
+                            data: &data,
+                            low_threshold: settings.low_balance_threshold_percent,
+                            recovery_threshold: settings.balance_recovery_threshold_percent,
+                            at,
+                        },
                         &mut fresh,
                     );
                 }
@@ -203,36 +216,95 @@ mod android {
         )
     }
 
-    /// 低余额边沿判定 + 通知文案组装（复用前台路径的判定三件套与
-    /// 全局登记；锁内只碰集合，文案组装在锁外）。
-    fn collect_low_balance(
-        lang: &Lang,
-        id: &str,
-        name: &str,
-        data: &[UsageData],
-        threshold: u8,
-        out: &mut Vec<NotificationItem>,
-    ) {
-        let breach = low_balance_breach(data, threshold);
-        let is_notify = {
+    /// 单条目提醒判定的输入束（collect_balance_alerts 独参打包，
+    /// 避免参数清单过长）。
+    struct BalanceAlertJob<'a> {
+        lang: &'a Lang,
+        paths: &'a DataPaths,
+        id: &'a str,
+        name: &'a str,
+        data: &'a [UsageData],
+        low_threshold: u8,
+        recovery_threshold: u8,
+        at: u64,
+    }
+
+    /// 低额度/恢复边沿判定 + 通知文案组装（复用前台路径的裁决与全局
+    /// 登记；锁内只碰集合，文案组装在锁外）。恢复事件额外把待展示
+    /// 消息落盘（#132：Worker 无前端可广播，前台下次启动经
+    /// take_recovery_messages 读取入列，读取即清）；落盘失败仅日志
+    /// （回退会话语义，系统通知不受影响）。
+    fn collect_balance_alerts(job: BalanceAlertJob<'_>, out: &mut Vec<NotificationItem>) {
+        let BalanceAlertJob {
+            lang,
+            paths,
+            id,
+            name,
+            data,
+            low_threshold,
+            recovery_threshold,
+            at,
+        } = job;
+        let breach = low_balance_breach(data, low_threshold);
+        let reached = balance_recovery_reached(data, recovery_threshold);
+        let action = {
             let mut notified = LOW_BALANCE_NOTIFIED.lock().unwrap();
-            match low_balance_edge(notified.contains(id), breach) {
-                LowBalanceEdge::Notify => {
+            let action = balance_alert_edge(notified.contains(id), breach, reached);
+            match action {
+                BalanceAlertAction::LowNotify { .. } => {
                     notified.insert(id.to_string());
-                    true
                 }
-                LowBalanceEdge::Reset => {
+                BalanceAlertAction::Recovered { .. } | BalanceAlertAction::LowReset => {
                     notified.remove(id);
-                    false
                 }
-                LowBalanceEdge::Silent => false,
+                BalanceAlertAction::Silent => {}
             }
+            action
         };
-        if is_notify && let Some(percent) = breach {
-            out.push(NotificationItem {
-                title: lang.low_balance_notify_title(),
-                body: lang.low_balance_notify_body(name, percent.round() as u32),
-            });
+        match action {
+            BalanceAlertAction::LowNotify { percent } => {
+                commit_quietly(paths, &[id], &[], None);
+                out.push(NotificationItem {
+                    title: lang.low_balance_notify_title(),
+                    body: lang.low_balance_notify_body(name, percent.round() as u32),
+                });
+            }
+            BalanceAlertAction::Recovered { remaining_percent } => {
+                let notice = crate::alert_state::RecoveryNotice {
+                    provider_id: id.to_string(),
+                    name: name.to_string(),
+                    remaining_percent,
+                    at,
+                };
+                commit_quietly(paths, &[], &[id], Some(notice));
+                out.push(NotificationItem {
+                    title: lang.balance_recovered_notify_title(),
+                    body: lang
+                        .balance_recovered_notify_body(name, remaining_percent.round() as u32),
+                });
+            }
+            BalanceAlertAction::LowReset => {
+                commit_quietly(paths, &[], &[id], None);
+            }
+            BalanceAlertAction::Silent => {}
+        }
+    }
+
+    /// 边沿变化落盘的告警包装（与前台 commit_alert_edge_quietly 同口径，
+    /// Worker 侧无法共享 AppHandle 之外的 state，直接传 paths）。
+    fn commit_quietly(
+        paths: &DataPaths,
+        low_added: &[&str],
+        low_removed: &[&str],
+        recovery: Option<crate::alert_state::RecoveryNotice>,
+    ) {
+        if let Err(e) = crate::alert_state::commit_low_edge(
+            &paths.alert_state(),
+            low_added,
+            low_removed,
+            recovery,
+        ) {
+            log::warn!("后台刷新：提醒状态落盘失败（本轮不跨重启保留）：{e}");
         }
     }
 

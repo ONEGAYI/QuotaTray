@@ -15,6 +15,19 @@ export interface UsageData {
   extra?: unknown;
 }
 
+/** 待展示的额度恢复消息（#132；后端 alert_state.json 落盘、前端启动
+ * take_recovery_messages 读取即清）。字段名沿用后端 RecoveryNotice 的
+ * snake_case。 */
+export interface RecoveryNotice {
+  provider_id: string;
+  /** 条目显示名（触发时刻快照）。 */
+  name: string;
+  /** 最低剩余百分比（0-100，参与判定的 % 窗口中最保守值）。 */
+  remaining_percent: number;
+  /** 恢复事件时刻（epoch 毫秒）。 */
+  at: number;
+}
+
 /** 历史库单点的 IPC 镜像；字段名沿用 core HistoryPoint 的 snake_case。 */
 export interface HistoryPoint {
   window_key: string;
@@ -235,6 +248,8 @@ export interface CustomModelDef {
 export interface Settings {
   refresh_interval_minutes: number;
   low_balance_threshold_percent: number;
+  /** 额度恢复提醒阈值（剩余 %，#132）；合法组合须高于 100 − 低额度已用阈值 */
+  balance_recovery_threshold_percent: number;
   autostart: boolean;
   /** "zh" | "en" | "system" */
   language: string;
@@ -276,6 +291,7 @@ export interface Settings {
 export interface SettingsPatch {
   refresh_interval_minutes?: number;
   low_balance_threshold_percent?: number;
+  balance_recovery_threshold_percent?: number;
   autostart?: boolean;
   language?: string;
   theme?: string;

@@ -36,6 +36,7 @@ import {
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
+  thresholdCombinationValid,
 } from "./settingsView";
 import {
   defaultTransferFileName,
@@ -378,7 +379,17 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
         ) : (
           <>
             <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button variant="primary" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+            <Button
+              variant="primary"
+              disabled={
+                save.isPending ||
+                !thresholdCombinationValid(
+                  draft.low_balance_threshold_percent,
+                  draft.balance_recovery_threshold_percent,
+                )
+              }
+              onClick={() => save.mutate(draft)}
+            >
               {save.isPending ? t("common.saving") : t("settings.save")}
             </Button>
           </>
@@ -448,6 +459,36 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   <span>%</span>
                 </div>
               </SettingRow>
+              <SettingRow
+                title={t("settings.recoveryThresholdTitle")}
+                description={t("settings.recoveryThresholdHint")}
+              >
+                <div className="qt-number-control">
+                  <input
+                    className="qt-input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={draft.balance_recovery_threshold_percent}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        balance_recovery_threshold_percent: Number(event.target.value),
+                      })
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </SettingRow>
+              {!thresholdCombinationValid(
+                draft.low_balance_threshold_percent,
+                draft.balance_recovery_threshold_percent,
+              ) && (
+                <p className="qt-inline-error" role="alert">
+                  {t("settings.recoveryThresholdConflict")}
+                </p>
+              )}
               {mobile && (
                 <SettingRow title={t("titlebar.language")} description={t("settings.mobileLanguageHint")}>
                   <select

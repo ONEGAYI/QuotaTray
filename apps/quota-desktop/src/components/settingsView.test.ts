@@ -13,6 +13,7 @@ import {
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
+  thresholdCombinationValid,
 } from "./settingsView";
 
 describe("更新设置视图", () => {
@@ -287,5 +288,29 @@ describe("后台刷新周期档位", () => {
       expect(option.minutes).toBeGreaterThanOrEqual(15);
       expect(option.minutes).toBeLessThanOrEqual(360);
     }
+  });
+});
+
+describe("阈值组合校验（恢复剩余阈值 vs 低额度已用阈值）", () => {
+  it("合法组合：恢复剩余阈值高于低额度对应的剩余阈值（100 − 已用阈值）", () => {
+    // 默认组合
+    expect(thresholdCombinationValid(80, 95)).toBe(true);
+    // 和恰超 100
+    expect(thresholdCombinationValid(80, 21)).toBe(true);
+    expect(thresholdCombinationValid(6, 95)).toBe(true);
+    // 边界极端值（0+100 恰衔接：已用 0 同时落在两个判定区间，非法）
+    expect(thresholdCombinationValid(100, 1)).toBe(true);
+    expect(thresholdCombinationValid(1, 100)).toBe(true);
+    expect(thresholdCombinationValid(0, 100)).toBe(false);
+  });
+
+  it("非法组合：两阈值之和 ≤ 100（恢复线不高于低额度剩余线）", () => {
+    // 和恰为 100：恢复线贴住低额度线
+    expect(thresholdCombinationValid(80, 20)).toBe(false);
+    expect(thresholdCombinationValid(6, 94)).toBe(false);
+    // 和低于 100
+    expect(thresholdCombinationValid(50, 50)).toBe(false);
+    // 极端：低额度线拉满时恢复线 0 非法
+    expect(thresholdCombinationValid(100, 0)).toBe(false);
   });
 });
