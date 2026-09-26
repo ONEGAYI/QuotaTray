@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
-import type { ImportCounts, ImportOptions, TransferContainerInfo } from "../types";
+import type { ImportOptions, ImportOutcome, TransferContainerInfo } from "../types";
 import { transferErrorMessage } from "./configTransferView";
 import { stepCountdown } from "./clearConfigView";
 import {
@@ -38,7 +38,7 @@ export function TransferImportDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onImport: (path: string, options: ImportOptions) => Promise<ImportCounts>;
+  onImport: (path: string, options: ImportOptions) => Promise<ImportOutcome>;
   /** Android SAF 文件选择按 MIME 过滤（与导出同口径）。 */
   mobile?: boolean;
 }) {
