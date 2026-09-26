@@ -361,6 +361,7 @@ mod tests {
                 provider_id: "AB2C3D".into(),
                 window_key: "w0".into(),
                 color_slot: 0,
+                metric: None,
             }]),
             usage_marker_lines: Some(vec![1_700_000_000_000, 1_700_086_000_000]),
         };
@@ -417,31 +418,37 @@ mod tests {
                     provider_id: "p1".into(),
                     window_key: "w1".into(),
                     color_slot: 3,
+                    metric: None,
                 },
                 quota_core::UsageComparisonSeries {
                     provider_id: "p1".into(),
                     window_key: "w1".into(),
                     color_slot: 0,
+                    metric: None,
                 },
                 quota_core::UsageComparisonSeries {
                     provider_id: "p2".into(),
                     window_key: "w2".into(),
                     color_slot: 3,
+                    metric: None,
                 },
                 quota_core::UsageComparisonSeries {
                     provider_id: "p3".into(),
                     window_key: "w3".into(),
                     color_slot: 8,
+                    metric: None,
                 },
                 quota_core::UsageComparisonSeries {
                     provider_id: "p4".into(),
                     window_key: "w4".into(),
                     color_slot: 1,
+                    metric: None,
                 },
                 quota_core::UsageComparisonSeries {
                     provider_id: "p5".into(),
                     window_key: "w5".into(),
                     color_slot: 2,
+                    metric: None,
                 },
             ]),
             ..Settings::default()
@@ -475,6 +482,7 @@ mod tests {
                 provider_id: "  ".into(),
                 window_key: "w0".into(),
                 color_slot: 0,
+                metric: None,
             }]),
             ..Settings::default()
         };

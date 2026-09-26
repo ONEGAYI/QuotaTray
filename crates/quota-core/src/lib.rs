@@ -31,7 +31,7 @@ pub use config::{
     AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, ExportOptions,
     ImportCounts, ImportOptions, ImportStrategy, MAX_EXPORT_SIZE, MAX_USAGE_COMPARISON_SERIES,
     PlanVariant, ProviderEntry, ProviderKind, TransferBundle, TransferContainerInfo, TransferMode,
-    UsageComparisonSeries, export_config, export_config_to_path,
+    UsageComparisonSeries, UsageMetric, export_config, export_config_to_path,
     export_config_to_path_with_options, export_config_to_path_with_usage,
     export_config_with_options, export_config_with_usage, import_config,
     import_config_bytes_to_path_with_options, import_config_from_path,

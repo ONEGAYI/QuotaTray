@@ -2866,6 +2866,7 @@ mod tests {
             provider_id: "p1".into(),
             window_key: "w0".into(),
             color_slot: 0,
+            metric: None,
         }];
         export_configuration_at(
             &source_path,
@@ -3189,6 +3190,7 @@ mod tests {
             provider_id: provider.into(),
             window_key: "w0".into(),
             color_slot: slot,
+            metric: None,
         };
         let local = vec![series("p1", 0)];
         let incoming = vec![series("p1", 1), series("p2", 2)];
@@ -3962,6 +3964,7 @@ mod tests {
                     provider_id: "p1".into(),
                     window_key: "w1".into(),
                     color_slot: 0,
+                    metric: None,
                 }]),
                 ..SettingsPatch::default()
             },
@@ -3988,6 +3991,7 @@ mod tests {
                 provider_id: "p1".into(),
                 window_key: "w1".into(),
                 color_slot: 2,
+                metric: None,
             }]),
             ..Settings::default()
         };
@@ -4009,11 +4013,13 @@ mod tests {
                 provider_id: "p1".into(),
                 window_key: "w1".into(),
                 color_slot: 0,
+                metric: None,
             },
             quota_core::UsageComparisonSeries {
                 provider_id: "p2".into(),
                 window_key: "w2".into(),
                 color_slot: 1,
+                metric: None,
             },
         ]);
 

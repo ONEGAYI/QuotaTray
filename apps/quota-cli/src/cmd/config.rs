@@ -548,6 +548,7 @@ mod tests {
             provider_id: provider.into(),
             window_key: "five_hour".into(),
             color_slot: slot,
+            metric: None,
         }
     }
 
