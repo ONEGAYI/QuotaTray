@@ -13,6 +13,7 @@ import {
   FileDown,
   FileUp,
   FolderOpen,
+  Globe,
   PackageCheck,
   SlidersHorizontal,
   Trash2,
@@ -36,6 +37,7 @@ import {
   resolveUpdateStatus,
   runtimeLabel,
   savedApkIsCurrent,
+  type SettingsTab,
 } from "./settingsView";
 import {
   defaultTransferFileName,
@@ -53,10 +55,9 @@ interface Props {
   mobile?: boolean;
   /** 打开时定位到的页签（消息卡片「查看更新」直达更新页）；默认 general，
    * 每次打开消费一次。 */
-  initialTab?: Tab;
+  initialTab?: SettingsTab;
 }
 
-type Tab = "general" | "update" | "data";
 type TransferFeedback = { kind: "success" | "error"; text: string };
 
 /** 目录状态行：revision · 来源 · 最近检查（后端 CatalogStatusDto）。 */
@@ -75,7 +76,7 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
   const catalog = useCatalogStatus();
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogMessage, setCatalogMessage] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<SettingsTab>("general");
   useEffect(() => {
     setTab((current) => resolveTabOnOpen(open, initialTab, current));
   }, [open, initialTab]);
@@ -405,6 +406,14 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
           </button>
           <button
             type="button"
+            aria-selected={tab === "network"}
+            onClick={() => setTab("network")}
+          >
+            <Globe size={16} aria-hidden="true" />
+            {t("settings.tabNetwork")}
+          </button>
+          <button
+            type="button"
             aria-selected={tab === "data"}
             onClick={() => setTab("data")}
           >
@@ -472,49 +481,6 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                     <option value="dark">{t("settings.themeDark")}</option>
                     <option value="system">{t("settings.themeSystem")}</option>
                   </select>
-                </SettingRow>
-              )}
-              {mobile && (
-                <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
-                  <input
-                    className="qt-input"
-                    type="text"
-                    placeholder="127.0.0.1"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    value={draft.update_proxy_host ?? ""}
-                    onChange={(event) => {
-                      // 空 → null（清空 = 回退本机 127.0.0.1）；
-                      // trim/scheme 剥离由后端 sanitize 收口
-                      setDraft({
-                        ...draft,
-                        update_proxy_host: event.target.value || null,
-                      });
-                    }}
-                  />
-                </SettingRow>
-              )}
-              {mobile && (
-                <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
-                  <input
-                    className="qt-input"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    step={1}
-                    value={draft.update_proxy_port ?? ""}
-                    onChange={(event) => {
-                      const raw = event.target.value;
-                      const parsed = Number(raw);
-                      setDraft({
-                        ...draft,
-                        update_proxy_port:
-                          raw === "" || !Number.isFinite(parsed)
-                            ? null
-                            : Math.min(65535, Math.max(1, Math.round(parsed))),
-                      });
-                    }}
-                  />
                 </SettingRow>
               )}
               {!mobile && <SettingRow
@@ -841,45 +807,18 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   {catalogMessage && <span className="qt-hint">{catalogMessage}</span>}
                 </div>
               </SettingRow>
-              <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
-                <input
-                  className="qt-input"
-                  type="text"
-                  placeholder="127.0.0.1"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  value={draft.update_proxy_host ?? ""}
-                  onChange={(event) => {
-                    // 空 → null（清空 = 回退本机 127.0.0.1）；
-                    // trim/scheme 剥离由后端 sanitize 收口
-                    setDraft({
-                      ...draft,
-                      update_proxy_host: event.target.value || null,
-                    });
-                  }}
-                />
-              </SettingRow>
-              <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
-                <input
-                  className="qt-input"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  step={1}
-                  value={draft.update_proxy_port ?? ""}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    const parsed = Number(raw);
-                    // 空/非法输入 → null（直连）；超界收到 1..65535，
-                    // 与后端 sanitize 的兜底同语义
-                    const port =
-                      raw === "" || !Number.isFinite(parsed)
-                        ? null
-                        : Math.min(65535, Math.max(1, Math.round(parsed)));
-                    setDraft({ ...draft, update_proxy_port: port });
-                  }}
-                />
-              </SettingRow>
+              {/* #133：代理主机/端口迁入「网络环境」页，此处只留指路入口
+                  （句中 qt-inline-link，移动端伪元素外扩热区见 T-010） */}
+              <p className="qt-settings-manual-hint">
+                {t("settings.proxyMovedHint")}{" "}
+                <button
+                  type="button"
+                  className="qt-inline-link"
+                  onClick={() => setTab("network")}
+                >
+                  {t("settings.proxyMovedOpen")}
+                </button>
+              </p>
               {available && !available.downloadable && (
                 <a
                   className="qt-settings-manual-link"
@@ -971,6 +910,50 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   )}
                 </p>
               )}
+            </>
+          ) : tab === "network" ? (
+            <>
+              {/* 代理设置统一入口（#133）：同时服务更新检测、安装包下载
+                  及选择走代理的条目查询；桌面与 Android 同渲染 */}
+              <SettingRow title={t("settings.updateProxyHostTitle")} description={t("settings.updateProxyHostHint")}>
+                <input
+                  className="qt-input"
+                  type="text"
+                  placeholder="127.0.0.1"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  value={draft.update_proxy_host ?? ""}
+                  onChange={(event) => {
+                    // 空 → null（清空 = 回退本机 127.0.0.1）；
+                    // trim/scheme 剥离由后端 sanitize 收口
+                    setDraft({
+                      ...draft,
+                      update_proxy_host: event.target.value || null,
+                    });
+                  }}
+                />
+              </SettingRow>
+              <SettingRow title={t("settings.updateProxyPortTitle")} description={t("settings.updateProxyPortHint")}>
+                <input
+                  className="qt-input"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  step={1}
+                  value={draft.update_proxy_port ?? ""}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    const parsed = Number(raw);
+                    // 空/非法输入 → null（直连）；超界收到 1..65535，
+                    // 与后端 sanitize 的兜底同语义
+                    const port =
+                      raw === "" || !Number.isFinite(parsed)
+                        ? null
+                        : Math.min(65535, Math.max(1, Math.round(parsed)));
+                    setDraft({ ...draft, update_proxy_port: port });
+                  }}
+                />
+              </SettingRow>
             </>
           ) : (
             <>
