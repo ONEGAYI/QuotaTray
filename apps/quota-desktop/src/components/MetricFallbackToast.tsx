@@ -3,6 +3,7 @@
 // 结果逐窗口看，何时关由用户决定，实现内无任何自动隐藏定时器）。
 // 回退判定收敛于 display.ts 的 metricFallbackWindows 纯函数（契约测试
 // 锁三态矩阵）；auto 或清单空时组件自判不呈现，调用方只喂偏好与窗口数据。
+import { useState } from "react";
 import { metricFallbackWindows } from "../display";
 import { useLang } from "../i18n";
 import type { PrimaryMetric, UsageData } from "../types";
@@ -39,4 +40,25 @@ export function MetricFallbackToast(props: {
       </div>
     </div>
   );
+}
+
+/** 试查回退 toast 的门控 hook（PR #146 review 抽取，TemplateForm 与
+ *  ScriptForm 共用一份）：关闭态由用户点关闭驱动（不自动消失），新一轮
+ *  试查调用 reopen 重开（旧结论随旧数据作废）。windows 传试查成功的各
+ *  窗口数据（未出结果时传空数组——节点不渲染）。行为与原先两表单各自
+ *  内联的 fallbackClosed state + 重置 + 条件 JSX 完全一致。 */
+export function useMetricFallbackToast(preference: PrimaryMetric, windows: UsageData[]) {
+  const [closed, setClosed] = useState(false);
+  return {
+    /** 新一轮试查重置关闭态（在 test() 开头调用）。 */
+    reopen: () => setClosed(false),
+    /** 条件渲染的 toast 节点（已关闭为 null；未关闭时由组件自判清单）。 */
+    node: closed ? null : (
+      <MetricFallbackToast
+        preference={preference}
+        windows={windows}
+        onClose={() => setClosed(true)}
+      />
+    ),
+  };
 }

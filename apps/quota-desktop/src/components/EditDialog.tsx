@@ -27,7 +27,7 @@ import { AiAssistPanel } from "./AiAssistPanel";
 import { PRESET_TEMPLATES, matchedPresetId, presetJsonOf, type PresetTemplate } from "./presetTemplates";
 import { PricingSection } from "./PricingSection";
 import { TemplateHelpCard } from "./TemplateHelpCard";
-import { MetricFallbackToast } from "./MetricFallbackToast";
+import { useMetricFallbackToast } from "./MetricFallbackToast";
 import { isValidConsoleUrlInput } from "./providerCardView";
 import { resolveSaveKeys } from "./editDialogView";
 import { resolveGuideDoc } from "./guideDocs";
@@ -646,8 +646,8 @@ function TemplateForm(props: {
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
   const [assistOpen, setAssistOpen] = useState(false);
-  // 回退提示关闭态：toast 不自动消失，只有用户点关闭才隐藏；新试查重开
-  const [fallbackClosed, setFallbackClosed] = useState(false);
+  // 回退提示（spec #137 T-23）：关闭态由共享 hook 门控，新试查重开
+  const fallbackToast = useMetricFallbackToast(props.primaryMetric, testResult?.data ?? []);
   const activePreset = matchedPresetId(props.templateJson);
   const presetLabels: Record<PresetTemplate["id"], TextKey> = {
     custom: "edit.preset.custom",
@@ -681,7 +681,7 @@ function TemplateForm(props: {
     setTesting(true);
     setTestResult(null);
     // 新一轮试查重新点亮回退提示（旧结论随旧数据一起作废）
-    setFallbackClosed(false);
+    fallbackToast.reopen();
     try {
       const r = await api.testTemplate(
         props.templateJson,
@@ -779,13 +779,7 @@ function TemplateForm(props: {
               ))}
               {/* 回退警告（spec #137 T-23）：偏好与窗口数据形态不符时点名
                   窗口，右对齐不自动消失，供对照试查结果逐窗口看 */}
-              {!fallbackClosed && (
-                <MetricFallbackToast
-                  preference={props.primaryMetric}
-                  windows={testResult.data ?? []}
-                  onClose={() => setFallbackClosed(true)}
-                />
-              )}
+              {fallbackToast.node}
             </div>
           ) : (
             <p className={testResult.error?.kind === "transient" ? "qt-text-subdued" : "qt-text-danger"}>
@@ -839,8 +833,8 @@ function ScriptForm(props: {
   const [testResult, setTestResult] = useState<QueryOutcome | null>(null);
   const [testing, setTesting] = useState(false);
   const [assistOpen, setAssistOpen] = useState(false);
-  // 回退提示关闭态：toast 不自动消失，只有用户点关闭才隐藏；新试查重开
-  const [fallbackClosed, setFallbackClosed] = useState(false);
+  // 回退提示（spec #137 T-23）：关闭态由共享 hook 门控，新试查重开
+  const fallbackToast = useMetricFallbackToast(props.primaryMetric, testResult?.data ?? []);
 
   // 后端 IPC 形状：ScriptConfig JSON（code + allowInsecure）
   const configJson = JSON.stringify({
@@ -871,7 +865,7 @@ function ScriptForm(props: {
     setTesting(true);
     setTestResult(null);
     // 新一轮试查重新点亮回退提示（旧结论随旧数据一起作废）
-    setFallbackClosed(false);
+    fallbackToast.reopen();
     try {
       const r = await api.testScript(
         configJson,
@@ -955,13 +949,7 @@ function ScriptForm(props: {
               ))}
               {/* 回退警告（spec #137 T-23）：偏好与窗口数据形态不符时点名
                   窗口，右对齐不自动消失，供对照试查结果逐窗口看 */}
-              {!fallbackClosed && (
-                <MetricFallbackToast
-                  preference={props.primaryMetric}
-                  windows={testResult.data ?? []}
-                  onClose={() => setFallbackClosed(true)}
-                />
-              )}
+              {fallbackToast.node}
             </div>
           ) : (
             <p className={testResult.error?.kind === "transient" ? "qt-text-subdued" : "qt-text-danger"}>
