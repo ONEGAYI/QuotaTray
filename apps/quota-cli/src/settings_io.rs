@@ -315,6 +315,7 @@ mod tests {
             provider_id: "p1".into(),
             window_key: "w1".into(),
             color_slot: 2,
+            metric: None,
         }];
 
         write_usage_comparison(&cfg, Some(&items)).unwrap();
@@ -342,11 +343,13 @@ mod tests {
                 provider_id: " p1 ".into(),
                 window_key: " w1 ".into(),
                 color_slot: 9,
+                metric: None,
             },
             quota_core::UsageComparisonSeries {
                 provider_id: "p1".into(),
                 window_key: "w1".into(),
                 color_slot: 0,
+                metric: None,
             },
         ];
 
@@ -357,6 +360,7 @@ mod tests {
                 provider_id: "p1".into(),
                 window_key: "w1".into(),
                 color_slot: 0,
+                metric: None,
             }])
         );
         std::fs::remove_dir_all(dir).ok();

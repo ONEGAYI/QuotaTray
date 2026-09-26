@@ -19,10 +19,10 @@
 //!
 //! 导入双模（`ImportOptions::strategy`，策略在写入层生效）：合并（默认）
 //! = 不丢本机任何东西——条目按 id 并集（同 id 本机为准）、比较组合按
-//! (provider_id, window_key) 并集（本机为准、超 4 条截断）、历史幂等合并；
-//! 覆盖 = 完全变成备份——配置与比较组合整体替换、历史单事务清空重插
-//! （`HistoryStore::replace_rows`）。既有无 options 的旧导入入口维持
-//! 「整体替换」现状语义（显式按覆盖委托，不受默认合并影响）。
+//! (provider_id, window_key, metric) 并集（本机为准、超 4 条截断）、历史
+//! 幂等合并；覆盖 = 完全变成备份——配置与比较组合整体替换、历史单事务
+//! 清空重插（`HistoryStore::replace_rows`）。既有无 options 的旧导入入口
+//! 维持「整体替换」现状语义（显式按覆盖委托，不受默认合并影响）。
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -91,6 +91,15 @@ const KDF_MAX_MEMORY_KIB: u32 = 1 << 20;
 const KDF_MAX_TIME_COST: u32 = 4096;
 const KDF_MAX_PARALLELISM: u32 = 64;
 
+/// 使用统计比较曲线的度量维度（#143 双产）：同一 Provider 窗口可分别以
+/// 金额（absolute）与百分比（percent）两条曲线进入比较组合。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageMetric {
+    Absolute,
+    Percent,
+}
+
 /// 使用统计中持久化的一条 Provider + 窗口组合。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct UsageComparisonSeries {
@@ -100,12 +109,21 @@ pub struct UsageComparisonSeries {
     pub window_key: String,
     /// 固定颜色槽，合法范围为 `0..MAX_USAGE_COMPARISON_SERIES`。
     pub color_slot: u8,
+    /// 度量维度（#143 双产）：`None` 为存量单选形态（前端按现有派生——
+    /// percent 优先——匹配，升级后行为零变化）；`Some` 时同窗口可与
+    /// 另一度量并存，去重键含此维度。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metric: Option<UsageMetric>,
 }
 
 /// 同屏比较的最大曲线数，也是合法色槽数量。
 pub const MAX_USAGE_COMPARISON_SERIES: usize = 4;
 
 /// 归一化跨端共享的比较组合：裁剪键、按顺序去重、限制四条，并修复色槽。
+///
+/// 去重键为 (provider_id, window_key, metric) 三元组：同窗口的金额与
+/// 百分比两条可共存，同窗口同度量判重；存量缺省（`metric: None`）形态
+/// 原样保留，不与显式度量合并。
 pub fn sanitize_usage_comparison_series(
     items: Vec<UsageComparisonSeries>,
 ) -> Vec<UsageComparisonSeries> {
@@ -117,7 +135,11 @@ pub fn sanitize_usage_comparison_series(
         item.window_key = item.window_key.trim().to_owned();
         if item.provider_id.is_empty()
             || item.window_key.is_empty()
-            || !keys.insert((item.provider_id.clone(), item.window_key.clone()))
+            || !keys.insert((
+                item.provider_id.clone(),
+                item.window_key.clone(),
+                item.metric,
+            ))
         {
             continue;
         }
@@ -142,8 +164,8 @@ pub fn sanitize_usage_comparison_series(
 }
 
 /// 合并模的比较组合并集：本机组合全保留（保序保色槽），备份仅补本机
-/// 没有的 (provider_id, window_key) 键，整体再经 [`sanitize_usage_comparison_series`]
-/// 修复色槽冲突并维持 4 条上限。
+/// 没有的 (provider_id, window_key, metric) 键，整体再经
+/// [`sanitize_usage_comparison_series`] 修复色槽冲突并维持 4 条上限。
 ///
 /// 计数口径：`series_skipped` = 备份中与本机同键（以本机为准）的数量；
 /// `series_added` = 备份中成功并入最终列表的数量；被 4 条上限截断的
@@ -153,14 +175,24 @@ pub fn merge_usage_comparison_series(
     incoming: &[UsageComparisonSeries],
 ) -> (Vec<UsageComparisonSeries>, ImportCounts) {
     let local_series = sanitize_usage_comparison_series(local.to_vec());
-    let local_keys: HashSet<(String, String)> = local_series
+    let local_keys: HashSet<(String, String, Option<UsageMetric>)> = local_series
         .iter()
-        .map(|item| (item.provider_id.clone(), item.window_key.clone()))
+        .map(|item| {
+            (
+                item.provider_id.clone(),
+                item.window_key.clone(),
+                item.metric,
+            )
+        })
         .collect();
     let mut merged = local_series;
     let mut counts = ImportCounts::default();
     for item in sanitize_usage_comparison_series(incoming.to_vec()) {
-        let key = (item.provider_id.clone(), item.window_key.clone());
+        let key = (
+            item.provider_id.clone(),
+            item.window_key.clone(),
+            item.metric,
+        );
         if local_keys.contains(&key) {
             counts.series_skipped += 1;
         } else if merged.len() < MAX_USAGE_COMPARISON_SERIES {
@@ -219,8 +251,8 @@ impl std::fmt::Debug for ExportOptions {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ImportStrategy {
     /// 合并（默认，保守）：条目按 id 并集、同 id 冲突以本机为准（备份条目
-    /// 跳过，无需凭据转写）；比较组合按 (provider_id, window_key) 并集、
-    /// 冲突本机为准、超 4 条截断；历史幂等合并。
+    /// 跳过，无需凭据转写）；比较组合按 (provider_id, window_key, metric)
+    /// 并集、冲突本机为准、超 4 条截断；历史幂等合并。
     #[default]
     Merge,
     /// 覆盖：配置与比较组合整体替换；历史单事务清空本机后重插备份行
@@ -1466,6 +1498,7 @@ mod tests {
             provider_id: "native-a".into(),
             window_key: "Codex（5h）".into(),
             color_slot: 2,
+            metric: None,
         }];
 
         let bytes =
@@ -1514,31 +1547,37 @@ mod tests {
                 provider_id: " p1 ".into(),
                 window_key: " w1 ".into(),
                 color_slot: 3,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "p1".into(),
                 window_key: "w1".into(),
                 color_slot: 0,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "p2".into(),
                 window_key: "w2".into(),
                 color_slot: 3,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "p3".into(),
                 window_key: "w3".into(),
                 color_slot: 9,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "p4".into(),
                 window_key: "w4".into(),
                 color_slot: 1,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "p5".into(),
                 window_key: "w5".into(),
                 color_slot: 2,
+                metric: None,
             },
         ];
 
@@ -1672,6 +1711,7 @@ mod tests {
             provider_id: "native-a".into(),
             window_key: "five_hour".into(),
             color_slot: 1,
+            metric: None,
         }];
 
         let bytes = export_config_with_options(
@@ -1962,6 +2002,7 @@ mod tests {
             provider_id: "native-a".into(),
             window_key: "five_hour".into(),
             color_slot: 0,
+            metric: None,
         }];
 
         // v1：裸 AppConfig 载荷。
@@ -2549,11 +2590,13 @@ mod tests {
                 provider_id: "native-a".into(),
                 window_key: "w1".into(),
                 color_slot: 0,
+                metric: None,
             },
             UsageComparisonSeries {
                 provider_id: "template-b".into(),
                 window_key: "w2".into(),
                 color_slot: 1,
+                metric: None,
             },
         ];
         export_config_to_path_with_usage(
@@ -2620,6 +2663,7 @@ mod tests {
             provider_id: provider_id.into(),
             window_key: window_key.into(),
             color_slot,
+            metric: None,
         };
 
         // 本机 2 + 备份 3（1 键重叠）→ 本机全保留 + 新增 2，恰满 cap 4。
@@ -2701,5 +2745,118 @@ mod tests {
         let bytes = export_config(&sample_config(&source_vault), &source_vault, None).unwrap();
         let bundle = import_config(&bytes, &Vault::open(&InMemoryStore::new()).unwrap()).unwrap();
         assert_eq!(bundle.counts, ImportCounts::default());
+    }
+
+    // ---- 统计曲线双产：比较组合 metric 维度（工单 #143 / T-25）----
+
+    fn metric_series(
+        provider_id: &str,
+        window_key: &str,
+        color_slot: u8,
+        metric: Option<UsageMetric>,
+    ) -> UsageComparisonSeries {
+        UsageComparisonSeries {
+            provider_id: provider_id.into(),
+            window_key: window_key.into(),
+            color_slot,
+            metric,
+        }
+    }
+
+    /// 契约：存量无 metric 的持久化组合升级后 roundtrip 行为零变化——
+    /// 缺省解析为 `None`、sanitize 原样保留、序列化不落 metric 键
+    /// （缺省映射前端现有单选派生）。
+    #[test]
+    fn usage_comparison_without_metric_roundtrips_unchanged() {
+        let legacy_json = r#"[{"provider_id":"p1","window_key":"w1","color_slot":0}]"#;
+        let items: Vec<UsageComparisonSeries> = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].metric, None);
+
+        let sanitized = sanitize_usage_comparison_series(items.clone());
+        assert_eq!(sanitized, items, "无 metric 进、无 metric 出");
+
+        let reserialized = serde_json::to_string(&sanitized).unwrap();
+        assert!(!reserialized.contains("metric"), "缺省形态不落 metric 键");
+        assert_eq!(
+            serde_json::from_str::<Vec<UsageComparisonSeries>>(&reserialized).unwrap(),
+            items,
+            "二次 roundtrip 稳定"
+        );
+    }
+
+    /// 契约：同窗口双 metric（金额/百分比）可共存；去重键扩展为
+    /// (provider_id, window_key, metric) 三元组；同窗口双占计入既有
+    /// 4 条上限（上限不放宽）。
+    #[test]
+    fn usage_comparison_same_window_dual_metric_coexists_within_cap() {
+        // 同窗口 percent + absolute 两条共存，仅完全同三元组判重丢弃。
+        let sanitized = sanitize_usage_comparison_series(vec![
+            metric_series("p1", "w1", 0, Some(UsageMetric::Percent)),
+            metric_series("p1", "w1", 1, Some(UsageMetric::Absolute)),
+            metric_series("p1", "w1", 2, Some(UsageMetric::Percent)),
+        ]);
+        assert_eq!(sanitized.len(), 2, "同窗口异 metric 共存、同 metric 判重");
+        assert_eq!(sanitized[0].metric, Some(UsageMetric::Percent));
+        assert_eq!(sanitized[1].metric, Some(UsageMetric::Absolute));
+        assert_eq!(sanitized[1].color_slot, 1, "共存条目各占独立色槽");
+
+        // 同窗口双占计入 4 条上限：第 5 条被截断，上限不放宽。
+        let capped = sanitize_usage_comparison_series(vec![
+            metric_series("p1", "w1", 0, Some(UsageMetric::Percent)),
+            metric_series("p1", "w1", 1, Some(UsageMetric::Absolute)),
+            metric_series("p2", "w2", 2, Some(UsageMetric::Percent)),
+            metric_series("p3", "w3", 3, Some(UsageMetric::Absolute)),
+            metric_series("p4", "w4", 0, Some(UsageMetric::Percent)),
+        ]);
+        assert_eq!(capped.len(), MAX_USAGE_COMPARISON_SERIES);
+        assert!(
+            !capped.iter().any(|item| item.provider_id == "p4"),
+            "同窗口双占不放宽 4 条上限"
+        );
+    }
+
+    /// 契约：合并模按含 metric 的三元组取并集——同窗口同 metric 以本机
+    /// 为准计跳过；同窗口异 metric 视为新键并入；缺省形态独立成键。
+    #[test]
+    fn merge_usage_comparison_series_dedupes_by_metric_key() {
+        let local = vec![metric_series("p1", "w1", 0, Some(UsageMetric::Percent))];
+        let incoming = vec![
+            metric_series("p1", "w1", 3, Some(UsageMetric::Percent)),
+            metric_series("p1", "w1", 2, Some(UsageMetric::Absolute)),
+            metric_series("p1", "w1", 1, None),
+        ];
+        let (merged, counts) = merge_usage_comparison_series(&local, &incoming);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].metric, Some(UsageMetric::Percent));
+        assert_eq!(merged[0].color_slot, 0, "本机条目色槽原样保留");
+        assert_eq!(merged[1].metric, Some(UsageMetric::Absolute));
+        assert_eq!(
+            counts,
+            ImportCounts {
+                providers_added: 0,
+                providers_skipped: 0,
+                series_added: 2,
+                series_skipped: 1,
+            }
+        );
+    }
+
+    /// 契约：metric 维度随迁移包往返，同窗口双度量组合导出导入后保留。
+    #[test]
+    fn usage_comparison_dual_metric_roundtrips_in_container() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let config = sample_config(&source_vault);
+        let comparison = vec![
+            metric_series("native-a", "five_hour", 0, Some(UsageMetric::Percent)),
+            metric_series("native-a", "five_hour", 1, Some(UsageMetric::Absolute)),
+        ];
+
+        let bytes =
+            export_config_with_usage(&config, &source_vault, None, Some(&comparison)).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+
+        assert_eq!(bundle.usage_comparison_series, Some(comparison));
     }
 }

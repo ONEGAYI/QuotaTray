@@ -43,6 +43,10 @@ export interface UsageComparisonSeries {
   provider_id: string;
   window_key: string;
   color_slot: number;
+  /** 度量维度（core `UsageComparisonSeries.metric` 镜像，serde snake_case）：
+   *  缺省 = 存量单选形态（按现有派生 percent 优先匹配）；显式时同窗口可与
+   *  另一度量并存（issue #143 双产）。缺省不落键（skip_serializing_if）。 */
+  metric?: "absolute" | "percent";
 }
 
 /** 导出档位选项（与 Rust core `ExportOptions` 一一对应；serde externally

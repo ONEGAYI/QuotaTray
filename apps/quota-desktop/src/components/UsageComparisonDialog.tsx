@@ -37,10 +37,10 @@ export function UsageComparisonDialog({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const selectedIds = useMemo(() => new Set(selected.map((item) => (
-    usageComparisonId(item.provider_id, item.window_key)
+    usageComparisonId(item.provider_id, item.window_key, item.metric)
   ))), [selected]);
   const selectedUnits = useMemo(() => selected.map((item) => (
-    candidates.find((candidate) => candidate.id === usageComparisonId(item.provider_id, item.window_key))?.unit
+    candidates.find((candidate) => candidate.id === usageComparisonId(item.provider_id, item.window_key, item.metric))?.unit
   )).filter((unit): unit is string => Boolean(unit)), [candidates, selected]);
   const available = useMemo(() => candidates.filter((candidate) => !selectedIds.has(candidate.id)), [candidates, selectedIds]);
   const providers = useMemo(() => [...new Map(available.map((candidate) => [
@@ -131,9 +131,14 @@ export function UsageComparisonDialog({
               <select className="qt-select" value={candidateId} onChange={(event) => setCandidateId(event.target.value)}>
                 {providerCandidates.map((item) => {
                   const itemConflict = usageComparisonConflict(selectedUnits, item.unit);
+                  // 同窗口双度量候选（issue #143）同名，追加度量标注区分
+                  const dualMetric = providerCandidates.some((other) => other.windowKey === item.windowKey && other.metric !== item.metric);
+                  const metricLabel = item.metric === "percent"
+                    ? t("usage.remainingPercent")
+                    : t("usage.absoluteValue", { unit: item.unit });
                   return (
                     <option key={item.id} value={item.id} disabled={Boolean(itemConflict)}>
-                      {item.windowName}{itemConflict ? ` · ${t("usage.unitConflict", { unit: itemConflict })}` : ""}
+                      {item.windowName}{dualMetric ? ` · ${metricLabel}` : ""}{itemConflict ? ` · ${t("usage.unitConflict", { unit: itemConflict })}` : ""}
                     </option>
                   );
                 })}

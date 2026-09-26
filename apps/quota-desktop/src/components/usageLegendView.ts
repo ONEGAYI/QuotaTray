@@ -1,3 +1,4 @@
+import type { UsageMetricType } from "./usageChartView";
 import { usageComparisonId } from "./usageComparisonView";
 
 /** 药丸入口全平台统一渲染：有可比组合即显示；桌面悬停展开浮层，移动端点击打开聚焦模态窗 */
@@ -15,12 +16,14 @@ export function pressLegendRemove(armedId: string | null, id: string): LegendRem
   return armedId === id ? { kind: "removed", id } : { kind: "armed", id };
 }
 
-export interface LegendItemInput { provider_id: string; window_key: string; color_slot: number; }
+export interface LegendItemInput { provider_id: string; window_key: string; metric?: UsageMetricType; color_slot: number; }
 
 export interface LegendItem {
   id: string;
   providerId: string;
   windowKey: string;
+  /** 组合度量维度（issue #143 双产）；失效条目（窗口无候选）可能缺省 */
+  metric?: UsageMetricType;
   colorSlot: number;
   /** 是否存在可绘制的可见曲线（可聚焦）；隐藏/失效条目为 false，仅保留展示与删除 */
   available: boolean;
@@ -34,11 +37,12 @@ export function buildLegendItems(
   candidateNames: ReadonlyMap<string, string>,
 ): LegendItem[] {
   return selections.map((selection) => {
-    const id = usageComparisonId(selection.provider_id, selection.window_key);
+    const id = usageComparisonId(selection.provider_id, selection.window_key, selection.metric);
     return {
       id,
       providerId: selection.provider_id,
       windowKey: selection.window_key,
+      metric: selection.metric,
       colorSlot: selection.color_slot,
       available: availableIds.has(id),
       name: candidateNames.get(id) ?? `${selection.provider_id} · ${selection.window_key}`,

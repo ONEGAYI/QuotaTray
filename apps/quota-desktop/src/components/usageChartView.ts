@@ -117,39 +117,88 @@ export function advanceUsageViewDomain(
   return clampUsageDomain(view, nextTotal);
 }
 
-export function historyPointValue(
-  point: HistoryPoint,
-): { metric: UsageMetricType; quantity: UsageQuantity; value: number; unit: string } | null {
+/** 单个历史点在一条度量轨上的候选值。 */
+export interface UsagePointValue {
+  metric: UsageMetricType;
+  quantity: UsageQuantity;
+  value: number;
+  unit: string;
+}
+
+/** 双产候选（issue #143）：同一窗口按数据可用性独立产出百分比与金额
+ *  两条候选——有百分比原材料（% 单位或 total）即出百分比候选、有金额
+ *  原材料（非 % 单位的 remaining/used）即出金额候选，两者可同时存在；
+ *  任一轨原材料缺失时该轨为 null。 */
+export interface UsagePointCandidates {
+  percent: UsagePointValue | null;
+  absolute: UsagePointValue | null;
+}
+
+function finite(value: number | undefined | null): value is number {
+  return value != null && Number.isFinite(value);
+}
+
+function percentCandidate(point: HistoryPoint): UsagePointValue | null {
+  // 百分比恒剩余口径：remaining 直读，否则由 used 换算（100−used）
   if (point.unit === "%") {
-    if (point.remaining != null && Number.isFinite(point.remaining)) {
+    if (finite(point.remaining)) {
       return { metric: "percent", quantity: "remaining", value: point.remaining, unit: "%" };
     }
-    if (point.used != null && Number.isFinite(point.used)) {
+    if (finite(point.used)) {
       return { metric: "percent", quantity: "remaining", value: 100 - point.used, unit: "%" };
     }
   }
-  if (
-    point.total != null
-    && Number.isFinite(point.total)
-    && point.total > 0
-  ) {
-    if (point.remaining != null && Number.isFinite(point.remaining)) {
-      return { metric: "percent", quantity: "remaining", value: (point.remaining / point.total) * 100, unit: "%" };
+  if (finite(point.total) && point.total > 0) {
+    if (finite(point.remaining)) {
+      return {
+        metric: "percent",
+        quantity: "remaining",
+        value: (point.remaining / point.total) * 100,
+        unit: "%",
+      };
     }
-    if (point.used != null && Number.isFinite(point.used)) {
-      return { metric: "percent", quantity: "remaining", value: 100 - (point.used / point.total) * 100, unit: "%" };
+    if (finite(point.used)) {
+      return {
+        metric: "percent",
+        quantity: "remaining",
+        value: 100 - (point.used / point.total) * 100,
+        unit: "%",
+      };
     }
   }
-  if (point.remaining != null && Number.isFinite(point.remaining)) {
-    return { metric: "absolute", quantity: "remaining", value: point.remaining, unit: point.unit ?? "" };
+  return null;
+}
+
+function absoluteCandidate(point: HistoryPoint): UsagePointValue | null {
+  // % 单位的数值是百分比而非金额：金额轨无原材料，不出候选（也保证
+  // 金额轨恒无 % 单位，不破坏「absolute 首 unit 定轨」的单位冲突规则）
+  if (point.unit === "%") return null;
+  if (finite(point.remaining)) {
+    return {
+      metric: "absolute",
+      quantity: "remaining",
+      value: point.remaining,
+      unit: point.unit ?? "",
+    };
   }
-  if (point.used != null && Number.isFinite(point.used)) {
+  if (finite(point.used)) {
     return { metric: "absolute", quantity: "used", value: point.used, unit: point.unit ?? "" };
   }
   return null;
 }
 
-/** 按窗口键分组、按时间桶保留最后一点，并丢弃无法绘制或语义漂移的旧点。 */
+export function historyPointValues(point: HistoryPoint): UsagePointCandidates {
+  return {
+    percent: percentCandidate(point),
+    absolute: absoluteCandidate(point),
+  };
+}
+
+/** 按窗口键分组、按时间桶保留最后一点，并丢弃无法绘制或语义漂移的旧点。
+ *  双产（issue #143）：每个窗口按数据可用性独立产出百分比与金额两条
+ *  曲线——百分比轨恒剩余方向；金额轨方向（quantity）按最新样本过滤：
+ *  模板从仅配 used 改为提供 remaining 时旧样本是已用量语义，混排会使
+ *  速率/净消耗方向错乱。 */
 export function buildHistorySeries(
   points: HistoryPoint[],
   bucketMs: number,
@@ -167,17 +216,32 @@ export function buildHistorySeries(
     for (const point of [...group].sort((a, b) => a.sampled_at - b.sampled_at)) {
       buckets.set(Math.floor(point.sampled_at / bucketMs), point);
     }
-    const usable = [...buckets.values()]
-      .map((point) => ({ point, value: historyPointValue(point) }))
-      .filter((item): item is { point: HistoryPoint; value: NonNullable<ReturnType<typeof historyPointValue>> } => item.value != null);
+    const bucketed = [...buckets.values()];
+
+    const percentSamples = bucketed.flatMap((point) => {
+      const value = percentCandidate(point);
+      return value ? [{ timestamp: point.sampled_at, value: value.value }] : [];
+    });
+    if (percentSamples.length > 0) {
+      series.push({
+        windowKey,
+        metric: "percent",
+        quantity: "remaining",
+        unit: "%",
+        samples: percentSamples,
+      });
+    }
+
+    const usable = bucketed.flatMap((point) => {
+      const value = absoluteCandidate(point);
+      return value ? [{ point, value }] : [];
+    });
     const latest = usable[usable.length - 1];
     if (!latest) continue;
-    // 方向（quantity）与 metric 同按最新样本过滤：模板从仅配 used 改为
-    // 提供 remaining 时旧样本是已用量语义，混排会使速率/净消耗方向错乱
-    const matching = usable.filter((item) => item.value.metric === latest.value.metric && item.value.quantity === latest.value.quantity);
+    const matching = usable.filter((item) => item.value.quantity === latest.value.quantity);
     series.push({
       windowKey,
-      metric: latest.value.metric,
+      metric: "absolute",
       quantity: latest.value.quantity,
       unit: latest.value.unit,
       samples: matching.map(({ point, value }) => ({

@@ -137,47 +137,47 @@ describe("使用统计聚焦组合 popover 逻辑", () => {
 
 describe("聚焦组合行列表（含失效条目兜底）", () => {
   const selections = [
-    { provider_id: "p1", window_key: "w1", color_slot: 0 },
+    { provider_id: "p1", window_key: "w1", color_slot: 0, metric: "percent" as const },
     { provider_id: "gone", window_key: "stale", color_slot: 2 },
   ];
-  const idOf = (providerId: string, windowKey: string) => JSON.stringify([providerId, windowKey]);
+  const idOf = (providerId: string, windowKey: string, metric?: "percent" | "absolute") => JSON.stringify([providerId, windowKey, metric]);
 
   it("按 selection 全量生成行，可见曲线标记 available", () => {
     const items = buildLegendItems(
       selections,
-      new Set([idOf("p1", "w1")]),
-      new Map([[idOf("p1", "w1"), "P1 · 窗口 1"]]),
+      new Set([idOf("p1", "w1", "percent")]),
+      new Map([[idOf("p1", "w1", "percent"), "P1 · 窗口 1"]]),
     );
     expect(items).toHaveLength(2);
-    expect(items[0]).toMatchObject({ id: idOf("p1", "w1"), providerId: "p1", windowKey: "w1", colorSlot: 0, available: true, name: "P1 · 窗口 1" });
+    expect(items[0]).toMatchObject({ id: idOf("p1", "w1", "percent"), providerId: "p1", windowKey: "w1", metric: "percent", colorSlot: 0, available: true, name: "P1 · 窗口 1" });
   });
 
   it("失效条目 available=false，候选缺名时回退原始 id 展示", () => {
-    const items = buildLegendItems(selections, new Set([idOf("p1", "w1")]), new Map());
+    const items = buildLegendItems(selections, new Set([idOf("p1", "w1", "percent")]), new Map());
     expect(items[1]).toMatchObject({ id: idOf("gone", "stale"), providerId: "gone", windowKey: "stale", colorSlot: 2, available: false, name: "gone · stale" });
   });
 
   it("顺序与 selection 存储顺序一致", () => {
     const items = buildLegendItems(selections, new Set(), new Map());
-    expect(items.map((item) => item.id)).toEqual([idOf("p1", "w1"), idOf("gone", "stale")]);
+    expect(items.map((item) => item.id)).toEqual([idOf("p1", "w1", "percent"), idOf("gone", "stale")]);
   });
 });
 
 describe("聚焦平台取数（卡头药丸内下陷显示窗）", () => {
   const items = buildLegendItems(
     [
-      { provider_id: "p1", window_key: "w1", color_slot: 0 },
-      { provider_id: "p2", window_key: "w2", color_slot: 2 },
+      { provider_id: "p1", window_key: "w1", color_slot: 0, metric: "percent" as const },
+      { provider_id: "p2", window_key: "w2", color_slot: 2, metric: "absolute" as const },
     ],
-    new Set([JSON.stringify(["p1", "w1"]), JSON.stringify(["p2", "w2"])]),
+    new Set([JSON.stringify(["p1", "w1", "percent"]), JSON.stringify(["p2", "w2", "absolute"])]),
     new Map([
-      [JSON.stringify(["p1", "w1"]), "P1 · 窗口 1"],
-      [JSON.stringify(["p2", "w2"]), "P2 · 周限"],
+      [JSON.stringify(["p1", "w1", "percent"]), "P1 · 窗口 1"],
+      [JSON.stringify(["p2", "w2", "absolute"]), "P2 · 周限"],
     ]),
   );
   const scopes = [
-    { id: JSON.stringify(["p1", "w1"]), metric: "percent" as const, samples: [{ value: 41.2 }, { value: 78 }] },
-    { id: JSON.stringify(["p2", "w2"]), metric: "absolute" as const, samples: [] },
+    { id: JSON.stringify(["p1", "w1", "percent"]), metric: "percent" as const, samples: [{ value: 41.2 }, { value: 78 }] },
+    { id: JSON.stringify(["p2", "w2", "absolute"]), metric: "absolute" as const, samples: [] },
   ];
 
   it("未聚焦或聚焦项不在行列表时返回 null", () => {
@@ -186,7 +186,7 @@ describe("聚焦平台取数（卡头药丸内下陷显示窗）", () => {
   });
 
   it("聚焦时取行名称、色槽与最新样本值", () => {
-    expect(focusPlatformInfo(JSON.stringify(["p1", "w1"]), items, scopes)).toEqual({
+    expect(focusPlatformInfo(JSON.stringify(["p1", "w1", "percent"]), items, scopes)).toEqual({
       name: "P1 · 窗口 1",
       colorSlot: 0,
       value: 78,
@@ -195,7 +195,7 @@ describe("聚焦平台取数（卡头药丸内下陷显示窗）", () => {
   });
 
   it("组合暂无样本时值为 null 但保留名称与度量", () => {
-    expect(focusPlatformInfo(JSON.stringify(["p2", "w2"]), items, scopes)).toEqual({
+    expect(focusPlatformInfo(JSON.stringify(["p2", "w2", "absolute"]), items, scopes)).toEqual({
       name: "P2 · 周限",
       colorSlot: 2,
       value: null,
@@ -204,7 +204,7 @@ describe("聚焦平台取数（卡头药丸内下陷显示窗）", () => {
   });
 
   it("行列表有该项但 scopes 暂缺（聚焦切换瞬态）时值为空、度量回退 percent", () => {
-    expect(focusPlatformInfo(JSON.stringify(["p1", "w1"]), items, [])).toEqual({
+    expect(focusPlatformInfo(JSON.stringify(["p1", "w1", "percent"]), items, [])).toEqual({
       name: "P1 · 窗口 1",
       colorSlot: 0,
       value: null,

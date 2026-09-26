@@ -4,7 +4,7 @@ import {
   advanceUsageViewDomain,
   buildLineGeometry,
   buildHistorySeries,
-  historyPointValue,
+  historyPointValues,
   isolatedUsageSamples,
   moveUsageMarker,
   nearestUsageSample,
@@ -182,34 +182,49 @@ describe("使用统计图表纯逻辑", () => {
   });
 
   it("曲线值方向显式化：百分比恒为剩余量，仅配 used 的模板为已用量", () => {
-    expect(historyPointValue({
+    // total + used（无 remaining）：百分比轨由 used 换算、金额轨为已用量
+    expect(historyPointValues({
       window_key: "credits",
       sampled_at: 0,
       used: 25,
       total: 200,
       unit: "credits",
-    })).toEqual({ metric: "percent", value: 87.5, unit: "%", quantity: "remaining" });
-    expect(historyPointValue({
+    })).toEqual({
+      percent: { metric: "percent", value: 87.5, unit: "%", quantity: "remaining" },
+      absolute: { metric: "absolute", value: 25, unit: "credits", quantity: "used" },
+    });
+    // unit "%"：仅百分比轨（无金额原材料），used 换算为剩余
+    expect(historyPointValues({
       window_key: "percent",
       sampled_at: 0,
       used: 25,
       unit: "%",
-    })).toEqual({ metric: "percent", value: 75, unit: "%", quantity: "remaining" });
-    expect(historyPointValue({
+    })).toEqual({
+      percent: { metric: "percent", value: 75, unit: "%", quantity: "remaining" },
+      absolute: null,
+    });
+    // 仅 remaining（无 total、非 % 单位）：仅金额轨
+    expect(historyPointValues({
       window_key: "balance",
       sampled_at: 0,
       used: 4,
       remaining: 96,
       unit: "CNY",
-    })).toEqual({ metric: "absolute", value: 96, unit: "CNY", quantity: "remaining" });
+    })).toEqual({
+      percent: null,
+      absolute: { metric: "absolute", value: 96, unit: "CNY", quantity: "remaining" },
+    });
     // 仅配 used 的模板（used 独立可选，无 remaining/total）：值为已用量，
     // 方向与剩余量相反——净消耗/速率必须按此方向补偿（issue #135）
-    expect(historyPointValue({
+    expect(historyPointValues({
       window_key: "used-only",
       sampled_at: 0,
       used: 5,
       unit: "credits",
-    })).toEqual({ metric: "absolute", value: 5, unit: "credits", quantity: "used" });
+    })).toEqual({
+      percent: null,
+      absolute: { metric: "absolute", value: 5, unit: "credits", quantity: "used" },
+    });
     expect(buildHistorySeries(
       [{ window_key: "used-only", sampled_at: 0, used: 5, unit: "credits" }],
       HOUR,
@@ -220,6 +235,57 @@ describe("使用统计图表纯逻辑", () => {
       quantity: "used",
       samples: [point(0, 5)],
     }]);
+  });
+
+  it("同窗口双产：百分比与金额原材料齐备时产出两条候选，各自成轨", () => {
+    const points = [
+      { window_key: "GLM", sampled_at: 0, used: 30, remaining: 70, total: 100, unit: "CNY" },
+      { window_key: "GLM", sampled_at: HOUR, used: 40, remaining: 60, total: 100, unit: "CNY" },
+    ];
+
+    expect(buildHistorySeries(points, HOUR)).toEqual([
+      {
+        windowKey: "GLM",
+        metric: "percent",
+        quantity: "remaining",
+        unit: "%",
+        samples: [point(0, 70), point(1, 60)],
+      },
+      {
+        windowKey: "GLM",
+        metric: "absolute",
+        quantity: "remaining",
+        unit: "CNY",
+        samples: [point(0, 70), point(1, 60)],
+      },
+    ]);
+  });
+
+  it("双产轨各自保持方向过滤：金额轨样本方向漂移时丢弃旧方向样本", () => {
+    // 模板从仅配 used 改为提供 remaining：金额轨旧样本是已用量语义，
+    // 与剩余量混排会使速率/净消耗方向错乱，按最新样本方向过滤（#135）；
+    // 百分比轨恒剩余方向，不受影响
+    const points = [
+      { window_key: "w", sampled_at: 0, used: 5, total: 100, unit: "credits" },
+      { window_key: "w", sampled_at: HOUR, used: 8, remaining: 92, total: 100, unit: "credits" },
+    ];
+
+    expect(buildHistorySeries(points, HOUR)).toEqual([
+      {
+        windowKey: "w",
+        metric: "percent",
+        quantity: "remaining",
+        unit: "%",
+        samples: [point(0, 95), point(1, 92)],
+      },
+      {
+        windowKey: "w",
+        metric: "absolute",
+        quantity: "remaining",
+        unit: "credits",
+        samples: [point(1, 92)],
+      },
+    ]);
   });
 
   it("视图范围档位锁定：24h 档 15 分钟桶、7d 档 1 小时桶，桶粒度整除跨度", () => {
