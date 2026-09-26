@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use quota_core::{AppConfig, UsageData};
+use quota_core::{AppConfig, PrimaryMetric, UsageData};
 
 use crate::settings::Settings;
 use crate::state::{EntryState, now_ms};
@@ -45,40 +45,49 @@ pub enum RingInput {
     Empty,
 }
 
-/// 从单窗口用量数据取圆环输入：先试百分比（core 剩余口径函数：unit="%"
-/// 或 used/total 可算，T-21 收敛——圆环本就剩余语义，行为不变），再试余额。
-fn datum_ring_input(d: &UsageData) -> RingInput {
-    if let Some(remaining_pct) = quota_core::remaining_percent(d) {
-        return RingInput::Percent {
+/// 从单窗口用量数据取圆环输入（T-24 主度量偏好分档）：amount 档余额环
+/// 优先，auto/percent 先试百分比（core 剩余口径函数：unit="%" 或
+/// used/total 可算，T-21 收敛——圆环本就剩余语义）再试余额；指定度量
+/// 算不出时静默回退另一度量（Empty 兜底）。
+fn datum_ring_input(d: &UsageData, metric: PrimaryMetric) -> RingInput {
+    let percent = || {
+        quota_core::remaining_percent(d).map(|remaining_pct| RingInput::Percent {
             remaining_pct: remaining_pct.clamp(0.0, 100.0),
-        };
-    }
-    match d.remaining {
+        })
+    };
+    let balance = || match d.remaining {
         Some(rem) if rem.is_finite() => RingInput::Balance {
             remaining: rem.max(0.0),
         },
         _ => RingInput::Empty,
+    };
+    match metric {
+        PrimaryMetric::Amount => match balance() {
+            RingInput::Empty => percent().unwrap_or(RingInput::Empty),
+            input => input,
+        },
+        PrimaryMetric::Auto | PrimaryMetric::Percent => percent().unwrap_or_else(balance),
     }
 }
 
 /// 从多窗口数据取圆环输入：取第一个可用窗口（跳过 is_valid=false 与无值窗口）。
-pub fn data_ring_input(data: &[UsageData]) -> RingInput {
+pub fn data_ring_input(data: &[UsageData], metric: PrimaryMetric) -> RingInput {
     data.iter()
         .filter(|d| d.is_valid != Some(false))
-        .map(datum_ring_input)
+        .map(|d| datum_ring_input(d, metric))
         .find(|input| !matches!(input, RingInput::Empty))
         .unwrap_or(RingInput::Empty)
 }
 
 /// 条目状态 → 圆环输入。展示门控与菜单行/红点共用
 /// `tray::state_is_displayable`（确定性失败或超窗瞬时失败不展示旧值）。
-pub fn entry_ring_input(st: &EntryState, now: u64) -> RingInput {
+pub fn entry_ring_input(st: &EntryState, now: u64, metric: PrimaryMetric) -> RingInput {
     if !crate::tray::state_is_displayable(st, now) {
         return RingInput::Empty;
     }
     st.data
         .as_deref()
-        .map(data_ring_input)
+        .map(|data| data_ring_input(data, metric))
         .unwrap_or(RingInput::Empty)
 }
 
@@ -472,8 +481,8 @@ pub fn icon_image(
 ) -> tauri::image::Image<'static> {
     let now = now_ms();
     let input = icon_entry(cfg, settings)
-        .and_then(|e| results.get(&e.id))
-        .map(|st| entry_ring_input(st, now))
+        .and_then(|e| results.get(&e.id).map(|st| (st, e.primary_metric)))
+        .map(|(st, metric)| entry_ring_input(st, now, metric))
         .unwrap_or(RingInput::Empty);
     let spec = ring_spec(input, settings.ring_units_per_circle);
     let rgba = render_rgba(&spec, dark, alert, size);
@@ -625,16 +634,19 @@ mod tests {
         assert_eq!(center_text_percent(-3.0), "0");
     }
 
-    /// 契约：数据 → 圆环输入分类（百分比优先、余额兜底、失效窗口跳过）。
+    /// 契约：数据 → 圆环输入分类（百分比优先、余额兜底、失效窗口跳过；
+    /// 偏好分档另测锁定，本测锁 auto 基线）。
     #[test]
     fn ring_input_classification() {
+        use quota_core::PrimaryMetric;
+        let auto = PrimaryMetric::Auto;
         let mut d = UsageData {
             used: Some(45.0),
             unit: Some("%".into()),
             ..Default::default()
         };
         assert_eq!(
-            data_ring_input(&[d.clone()]),
+            data_ring_input(&[d.clone()], auto),
             RingInput::Percent {
                 remaining_pct: 55.0
             }
@@ -646,7 +658,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            data_ring_input(&[d]),
+            data_ring_input(&[d], auto),
             RingInput::Percent {
                 remaining_pct: 80.0
             },
@@ -654,7 +666,7 @@ mod tests {
         );
 
         assert_eq!(
-            data_ring_input(&[balance_data(180.0)]),
+            data_ring_input(&[balance_data(180.0)], auto),
             RingInput::Balance { remaining: 180.0 }
         );
 
@@ -665,17 +677,88 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            data_ring_input(&[invalid, balance_data(60.0)]),
+            data_ring_input(&[invalid, balance_data(60.0)], auto),
             RingInput::Balance { remaining: 60.0 }
         );
 
         // 无值窗口跳过后无可用 → Empty
-        assert_eq!(data_ring_input(&[UsageData::default()]), RingInput::Empty);
+        assert_eq!(
+            data_ring_input(&[UsageData::default()], auto),
+            RingInput::Empty
+        );
+    }
+
+    /// 契约：圆环度量的主度量偏好分档（T-24，#142）——amount 档余额环
+    /// 优先（每圈单位分层机制），auto/percent 百分比环优先；指定度量算
+    /// 不出时静默回退另一度量（与前端 hoverPanelView.hoverRingView 成对）。
+    #[test]
+    fn ring_input_preference_branching() {
+        use quota_core::PrimaryMetric;
+        // 两者皆可的形态：used/total 可换算百分比 + remaining 有值
+        let both = UsageData {
+            used: Some(30.0),
+            total: Some(200.0),
+            remaining: Some(170.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            data_ring_input(std::slice::from_ref(&both), PrimaryMetric::Auto),
+            RingInput::Percent {
+                remaining_pct: 85.0
+            }
+        );
+        assert_eq!(
+            data_ring_input(std::slice::from_ref(&both), PrimaryMetric::Percent),
+            RingInput::Percent {
+                remaining_pct: 85.0
+            }
+        );
+        assert_eq!(
+            data_ring_input(std::slice::from_ref(&both), PrimaryMetric::Amount),
+            RingInput::Balance { remaining: 170.0 }
+        );
+
+        // 回退：amount 档无 remaining → 百分比环
+        let pct = UsageData {
+            used: Some(42.0),
+            unit: Some("%".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            data_ring_input(std::slice::from_ref(&pct), PrimaryMetric::Amount),
+            RingInput::Percent {
+                remaining_pct: 58.0
+            }
+        );
+        // 回退：percent 档算不出百分比 → 余额环
+        assert_eq!(
+            data_ring_input(&[balance_data(180.0)], PrimaryMetric::Percent),
+            RingInput::Balance { remaining: 180.0 }
+        );
+
+        // entry_ring_input 同款分档（门控行为不变，另测锁定）
+        let now = 1_755_000_000_000u64;
+        let st = EntryState {
+            data: Some(vec![both]),
+            at: Some(now - 60_000),
+            error: None,
+        };
+        assert_eq!(
+            entry_ring_input(&st, now, PrimaryMetric::Amount),
+            RingInput::Balance { remaining: 170.0 }
+        );
+        assert_eq!(
+            entry_ring_input(&st, now, PrimaryMetric::Auto),
+            RingInput::Percent {
+                remaining_pct: 85.0
+            }
+        );
     }
 
     /// 契约：条目状态门控——确定性失败/超窗瞬时失败不展示旧值。
     #[test]
     fn entry_ring_input_gating() {
+        use quota_core::PrimaryMetric;
         let now = 1_755_000_000_000u64;
         let good = EntryState {
             data: Some(vec![balance_data(180.0)]),
@@ -683,7 +766,7 @@ mod tests {
             error: None,
         };
         assert_eq!(
-            entry_ring_input(&good, now),
+            entry_ring_input(&good, now, PrimaryMetric::Auto),
             RingInput::Balance { remaining: 180.0 }
         );
 
@@ -695,7 +778,10 @@ mod tests {
             }),
             ..good.clone()
         };
-        assert_eq!(entry_ring_input(&det, now), RingInput::Empty);
+        assert_eq!(
+            entry_ring_input(&det, now, PrimaryMetric::Auto),
+            RingInput::Empty
+        );
 
         let mut transient = good.clone();
         transient.error = Some(crate::state::ErrorInfo {
@@ -704,12 +790,12 @@ mod tests {
             detail: None,
         });
         assert_eq!(
-            entry_ring_input(&transient, now),
+            entry_ring_input(&transient, now, PrimaryMetric::Auto),
             RingInput::Balance { remaining: 180.0 },
             "窗口内 keep-last-good 仍展示旧值"
         );
         assert_eq!(
-            entry_ring_input(&transient, now + 11 * 60_000),
+            entry_ring_input(&transient, now + 11 * 60_000, PrimaryMetric::Auto),
             RingInput::Empty,
             "超窗后旧值不再展示"
         );
