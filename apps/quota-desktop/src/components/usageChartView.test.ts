@@ -14,6 +14,8 @@ import {
   snapUsageMarkerTimestamp,
   splitUsageSeries,
   usageMarkerBurnRate,
+  usageMarkerNet,
+  usageMarkerNetBreakdown,
   usageMarkerPeakBurn,
   USAGE_MARKER_LIMIT,
   USAGE_RANGES,
@@ -166,38 +168,58 @@ describe("使用统计图表纯逻辑", () => {
         windowKey: "Codex（5h）",
         metric: "percent",
         unit: "%",
+        quantity: "remaining",
         samples: [point(0.5, 82), point(1, 76)],
       },
       {
         windowKey: "DeepSeek",
         metric: "absolute",
         unit: "CNY",
+        quantity: "remaining",
         samples: [point(0, 61.5)],
       },
     ]);
   });
 
-  it("百分比历史倒置为剩余额度，绝对值继续展示 remaining", () => {
+  it("曲线值方向显式化：百分比恒为剩余量，仅配 used 的模板为已用量", () => {
     expect(historyPointValue({
       window_key: "credits",
       sampled_at: 0,
       used: 25,
       total: 200,
       unit: "credits",
-    })).toEqual({ metric: "percent", value: 87.5, unit: "%" });
+    })).toEqual({ metric: "percent", value: 87.5, unit: "%", quantity: "remaining" });
     expect(historyPointValue({
       window_key: "percent",
       sampled_at: 0,
       used: 25,
       unit: "%",
-    })).toEqual({ metric: "percent", value: 75, unit: "%" });
+    })).toEqual({ metric: "percent", value: 75, unit: "%", quantity: "remaining" });
     expect(historyPointValue({
       window_key: "balance",
       sampled_at: 0,
       used: 4,
       remaining: 96,
       unit: "CNY",
-    })).toEqual({ metric: "absolute", value: 96, unit: "CNY" });
+    })).toEqual({ metric: "absolute", value: 96, unit: "CNY", quantity: "remaining" });
+    // 仅配 used 的模板（used 独立可选，无 remaining/total）：值为已用量，
+    // 方向与剩余量相反——净消耗/速率必须按此方向补偿（issue #135）
+    expect(historyPointValue({
+      window_key: "used-only",
+      sampled_at: 0,
+      used: 5,
+      unit: "credits",
+    })).toEqual({ metric: "absolute", value: 5, unit: "credits", quantity: "used" });
+    expect(buildHistorySeries(
+      [{ window_key: "used-only", sampled_at: 0, used: 5, unit: "credits" }],
+      HOUR,
+    )).toEqual([{
+      windowKey: "used-only",
+      metric: "absolute",
+      unit: "credits",
+      quantity: "used",
+      samples: [point(0, 5)],
+    }]);
   });
 
   it("视图范围档位锁定：24h 档 15 分钟桶、7d 档 1 小时桶，桶粒度整除跨度", () => {
@@ -221,6 +243,7 @@ describe("使用统计图表纯逻辑", () => {
         windowKey: "Codex（5h）",
         metric: "percent",
         unit: "%",
+        quantity: "remaining",
         samples: [
           { timestamp: 10 * MINUTE, value: 84 },
           { timestamp: 15 * MINUTE, value: 76 },
@@ -314,10 +337,10 @@ describe("使用统计图表纯逻辑", () => {
   });
 
   it("定位线平均消耗速率：剩余量下降换算每小时，按 marker 时间差取值样本", () => {
-    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerBurnRate(scope, [0, 8 * HOUR])).toBeCloseTo(3.375);
     // 值取自容差内最近样本，时间差按 marker 时刻（0.2h 处吸附 0h 样本）
-    const drifted = { samples: [point(0, 10), point(4, 20)], bucketMs: HOUR };
+    const drifted = { samples: [point(0, 10), point(4, 20)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerBurnRate(drifted, [0.2 * HOUR, 4 * HOUR])).toBeCloseTo(-10 / 3.8);
     // markers 乱序传入（拖动交叉后的真实形态）与升序同结果，且不突变入参
     const shuffled = [8 * HOUR, 0];
@@ -326,16 +349,16 @@ describe("使用统计图表纯逻辑", () => {
   });
 
   it("定位线平均消耗速率：回升为负值，余额序列同样适用", () => {
-    const refill = { samples: [point(0, 10), point(2, 16)], bucketMs: HOUR };
+    const refill = { samples: [point(0, 10), point(2, 16)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerBurnRate(refill, [0, 2 * HOUR])).toBeCloseTo(-3);
-    const balance = { samples: [point(0, 100), point(4, 86)], bucketMs: HOUR };
+    const balance = { samples: [point(0, 100), point(4, 86)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerBurnRate(balance, [0, 4 * HOUR])).toBeCloseTo(3.5);
   });
 
   it("定位线平均消耗速率：样本缺失或时间差不足一分钟时无可测值", () => {
-    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerBurnRate(scope, [0, 20 * HOUR])).toBeNull();
-    expect(usageMarkerBurnRate({ samples: [], bucketMs: HOUR }, [0, HOUR])).toBeNull();
+    expect(usageMarkerBurnRate({ samples: [], bucketMs: HOUR, quantity: "remaining" }, [0, HOUR])).toBeNull();
     expect(usageMarkerBurnRate(scope, [0])).toBeNull();
     expect(usageMarkerBurnRate(scope, [4 * HOUR, 4 * HOUR])).toBeNull();
     // 时间差不足 1 分钟：与时间差文案「至少 1 分钟」口径对齐，不显示速率
@@ -343,13 +366,14 @@ describe("使用统计图表纯逻辑", () => {
   });
 
   it("定位线平均消耗速率：两条线落在同一样本容差内时速率为零（合法读数）", () => {
-    expect(usageMarkerBurnRate({ samples: [point(0, 10)], bucketMs: HOUR }, [0.2 * HOUR, 0.8 * HOUR])).toBe(0);
+    expect(usageMarkerBurnRate({ samples: [point(0, 10)], bucketMs: HOUR, quantity: "remaining" }, [0.2 * HOUR, 0.8 * HOUR])).toBe(0);
   });
 
   it("定位线峰值消耗：区间内相邻段取最陡消耗段，乱序 markers 同结果", () => {
     const scope = {
       samples: [point(0, 100), point(1, 96), point(2, 80), point(3, 92), point(4, 90), point(5, 50)],
       bucketMs: HOUR,
+      quantity: "remaining" as const,
     };
     // markers [1h,4h] → 端点样本 96/90，区间段斜率 16/h、-12/h（回升）、2/h；
     // 区间外段（90→50 = 40/h）更陡但必须排除
@@ -364,34 +388,34 @@ describe("使用统计图表纯逻辑", () => {
   it("定位线峰值消耗：回升与平段不算消耗极值，区间无消耗段时为空", () => {
     // 纯回升（充值/额度重置是瞬间跳变，跨桶斜率无测量意义，不展示）与
     // 全平区间均无可测消耗段
-    const recoveryOnly = { samples: [point(0, 80), point(1, 92), point(2, 94)], bucketMs: HOUR };
+    const recoveryOnly = { samples: [point(0, 80), point(1, 92), point(2, 94)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(recoveryOnly, [0, 2 * HOUR])).toBeNull();
-    const flat = { samples: [point(0, 50), point(1, 50), point(2, 50)], bucketMs: HOUR };
+    const flat = { samples: [point(0, 50), point(1, 50), point(2, 50)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(flat, [0, 2 * HOUR])).toBeNull();
   });
 
   it("定位线峰值消耗：斜率相同取较早段，非均匀间隔按真实时长归一", () => {
-    const tie = { samples: [point(0, 100), point(1, 90), point(2, 80)], bucketMs: HOUR };
+    const tie = { samples: [point(0, 100), point(1, 90), point(2, 80)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(tie, [0, 2 * HOUR]))
       .toEqual({ ratePerHour: 10, from: point(0, 100), to: point(1, 90) });
     // 相邻样本间隔 2.5 小时：斜率按真实 Δt 归一（20 / 2.5 = 8/h）
-    const sparse = { samples: [point(0, 100), point(2.5, 80)], bucketMs: HOUR };
+    const sparse = { samples: [point(0, 100), point(2.5, 80)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(sparse, [0.2 * HOUR, 2.5 * HOUR]))
       .toEqual({ ratePerHour: 8, from: point(0, 100), to: point(2.5, 80) });
   });
 
   it("定位线峰值消耗：无可测区间或含不可测段时返回空", () => {
-    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR };
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(scope, [0])).toBeNull();
     // 20h 处无容差内样本（端点缺失）
     expect(usageMarkerPeakBurn(scope, [0, 20 * HOUR])).toBeNull();
-    expect(usageMarkerPeakBurn({ samples: [], bucketMs: HOUR }, [0, HOUR])).toBeNull();
+    expect(usageMarkerPeakBurn({ samples: [], bucketMs: HOUR, quantity: "remaining" }, [0, HOUR])).toBeNull();
     // 时间差不足 1 分钟：与平均速率口径对齐
     expect(usageMarkerPeakBurn(scope, [0, 30_000])).toBeNull();
     // 两条线落在同一样本容差内：区间仅单样本，无段可测
-    expect(usageMarkerPeakBurn({ samples: [point(0, 10)], bucketMs: HOUR }, [0.2 * HOUR, 0.8 * HOUR])).toBeNull();
+    expect(usageMarkerPeakBurn({ samples: [point(0, 10)], bucketMs: HOUR, quantity: "remaining" }, [0.2 * HOUR, 0.8 * HOUR])).toBeNull();
     // 重复时间戳样本（Δt=0 防御）：零时长段必须跳过而非算出无穷斜率
-    const duplicated = { samples: [point(0, 100), point(0, 60), point(1, 55)], bucketMs: HOUR };
+    const duplicated = { samples: [point(0, 100), point(0, 60), point(1, 55)], bucketMs: HOUR, quantity: "remaining" as const };
     expect(usageMarkerPeakBurn(duplicated, [0, HOUR]))
       .toEqual({ ratePerHour: 5, from: point(0, 60), to: point(1, 55) });
   });
@@ -406,5 +430,178 @@ describe("使用统计图表纯逻辑", () => {
     expect(nearestUsageSample([point(0, 10)], HOUR, HOUR)).toEqual(point(0, 10));
     expect(nearestUsageSample([point(0, 10)], HOUR + 1, HOUR)).toBeNull();
     expect(nearestUsageSample([], HOUR, HOUR)).toBeNull();
+  });
+
+  it("已用量曲线方向补偿（#135 回归）：已用量上升为正消耗，下降为回升", () => {
+    // 仅配 used 的模板曲线值为已用量：上升为消耗、下降为回升，
+    // 与剩余量方向相反——速率/峰值历史上未补偿（代码注释自知），同票修正
+    const usedScope = {
+      samples: [point(0, 20), point(2, 30), point(4, 25), point(6, 45)],
+      bucketMs: HOUR,
+      quantity: "used" as const,
+    };
+    expect(usageMarkerBurnRate(usedScope, [0, 6 * HOUR])).toBeCloseTo(25 / 6);
+    expect(usageMarkerBurnRate(usedScope, [2 * HOUR, 6 * HOUR])).toBeCloseTo(15 / 4);
+    // 峰值消耗段取已用量最陡上升段（25→45 = 20/2h；30→25 是回升不参与）
+    expect(usageMarkerPeakBurn(usedScope, [0, 6 * HOUR]))
+      .toEqual({ ratePerHour: 10, from: point(4, 25), to: point(6, 45) });
+    // 纯下降（已用量减少 = 回升）无消耗段，速率为负
+    const declining = {
+      samples: [point(0, 80), point(1, 60), point(2, 50)],
+      bucketMs: HOUR,
+      quantity: "used" as const,
+    };
+    expect(usageMarkerBurnRate(declining, [0, 2 * HOUR])).toBeCloseTo(-15);
+    expect(usageMarkerPeakBurn(declining, [0, 2 * HOUR])).toBeNull();
+  });
+
+  it("定位线净消耗：端点净变化，剩余量曲线下降为正、负值为净恢复、零合法", () => {
+    const scope = {
+      samples: [point(0, 100), point(2, 70), point(4, 60)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    expect(usageMarkerNet(scope, [0, 4 * HOUR])).toBe(40);
+    expect(usageMarkerNet(scope, [2 * HOUR, 4 * HOUR])).toBe(10);
+    // 净恢复为负
+    const refill = { samples: [point(0, 50), point(3, 65)], bucketMs: HOUR, quantity: "remaining" as const };
+    expect(usageMarkerNet(refill, [0, 3 * HOUR])).toBe(-15);
+    // 两条线落在同一样本容差内：净消耗为零（与平均速率同口径的合法读数）
+    expect(usageMarkerNet({ samples: [point(0, 10)], bucketMs: HOUR, quantity: "remaining" }, [0.2 * HOUR, 0.8 * HOUR])).toBe(0);
+  });
+
+  it("定位线净消耗：已用量曲线按已用量方向补偿", () => {
+    const usedScope = { samples: [point(0, 20), point(5, 50)], bucketMs: HOUR, quantity: "used" as const };
+    expect(usageMarkerNet(usedScope, [0, 5 * HOUR])).toBe(30);
+    const declined = { samples: [point(0, 50), point(5, 20)], bucketMs: HOUR, quantity: "used" as const };
+    expect(usageMarkerNet(declined, [0, 5 * HOUR])).toBe(-30);
+  });
+
+  it("定位线净消耗：无可测值守卫与平均消耗速率一致", () => {
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR, quantity: "remaining" as const };
+    expect(usageMarkerNet(scope, [0])).toBeNull();
+    expect(usageMarkerNet(scope, [4 * HOUR, 4 * HOUR])).toBeNull();
+    expect(usageMarkerNet(scope, [0, 30_000])).toBeNull();
+    expect(usageMarkerNet(scope, [0, 20 * HOUR])).toBeNull();
+    expect(usageMarkerNet({ samples: [], bucketMs: HOUR, quantity: "remaining" }, [0, HOUR])).toBeNull();
+  });
+
+  it("净消耗分解：连续段累计消耗与恢复，代数关系恒成立（纯消耗场景）", () => {
+    const scope = {
+      samples: [point(0, 100), point(1, 90), point(2, 75), point(3, 70)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(scope, [0, 3 * HOUR]);
+    expect(breakdown).toEqual({ observedBurn: 30, observedRecovery: 0, unobservedNet: 0, net: 30 });
+  });
+
+  it("净消耗分解：多次消耗/恢复交替与额度重置，消耗恢复分开累计", () => {
+    // 额度重置表现为剩余量跳升（恢复），与普通回升同样按恢复累计
+    const scope = {
+      samples: [point(0, 100), point(1, 80), point(2, 95), point(3, 60), point(4, 90), point(5, 70)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(scope, [0, 5 * HOUR]);
+    expect(breakdown?.observedBurn).toBeCloseTo(75);
+    expect(breakdown?.observedRecovery).toBeCloseTo(45);
+    expect(breakdown?.unobservedNet).toBeCloseTo(0);
+    expect(breakdown?.net).toBeCloseTo(30);
+    // 已观测消耗 − 已观测恢复 + 未观测净变化 = 端点净消耗
+    expect(breakdown!.observedBurn - breakdown!.observedRecovery + breakdown!.unobservedNet).toBeCloseTo(breakdown!.net);
+  });
+
+  it("净消耗分解：长断档不推断，变化计入带符号未观测净变化", () => {
+    // 0→1 连续消耗 10；1→10 缺 8 桶完全断开；10→11 连续消耗 5
+    const scope = {
+      samples: [point(0, 100), point(1, 90), point(10, 60), point(11, 55)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(scope, [0, 11 * HOUR]);
+    expect(breakdown?.observedBurn).toBeCloseTo(15);
+    expect(breakdown?.observedRecovery).toBeCloseTo(0);
+    expect(breakdown?.unobservedNet).toBeCloseTo(30);
+    expect(breakdown?.net).toBeCloseTo(45);
+    expect(breakdown!.observedBurn - breakdown!.observedRecovery + breakdown!.unobservedNet).toBeCloseTo(breakdown!.net);
+  });
+
+  it("净消耗分解：虚线桥（缺 2-5 桶）同样不可观察，仅缺 1 桶（桶距 2）算连续", () => {
+    // 与 splitUsageSeries 的 segments 边界对齐：视觉实线段即已观测，
+    // 桥与断档一律入未观测
+    const bridged = { samples: [point(0, 100), point(4, 90)], bucketMs: HOUR, quantity: "remaining" as const };
+    expect(usageMarkerNetBreakdown(bridged, [0, 4 * HOUR])).toEqual({
+      observedBurn: 0, observedRecovery: 0, unobservedNet: 10, net: 10,
+    });
+    const continuous = { samples: [point(0, 100), point(2, 90)], bucketMs: HOUR, quantity: "remaining" as const };
+    expect(usageMarkerNetBreakdown(continuous, [0, 2 * HOUR])).toEqual({
+      observedBurn: 10, observedRecovery: 0, unobservedNet: 0, net: 10,
+    });
+  });
+
+  it("净消耗分解：已用量曲线按已用量方向拆分，断档同样入未观测", () => {
+    const scope = {
+      samples: [point(0, 20), point(1, 30), point(2, 25), point(8, 50)],
+      bucketMs: HOUR,
+      quantity: "used" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(scope, [0, 8 * HOUR]);
+    expect(breakdown?.observedBurn).toBeCloseTo(10);
+    expect(breakdown?.observedRecovery).toBeCloseTo(5);
+    expect(breakdown?.unobservedNet).toBeCloseTo(25);
+    expect(breakdown?.net).toBeCloseTo(30);
+    expect(breakdown!.observedBurn - breakdown!.observedRecovery + breakdown!.unobservedNet).toBeCloseTo(breakdown!.net);
+  });
+
+  it("净消耗分解：百分比与金额曲线同口径，净恢复场景代数关系成立", () => {
+    const percentScope = {
+      samples: [point(0, 100), point(1, 60), point(2, 68)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    expect(usageMarkerNetBreakdown(percentScope, [0, 2 * HOUR])).toEqual({
+      observedBurn: 40, observedRecovery: 8, unobservedNet: 0, net: 32,
+    });
+    const balanceScope = {
+      samples: [point(0, 61.5), point(1, 50.25), point(5, 80)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(balanceScope, [0, 5 * HOUR]);
+    expect(breakdown?.observedBurn).toBeCloseTo(11.25);
+    expect(breakdown?.observedRecovery).toBeCloseTo(0);
+    // 50.25→80 跨 3 个缺失桶（虚线桥）：剩余量上升是恢复方向，带符号入未观测
+    expect(breakdown?.unobservedNet).toBeCloseTo(-29.75);
+    expect(breakdown!.observedBurn - breakdown!.observedRecovery + breakdown!.unobservedNet).toBeCloseTo(breakdown!.net);
+    expect(breakdown!.net).toBeCloseTo(61.5 - 80);
+  });
+
+  it("净消耗分解：无可测值守卫与净消耗主数值一致", () => {
+    const scope = { samples: [point(0, 31), point(8, 4)], bucketMs: HOUR, quantity: "remaining" as const };
+    expect(usageMarkerNetBreakdown(scope, [0])).toBeNull();
+    expect(usageMarkerNetBreakdown(scope, [4 * HOUR, 4 * HOUR])).toBeNull();
+    expect(usageMarkerNetBreakdown(scope, [0, 30_000])).toBeNull();
+    expect(usageMarkerNetBreakdown(scope, [0, 20 * HOUR])).toBeNull();
+    expect(usageMarkerNetBreakdown({ samples: [], bucketMs: HOUR, quantity: "remaining" }, [0, HOUR])).toBeNull();
+    // 两条线落在同一样本容差内：区间仅单样本，全零且代数关系成立
+    expect(usageMarkerNetBreakdown({ samples: [point(0, 10)], bucketMs: HOUR, quantity: "remaining" }, [0.2 * HOUR, 0.8 * HOUR]))
+      .toEqual({ observedBurn: 0, observedRecovery: 0, unobservedNet: 0, net: 0 });
+  });
+
+  it("净消耗分解：断档内含额度重置的复合场景，代数关系仍成立且不伪称已知", () => {
+    // 连续消耗 20 → 长断档（期间可能发生重置+再消耗，无法拆分）→ 连续恢复 3 → 连续消耗 6；
+    // 断档两端 80→62 的净降 18 只能记为「未观测净变化 +18」，不伪称已知消耗
+    const scope = {
+      samples: [point(0, 100), point(1, 80), point(9, 62), point(10, 65), point(11, 59)],
+      bucketMs: HOUR,
+      quantity: "remaining" as const,
+    };
+    const breakdown = usageMarkerNetBreakdown(scope, [0, 11 * HOUR]);
+    expect(breakdown?.observedBurn).toBeCloseTo(26);
+    expect(breakdown?.observedRecovery).toBeCloseTo(3);
+    expect(breakdown?.unobservedNet).toBeCloseTo(18);
+    expect(breakdown?.net).toBeCloseTo(41);
+    expect(breakdown!.observedBurn - breakdown!.observedRecovery + breakdown!.unobservedNet).toBeCloseTo(breakdown!.net);
   });
 });

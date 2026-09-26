@@ -342,3 +342,35 @@ test("DialogShell 仅在启用时点击遮罩关闭，内部点击不关闭", ()
     /if \(closeOnBackdrop && event\.target === event\.currentTarget\) onClose\(\);/,
   );
 });
+
+test("定位线净消耗分解：桌面悬停/键盘聚焦浮层，Android 点击 disclosure（#135，T-001/T-010/T-013）", () => {
+  // 悬停处理器必须经 mobile 条件不绑定——移动端触摸合成 mouseenter 会抢在
+  // click 前展开，与点击 toggle 抵消（聚焦浮层同款先例）；桌面键盘路径为
+  // 净消耗 span 的 focus/blur（tabIndex 可达），Esc 分层最先收分解浮层
+  assert.match(usageStats, /onMouseEnter=\{mobile \? undefined : openNetDetail\}/);
+  assert.match(usageStats, /onMouseLeave=\{mobile \? undefined : \(\) => netDetailHoverRef\.current\?\.scheduleClose\(\)\}/);
+  assert.match(usageStats, /className="qt-usage-marker-net"\s*\n\s*tabIndex=\{0\}/);
+  assert.match(usageStats, /onFocus=\{openNetDetail\}/);
+  assert.match(usageStats, /onBlur=\{closeNetDetail\}/);
+  assert.match(usageStats, /if \(netDetailOpen\) closeNetDetail\(\);/);
+  // Android 形态：净消耗值为行内文字钮（qt-touch-inline 外扩热区），
+  // aria-expanded/aria-controls 驱动展开块；分解内容与桌面浮层同一渲染函数
+  assert.match(usageStats, /className="qt-usage-marker-net qt-usage-marker-net-toggle qt-touch-inline"/);
+  assert.match(usageStats, /aria-expanded=\{netDetailOpen\}/);
+  assert.match(usageStats, /aria-controls=\{netDetailId\}/);
+  assert.match(usageStats, /className="qt-usage-marker-net-detail is-expanded"/);
+  assert.match(usageStats, /aria-label=\{t\("usage\.markerNetDetailToggle"\)\}/);
+  // 桌面富内容分解卡片向上弹（读数行贴卡片底缘），非 data-tooltip 纯文字
+  // 气泡（富内容豁免同 qt-usage-tooltip 先例）；移动端不渲染 popover 形态
+  assert.match(css, /\.qt-usage-marker-net-detail\.is-popover\s*\{[^}]*position:\s*absolute;[^}]*bottom:\s*calc\(100% \+ 6px\);/s);
+  assert.match(usageStats, /netDetailOpen && !mobile && <span className="qt-usage-marker-net-detail is-popover"/);
+  // Android 展开块独占读数行一行 + toggle 按压反馈（T-010 disclosure 口径）
+  assert.match(
+    css,
+    /body\.qt-mobile-runtime \.qt-usage-marker-net-detail\.is-expanded\s*\{[^}]*flex-basis:\s*100%;/s,
+  );
+  assert.match(css, /\.qt-usage-marker-net-toggle:active\s*\{[^}]*background:/s);
+  // 读数行高度预算（#135 净消耗加入后复核登记）：桌面 92 / 移动端 112
+  assert.match(css, /\.qt-usage-marker-readout\s*\{[^}]*min-height:\s*92px;/s);
+  assert.match(css, /body\.qt-mobile-runtime \.qt-usage-marker-readout\s*\{[^}]*min-height:\s*112px;/s);
+});

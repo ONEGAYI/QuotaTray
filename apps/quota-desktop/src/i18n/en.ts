@@ -90,6 +90,12 @@ export const en: Record<TextKey, string> = {
   "usage.markerDelta": "Span {span}",
   "usage.markerRate": "Avg. burn {rate}",
   "usage.markerPeakBurn": "Peak burn {rate} ({at})",
+  "usage.markerNet": "Net burn {value}",
+  "usage.markerNetObservedBurn": "Observed burn {value}",
+  "usage.markerNetObservedRecovery": "Observed recovery {value}",
+  "usage.markerNetUnobserved": "Unobserved net change {value}",
+  "usage.markerNetHint": "Observed burn − observed recovery + unobserved net change = net burn; changes across sampling gaps cannot be split and count toward net only",
+  "usage.markerNetDetailToggle": "Toggle net burn breakdown",
 
   // ---- 供应商卡片 ----
   "card.disabled": "Disabled",
