@@ -36,7 +36,12 @@ function render(messages: CenterMessage[]): string {
   const client = new QueryClient();
   const html = renderToStaticMarkup(
     <QueryClientProvider client={client}>
-      <MessageCenter messages={messages} seen={new Set()} onSeenAll={() => {}} />
+      <MessageCenter
+        messages={messages}
+        seen={new Set()}
+        onSeenAll={() => {}}
+        onDismiss={() => {}}
+      />
     </QueryClientProvider>,
   );
   client.clear();
@@ -57,9 +62,19 @@ describe("低余额卡片文案（剩余口径，T-22）", () => {
 
   it("恢复卡片维持既有剩余措辞（本就剩余口径，不回归）", () => {
     const html = render([
-      { kind: "balance-recovered", providerId: "kimi", name: "Kimi", remainingPercent: 96 },
+      { kind: "balance-recovered", providerId: "kimi", name: "Kimi", remainingPercent: 96, at: 1_000_000 },
     ]);
     expect(html).toContain(zh["msgCenter.balanceRecoveredTitle"]);
     expect(html).toContain("96%");
+  });
+
+  it("每张卡片渲染关闭按钮（A：卡片级关闭入口，无障碍名可达）", () => {
+    const html = render([
+      { kind: "low-balance", providerId: "kimi", name: "Kimi", remainingPercent: 15 },
+      { kind: "balance-recovered", providerId: "p2", name: "P2", remainingPercent: 96, at: 1_000_000 },
+    ]);
+    // 两张卡片各一个关闭按钮（aria-label 为 i18n 词条）
+    const dismissCount = html.split(`aria-label="${zh["msgCenter.dismiss"]}"`).length - 1;
+    expect(dismissCount).toBe(2);
   });
 });

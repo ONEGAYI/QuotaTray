@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  RECOVERED_TTL_MS,
   hasUnread,
   mergeMessage,
   messageId,
+  pruneRecovered,
+  removeMessage,
   type CenterMessage,
 } from "./messageCenterView";
 
@@ -15,11 +18,12 @@ describe("消息中心纯逻辑", () => {
     name: providerId,
     remainingPercent,
   });
-  const recovered = (providerId: string, remainingPercent = 96): CenterMessage => ({
+  const recovered = (providerId: string, remainingPercent = 96, at = 1_000_000): CenterMessage => ({
     kind: "balance-recovered",
     providerId,
     name: providerId,
     remainingPercent,
+    at,
   });
 
   it("messageId 由 kind + 版本构成", () => {
@@ -141,6 +145,92 @@ describe("消息中心纯逻辑", () => {
       expect(hasUnread(messages, seen)).toBe(false);
       const next = mergeMessage(messages, recovered("p1", 96));
       expect(hasUnread(next, seen)).toBe(true);
+    });
+  });
+
+  describe("卡片级关闭（A）", () => {
+    it("removeMessage 按消息 id 移除单张卡片，其余保留且顺序不变", () => {
+      const base = [msg("0.8.0"), low("p1", 90), recovered("p2")];
+      const next = removeMessage(base, messageId(low("p1", 90)));
+      expect(next).toEqual([msg("0.8.0"), recovered("p2")]);
+    });
+
+    it("removeMessage 对所有 kind 通用（update-ready 同样可关）", () => {
+      const base = [msg("0.8.0"), recovered("p2")];
+      expect(removeMessage(base, messageId(msg("0.8.0")))).toEqual([recovered("p2")]);
+    });
+
+    it("removeMessage 无匹配时返回原引用（不触发无谓重渲）", () => {
+      const base = [low("p1")];
+      expect(removeMessage(base, messageId(recovered("p9")))).toBe(base);
+    });
+  });
+
+  describe("恢复消息自动退场（C-2 已读+成功查询 / C-3 TTL）", () => {
+    /** C-2/C-3 判定的时间基准：卡片 at 默认 1_000_000，快照与 now 相对取值。 */
+    const CARD_AT = 1_000_000;
+    const snap = (providerId: string, at: number) => new Map([[providerId, at]]);
+
+    it("C-2：已读且该条目快照 at 晚于卡片 at（发生过入列后的成功查询）→ 移除", () => {
+      const base = [recovered("p1", 96, CARD_AT)];
+      const seen = new Set([messageId(recovered("p1", 96, CARD_AT))]);
+      const next = pruneRecovered(base, seen, snap("p1", CARD_AT + 1), CARD_AT + 60_000);
+      expect(next).toEqual([]);
+    });
+
+    it("C-2：未读保留——退场以已读为前提（用户至少看过一次）", () => {
+      const base = [recovered("p1", 96, CARD_AT)];
+      const next = pruneRecovered(base, new Set(), snap("p1", CARD_AT + 1), CARD_AT + 60_000);
+      expect(next).toBe(base);
+    });
+
+    it("C-2：快照 at 不晚于卡片 at（该条目尚无新成功查询）保留", () => {
+      const base = [recovered("p1", 96, CARD_AT)];
+      const seen = new Set([messageId(recovered("p1", 96, CARD_AT))]);
+      // 恢复事件本身那一轮查询的快照（at == 卡片 at）不构成「又一次」成功查询
+      expect(pruneRecovered(base, seen, snap("p1", CARD_AT), CARD_AT + 60_000)).toBe(base);
+      expect(pruneRecovered(base, seen, new Map(), CARD_AT + 60_000)).toBe(base);
+    });
+
+    it("C-2：只影响对应条目——其他条目的恢复卡片不受无关节目查询影响", () => {
+      const base = [recovered("p1", 96, CARD_AT), recovered("p2", 95, CARD_AT)];
+      const seen = new Set(base.map(messageId));
+      const next = pruneRecovered(base, seen, snap("p1", CARD_AT + 1), CARD_AT + 60_000);
+      expect(next).toEqual([recovered("p2", 95, CARD_AT)]);
+    });
+
+    it("C-3：入列达到 TTL 过期退场，与已读无关（从不打开面板也生效）", () => {
+      const base = [recovered("p1", 96, CARD_AT)];
+      const next = pruneRecovered(base, new Set(), new Map(), CARD_AT + RECOVERED_TTL_MS + 1);
+      expect(next).toEqual([]);
+      // 已读同样过期
+      const seen = new Set(base.map(messageId));
+      expect(pruneRecovered(base, seen, new Map(), CARD_AT + RECOVERED_TTL_MS + 1)).toEqual([]);
+    });
+
+    it("C-3：TTL 边界——恰好达到 TTL 即退场，差一毫秒保留", () => {
+      const base = [recovered("p1", 96, CARD_AT)];
+      expect(pruneRecovered(base, new Set(), new Map(), CARD_AT + RECOVERED_TTL_MS)).toEqual([]);
+      expect(pruneRecovered(base, new Set(), new Map(), CARD_AT + RECOVERED_TTL_MS - 1)).toBe(base);
+    });
+
+    it("low-balance 与 update-* 不受退场规则影响（状态/单例消息无 TTL）", () => {
+      const base = [msg("0.8.0"), low("p1", 5)];
+      const seen = new Set(base.map(messageId));
+      // 快照远新于入列、now 远超 TTL：两类卡片都保留
+      const next = pruneRecovered(
+        base,
+        seen,
+        snap("p1", CARD_AT + 10 * RECOVERED_TTL_MS),
+        CARD_AT + 10 * RECOVERED_TTL_MS,
+      );
+      expect(next).toBe(base);
+    });
+
+    it("无移除时返回原引用（tick 无退场不触发重渲）", () => {
+      const base = [recovered("p1", 96, CARD_AT), low("p2", 50)];
+      const seen = new Set([messageId(low("p2", 50))]);
+      expect(pruneRecovered(base, seen, new Map(), CARD_AT + 1_000)).toBe(base);
     });
   });
 });

@@ -43,10 +43,13 @@ export function TitleBar({
   messages,
   messageSeen,
   onMessagesSeen,
+  onDismissMessage,
 }: {
   messages: CenterMessage[];
   messageSeen: ReadonlySet<string>;
   onMessagesSeen: () => void;
+  /** 卡片级关闭回调（App 层 removeMessage + 已读剔除，见 App.tsx）。 */
+  onDismissMessage: (id: string) => void;
 }) {
   const { t } = useLang();
   const resolvedTheme = useTheme();
@@ -121,7 +124,12 @@ export function TitleBar({
           <GithubMark />
         </IconButton>
 
-        <MessageCenter messages={messages} seen={messageSeen} onSeenAll={onMessagesSeen} />
+        <MessageCenter
+          messages={messages}
+          seen={messageSeen}
+          onSeenAll={onMessagesSeen}
+          onDismiss={onDismissMessage}
+        />
 
         <div className="qt-titlebar-menu-anchor">
           <IconButton

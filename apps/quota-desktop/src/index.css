@@ -1057,9 +1057,12 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-msg-dot { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 999px; background: var(--qt-danger); pointer-events: none; }
 .qt-msg-panel { width: 280px; }
 .qt-msg-empty { margin: 0; padding: 14px 0; text-align: center; font-size: 12px; color: var(--qt-text-faint); }
-.qt-msg-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 10px 8px; }
+.qt-msg-card { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px 10px 8px; }
 .qt-msg-card + .qt-msg-card { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--qt-border); }
-.qt-msg-card-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--qt-text); }
+/* 卡片右上角关闭（A：迷你档 22px/xs 圆角，默认弱化不抢卡片正文，
+   悬停/聚焦提升——尺寸分档仿 console-btn T-004 先例） */
+.qt-icon-btn.qt-msg-dismiss { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: var(--qt-radius-xs); color: var(--qt-text-faint); }
+.qt-msg-card-title { margin: 0; padding-right: 26px; font-size: 13px; font-weight: 600; color: var(--qt-text); }
 .qt-msg-card-body { margin: 0; font-size: 12px; color: var(--qt-text-soft); }
 .qt-msg-install { min-height: 28px; padding: 4px 10px; font-size: 12px; }
 .qt-msg-card-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--qt-text-faint); }
@@ -1142,6 +1145,13 @@ body.qt-mobile-runtime .qt-provider-card.has-balance-alert:not(.is-expanded):hov
 body.qt-mobile-runtime .qt-mobile-topbar .qt-titlebar-menu-anchor .qt-dropdown { top: 48px; right: -96px; }
 body.qt-mobile-runtime .qt-msg-panel { width: min(280px, calc(100vw - 28px)); }
 body.qt-mobile-runtime .qt-msg-panel .qt-btn { min-height: 44px; }
+/* 卡片关闭钮迷你档豁免 topbar 44px 规则（.qt-mobile-topbar .qt-icon-btn
+   同优先级且声明靠后会把它撑到 44px 溢出卡片）；移动端放大到 28px
+   兼顾触摸命中区，视觉档位仍小于面板主操作按钮的 44px */
+body.qt-mobile-runtime .qt-msg-panel .qt-msg-dismiss { width: 28px; height: 28px; }
+/* 标题行预留关闭钮宽度（桌面 4+22px / 移动 4+28px）：短文案无视觉
+   变化，长文案换行避开命中区 */
+body.qt-mobile-runtime .qt-msg-panel .qt-msg-card-title { padding-right: 32px; }
 body.qt-mobile-runtime .qt-details-toggle { display: inline-flex; min-height: 44px; padding: 8px 0; }
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):hover .qt-provider-secondary,
 body.qt-mobile-runtime .qt-provider-card:not(.is-expanded):focus-within .qt-provider-secondary {

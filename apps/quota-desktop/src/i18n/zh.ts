@@ -503,6 +503,7 @@ export const zh = {
   "msgCenter.lowBalanceBody": "{name} 剩余 {remaining}%",
   "msgCenter.balanceRecoveredTitle": "额度已恢复",
   "msgCenter.balanceRecoveredBody": "{name} 额度已恢复，剩余 {remaining}%",
+  "msgCenter.dismiss": "关闭此消息",
   // ---- 峰谷定价（EditDialog 编辑区块） ----
   "pricing.section": "峰谷定价",
   "pricing.unit": "所有价格单位均为每百万 Tokens",
