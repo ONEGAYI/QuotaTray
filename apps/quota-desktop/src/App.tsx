@@ -15,7 +15,12 @@ import type { SettingsTab } from "./components/settingsView";
 import { TitleBar } from "./components/TitleBar";
 import { UsageStatsPage } from "./components/UsageStatsPage";
 import type { CenterMessage } from "./components/messageCenterView";
-import { mergeMessage, messageId } from "./components/messageCenterView";
+import {
+  mergeMessage,
+  messageId,
+  pruneRecovered,
+  removeMessage,
+} from "./components/messageCenterView";
 import { LangProvider, useLang } from "./i18n";
 import { ThemeProvider } from "./theme";
 import {
@@ -70,22 +75,53 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   // - balance-recovered（两端）：先前低额度的条目所有百分比窗口剩余
   //   达恢复阈值；收到广播后回执 ack 清掉 Worker 可能抢先落盘的同条目
   //   待展示消息（本会话已展示，不再等下次启动重复入列）。
+  // 卡片退出路径：手动关闭（dismissMessage，所有 kind）+ 恢复消息
+  // 自动退场（60s tick 调 pruneRecovered：已读且卡片事件后该条目又有
+  // 一次成功查询 / 入列达到 TTL——事件消息不与状态消息同样常驻）。
   const [messages, setMessages] = useState<CenterMessage[]>([]);
   const [messageSeen, setMessageSeen] = useState<ReadonlySet<string>>(() => new Set());
+  // 退场 tick 在函数式更新内消费已读现值：闭包捕获的 state 会滞留
+  // 旧值，经 ref 取最新（欠修剪最坏延迟一拍，下一 tick 自愈）
+  const messageSeenRef = useRef(messageSeen);
+  useEffect(() => {
+    messageSeenRef.current = messageSeen;
+  }, [messageSeen]);
+  // 已读集合收敛：已读标记随现存消息派生——消息被移除（手动关闭/
+  // 自动退场/同组替换）后剔除对应标记，同 id 重播作为新消息重新点亮
+  // 红点。与移除来源解耦；无变化返回原引用不触发重渲。
+  useEffect(() => {
+    const alive = new Set(messages.map(messageId));
+    setMessageSeen((seen) => {
+      let changed = false;
+      const kept = new Set<string>();
+      for (const id of seen) {
+        if (alive.has(id)) kept.add(id);
+        else changed = true;
+      }
+      return changed ? kept : seen;
+    });
+  }, [messages]);
   useEffect(() => {
     // 启动补读跨重启待展示的恢复消息（读取即清；失败静默——下次启动
-    // 重试，不阻断主界面）
+    // 重试，不阻断主界面）。入列时按事件时刻先淘汰 TTL 过期的历史
+    // 事件（如数日未启动期间 Worker 落盘的恢复消息，过期无展示价值）
     void api.takeRecoveryMessages().then((items) => {
       setMessages((prev) =>
-        items.reduce(
-          (acc, item) =>
-            mergeMessage(acc, {
-              kind: "balance-recovered",
-              providerId: item.provider_id,
-              name: item.name,
-              remainingPercent: item.remaining_percent,
-            }),
-          prev,
+        pruneRecovered(
+          items.reduce(
+            (acc, item) =>
+              mergeMessage(acc, {
+                kind: "balance-recovered",
+                providerId: item.provider_id,
+                name: item.name,
+                remainingPercent: item.remaining_percent,
+                at: item.at,
+              }),
+            prev,
+          ),
+          new Set<string>(),
+          new Map<string, number>(),
+          Date.now(),
         ),
       );
     });
@@ -126,6 +162,9 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
           providerId: event.payload.provider_id,
           name: event.payload.name,
           remainingPercent: event.payload.remaining_percent,
+          // 广播负载无事件时刻，取到达时刻（准实时，误差毫秒级）作为
+          // 自动退场判定基准
+          at: Date.now(),
         }),
       );
       // 回执：Worker 抢先落盘的同条目消息已由本会话展示，清掉防止下次
@@ -145,6 +184,11 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
       return next;
     });
   }, [messages]);
+  // 卡片级关闭（A）：移除单张卡片（已读标记由收敛 effect 同步剔除，
+  // 同 id 消息重播重新点亮红点）
+  const dismissMessage = useCallback((id: string) => {
+    setMessages((prev) => removeMessage(prev, id));
+  }, []);
   // 前后台状态同步（Android 消息通知发射条件：后台才补发系统通知）。
   // 两端统一挂载：桌面调用无害（后端不消费）；Android 退后台 WebView
   // 定时器冻结前 visibilitychange 先行触发（时机属真机验收项）。
@@ -161,6 +205,33 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
     document.addEventListener("visibilitychange", sync);
     return () => document.removeEventListener("visibilitychange", sync);
   }, [qc]);
+  // 恢复消息自动退场 tick（C-2/C-3）：直接向后端取共享结果表现值
+  // （get_snapshots 为内存读，60s 一次成本可忽略）——不走 ["snapshots"]
+  // 查询缓存：那是启动首屏快照（spec §5，staleTime Infinity、仅条目
+  // 变更时失效），at 恒为启动时刻，C-2 判据（快照 at 晚于卡片 at）
+  // 在广播路径会恒不成立。共享结果表仅在成功查询时更新 at。函数式
+  // 更新保证与广播入列等并发更新按序合并（直接值写回会覆盖同批入队
+  // 的消息；丢失的是不重播的边沿事件消息，无自愈）。无移除时
+  // pruneRecovered 返回原引用，React bail out 不重渲；IPC 失败静默，
+  // 退场推迟到下一 tick。
+  useEffect(() => {
+    const tick = async () => {
+      let snapshotAt: ReadonlyMap<string, number>;
+      try {
+        const snapshots = await api.getSnapshots();
+        snapshotAt = new Map(
+          Object.entries(snapshots).map(([id, entry]) => [id, entry.at]),
+        );
+      } catch {
+        return;
+      }
+      setMessages((prev) =>
+        pruneRecovered(prev, messageSeenRef.current, snapshotAt, Date.now()),
+      );
+    };
+    const timer = window.setInterval(() => void tick(), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const providers = useProviders();
   const settings = useSettings();
   const snapshots = useSnapshots();
@@ -259,6 +330,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
           messages={messages}
           messageSeen={messageSeen}
           onMessagesSeen={onMessagesSeen}
+          onDismissMessage={dismissMessage}
         />
       ) : (
         <MobileTopBar
@@ -269,6 +341,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
           messages={messages}
           messageSeen={messageSeen}
           onMessagesSeen={onMessagesSeen}
+          onDismissMessage={dismissMessage}
           onViewUpdates={() => openSettingsAt("update")}
         />
       )}

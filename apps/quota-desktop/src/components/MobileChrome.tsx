@@ -13,17 +13,20 @@ export function MobileTopBar({
   messages,
   messageSeen,
   onMessagesSeen,
+  onDismissMessage,
   onViewUpdates,
 }: {
   addLabel: string;
   settingsLabel: string;
   onAdd: () => void;
   onSettings: () => void;
-  /** 消息中心三件 props + 「查看更新」回调（桌面 TitleBar 同款链路，
+  /** 消息中心 props + 「查看更新」回调（桌面 TitleBar 同款链路，
    * 数据源与已读 state 均在 App 层，见 App.tsx 分流处）。 */
   messages: CenterMessage[];
   messageSeen: ReadonlySet<string>;
   onMessagesSeen: () => void;
+  /** 卡片级关闭回调（App 层 removeMessage + 已读剔除，见 App.tsx）。 */
+  onDismissMessage: (id: string) => void;
   onViewUpdates: () => void;
 }) {
   return (
@@ -37,6 +40,7 @@ export function MobileTopBar({
           messages={messages}
           seen={messageSeen}
           onSeenAll={onMessagesSeen}
+          onDismiss={onDismissMessage}
           onViewUpdates={onViewUpdates}
         />
         <IconButton icon={Settings} label={settingsLabel} onClick={onSettings} />

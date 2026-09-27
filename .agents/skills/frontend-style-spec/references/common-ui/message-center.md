@@ -6,7 +6,8 @@
 ## T-009 消息中心（铃铛 + 红点 + 点击展开面板）
 
 **标准样式**（2026-08-28 草案，随静默安装改造引入；2026-08-30 增移动形态
-与新消息类型；2026-09-26 #132 增恢复卡片与跨重启待展示消息）：
+与新消息类型；2026-09-26 #132 增恢复卡片与跨重启待展示消息；
+2026-09-27 增卡片级关闭与恢复消息自动退场）：
 
 - 触发钮：复用 `qt-icon-btn`（常规 34px / sm 圆角档）+ `qt-titlebar-menu-anchor`
   锚定（与语言/主题菜单同构）；tooltip 走 `IconButton` label 机制。
@@ -17,7 +18,12 @@
   （md 档，见 DT-002）不变。
 - 消息卡片：面板内一条消息一块；标题行（text）+ 说明行（text-soft，
   12px）+ 动作按钮（`qt-btn secondary` 小号）+ 后果提示行（text-faint，
-  12px）。卡片间距 8px，以 `border` 色分隔（不引入新色）。
+  12px）。卡片间距 8px，以 `border` 色分隔（不引入新色）。**卡片级关闭**
+  （2026-09-27）：每张卡片右上角 × 钮（`qt-icon-btn` + `qt-msg-dismiss`
+  迷你档 22px / xs 圆角，默认 text-faint 弱化、悬停提升——尺寸分档仿
+  console-btn T-004 先例），所有 kind 通用；关闭只表达「本会话不再展示」，
+  同 id 消息重播（update-ready 重启探测、low-balance 状态回归）照常
+  重新入列并点亮红点。
 - 空态：面板内居中文本（text-faint，12px），不另起空态卡（T-006 的
   empty-state 面向视图级，面板级轻量文本豁免）。
 - 已读语义：打开面板即全量已读（红点消失）；消息为会话级内存态，
@@ -26,6 +32,17 @@
   `alert_state.json`，前端启动经 `take_recovery_messages` 读取即清并入列
   （未读红点点亮）；广播路径入列后前端回执 `ack_recovery_message` 清盘，
   防止已展示消息在下次启动重复亮红点。
+- **恢复消息自动退场**（2026-09-27）：balance-recovered 是一次性事件
+  消息，不再常驻整个会话——App 层 60s tick 调 `pruneRecovered`（纯函数，
+  见 `messageCenterView.ts`）按两条规则移除：其一，卡片已读且该条目快照
+  `at` 晚于卡片 `at`（快照仅在成功查询时更新，即「已读 + 又一次成功
+  查询」的硬证据，恢复事件本身那一轮不算）；其二，入列达到 24h TTL
+  （≥，与已读无关，从不打开面板的用户同样生效）。tick 直取后端共享
+  结果表现值（get_snapshots 内存读）——不走启动首屏的 ["snapshots"]
+  查询缓存，其 at 恒为启动时刻，判据会恒不成立。启动补读入列时先
+  淘汰 TTL 已过期的历史事件。被移除消息的已读标记由收敛 effect
+  派生剔除。low-balance 是状态消息（互斥替换天然退场）、update-*
+  是单例消息，均不受退场规则影响。
 
 **消息类型**（按 kind 分支渲染，事件源头按平台分流——UI 不做平台判定）：
 
@@ -60,6 +77,10 @@
   动作区按钮增减须同步此值）——铃铛是动作区最左按钮，`right: 0` 会把
   280px 面板推出屏幕左缘（2026-08-30 真机截屏实证）；宽度
   `min(280px, 100vw - 28px)` 防小屏溢出；面板内按钮 `min-height: 44px`；
+  **卡片关闭钮豁免**（2026-09-27）：topbar 的 44px 规则会波及面板内
+  关闭钮（DOM 面板在 topbar 内），移动端经
+  `body.qt-mobile-runtime .qt-msg-panel .qt-msg-dismiss` 放大到 28px
+  兼顾触摸命中区；
   红点沿用桌面样式；
 - **层叠**：`.qt-mobile-topbar` 持 `position: relative; z-index: 40`
   ——topbar 的 `backdrop-filter` 使其成为层叠上下文，不显式抬升时

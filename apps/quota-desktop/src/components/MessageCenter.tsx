@@ -4,9 +4,12 @@
 // 卡片文案已明示「退出并自动重启」后果，点击即确认，不叠加系统
 // confirm）；update-available 仅移动端产生（无自动下载，引导到设置·
 // 更新页）；low-balance / balance-recovered 两端共用（纯展示，同条目
-// 互斥只留最新状态卡片）。
+// 互斥只留最新状态卡片）。每张卡片右上角可关闭（onDismiss，App 层
+// removeMessage 移除，已读标记由收敛 effect 派生剔除）；恢复消息另有
+// 自动退场（App 层周期 tick 调 pruneRecovered：已读且卡片事件后该
+// 条目又有一次成功查询，或入列达到 TTL）。
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { useLang } from "../i18n";
@@ -17,12 +20,15 @@ export function MessageCenter({
   messages,
   seen,
   onSeenAll,
+  onDismiss,
   onViewUpdates,
 }: {
   messages: CenterMessage[];
   seen: ReadonlySet<string>;
   /** 打开面板时回调（红点全量清除）。 */
   onSeenAll: () => void;
+  /** 卡片右上角关闭回调（按 messageId 移除单张卡片，所有 kind 通用）。 */
+  onDismiss: (id: string) => void;
   /** 「查看更新」回调（移动端 update-available 卡片：打开设置·更新页）。 */
   onViewUpdates?: () => void;
 }) {
@@ -70,6 +76,12 @@ export function MessageCenter({
         ) : (
           messages.map((message) => (
             <div key={messageId(message)} className="qt-msg-card">
+              <IconButton
+                icon={X}
+                label={t("msgCenter.dismiss")}
+                className="qt-msg-dismiss"
+                onClick={() => onDismiss(messageId(message))}
+              />
               {message.kind === "update-ready" && (
                 <>
                   <p className="qt-msg-card-title">{t("msgCenter.updateReadyTitle")}</p>

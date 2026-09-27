@@ -495,6 +495,7 @@ export const en: Record<TextKey, string> = {
   "msgCenter.lowBalanceBody": "{name} has {remaining}% left",
   "msgCenter.balanceRecoveredTitle": "Balance recovered",
   "msgCenter.balanceRecoveredBody": "{name} balance recovered, {remaining}% remaining",
+  "msgCenter.dismiss": "Dismiss message",
   "settings.manualUrl": "No installer for this version; release page: {url}",
   // ---- Android updates (SAF save + system installer flow) ----
   "settings.apkDialogTitle": "Save update package",

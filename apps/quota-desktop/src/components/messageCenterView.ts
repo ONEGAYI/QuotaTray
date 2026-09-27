@@ -2,7 +2,13 @@
 // 去重与未读判定。消息为会话级内存态（重启即空），但 #132 起恢复消息
 // 有跨重启补读：Android 后台 Worker 触发的恢复事件落盘，前端启动经
 // take_recovery_messages 读取入列（读取即清）；低余额由下次成功查询
-// 重新入列。不设清除动作（打开面板即全量已读）。
+// 重新入列。
+//
+// 卡片退出路径（不再常驻整个会话）：
+// - 手动关闭（A）：removeMessage 按消息 id 移除，所有 kind 通用；
+// - 恢复消息自动退场（C-2/C-3，见 pruneRecovered）：已读且卡片所载
+//   事件之后该条目又有一次成功查询，或入列达到 TTL——事件消息价值
+//   随时间归零，不与 low-balance 状态消息同样常驻。
 
 /** 消息中心条目联合类型；渲染与去重按 kind + 业务键。
  * - update-ready：桌面安装包已下载完成（后端桌面 cfg 广播）；
@@ -40,6 +46,9 @@ export type CenterMessage =
       name: string;
       /** 最低剩余百分比（0-100，参与判定的 % 窗口中最保守值）。 */
       remainingPercent: number;
+      /** 恢复事件时刻（epoch 毫秒）：广播入列取前端时钟，启动补读
+       *  取后端 RecoveryNotice.at——自动退场（C-2/C-3）的判定基准。 */
+      at: number;
     };
 
 /** 单例消息 kind：每个 kind 全局只保留最新一条——新到取代旧的，
@@ -112,4 +121,44 @@ export function mergeMessage(
 /** 未读判定：存在任何未进入已读集合的消息即有红点。 */
 export function hasUnread(messages: CenterMessage[], seen: ReadonlySet<string>): boolean {
   return messages.some((m) => !seen.has(messageId(m)));
+}
+
+/** 恢复消息自动退场 TTL（C-3）：入列起达到 24 小时（≥）即移除，事件
+ *  消息的价值窗口。到期即移除且与已读无关——从不打开面板的用户同样
+ *  生效。 */
+export const RECOVERED_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** 卡片级关闭（A）：按消息 id 移除单张卡片，所有 kind 通用。关闭只
+ *  表达「本会话不再展示」——同 id 消息的重播（update-ready 重启探测、
+ *  low-balance 状态回归）照常重新入列并点亮红点。无匹配返回原引用。 */
+export function removeMessage(existing: CenterMessage[], id: string): CenterMessage[] {
+  return existing.some((m) => messageId(m) === id)
+    ? existing.filter((m) => messageId(m) !== id)
+    : existing;
+}
+
+/** 恢复消息自动退场（C-2 + C-3，只作用于 balance-recovered；调用方
+ *  周期 tick）：
+ *  - C-2 已读退场：卡片已读（seen）且该条目快照 at 晚于卡片 at——快照
+ *    仅在成功查询时更新，故这是「用户已读 + 卡片所载事件之后该条目
+ *    又有一次成功查询」的证据。广播路径卡片 at 取事件到达时刻，之后
+ *    的新一轮查询才算；补读路径卡片 at 取后端事件时刻（可能较早），
+ *    本会话首次成功查询的快照即可满足。
+ *  - C-3 TTL 退场：入列达到 RECOVERED_TTL_MS（≥）。
+ *  low-balance 是状态消息（互斥替换天然退场）、update-* 是单例消息，
+ *  均不受本规则影响。无移除时返回原引用（tick 不触发无谓重渲）。 */
+export function pruneRecovered(
+  existing: CenterMessage[],
+  seen: ReadonlySet<string>,
+  snapshotAt: ReadonlyMap<string, number>,
+  now: number,
+): CenterMessage[] {
+  if (!existing.some((m) => m.kind === "balance-recovered")) return existing;
+  const kept = existing.filter((m) => {
+    if (m.kind !== "balance-recovered") return true;
+    if (now - m.at >= RECOVERED_TTL_MS) return false;
+    const snapAt = snapshotAt.get(m.providerId);
+    return !(seen.has(messageId(m)) && snapAt != null && snapAt > m.at);
+  });
+  return kept.length === existing.length ? existing : kept;
 }
