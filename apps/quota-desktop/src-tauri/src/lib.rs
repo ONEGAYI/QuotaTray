@@ -32,6 +32,9 @@ mod notification_android;
 mod ring;
 mod settings;
 mod snapshot;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod startup;
+mod startup_builder;
 mod state;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod tray;
@@ -152,8 +155,20 @@ fn finish_setup(
     state: state::AppState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(state);
-    app.manage(hover_panel::HoverPanelState::default());
     setup_surfaces(app).map_err(Into::into)
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn activate_main(app: &tauri::AppHandle) {
+    tray::show_main(app);
+    let _ = tauri::Emitter::emit(app, "instance-already-running", ());
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn mark_startup_ready(app: &tauri::AppHandle) {
+    if app.state::<startup::StartupActivation>().mark_ready() {
+        activate_main(app);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -220,19 +235,42 @@ pub fn run() {
     } else {
         None
     };
-    let builder = tauri::Builder::default();
+    let context = tauri::generate_context!();
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let context = {
+        let mut context = context;
+        // 在窗口创建前隐藏，避免自启时先闪出主页面再收托盘。
+        startup::configure_main_window(
+            context.config_mut(),
+            std::env::args().skip(1),
+            pending_portable_init,
+        );
+        context
+    };
+    let builder = startup_builder::prepare(
+        tauri::Builder::default(),
+        hover_panel::HoverPanelState::default(),
+    );
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
+        .manage(startup::StartupActivation::default())
         // 单实例必须首位注册：第二实例启动即回调后退出。
         // 取舍：插件 Windows 实现是会话命名空间 mutex（{identifier}-sim），
         // 非 spec 提及的 Global\ 跨会话形态——同机同用户单 GUI 的目标场景下
         // 语义等价（官方跨平台实现，D4 决策），跨登录会话双开不在防御范围。
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // 聚焦已有实例并向前端广播：让用户明白「为什么新点的没打开」
-            tray::show_main(app);
-            let _ = tauri::Emitter::emit(app, "instance-already-running", ());
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            startup::activate_existing(argv.iter().skip(1), || {
+                // 主窗口可能尚未创建；早到的手动请求等 setup 完成后补发。
+                if app.state::<startup::StartupActivation>().request_manual() {
+                    activate_main(app);
+                }
+            });
         }))
-        .plugin(tauri_plugin_autostart::Builder::new().build());
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(startup::AUTOSTART_ARG)
+                .build(),
+        );
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_fs::init());
     builder
@@ -257,13 +295,13 @@ pub fn run() {
             }
             if let Some(mode) = gate_mode {
                 // 便携首启：仅托管门控，AppState/托盘/调度器待确认后补齐。
-                // HoverPanelState 必须此刻托管：single-instance 回调（确认页
-                // 期间二次启动 exe 即触发）在主线程调 tray::show_main →
-                // hover_panel::hide，未托管会 panic 直接崩掉首实例
+                // HoverPanelState 已由 startup_builder 提前托管，确认页或
+                // 普通初始化期间的单实例回调都能安全隐藏悬停窗。
                 app.manage(state::BootGate {
                     pending: std::sync::Mutex::new(Some(mode)),
                 });
-                app.manage(hover_panel::HoverPanelState::default());
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                mark_startup_ready(app.handle());
                 return Ok(());
             }
             let state = match state::AppState::init(mode.clone()) {
@@ -284,6 +322,24 @@ pub fn run() {
                 }
             };
             finish_setup(app.handle(), state)?;
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            mark_startup_ready(app.handle());
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if !tauri::is_dev() && matches!(mode, RuntimeMode::Installed { data_dir: None }) {
+                // 安装/升级可能删除执行项；配置中的开启意图不能只靠开关
+                // 变化触发。开发宿主、--data-dir 沙箱与便携版不注册自启。
+                let enabled = app
+                    .state::<state::AppState>()
+                    .settings
+                    .read()
+                    .unwrap()
+                    .autostart;
+                if let Err(e) = startup::sync_autostart(enabled, enabled, |_| {
+                    startup::restore_autostart(app.handle())
+                }) {
+                    log::warn!("恢复开机自启执行项失败（继续启动）：{e}");
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -356,6 +412,6 @@ pub fn run() {
             hover_panel::hide_hover_panel,
             hover_panel::open_main_window,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("QuotaTray 启动失败");
 }

@@ -50,6 +50,7 @@ jni = "0.21"
 ndk-context = "0.1"
 
 [target.'cfg(windows)'.dependencies]
+winreg = "0.55" # 冷启动只修复 Run 执行项，保留任务管理器的禁用记录
 windows-sys = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging", # 悬停面板 show 后重插 topmost 组顶（压过隐藏托盘 flyout）
   "Win32_Foundation",
@@ -58,3 +59,6 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 rusqlite = { workspace = true } # 迁移降级契约测试：并发独占连接注入历史库写失败（#130）
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dev-dependencies]
+tauri = { version = "2", features = ["test"] } # 单实例插件初始化早于 AppState 的状态契约
