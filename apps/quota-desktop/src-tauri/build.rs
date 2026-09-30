@@ -2,6 +2,16 @@
 mod build_support;
 
 fn main() {
+    // 初始化时序契约使用 Tauri Mock，需要 Common Controls v6。
+    // 只对集成测试注入清单，主程序继续使用 Tauri 的资源清单。
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!(
+            "cargo:rustc-link-arg-tests=/MANIFESTDEPENDENCY:type='win32' \
+             name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
+             processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'"
+        );
+    }
     stage_quota_cli();
     tauri_build::build()
 }

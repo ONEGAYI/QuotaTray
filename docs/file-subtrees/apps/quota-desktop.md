@@ -51,6 +51,7 @@ QuotaTray/
         │   │   ├── guideMd.test.ts              # 指引解析器契约测试
         │   │   ├── guideMd.ts                   # 指引 Markdown 子集解析器
         │   │   ├── GuideViewer.tsx              # 配置指引渲染组件
+        │   │   ├── HoverPanel.test.tsx          # 悬停浮窗渲染契约测试
         │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
         │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
         │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
@@ -131,7 +132,7 @@ QuotaTray/
         │   │       ├── OFL.txt                      # 数字字体开源许可证
         │   │       ├── QuotaTrayTrayDigits-Bold.ttf # 托盘粗体数字子集
         │   │       └── README.md                    # 字体来源与子集制作说明
-        │   ├── build.rs                # Tauri构建脚本
+        │   ├── build.rs                # Tauri构建与CLI暂存
         │   ├── build_support.rs        # CLI产物路径纯函数
         │   ├── capabilities/           # 权限 ACL
         │   │   ├── default.json     # 主窗 ACL
@@ -156,6 +157,8 @@ QuotaTray/
         │   │   ├── ring.rs                 # 托盘细环大字渲染
         │   │   ├── settings.rs             # settings.json 读写
         │   │   ├── snapshot.rs             # cache.json 快照
+        │   │   ├── startup.rs              # 静默自启与注册恢复
+        │   │   ├── startup_builder.rs      # 启动交互状态提前托管
         │   │   ├── state.rs                # AppState
         │   │   ├── tray.rs                 # 托盘菜单与图标
         │   │   ├── tray_mobile.rs          # 移动托盘空实现
@@ -164,7 +167,8 @@ QuotaTray/
         │   ├── tauri.conf.json         # Tauri配置
         │   ├── tauri.windows.conf.json # Windows Tauri 覆盖配置
         │   └── tests/                  # 构建逻辑测试目录
-        │       └── build_support.rs # CLI路径契约测试
+        │       ├── build_support.rs # CLI路径契约测试
+        │       └── startup_order.rs # 插件初始化状态契约
         ├── tsconfig.json       # TS 编译配置
         └── vite.config.ts      # Vite 配置
 <!-- file-tree:tree^id=apps-desktop:end -->

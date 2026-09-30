@@ -1732,7 +1732,8 @@ fn persist_usage_comparison_settings(
 /// 1. 先落盘（失败则内存不动，前端展示错误，三方一致）；
 /// 2. 落盘成功后同步内存；
 /// 3. 托盘按新阈值重建（阈值变更即时反映，不受后续自启失败影响）；
-/// 4. 自启系统注册失败：回滚磁盘与内存的 autostart 意图为旧值（保证
+/// 4. 开启自启时每次保存同步注册（可修复丢失执行项）；注册失败时
+///    回滚磁盘与内存的 autostart 意图为旧值（保证
 ///    重按「保存」会真正重试注册，而非跳过比较后假成功），其余设置保留。
 fn persist_settings(
     app: &AppHandle,
@@ -1777,21 +1778,33 @@ fn persist_settings(
         log::warn!("代理变更后重建查询引擎失败：{e}");
     }
 
-    if old_autostart != settings.autostart {
-        // 便携形态禁止自启动：注册表项指向 U 盘路径会在介质移除后
-        // 残留为无效启动项；前端体验层禁用之外的后端硬门禁
-        if settings.autostart && state.mode.is_portable() {
-            return Err(lang.err_autostart_portable());
+    // 便携形态禁止自启动：执行项指向介质路径会在移除后失效。
+    // 保持跨端守卫，移动端的运行形态固定为 Installed。
+    if settings.autostart && state.mode.is_portable() {
+        return Err(lang.err_autostart_portable());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let autostart_result =
+        crate::startup::sync_autostart(old_autostart, settings.autostart, |action| match action {
+            crate::startup::AutostartAction::Refresh => crate::startup::restore_autostart(app)
+                .map_err(|e| lang.err_autostart_toggle(true, &e)),
+            crate::startup::AutostartAction::Enable => apply_autostart(app, true, lang),
+            crate::startup::AutostartAction::Disable => apply_autostart(app, false, lang),
+        });
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let autostart_result = if old_autostart != settings.autostart {
+        apply_autostart(app, settings.autostart, lang)
+    } else {
+        Ok(())
+    };
+    if let Err(e) = autostart_result {
+        // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
+        settings.autostart = old_autostart;
+        if let Err(io) = settings.save(&state.paths.settings()) {
+            eprintln!("自启失败后回滚 settings.json 失败：{io}");
         }
-        if let Err(e) = apply_autostart(app, settings.autostart, lang) {
-            // 回滚 autostart 意图（磁盘 + 内存）：保持「重按保存即重试」语义
-            settings.autostart = old_autostart;
-            if let Err(io) = settings.save(&state.paths.settings()) {
-                eprintln!("自启失败后回滚 settings.json 失败：{io}");
-            }
-            *state.settings.write().unwrap() = settings;
-            return Err(lang.err_autostart_apply(&e));
-        }
+        *state.settings.write().unwrap() = settings;
+        return Err(lang.err_autostart_apply(&e));
     }
     Ok(())
 }
@@ -1889,9 +1902,7 @@ fn apply_autostart(app: &AppHandle, enable: bool, lang: Lang) -> Result<(), Stri
             .enable()
             .map_err(|e| lang.err_autostart_toggle(true, &e))
     } else {
-        autolaunch
-            .disable()
-            .map_err(|e| lang.err_autostart_toggle(false, &e))
+        crate::startup::disable_autostart(app).map_err(|e| lang.err_autostart_toggle(false, &e))
     }
 }
 
