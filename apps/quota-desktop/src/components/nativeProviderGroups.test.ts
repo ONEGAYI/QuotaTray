@@ -47,7 +47,7 @@ describe("添加供应商的平台聚合", () => {
       "deepseek",
       "siliconflow",
       "openrouter",
-      "opencode_go",
+      "opencode",
       "kimi",
       "zhipu",
       "zai",

@@ -12,7 +12,7 @@ pub mod kimi;
 pub mod kimi_coding;
 pub mod minimax;
 pub mod novita;
-pub mod opencode_go;
+pub mod opencode;
 pub mod openrouter;
 pub mod siliconflow;
 pub mod stepfun;
@@ -29,7 +29,7 @@ pub use kimi::{KIMI_CN, KIMI_GLOBAL, Kimi};
 pub use kimi_coding::{KIMI_CODE_CN, KIMI_CODE_GLOBAL, KimiCode};
 pub use minimax::{MINIMAX_CN, MINIMAX_GLOBAL, MiniMax};
 pub use novita::Novita;
-pub use opencode_go::OpenCodeGo;
+pub use opencode::{OPENCODE_GO, OpenCode};
 pub use openrouter::OpenRouter;
 pub use siliconflow::{SILICONFLOW_CN, SILICONFLOW_GLOBAL, SiliconFlow};
 pub use stepfun::StepFun;
@@ -80,7 +80,7 @@ static REGISTRY: LazyLock<Vec<Arc<dyn NativeProvider>>> = LazyLock::new(|| {
         Arc::new(SILICONFLOW_CN),
         Arc::new(SILICONFLOW_GLOBAL),
         Arc::new(OpenRouter),
-        Arc::new(OpenCodeGo),
+        Arc::new(OPENCODE_GO),
         Arc::new(KIMI_CN),
         Arc::new(KIMI_GLOBAL),
         Arc::new(KIMI_CODE_CN),

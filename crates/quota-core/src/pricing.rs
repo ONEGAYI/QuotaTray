@@ -370,7 +370,7 @@ pub struct PresetProvider {
 
 /// 平台的默认预置币种（条目未指定时 `preset` 取这套）。
 /// OpenRouter 虽无峰谷预置但按量计价为 USD，一并给出以防误兜底。
-/// OpenCode Go 同属 USD 计价（$10 / $40 月费、模型单价均以美元标价），
+/// OpenCode 同属 USD 计价（Go $10 / Go Plus $40 月费、模型单价均以美元标价），
 /// 但用量接口只回百分比窗口，故不参与预置峰谷定价。
 pub fn default_currency(native_id: &str) -> &'static str {
     match native_id {

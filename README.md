@@ -106,7 +106,7 @@ quota update --check           # 检测新版本
 | StepFun | — | 顶层 balance，CNY |
 | Novita AI | — | availableBalance ÷ 10000 = USD |
 | MiniMax Coding Plan | 国内站 / 国际站 | 5h+周剩余百分比归一已用 |
-| OpenCode Go / Go Plus | — | 5h / 周 / 月三窗口已用百分比，Bearer `oc_sk_` key（非公开文档接口） |
+| OpenCode Go | — | Go / Go Plus 订阅的 5h / 周 / 月三窗口已用百分比，Bearer `oc_sk_` key（非公开文档接口） |
 | 阿里云余额 | — | BssOpenApi 账户级可用额度+币种；AccessKey 双凭据（ID + Secret，RAM 最小权限指引见应用内配置指引） |
 | Claude 订阅 | — | Pro/Max 多窗口用量，凭据读本机 Claude Code 登录 |
 | Codex（ChatGPT 订阅） | — | Plus/Pro 双窗口用量，凭据读本机 Codex CLI 登录 |

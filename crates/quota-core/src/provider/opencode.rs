@@ -1,4 +1,8 @@
-//! OpenCode Go 订阅用量查询。
+//! OpenCode 用量查询（当前覆盖 Go / Go Plus 订阅套餐）。
+//!
+//! 平台标识取产品线「OpenCode」而非套餐名「Go」：Zen 按量账户与 Go 订阅
+//! 共用同一 Console 与密钥体系，后续接入 Zen 余额时并入本平台，不再新增
+//! 注册项。当前只实现 Go 订阅的窗口用量路由。
 //!
 //! `GET https://opencode.ai/inference/go/v1/usage`（Bearer api key）
 //! 响应：
@@ -28,7 +32,24 @@ use crate::config::{Credentials, PlanVariant};
 use crate::http::{HttpClient, HttpRequest};
 use crate::model::{QueryError, UsageData};
 
-pub struct OpenCodeGo;
+/// OpenCode 品牌下的套餐条目（`id`/`name`/控制台 URL 随套餐实例化）。
+///
+/// 注册项按**套餐**命名（`opencode_go`），UI 的「OpenCode」品牌聚合由前端
+/// 分组完成：分组键 `opencode` 下并列 Go 与（后续）Zen，与 SiliconFlow
+/// 双站的分组模式一致。
+pub struct OpenCode {
+    id: &'static str,
+    name: &'static str,
+    /// 控制台直达预置 URL（套餐级：Go 有独立产品页）。
+    console_url: &'static str,
+}
+
+/// OpenCode Go / Go Plus 订阅（$10 / $40 每月）。
+pub const OPENCODE_GO: OpenCode = OpenCode {
+    id: "opencode_go",
+    name: "OpenCode Go",
+    console_url: "https://opencode.ai/console/go",
+};
 
 /// 三个额度窗口：响应字段名、展示标签与文档口径的窗口长度。
 /// 顺序即输出顺序（由短到长，与 Kimi Code / MiniMax 的行序一致）。
@@ -36,7 +57,7 @@ const WINDOWS: [(&str, &str); 3] = [("rolling", "5h"), ("weekly", "week"), ("mon
 
 /// 单窗口 → 用量行。`percent` 缺失且窗口未标记受限时返回 None
 /// （该窗口不下发），由调用方判断是否整份响应异常。
-fn window_row(usage: &Value, field: &str, label: &str) -> Option<UsageData> {
+fn window_row(usage: &Value, name: &str, field: &str, label: &str) -> Option<UsageData> {
     let window = usage.get(field)?;
     let status = window
         .get("status")
@@ -56,7 +77,7 @@ fn window_row(usage: &Value, field: &str, label: &str) -> Option<UsageData> {
     };
 
     Some(UsageData {
-        plan_name: Some(format!("OpenCode Go（{label}）")),
+        plan_name: Some(format!("{name}（{label}）")),
         total: Some(100.0),
         used: Some(used),
         remaining: Some((100.0 - used).max(0.0)),
@@ -73,12 +94,12 @@ fn window_row(usage: &Value, field: &str, label: &str) -> Option<UsageData> {
 }
 
 #[async_trait]
-impl NativeProvider for OpenCodeGo {
+impl NativeProvider for OpenCode {
     fn meta(&self) -> NativeMeta {
         NativeMeta {
-            id: "opencode_go",
-            name: "OpenCode Go",
-            console_url: Some("https://opencode.ai/console/go"),
+            id: self.id,
+            name: self.name,
+            console_url: Some(self.console_url),
         }
     }
 
@@ -112,7 +133,7 @@ impl NativeProvider for OpenCodeGo {
             })?;
         if response.status == 401 || response.status == 403 {
             let message = if response.status == 401 {
-                "OpenCode Go API Key 无效或已过期，请在 Console 重新创建后更新"
+                "OpenCode API Key 无效或已过期，请在 Console 重新创建后更新"
             } else {
                 "该 API Key 有效但无 OpenCode Go 订阅权限（Go / Go Plus）：请确认使用订阅账号的 Key；若已订阅，也可能被区域策略或风控拦截"
             };
@@ -133,14 +154,14 @@ impl NativeProvider for OpenCodeGo {
         let body: Value = parse_success_json(&request, &response)?;
         let usage = body
             .get("usage")
-            .ok_or_else(|| parse_error("OpenCode Go", "usage 对象"))?;
+            .ok_or_else(|| parse_error(self.name, "usage 对象"))?;
         let rows: Vec<UsageData> = WINDOWS
             .iter()
-            .filter_map(|(field, label)| window_row(usage, field, label))
+            .filter_map(|(field, label)| window_row(usage, self.name, field, label))
             .collect();
         if rows.is_empty() {
             return Err(parse_error(
-                "OpenCode Go",
+                self.name,
                 "usage.rolling/weekly/monthly 的 status 或 percent",
             ));
         }
@@ -185,7 +206,7 @@ mod tests {
     #[tokio::test]
     async fn sends_bearer_get_to_usage_route() {
         let mock = MockHttp::ok(OK_BODY);
-        OpenCodeGo
+        OPENCODE_GO
             .query(&creds(), &mock, PlanVariant::Auto)
             .await
             .unwrap();
@@ -201,7 +222,7 @@ mod tests {
     /// 三窗口按 5h → week → month 顺序输出，百分比原样透传（已是已用口径）。
     #[tokio::test]
     async fn parses_three_windows_in_fixed_order() {
-        let rows = OpenCodeGo
+        let rows = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(OK_BODY), PlanVariant::Auto)
             .await
             .unwrap();
@@ -233,7 +254,7 @@ mod tests {
     /// 「远端报文形状变化」这一信号，不重复逐字段断言。
     #[tokio::test]
     async fn parses_real_captured_response() {
-        let rows = OpenCodeGo
+        let rows = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(REAL_BODY), PlanVariant::Auto)
             .await
             .unwrap();
@@ -262,7 +283,7 @@ mod tests {
             "rolling":{"status":"ok","percent":1,"resetsAt":"2026-10-21T18:00:00.000Z"},
             "weekly":{"status":"ok","percent":2,"resetsAt":"not-a-time"}
         }}"#;
-        let rows = OpenCodeGo
+        let rows = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
             .await
             .unwrap();
@@ -279,7 +300,7 @@ mod tests {
             "rolling":{"status":"rate-limited","resetsAt":"2026-10-21T18:00:00.000Z"},
             "weekly":{"status":"ok","percent":5}
         }}"#;
-        let rows = OpenCodeGo
+        let rows = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
             .await
             .unwrap();
@@ -297,7 +318,7 @@ mod tests {
             "rolling":{"status":"ok","percent":150},
             "weekly":{"status":"ok","percent":-20}
         }}"#;
-        let rows = OpenCodeGo
+        let rows = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(body), PlanVariant::Auto)
             .await
             .unwrap();
@@ -311,7 +332,7 @@ mod tests {
     /// 401（key 无效）与 403（未订阅）文案必须区分，且均为确定性失败。
     #[tokio::test]
     async fn distinguishes_unauthorized_from_missing_subscription() {
-        let unauthorized = OpenCodeGo
+        let unauthorized = OPENCODE_GO
             .query(
                 &creds(),
                 &MockHttp::status_body(
@@ -325,7 +346,7 @@ mod tests {
         assert!(!unauthorized.is_transient());
         assert!(unauthorized.message().contains("无效或已过期"));
 
-        let forbidden = OpenCodeGo
+        let forbidden = OPENCODE_GO
             .query(
                 &creds(),
                 &MockHttp::status_body(
@@ -363,7 +384,7 @@ mod tests {
                 "EntitlementError",
             ),
         ] {
-            let err = OpenCodeGo
+            let err = OPENCODE_GO
                 .query(
                     &creds(),
                     &MockHttp::status_body(status, body),
@@ -393,7 +414,7 @@ mod tests {
     #[tokio::test]
     async fn rate_limit_and_server_errors_are_transient() {
         for status in [429u16, 503] {
-            let err = OpenCodeGo
+            let err = OPENCODE_GO
                 .query(&creds(), &MockHttp::status(status), PlanVariant::Auto)
                 .await
                 .unwrap_err();
@@ -404,7 +425,7 @@ mod tests {
     /// 结构缺失 → 确定性失败，不静默返回空列表。
     #[tokio::test]
     async fn missing_usage_object_is_deterministic() {
-        let err = OpenCodeGo
+        let err = OPENCODE_GO
             .query(&creds(), &MockHttp::ok(r#"{"data":{}}"#), PlanVariant::Auto)
             .await
             .unwrap_err();
@@ -415,7 +436,7 @@ mod tests {
     /// 三窗口全无可用百分比 → 确定性失败（整份响应异常）。
     #[tokio::test]
     async fn empty_windows_are_deterministic() {
-        let err = OpenCodeGo
+        let err = OPENCODE_GO
             .query(
                 &creds(),
                 &MockHttp::ok(r#"{"usage":{"rolling":{},"weekly":{},"monthly":{}}}"#),

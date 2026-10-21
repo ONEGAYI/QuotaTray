@@ -567,7 +567,7 @@ export function EditDialog({ open, initial, usageCurrency, mobile = false, onClo
                       deepseek: "DeepSeek",
                       siliconflow: "SiliconFlow",
                       openrouter: "OpenRouter",
-                      opencode_go: "OpenCode Go",
+                      opencode: "OpenCode",
                       kimi: "Kimi",
                       zhipu: t("edit.platformGroupZhipu"),
                       zai: "Z.ai",

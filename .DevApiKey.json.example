@@ -3,7 +3,7 @@
   "siliconflow": "sk-你的-siliconflow-密钥（国内站 api.siliconflow.cn）",
   "siliconflow_global": "sk-你的-siliconflow-密钥（国际站 api.siliconflow.com）",
   "openrouter": "sk-or-你的-openrouter-密钥",
-  "opencode_go": "oc_sk_你的-OpenCode-Go-密钥（opencode.ai/console/go 订阅账号，非公开文档接口）",
+  "opencode_go": "oc_sk_你的-OpenCode-Go-密钥（Go/Go Plus 订阅账号；非公开文档接口）",
   "kimi_cn": "sk-你的-kimi-密钥（国内站计量版）",
   "kimi_global": "sk-你的-kimi-密钥（国际站计量版）",
   "kimi_code_cn": "你的-Kimi-Code-密钥（kimi.com/code）",

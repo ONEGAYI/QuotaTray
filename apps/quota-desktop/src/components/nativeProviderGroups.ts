@@ -4,7 +4,7 @@ export type NativeProviderGroupKey =
   | "deepseek"
   | "siliconflow"
   | "openrouter"
-  | "opencode_go"
+  | "opencode"
   | "kimi"
   | "zhipu"
   | "zai"
@@ -23,7 +23,7 @@ const KNOWN_GROUPS = [
   { key: "deepseek", ids: ["deepseek"] },
   { key: "siliconflow", ids: ["siliconflow", "siliconflow_global"] },
   { key: "openrouter", ids: ["openrouter"] },
-  { key: "opencode_go", ids: ["opencode_go"] },
+  { key: "opencode", ids: ["opencode_go"] },
   { key: "kimi", ids: ["kimi_cn", "kimi_global", "kimi_code_cn", "kimi_code_global"] },
   { key: "zhipu", ids: ["zhipu_api", "zhipu"] },
   { key: "zai", ids: ["zai_api", "zai"] },
