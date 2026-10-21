@@ -1,5 +1,13 @@
-import { preferMetric, remainingPercent } from "../display";
-import type { PrimaryMetric, ProviderEntry, UsageData } from "../types";
+import { preferMetric, remainingPercent, resetCountdown, windowShortLabel } from "../display";
+import type {
+  PrimaryMetric,
+  ProviderEntry,
+  QueryOutcome,
+  Settings,
+  SnapshotEntry,
+  UsageData,
+} from "../types";
+import { deriveProviderCardState, primaryValue, type ProviderCardKind } from "./providerCardView";
 
 export interface HoverRingView {
   fillPercent: number;
@@ -73,4 +81,107 @@ function compactAmount(value: number): string {
   }
   const billions = value / 1_000_000_000;
   return billions >= 10 ? `${Math.round(billions)}B` : `${Math.floor(billions * 10) / 10}B`;
+}
+
+/** 悬停面板内容模式（规格 #151）：`multi` 全部账户列表 + 详情抽屉，
+ *  `single` 单账户视图（升级前的行为）。未知值回退 multi，与后端
+ *  settings.sanitize 同向。 */
+export type HoverPanelMode = "multi" | "single";
+
+export function hoverPanelMode(mode: string | null | undefined): HoverPanelMode {
+  return mode === "single" ? "single" : "multi";
+}
+
+/** 列表行的单个额度窗口指标（label 已含「剩余」族措辞）。 */
+export interface HoverRowMetric {
+  key: string;
+  label: string;
+  value: string;
+  unit: string;
+  reset: string | null;
+  /** 剩余百分比 ≤ 低余额阈值时为真（警示色）。 */
+  alert: boolean;
+}
+
+/** 多条目列表的一行：账户身份 + 全部窗口指标 + 显示目标标记。 */
+export interface HoverRow {
+  id: string;
+  entry: ProviderEntry;
+  kind: ProviderCardKind;
+  data: UsageData[];
+  at: number | null;
+  errorMessage: string | null;
+  metrics: HoverRowMetric[];
+  /** 该行是否为托盘圆环的显示目标（tray_icon_entry_id 或回退项）。 */
+  isTarget: boolean;
+  /** 目标环弧长：与托盘圆环同一派生规则；无数据为 null。 */
+  ringFill: number | null;
+}
+
+export interface HoverRowsInput {
+  providers: ProviderEntry[];
+  states: Record<string, QueryOutcome> | undefined;
+  snapshots: Record<string, SnapshotEntry> | undefined;
+  settings: Settings | undefined;
+  lang: "zh" | "en";
+  nowMs?: number;
+}
+
+/** 多条目列表行派生（纯函数）：仅启用条目、保持存储顺序；每个窗口一行
+ *  指标；显示目标按 resolveHoverProvider 的同一语义判定。
+ *  状态派生与主页卡片同源（deriveProviderCardState），未查询过的条目
+ *  回退到启动快照。 */
+export function hoverRows({
+  providers,
+  states,
+  snapshots,
+  settings,
+  lang,
+  nowMs,
+}: HoverRowsInput): HoverRow[] {
+  const target = resolveHoverProvider(providers, settings?.tray_icon_entry_id ?? null);
+  const unitsPerCircle = settings?.ring_units_per_circle ?? 100;
+  const threshold = settings?.low_balance_remaining_percent ?? 20;
+
+  return providers
+    .filter((provider) => provider.enabled)
+    .map((entry) => {
+      const view = deriveProviderCardState({
+        enabled: true,
+        outcome: states?.[entry.id],
+        snapshot: snapshots?.[entry.id],
+        nowMs,
+      });
+      const data = view.data.filter((item) => item.is_valid !== false);
+      const metrics: HoverRowMetric[] = data.map((item, index) => {
+        const windowLabel =
+          data.length > 1 ? windowShortLabel(item.plan_name, index, lang) : undefined;
+        const value = primaryValue(item, lang, windowLabel, entry.primary_metric);
+        const percent = remainingPercent(item);
+        return {
+          key: `${entry.id}:${item.plan_name ?? index}`,
+          label: value.label,
+          value: value.value,
+          unit: value.unit,
+          reset: resetCountdown(item.reset_at),
+          alert: (percent ?? Number.POSITIVE_INFINITY) <= threshold,
+        };
+      });
+      return {
+        id: entry.id,
+        entry,
+        kind: view.kind,
+        data,
+        at: view.at,
+        errorMessage: view.errorMessage,
+        metrics,
+        isTarget: target?.id === entry.id,
+        ringFill: hoverRingView(data[0], unitsPerCircle, entry.primary_metric)?.fillPercent ?? null,
+      };
+    });
+}
+
+/** on/off 环的悬停提示文案键（按目标状态区分）。 */
+export function hoverTargetHintKey(isTarget: boolean): "hover.targetOn" | "hover.targetOff" {
+  return isTarget ? "hover.targetOn" : "hover.targetOff";
 }

@@ -91,6 +91,8 @@ export const api = {
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
   /** 只读后端共享结果表，不触发平台网络请求（悬停面板使用）。 */
   getProviderState: (id: string): Promise<QueryOutcome> => invoke("get_provider_state", { id }),
+  /** 一次读取结果表全部条目（多条目列表消费，避免 N 次 IPC）。 */
+  getProviderStates: (): Promise<Record<string, QueryOutcome>> => invoke("get_provider_states"),
   /** 读取本地 SQLite 历史，不触发平台网络请求。 */
   getHistory: (id: string, fromMs: number): Promise<HistoryPoint[]> =>
     invoke("get_history", { id, fromMs }),

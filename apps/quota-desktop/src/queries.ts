@@ -1,6 +1,6 @@
 // React Query hooks：轮询调度（GUI-spec §3 查询调度在前端实现）。
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import type { UpdateStateDto } from "./types";
@@ -111,6 +111,33 @@ export function useProviderQuery(id: string, enabled: boolean, intervalMinutes: 
   });
 }
 
+/** 悬停面板每次被唤起（托盘 Enter）：用于重置列表/抽屉状态——规格 #151
+ *  要求每次打开都从列表开始，不记忆上次查看的账户。 */
+export function useHoverPanelShown(onShown: () => void) {
+  const handler = useRef(onShown);
+  handler.current = onShown;
+  useEffect(() => {
+    const unlisten = listen("hover-panel-shown", () => handler.current()).catch((err) => {
+      console.error("hover-panel-shown 事件监听失败：", err);
+      return () => {};
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+}
+
+/** 全部条目的共享结果只读视图：一次 IPC 取整表，供多条目列表消费。
+ *  未查询过的条目不在映射里，调用方回退到启动快照。 */
+export function useProviderStates(enabled = true) {
+  return useQuery({
+    queryKey: ["provider-states"],
+    queryFn: api.getProviderStates,
+    enabled,
+    retry: false,
+  });
+}
+
 /** 单条共享结果只读视图：不发网络请求，供独立悬停 WebView 消费。 */
 export function useProviderState(id: string, enabled: boolean) {
   return useQuery({
@@ -182,6 +209,8 @@ export function useProviderStateEvents() {
   useEffect(() => {
     const unlisten = listen<string>("provider-state-changed", (event) => {
       void qc.invalidateQueries({ queryKey: ["provider-state", event.payload] });
+      // 多条目列表的整表视图同源失效：一次事件可能对应任一条目
+      void qc.invalidateQueries({ queryKey: ["provider-states"] });
     }).catch((err) => {
       console.error("provider-state-changed 事件监听失败：", err);
       return () => {};
@@ -238,12 +267,14 @@ export function useUpdateState() {
   });
 }
 
-/** 托盘「立即刷新」/ 悬停触发的事件：全量失效各条目查询。 */
+/** 托盘「立即刷新」/ 悬停触发的事件：全量失效各条目查询与共享结果视图。 */
 export function useRefreshNow() {
   const qc = useQueryClient();
   useEffect(() => {
     const unlisten = listen("refresh-now", () => {
       void qc.invalidateQueries({ queryKey: ["provider"] });
+      // 悬停面板多条目列表消费的整表视图（无 provider 查询的窗口也要跟上）
+      void qc.invalidateQueries({ queryKey: ["provider-states"] });
     }).catch((err) => {
       // capabilities 缺失时 listen 会被 ACL 拒绝——显式暴露而非静默吞掉
       console.error("refresh-now 事件监听失败：", err);

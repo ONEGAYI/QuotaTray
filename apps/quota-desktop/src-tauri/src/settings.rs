@@ -39,6 +39,10 @@ pub struct Settings {
     /// 托盘图标显示的条目 id（None = 第一个 enabled 条目；失效 id 回退同左）。
     #[serde(default)]
     pub tray_icon_entry_id: Option<String>,
+    /// 悬停面板内容模式：`multi`（全部账户列表，默认）/ `single`（只显示
+    /// 托盘显示目标的单账户视图）。桌面端自有设置，CLI 与 Android 不消费。
+    #[serde(default = "default_hover_panel_mode")]
+    pub hover_panel_mode: String,
     /// 自动检查更新（应用运行期间常驻轮询；CLI 启动钩子共用该开关）。
     #[serde(default = "default_update_enabled")]
     pub update_check_enabled: bool,
@@ -138,6 +142,10 @@ fn default_ring_units() -> f64 {
     100.0
 }
 
+fn default_hover_panel_mode() -> String {
+    "multi".into()
+}
+
 fn default_update_enabled() -> bool {
     true
 }
@@ -161,6 +169,7 @@ impl Default for Settings {
             theme: default_theme(),
             ring_units_per_circle: default_ring_units(),
             tray_icon_entry_id: None,
+            hover_panel_mode: default_hover_panel_mode(),
             update_check_enabled: default_update_enabled(),
             update_last_check: None,
             update_proxy_port: None,
@@ -194,6 +203,9 @@ impl Settings {
         }
         if !matches!(self.theme.as_str(), "light" | "dark" | "system") {
             self.theme = default_theme();
+        }
+        if !matches!(self.hover_panel_mode.as_str(), "multi" | "single") {
+            self.hover_panel_mode = default_hover_panel_mode();
         }
         if !self.ring_units_per_circle.is_finite() {
             self.ring_units_per_circle = default_ring_units();
@@ -399,6 +411,7 @@ mod tests {
             theme: "dark".into(),
             ring_units_per_circle: 500.0,
             tray_icon_entry_id: Some("AB2C3D".into()),
+            hover_panel_mode: "single".into(),
             update_check_enabled: false,
             update_last_check: Some(1_700_000_000_000),
             update_proxy_port: Some(7897),
@@ -440,6 +453,10 @@ mod tests {
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
+        assert_eq!(
+            s.hover_panel_mode, "multi",
+            "悬停面板默认多条目（升级后行为变更）"
+        );
         assert!(s.update_check_enabled, "自动检测默认开启");
         assert_eq!(s.update_last_check, None);
         assert_eq!(s.update_proxy_port, None, "默认不走代理");
@@ -462,6 +479,21 @@ mod tests {
             "旧版/首次运行等待前端自动初始化"
         );
         assert_eq!(s.usage_marker_lines, None, "默认没有定位线");
+    }
+
+    /// 契约：悬停面板模式只接受 multi/single，手改文件的未知值回落 multi。
+    #[test]
+    fn sanitize_hover_panel_mode_falls_back_to_multi() {
+        let mut s = Settings {
+            hover_panel_mode: "list".into(),
+            ..Settings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.hover_panel_mode, "multi");
+
+        s.hover_panel_mode = "single".into();
+        s.sanitize();
+        assert_eq!(s.hover_panel_mode, "single", "合法值不被改写");
     }
 
     #[test]
@@ -594,6 +626,10 @@ mod tests {
         assert_eq!(s.theme, "system");
         assert_eq!(s.ring_units_per_circle, 100.0);
         assert_eq!(s.tray_icon_entry_id, None);
+        assert_eq!(
+            s.hover_panel_mode, "multi",
+            "旧配置缺该字段时升级默认多条目"
+        );
         assert!(s.notifications_enabled, "老版本配置缺字段回退默认开启");
         assert!(
             !s.background_refresh_enabled,
@@ -638,6 +674,7 @@ mod tests {
             theme: "blue".into(),
             ring_units_per_circle: 0.5,
             tray_icon_entry_id: Some("X".into()),
+            hover_panel_mode: "list".into(),
             update_check_enabled: true,
             update_last_check: None,
             update_proxy_port: Some(7897),
@@ -662,6 +699,7 @@ mod tests {
         );
         assert_eq!(s.language, "system");
         assert_eq!(s.theme, "system");
+        assert_eq!(s.hover_panel_mode, "multi", "未知模式回落 multi");
         assert_eq!(s.ring_units_per_circle, 1.0, "低于下限应收到 1.0");
         s.ring_units_per_circle = 2e6;
         s.sanitize();

@@ -794,6 +794,24 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   }
                 />
               </SettingRow>}
+              {!mobile && <SettingRow
+                title={t("settings.hoverPanelMode")}
+                description={t("settings.hoverPanelModeHint")}
+              >
+                <select
+                  className="qt-select"
+                  value={draft.hover_panel_mode}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      hover_panel_mode: event.target.value as Settings["hover_panel_mode"],
+                    })
+                  }
+                >
+                  <option value="multi">{t("settings.hoverPanelModeMulti")}</option>
+                  <option value="single">{t("settings.hoverPanelModeSingle")}</option>
+                </select>
+              </SettingRow>}
             </>
           ) : tab === "update" ? (
             <>

@@ -1560,6 +1560,35 @@ pub async fn query_provider(app: AppHandle, id: String) -> Result<QueryOutcome, 
     refetch_and_store(&app, id).await
 }
 
+/// 读取结果表中全部条目的当前状态（内存读，不发起网络请求）。
+/// 悬停面板多条目列表一次消费，避免按 id 逐个 IPC。
+#[tauri::command]
+pub fn get_provider_states(
+    state: State<'_, AppState>,
+) -> std::collections::HashMap<String, QueryOutcome> {
+    states_from_results(&state.results.read().unwrap())
+}
+
+/// 结果表 → 全部条目的 IPC 形状（纯函数，供批量命令与单测共用）。
+fn states_from_results(
+    results: &std::collections::HashMap<String, EntryState>,
+) -> std::collections::HashMap<String, QueryOutcome> {
+    results
+        .iter()
+        .map(|(id, entry)| {
+            (
+                id.clone(),
+                QueryOutcome {
+                    ok: entry.error.is_none(),
+                    data: entry.data.clone(),
+                    error: entry.error.clone(),
+                    at: entry.at,
+                },
+            )
+        })
+        .collect()
+}
+
 /// 读取结果表中的单条当前状态，不发起网络请求。
 /// 悬停面板与主窗口共享后端结果，避免两个 WebView 对同一平台重复查询。
 #[tauri::command]
@@ -1625,6 +1654,7 @@ pub struct SettingsPatch {
     pub ring_units_per_circle: Option<f64>,
     #[serde(default, with = "double_option")]
     pub tray_icon_entry_id: Option<Option<String>>,
+    pub hover_panel_mode: Option<String>,
     pub update_check_enabled: Option<bool>,
     #[serde(default, with = "double_option")]
     pub update_proxy_port: Option<Option<u16>>,
@@ -1679,6 +1709,9 @@ pub fn apply_settings_patch(base: &mut Settings, patch: &SettingsPatch) {
     }
     if let Some(v) = patch.tray_icon_entry_id.clone() {
         base.tray_icon_entry_id = v;
+    }
+    if let Some(v) = patch.hover_panel_mode.clone() {
+        base.hover_panel_mode = v;
     }
     if let Some(v) = patch.update_check_enabled {
         base.update_check_enabled = v;
@@ -3899,6 +3932,41 @@ mod tests {
         )
         .unwrap();
         assert!(template_needs_api_key(&spaced), "带空格写法应识别");
+    }
+
+    /// 契约：批量状态映射含结果表全部条目——失败条目也返回（ok=false），
+    /// 未查询过的条目不凭空出现。
+    #[test]
+    fn states_from_results_maps_every_entry() {
+        let mut results = std::collections::HashMap::new();
+        results.insert(
+            "ok".to_string(),
+            EntryState {
+                data: Some(vec![UsageData::default()]),
+                at: Some(7),
+                error: None,
+            },
+        );
+        results.insert(
+            "failed".to_string(),
+            EntryState {
+                error: Some(ErrorInfo {
+                    kind: "transient".into(),
+                    message: "x".into(),
+                    detail: None,
+                }),
+                ..Default::default()
+            },
+        );
+
+        let states = states_from_results(&results);
+
+        assert_eq!(states.len(), 2);
+        assert!(states["ok"].ok);
+        assert_eq!(states["ok"].at, Some(7));
+        assert!(!states["failed"].ok);
+        assert_eq!(states["failed"].at, None);
+        assert!(states["failed"].error.is_some());
     }
 
     /// 契约：结果表 → 快照只含有成功数据的条目（错误态不进快照）。
