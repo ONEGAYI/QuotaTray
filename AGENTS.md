@@ -180,6 +180,7 @@ QuotaTray/
 │       │   │   ├── minimax.rs       # MiniMax Coding Plan
 │       │   │   ├── mod.rs           # trait、注册表与共用工具
 │       │   │   ├── novita.rs        # /v3/user/balance
+│       │   │   ├── opencode_go.rs   # OpenCode Go 订阅用量
 │       │   │   ├── openrouter.rs    # /api/v1/credits
 │       │   │   ├── siliconflow.rs   # 硅基流动国内/国际
 │       │   │   ├── stepfun.rs       # /v1/accounts（CNY）

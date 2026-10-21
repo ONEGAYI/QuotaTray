@@ -8,6 +8,7 @@ import kimiUrl from "../assets/providers/kimi.svg";
 import minimaxUrl from "../assets/providers/minimax.svg";
 import newapiUrl from "../assets/providers/newapi.svg";
 import novitaUrl from "../assets/providers/novita.svg";
+import opencodeUrl from "../assets/providers/opencode.svg";
 import openrouterUrl from "../assets/providers/openrouter.svg";
 import siliconflowUrl from "../assets/providers/siliconflow.svg";
 import stepfunUrl from "../assets/providers/stepfun.svg";
@@ -19,6 +20,7 @@ const PROVIDER_ICON_URLS: Readonly<Record<string, string>> = {
   siliconflow: siliconflowUrl,
   siliconflow_global: siliconflowUrl,
   openrouter: openrouterUrl,
+  opencode_go: opencodeUrl,
   kimi_cn: kimiUrl,
   kimi_global: kimiUrl,
   kimi_code_cn: kimiUrl,

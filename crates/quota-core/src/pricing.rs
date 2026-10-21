@@ -370,10 +370,12 @@ pub struct PresetProvider {
 
 /// 平台的默认预置币种（条目未指定时 `preset` 取这套）。
 /// OpenRouter 虽无峰谷预置但按量计价为 USD，一并给出以防误兜底。
+/// OpenCode Go 同属 USD 计价（$10 / $40 月费、模型单价均以美元标价），
+/// 但用量接口只回百分比窗口，故不参与预置峰谷定价。
 pub fn default_currency(native_id: &str) -> &'static str {
     match native_id {
         "kimi_global" | "kimi_code_global" | "zai" | "zai_api" | "siliconflow_global"
-        | "openrouter" | "novita" | "minimax_global" => "USD",
+        | "openrouter" | "novita" | "minimax_global" | "opencode_go" => "USD",
         _ => "CNY",
     }
 }
@@ -1430,6 +1432,7 @@ mod tests {
             ("siliconflow", "CNY"),
             ("siliconflow_global", "USD"),
             ("openrouter", "USD"),
+            ("opencode_go", "USD"),
             ("kimi_cn", "CNY"),
             ("kimi_global", "USD"),
             ("kimi_code_cn", "CNY"),
@@ -1455,6 +1458,7 @@ mod tests {
             "siliconflow",
             "siliconflow_global",
             "openrouter",
+            "opencode_go",
             "kimi_cn",
             "kimi_global",
             "kimi_code_cn",
