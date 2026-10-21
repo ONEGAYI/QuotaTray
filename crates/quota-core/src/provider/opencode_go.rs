@@ -93,8 +93,12 @@ impl NativeProvider for OpenCodeGo {
             .header("Accept", "application/json");
 
         // 401/403 是网关对凭据下的两类确定裁决，语义不同必须分开：
-        // 401 → key 无效/过期；403 → key 有效但账号没有 Go 订阅
+        // 401 → key 无效/过期；403 → key 有效但无 Go 订阅权限
         //（选错 key 或未订阅）。合成一条会让用户无从纠正。
+        //
+        // 文案是面向用户的引导，detail 保留网关原文（脱敏后）——端点无
+        // 公开文档，403 究竟是订阅缺失还是区域/WAF 拦截无法先验确定，
+        // 只留文案会让误诊无从求证。
         let response = http
             .execute(request.clone())
             .await
@@ -106,15 +110,17 @@ impl NativeProvider for OpenCodeGo {
                     QueryError::deterministic(error.to_string())
                 }
             })?;
-        if response.status == 401 {
-            return Err(QueryError::deterministic(
-                "OpenCode Go API Key 无效或已过期，请在 Console 重新创建后更新",
-            ));
-        }
-        if response.status == 403 {
-            return Err(QueryError::deterministic(
-                "该 API Key 有效，但所属账号未订阅 OpenCode Go（Go / Go Plus），请确认使用的是订阅账号的 Key",
-            ));
+        if response.status == 401 || response.status == 403 {
+            let message = if response.status == 401 {
+                "OpenCode Go API Key 无效或已过期，请在 Console 重新创建后更新"
+            } else {
+                "该 API Key 有效但无 OpenCode Go 订阅权限（Go / Go Plus）：请确认使用订阅账号的 Key；若已订阅，也可能被区域策略或风控拦截"
+            };
+            return Err(QueryError::deterministic(message).with_detail(format!(
+                "HTTP {} 响应体（已脱敏）：\n{}",
+                response.status,
+                crate::http::redact::redact_and_truncate(&response.body, &request)
+            )));
         }
         if !response.is_success() {
             return Err(status_error_with_body(
@@ -222,6 +228,9 @@ mod tests {
     }
 
     /// 实测响应锚定：整数 percent 正确映射为已用口径，三窗口齐全。
+    /// 实测报文快照锚定：证明真实响应（整数 percent、毫秒精度 resetsAt）
+    /// 能完整解析出三窗口。行为细节由上面的合成用例覆盖，这里只守
+    /// 「远端报文形状变化」这一信号，不重复逐字段断言。
     #[tokio::test]
     async fn parses_real_captured_response() {
         let rows = OpenCodeGo
@@ -229,14 +238,21 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0].used, Some(2.0));
-        assert_eq!(rows[0].remaining, Some(98.0));
-        assert_eq!(rows[1].used, Some(1.0));
-        assert_eq!(rows[1].remaining, Some(99.0));
-        assert_eq!(rows[2].used, Some(0.0));
-        assert_eq!(rows[2].remaining, Some(100.0));
+        let labels: Vec<&str> = rows
+            .iter()
+            .map(|row| row.plan_name.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "OpenCode Go（5h）",
+                "OpenCode Go（week）",
+                "OpenCode Go（month）"
+            ]
+        );
         assert!(rows.iter().all(|row| row.reset_at.is_some()));
+        // 实测 account 用量极低，已用值应接近零而非被误读成 100
+        assert!(rows.iter().all(|row| row.used.is_some_and(|u| u < 10.0)));
     }
 
     /// `resetsAt` RFC3339 → epoch 毫秒；非法时间戳不伪造（保持 None）。
@@ -321,7 +337,56 @@ mod tests {
             .await
             .unwrap_err();
         assert!(!forbidden.is_transient());
-        assert!(forbidden.message().contains("未订阅"));
+        assert!(forbidden.message().contains("订阅权限"));
+    }
+
+    /// 401/403 的固定文案面向用户，但网关的原始说明必须留在 detail 里：
+    /// 端点无公开文档，403 究竟因订阅缺失还是区域/WAF 拦截无法先验确定，
+    /// 排查时需要有据可查。
+    ///
+    /// 响应体刻意回显 key（网关在错误说明里回显凭据是本项目已记录的
+    /// 真实形态）：detail 未过脱敏时本用例必须失败，否则「不回显凭据」
+    /// 只是注释口号而非被锁定的行为。
+    #[tokio::test]
+    async fn auth_failures_keep_redacted_detail() {
+        for (status, body, marker, error_type) in [
+            (
+                401u16,
+                r#"{"type":"error","error":{"type":"AuthError","message":"Unauthorized for oc_sk_test_key"}}"#,
+                "无效或已过期",
+                "AuthError",
+            ),
+            (
+                403,
+                r#"{"type":"error","error":{"type":"EntitlementError","message":"Forbidden for oc_sk_test_key"}}"#,
+                "订阅权限",
+                "EntitlementError",
+            ),
+        ] {
+            let err = OpenCodeGo
+                .query(
+                    &creds(),
+                    &MockHttp::status_body(status, body),
+                    PlanVariant::Auto,
+                )
+                .await
+                .unwrap_err();
+            assert!(err.message().contains(marker), "HTTP {status}: {err}");
+            let detail = err.detail().unwrap_or_default();
+            assert!(
+                detail.contains(&format!("HTTP {status}")),
+                "HTTP {status} 缺 detail：{detail}"
+            );
+            // 按状态精确匹配网关错误类型，避免任一标记都能过关
+            assert!(
+                detail.contains(error_type),
+                "HTTP {status} detail 未保留网关说明（期望 {error_type}）：{detail}"
+            );
+            assert!(
+                !detail.contains("oc_sk_test_key"),
+                "detail 泄漏凭据：{detail}"
+            );
+        }
     }
 
     /// 限流与 5xx 仍是可重试的瞬时失败（沿用统一状态码语义）。

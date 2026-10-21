@@ -268,7 +268,7 @@ describe("主度量偏好回退检测 metricFallbackWindows（T-23，spec #137�
 });
 
 describe("多窗口短标签", () => {
-  it("提取 plan_name 的全角括号内容，week 映射为双语", () => {
+  it("提取 plan_name 的全角括号内容，week/month 映射为双语", () => {
     expect(windowShortLabel("GLM Coding Plan（5h）", 0, "zh")).toBe("5h");
     expect(windowShortLabel("GLM Coding Plan（MCP）", 2, "en")).toBe("MCP");
     expect(windowShortLabel("GLM Coding Plan（week）", 1, "zh")).toBe("周限");
