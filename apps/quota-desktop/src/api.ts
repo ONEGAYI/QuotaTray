@@ -89,9 +89,8 @@ export const api = {
       apiKey2: apiKey2 ?? undefined,
     }),
   queryProvider: (id: string): Promise<QueryOutcome> => invoke("query_provider", { id }),
-  /** 只读后端共享结果表，不触发平台网络请求（悬停面板使用）。 */
-  getProviderState: (id: string): Promise<QueryOutcome> => invoke("get_provider_state", { id }),
-  /** 一次读取结果表全部条目（多条目列表消费，避免 N 次 IPC）。 */
+  /** 一次读取结果表全部条目（多条目列表消费，避免 N 次 IPC；
+   *  单条 `get_provider_state` 命令保留在后端，前端不再各自轮询）。 */
   getProviderStates: (): Promise<Record<string, QueryOutcome>> => invoke("get_provider_states"),
   /** 读取本地 SQLite 历史，不触发平台网络请求。 */
   getHistory: (id: string, fromMs: number): Promise<HistoryPoint[]> =>

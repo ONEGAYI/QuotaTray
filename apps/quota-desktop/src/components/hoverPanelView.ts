@@ -159,7 +159,8 @@ export function hoverRows({
         const value = primaryValue(item, lang, windowLabel, entry.primary_metric);
         const percent = remainingPercent(item);
         return {
-          key: `${entry.id}:${item.plan_name ?? index}`,
+          // windowsFrom 模板会让同一行多个窗口复用 plan_name，索引必须入 key
+          key: `${entry.id}:${index}:${item.plan_name ?? ""}`,
           label: value.label,
           value: value.value,
           unit: value.unit,
@@ -167,6 +168,16 @@ export function hoverRows({
           alert: (percent ?? Number.POSITIVE_INFINITY) <= threshold,
         };
       });
+      // 与托盘 ring.rs 的 data_ring_input 同规则：跳过算不出弧长的窗口，
+      // 取首个可用窗口（只看 data[0] 会在首窗口缺字段时误报无环）。
+      let ringFill: number | null = null;
+      for (const item of data) {
+        const ring = hoverRingView(item, unitsPerCircle, entry.primary_metric);
+        if (ring) {
+          ringFill = ring.fillPercent;
+          break;
+        }
+      }
       return {
         id: entry.id,
         entry,
@@ -176,7 +187,7 @@ export function hoverRows({
         errorMessage: view.errorMessage,
         metrics,
         isTarget: target?.id === entry.id,
-        ringFill: hoverRingView(data[0], unitsPerCircle, entry.primary_metric)?.fillPercent ?? null,
+        ringFill,
       };
     });
 }
@@ -184,4 +195,65 @@ export function hoverRows({
 /** on/off 环的悬停提示文案键（按目标状态区分）。 */
 export function hoverTargetHintKey(isTarget: boolean): "hover.targetOn" | "hover.targetOff" {
   return isTarget ? "hover.targetOn" : "hover.targetOff";
+}
+
+/** 全量刷新失败汇总：`ids` 为失败条目，空数组表示整批/未知归属的失败。 */
+export interface HoverBatchFailure {
+  message: string;
+  ids: string[];
+}
+
+/** 批次失败中属于该行的文案；不属于该行时为 null——别家账户的错误不该
+ *  出现在当前账户的详情里。空 ids（整批失败）对所有行都算相关。 */
+export function batchFailureForRow(
+  failure: HoverBatchFailure | null | undefined,
+  rowId: string,
+): string | null {
+  if (!failure) return null;
+  if (failure.ids.length === 0) return failure.message;
+  return failure.ids.includes(rowId) ? failure.message : null;
+}
+
+/** 单账户 hero 标签档位（升级前语义）：percent →「剩余[ 窗口]」、
+ *  amount →「可用余额」、算不出 →「暂无数据」。与 primaryValue 的取值
+ *  分档同一 preferMetric 规则，仅用于保持 single 模式文案逐字一致。 */
+export function hoverPrimaryLabelKind(
+  data: UsageData | undefined,
+  metric: PrimaryMetric = "auto",
+): "percent" | "amount" | "empty" {
+  if (!data) return "empty";
+  const kind = preferMetric<"percent" | "amount">(
+    metric,
+    () => (remainingPercent(data) == null ? null : "percent"),
+    () => (data.remaining == null ? null : "amount"),
+  );
+  return kind ?? "empty";
+}
+
+/** 串行刷新一批条目：单条失败不中断后续（平台限流下仍尽量刷新全部），
+ *  返回成功与失败清单供调用方汇总报错。
+ *  `run` 可能以 QueryOutcome 的 `ok=false` 表达平台失败（命令本身成功），
+ *  由调用方通过 `failure` 判定为失败并给出消息。 */
+export async function refreshSequentially<T>(
+  ids: string[],
+  run: (id: string) => Promise<T>,
+  failure?: (result: T) => string | null,
+): Promise<{ ok: string[]; failed: { id: string; error: string }[] }> {
+  const ok: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      const result = await run(id);
+      const failureMessage = failure?.(result) ?? null;
+      // 非 null 即失败：空消息也代表失败，不能被当成成功
+      if (failureMessage != null) failed.push({ id, error: failureMessage });
+      else ok.push(id);
+    } catch (error) {
+      failed.push({
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { ok, failed };
 }

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ProviderEntry, Settings } from "../types";
 import {
+  batchFailureForRow,
   hoverPanelMode,
+  hoverPrimaryLabelKind,
   hoverRingView,
   hoverRows,
   hoverTargetHintKey,
   isCompactViewport,
+  refreshSequentially,
   resolveHoverProvider,
 } from "./hoverPanelView";
 
@@ -183,11 +186,129 @@ describe("hoverRows（spec #151 / T-29：列表行派生）", () => {
     expect(rows[0].ringFill).toBeNull();
     expect(rows[0].kind).toBe("empty");
   });
+
+  it("live 结果优先于启动快照；错误态直接透传", () => {
+    const liveRows = hoverRows({
+      providers: [provider("a")],
+      states: {
+        a: { ok: true, data: [{ used: 20, unit: "%" }], error: null, at: at + 1 },
+      },
+      snapshots: { a: { data: [{ used: 90, unit: "%" }], at } },
+      settings: settings(),
+      lang: "zh",
+      nowMs: at + 1,
+    });
+    expect(liveRows[0].kind).toBe("normal");
+    expect(liveRows[0].data).toEqual([{ used: 20, unit: "%" }]);
+    expect(liveRows[0].metrics[0].value).toBe("80%");
+
+    const failedRows = hoverRows({
+      providers: [provider("b")],
+      states: {
+        b: {
+          ok: false,
+          data: null,
+          error: { kind: "deterministic", message: "bad key", detail: null },
+          at,
+        },
+      },
+      snapshots: undefined,
+      settings: settings(),
+      lang: "zh",
+      nowMs: at,
+    });
+    expect(failedRows[0].kind).toBe("deterministic");
+    expect(failedRows[0].errorMessage).toBe("bad key");
+    expect(failedRows[0].metrics).toEqual([]);
+  });
+
+  it("目标环取首个能算出弧长的窗口（与 ring.rs 跳过空输入的规则一致）", () => {
+    const rows = hoverRows({
+      providers: [provider("a")],
+      states: undefined,
+      snapshots: {
+        a: {
+          data: [
+            // 首窗口只有单位，算不出百分比也拿不到余额
+            { unit: "%", plan_name: "空窗口" },
+            { used: 20, unit: "%", plan_name: "有效窗口" },
+          ],
+          at,
+        },
+      },
+      settings: settings(),
+      lang: "zh",
+      nowMs: at,
+    });
+    expect(rows[0].ringFill).toBe(80);
+  });
+});
+
+describe("hoverPrimaryLabelKind（single 模式文案档位）", () => {
+  it("按主度量偏好分档并回退：percent / amount / empty", () => {
+    expect(hoverPrimaryLabelKind({ used: 42, unit: "%" }, "auto")).toBe("percent");
+    expect(hoverPrimaryLabelKind({ remaining: 62.97 }, "amount")).toBe("amount");
+    expect(hoverPrimaryLabelKind({ remaining: 62.97 }, "percent")).toBe("amount");
+    expect(hoverPrimaryLabelKind({ unit: "CNY" }, "auto")).toBe("empty");
+    expect(hoverPrimaryLabelKind(undefined, "auto")).toBe("empty");
+  });
+});
+
+describe("refreshSequentially（多条目头部刷新）", () => {
+  it("严格串行且单条失败不中断后续", async () => {
+    const started: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+    const run = async (id: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      started.push(id);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active -= 1;
+      if (id === "b") throw new Error("boom");
+      return id;
+    };
+
+    const result = await refreshSequentially(["a", "b", "c"], run);
+
+    // 按输入顺序逐个执行，且没有并发
+    expect(started).toEqual(["a", "b", "c"]);
+    expect(maxActive).toBe(1);
+    expect(result.ok).toEqual(["a", "c"]);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].id).toBe("b");
+    expect(result.failed[0].error).toContain("boom");
+  });
+
+  it("平台查询失败以 ok=false 正常返回时也计入失败清单", async () => {
+    const result = await refreshSequentially(
+      ["a", "b"],
+      async (id) => ({ ok: id !== "b", error: id === "b" ? { message: "bad key" } : null }),
+      (outcome) => (outcome.ok ? null : outcome.error?.message ?? "query failed"),
+    );
+
+    expect(result.ok).toEqual(["a"]);
+    expect(result.failed).toEqual([{ id: "b", error: "bad key" }]);
+  });
 });
 
 describe("hoverTargetHintKey（on/off 环悬停提示）", () => {
   it("按目标状态区分提示文案", () => {
     expect(hoverTargetHintKey(true)).toBe("hover.targetOn");
     expect(hoverTargetHintKey(false)).toBe("hover.targetOff");
+  });
+});
+
+describe("batchFailureForRow（批次失败归属）", () => {
+  it("失败条目命中才返回文案；未命中返回 null（别家账户的错误不进抽屉）", () => {
+    const failure = { message: "乙: key 无效", ids: ["b"] };
+    expect(batchFailureForRow(failure, "b")).toBe("乙: key 无效");
+    expect(batchFailureForRow(failure, "a")).toBeNull();
+  });
+
+  it("空 ids（整批/未知归属）对所有账户都算相关；null 表示无批次失败", () => {
+    expect(batchFailureForRow({ message: "IPC 失败", ids: [] }, "a")).toBe("IPC 失败");
+    expect(batchFailureForRow(null, "a")).toBeNull();
+    expect(batchFailureForRow(undefined, "a")).toBeNull();
   });
 });

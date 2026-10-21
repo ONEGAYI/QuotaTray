@@ -43,6 +43,7 @@ vi.mock("../queries", () => ({
   useProviderStateEvents: () => {},
   useRefreshNow: () => {},
   useHoverPanelShown: () => {},
+  useHoverPanelHidden: () => {},
   useProviders: () => ({ data: ctx.providers }),
   useSettings: () => ({
     data: {
@@ -54,7 +55,7 @@ vi.mock("../queries", () => ({
   }),
   useSnapshots: () => ({ data: ctx.snapshots }),
   useNativeMetas: () => ({ data: undefined }),
-  useProviderStates: () => ({ data: undefined }),
+  useProviderStates: () => ({ data: undefined, isFetching: false }),
   usePeakFlipTick: () => Date.UTC(2026, 8, 26),
 }));
 
@@ -167,7 +168,14 @@ describe("多条目列表（spec #151 / T-29）", () => {
     expect(html).toContain("账户甲");
     expect(html).toContain("账户乙");
     expect(html).not.toContain("已禁用");
-    expect((html.match(/role="option"/g) ?? []).length).toBe(2);
+    expect((html.match(/id="qt-hover-row-/g) ?? []).length).toBe(2);
+  });
+
+  it("显示目标无数据时仍保留头像环（只画轨道，标记身份不依赖数值）", () => {
+    ctx.snapshots = {};
+    const html = renderToStaticMarkup(<HoverPanel />);
+    expect((html.match(/qt-hover-avatar-ring/g) ?? []).length).toBe(1);
+    expect(html).not.toContain("qt-hover-avatar-value");
   });
 
   it("显示目标只有一个：托盘圆环数据源那一行带头像进度环", () => {
@@ -201,5 +209,20 @@ describe("单账户回退模式（spec #151 / T-31）", () => {
     const html = renderPanel([{ used: 42, unit: "%" }]);
     expect(html).toContain("qt-hover-selectors");
     expect(html).not.toContain("qt-hover-list");
+  });
+
+  it("金额型多窗口 hero 仍用「可用余额」，不接窗口后缀（与升级前逐字一致）", () => {
+    const html = renderPanel([
+      { remaining: 62.97, unit: "CNY", plan_name: "日额度" },
+      { remaining: 120, unit: "CNY", plan_name: "月额度" },
+    ]);
+    expect(html).toContain("可用余额");
+    expect(html).not.toContain("可用余额 日额度");
+  });
+
+  it("有数据但算不出主数值时 hero 回退「尚无数据」（升级前 card.noData 口径）", () => {
+    const html = renderPanel([{ unit: "CNY", plan_name: "空窗口" }]);
+    expect(html).toContain("尚无数据");
+    expect(html).not.toContain("已获取");
   });
 });

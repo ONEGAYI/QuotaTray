@@ -27,13 +27,14 @@ export function invalidateDisplaySettingsCache(qc: QueryInvalidator) {
  * 其余条目的查询继续沿用各自轮询周期，不陪查。 */
 export function invalidateProviderCaches(qc: QueryInvalidator, entryId?: string) {
   void qc.invalidateQueries({ queryKey: ["providers"] });
+  // 悬停面板多条目列表的整表状态：条目增删/启停/重命名会改变行集合与身份，
+  // 即使余额本身未变也要重取（单条 provider-state 失效覆盖不到整表缓存）。
+  void qc.invalidateQueries({ queryKey: ["provider-states"] });
   if (entryId) {
     void qc.invalidateQueries({ queryKey: ["provider", entryId] });
-    void qc.invalidateQueries({ queryKey: ["provider-state", entryId] });
     void qc.invalidateQueries({ queryKey: ["history", entryId] });
   } else {
     void qc.invalidateQueries({ queryKey: ["provider"] });
-    void qc.invalidateQueries({ queryKey: ["provider-state"] });
     void qc.invalidateQueries({ queryKey: ["history"] });
   }
   void qc.invalidateQueries({ queryKey: ["snapshots"] });
@@ -111,14 +112,43 @@ export function useProviderQuery(id: string, enabled: boolean, intervalMinutes: 
   });
 }
 
+/** 悬停面板唤起时需要补取的缓存：面板 WebView 常驻不销毁，且窗口以
+ *  非激活方式显示、不触发 focus 重取——主窗保存设置或托盘菜单切换显示
+ *  目标后，只能靠每次唤起主动失效。状态整表同源。#151 双模式与显示目标
+ *  标记都依赖 settings 的新鲜度。 */
+export function invalidateHoverPanelCaches(qc: QueryInvalidator) {
+  void qc.invalidateQueries({ queryKey: ["provider-states"] });
+  void qc.invalidateQueries({ queryKey: ["settings"] });
+}
+
 /** 悬停面板每次被唤起（托盘 Enter）：用于重置列表/抽屉状态——规格 #151
  *  要求每次打开都从列表开始，不记忆上次查看的账户。 */
 export function useHoverPanelShown(onShown: () => void) {
+  const qc = useQueryClient();
   const handler = useRef(onShown);
   handler.current = onShown;
   useEffect(() => {
-    const unlisten = listen("hover-panel-shown", () => handler.current()).catch((err) => {
+    const unlisten = listen("hover-panel-shown", () => {
+      invalidateHoverPanelCaches(qc);
+      handler.current();
+    }).catch((err) => {
       console.error("hover-panel-shown 事件监听失败：", err);
+      return () => {};
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [qc]);
+}
+
+/** 面板隐藏（后端在 window.hide() 前广播）：立即清掉抽屉选中态，
+ *  保证下次 show 的首帧就是列表。 */
+export function useHoverPanelHidden(onHidden: () => void) {
+  const handler = useRef(onHidden);
+  handler.current = onHidden;
+  useEffect(() => {
+    const unlisten = listen("hover-panel-hidden", () => handler.current()).catch((err) => {
+      console.error("hover-panel-hidden 事件监听失败：", err);
       return () => {};
     });
     return () => {
@@ -133,16 +163,6 @@ export function useProviderStates(enabled = true) {
   return useQuery({
     queryKey: ["provider-states"],
     queryFn: api.getProviderStates,
-    enabled,
-    retry: false,
-  });
-}
-
-/** 单条共享结果只读视图：不发网络请求，供独立悬停 WebView 消费。 */
-export function useProviderState(id: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["provider-state", id],
-    queryFn: () => api.getProviderState(id),
     enabled,
     retry: false,
   });
@@ -207,9 +227,8 @@ export function useHistories(ids: string[], spanMs: number) {
 export function useProviderStateEvents() {
   const qc = useQueryClient();
   useEffect(() => {
-    const unlisten = listen<string>("provider-state-changed", (event) => {
-      void qc.invalidateQueries({ queryKey: ["provider-state", event.payload] });
-      // 多条目列表的整表视图同源失效：一次事件可能对应任一条目
+    const unlisten = listen<string>("provider-state-changed", () => {
+      // 多条目列表的整表视图：一次事件可能对应任一条目
       void qc.invalidateQueries({ queryKey: ["provider-states"] });
     }).catch((err) => {
       console.error("provider-state-changed 事件监听失败：", err);

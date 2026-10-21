@@ -491,6 +491,9 @@ pub fn hide(app: &AppHandle) {
         .pointer_watch_generation
         .fetch_add(1, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(LABEL) {
+        // 隐藏前先让前端清掉抽屉选中态：下一次 show 的首帧即为列表，
+        // 避免旧抽屉闪现一帧（`hover-panel-shown` 在 show 之后才到达）。
+        let _ = window.emit("hover-panel-hidden", ());
         let _ = window.hide();
     }
 }

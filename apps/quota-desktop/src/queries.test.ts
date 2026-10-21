@@ -3,6 +3,7 @@ import {
   PROVIDERS_CHANGED_EVENT,
   historyFromNow,
   invalidateDisplaySettingsCache,
+  invalidateHoverPanelCaches,
   invalidateProviderCaches,
 } from "./queries";
 
@@ -11,15 +12,16 @@ describe("Provider 跨窗口变更事件", () => {
     expect(PROVIDERS_CHANGED_EVENT).toBe("providers-changed");
   });
 
-  it("按条目失效：单条目变更只刷新列表、该条目查询/只读视图与快照", () => {
+  it("按条目失效：单条目变更刷新列表、整表状态、该条目查询/只读视图与快照", () => {
     const invalidateQueries = vi.fn();
 
     invalidateProviderCaches({ invalidateQueries }, "p1");
 
     expect(invalidateQueries.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ["providers"],
+      // 悬停面板列表消费整表缓存：条目启停/重命名也改变行集合
+      ["provider-states"],
       ["provider", "p1"],
-      ["provider-state", "p1"],
       ["history", "p1"],
       ["snapshots"],
     ]);
@@ -32,10 +34,23 @@ describe("Provider 跨窗口变更事件", () => {
 
     expect(invalidateQueries.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ["providers"],
+      ["provider-states"],
       ["provider"],
-      ["provider-state"],
       ["history"],
       ["snapshots"],
+    ]);
+  });
+});
+
+describe("悬停面板唤起时的缓存失效", () => {
+  it("整表状态与设置都失效（面板常驻且非激活显示，不会 focus 重取）", () => {
+    const invalidateQueries = vi.fn();
+
+    invalidateHoverPanelCaches({ invalidateQueries });
+
+    expect(invalidateQueries.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
+      ["provider-states"],
+      ["settings"],
     ]);
   });
 });

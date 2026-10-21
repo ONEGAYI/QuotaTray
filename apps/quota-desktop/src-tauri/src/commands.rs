@@ -1844,9 +1844,12 @@ fn persist_settings(
 
 /// GUI 全量设置表单不编辑 CLI 可旁路写入的字段；保存前以磁盘值覆盖陈旧前端值，
 /// 避免常驻 GUI 在 CLI 导入后把比较组合或更新节流时间戳写回旧状态。
+/// `tray_icon_entry_id` 同属表单不拥有的字段：设置对话框打开期间，托盘菜单
+/// 或悬停面板的 on/off 环可能已改写显示目标，全量保存不得把旧值写回。
 fn merge_cli_owned_settings(incoming: &mut Settings, disk: &Settings) {
     incoming.update_last_check = disk.update_last_check;
     incoming.usage_comparison_series = disk.usage_comparison_series.clone();
+    incoming.tray_icon_entry_id = disk.tray_icon_entry_id.clone();
 }
 
 /// 全量保存设置（设置对话框「保存」按钮）。
@@ -3967,6 +3970,20 @@ mod tests {
         assert!(!states["failed"].ok);
         assert_eq!(states["failed"].at, None);
         assert!(states["failed"].error.is_some());
+
+        // 空结果表 → 空映射（前端据此整体回退启动快照）
+        assert!(states_from_results(&std::collections::HashMap::new()).is_empty());
+
+        // 单条防御性映射：空态 EntryState（生产中未查询条目不在表内，
+        // 此处只锁映射公式——ok 由 error 是否为空推导）
+        let single = states_from_results(&std::collections::HashMap::from([(
+            "fresh".to_string(),
+            EntryState::default(),
+        )]));
+        assert_eq!(single.len(), 1);
+        assert!(single["fresh"].ok, "无错误即视为 ok");
+        assert!(single["fresh"].data.is_none());
+        assert_eq!(single["fresh"].at, None);
     }
 
     /// 契约：结果表 → 快照只含有成功数据的条目（错误态不进快照）。
@@ -4188,6 +4205,8 @@ mod tests {
                 color_slot: 2,
                 metric: None,
             }]),
+            // 设置对话框打开期间由托盘/on-off 环改写的显示目标
+            tray_icon_entry_id: Some("TARGET".into()),
             ..Settings::default()
         };
 
@@ -4198,7 +4217,37 @@ mod tests {
             incoming.usage_comparison_series,
             disk.usage_comparison_series
         );
+        assert_eq!(
+            incoming.tray_icon_entry_id,
+            Some("TARGET".into()),
+            "显示目标以磁盘为准，全量保存不回滚"
+        );
         assert_eq!(incoming.theme, "dark", "GUI 表单拥有的字段保持提交值");
+    }
+
+    #[test]
+    fn settings_patch_applies_hover_panel_mode() {
+        let mut base = Settings::default();
+        assert_eq!(base.hover_panel_mode, "multi");
+
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                hover_panel_mode: Some("single".into()),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.hover_panel_mode, "single");
+
+        // 未提交时保持现值（patch 语义：不重置为默认）
+        apply_settings_patch(
+            &mut base,
+            &SettingsPatch {
+                theme: Some("dark".into()),
+                ..SettingsPatch::default()
+            },
+        );
+        assert_eq!(base.hover_panel_mode, "single");
     }
 
     #[test]

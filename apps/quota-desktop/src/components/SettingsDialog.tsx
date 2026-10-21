@@ -800,6 +800,8 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
               >
                 <select
                   className="qt-select"
+                  // SettingRow 的标题不是 <label>：补可访问名称，读屏能报出设置项
+                  aria-label={t("settings.hoverPanelMode")}
                   value={draft.hover_panel_mode}
                   onChange={(event) =>
                     setDraft({

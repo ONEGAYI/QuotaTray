@@ -704,7 +704,9 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
   width: 100vw;
   height: 100vh;
   flex-direction: column;
-  overflow: hidden;
+  /* clip 而非 hidden：抽屉在右外侧占据布局宽度，hidden 仍是可编程滚动容器，
+     焦点滚入视野会把整个面板横向滚走再弹回（表现为条目区向左跳动） */
+  overflow: clip;
   border: 1px solid var(--qt-border);
   border-radius: var(--qt-radius-lg);
   background: color-mix(in srgb, var(--qt-surface) 97%, transparent);
@@ -768,7 +770,15 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-pricing dd { margin: 2px 0 0; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .qt-hover-pricing p { margin: 5px 0 0; color: var(--qt-text-faint); font-size: 10px; }
 .qt-hover-subscription { line-height: 1.5; }
-.qt-hover-error { margin: 9px 0 0; border-radius: var(--qt-radius-sm); padding: 7px 9px; background: var(--qt-danger-soft); color: var(--qt-danger); font-size: 10px; }
+.qt-hover-error { margin: 9px 0 0; border-radius: var(--qt-radius-sm); padding: 7px 9px; background: var(--qt-danger-soft); color: var(--qt-danger); font-size: 10px; white-space: pre-wrap; }
+/* 列表视图的刷新失败横幅（抽屉关闭时也必须可见） */
+.qt-hover-error-banner {
+  max-height: 96px;
+  flex: none;
+  margin: 0 13px 6px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
 .qt-hover-empty { display: flex; min-height: 0; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; color: var(--qt-text-soft); text-align: center; }
 .qt-hover-empty strong { color: var(--qt-text); font-size: 14px; }
 .qt-hover-empty span { font-size: 11px; line-height: 1.5; }
@@ -778,7 +788,13 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-footer button:hover { background: var(--qt-accent-soft); }
 /* ---- 悬停面板：多条目列表 + 详情抽屉（#151 / T-29、T-30） ---- */
 .qt-hover-body-view { position: relative; display: flex; min-height: 0; flex: 1; }
-.qt-hover-list { flex: 1; overflow-y: auto; padding: 2px 0 4px; }
+/* 抽屉展开：外侧条目区模糊并禁用交互；点击由 scrim 承接收起抽屉 */
+.qt-hover-list { transition: filter .24s ease; }
+.qt-hover-body-view.is-drawer-open .qt-hover-list {
+  filter: blur(2px);
+  pointer-events: none;
+}
+.qt-hover-list { flex: 1; overflow-x: hidden; overflow-y: auto; padding: 2px 0 4px; }
 .qt-hover-list::-webkit-scrollbar { width: 6px; }
 .qt-hover-list::-webkit-scrollbar-thumb { border-radius: 6px; background: color-mix(in srgb, var(--qt-text-faint) 22%, transparent); }
 .qt-hover-row {
@@ -824,8 +840,47 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-row-id { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .qt-hover-row-name { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .qt-hover-row-title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.qt-hover-row-name .qt-badge { flex: none; padding: 1px 7px; font-size: 10px; }
-.qt-hover-row-sub { overflow: hidden; color: var(--qt-text-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+/* 英文长状态（Unreachable · showing last value）不得把行撑破：徽章可收缩并裁切 */
+.qt-hover-row-name .qt-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 1px 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.qt-hover-row-title { flex: 1 1 auto; }
+/* 外层承载气泡、内层负责截断：截断用的 overflow:hidden 会把气泡一起裁掉 */
+.qt-hover-row-sub-wrap { position: relative; display: block; min-width: 0; }
+.qt-hover-row-sub {
+  display: block;
+  overflow: hidden;
+  color: var(--qt-text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 副标题全文气泡：左对齐 + 限宽换行，避免 374 宽下左右溢出被列表裁掉。
+   默认向下弹出（滚动后顶部行也不被裁），最后一行改向上。 */
+.qt-hover-row-sub-wrap::after {
+  top: calc(100% + 7px);
+  bottom: auto;
+  left: 0;
+  width: max-content;
+  max-width: 290px;
+  white-space: normal;
+  transform: translateY(3px);
+}
+.qt-hover-row-sub-wrap:hover::after { transform: translateY(0); }
+.qt-hover-row:last-child .qt-hover-row-sub-wrap::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+}
+/* 单行列表既是首行也是末行：向上会被列表顶边裁掉，保持向下 */
+.qt-hover-row:only-child .qt-hover-row-sub-wrap::after {
+  top: calc(100% + 7px);
+  bottom: auto;
+}
 .qt-hover-row-metrics { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .qt-hover-metric { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
 .qt-hover-metric em { color: var(--qt-text-faint); font-size: 11px; font-style: normal; }
@@ -835,19 +890,40 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-metric small { color: var(--qt-text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
 .qt-hover-metric.is-empty { color: var(--qt-text-faint); font-size: 11px; }
 
+/* 点击外部遮罩：只覆盖条目区，抽屉以更高层级盖在其上 */
+.qt-hover-drawer-scrim { position: absolute; inset: 0; z-index: 1; }
 .qt-hover-drawer {
   position: absolute;
   inset: 0 0 0 auto;
+  z-index: 2;
   display: flex;
   width: 326px;
   flex-direction: column;
   border-left: 1px solid var(--qt-border);
   background: var(--qt-surface);
   box-shadow: -20px 0 44px color-mix(in srgb, var(--qt-shadow) 55%, transparent);
+  pointer-events: none;
+  /* 常驻挂载以支持出场动画：关闭态在滑出结束后才隐藏（visibility 延迟），
+     同时移出 Tab 序列与无障碍树 */
+  visibility: hidden;
   transform: translateX(101%);
-  transition: transform .22s ease;
+  /* 出场：起步缓、后段加速离开，收尾干脆；比入场短，退场不拖尾 */
+  transition:
+    transform .34s cubic-bezier(.35, 0, .75, .3),
+    visibility 0s linear .34s;
+  will-change: transform;
 }
-.qt-hover-drawer.is-open { transform: translateX(0); }
+.qt-hover-drawer.is-open {
+  visibility: visible;
+  transform: translateX(0);
+  pointer-events: auto;
+  /* 入场：先慢后快再收（ease-in-out 偏减速）。两端控制点都不贴 0/1，
+     位移均匀分配在整段时长里——避免 y1=1 那种"前 30% 走完 90% 位移、
+     剩下时间几乎不动"的假弹跳感 */
+  transition:
+    transform .42s cubic-bezier(.4, 0, .2, 1),
+    visibility 0s;
+}
 .qt-hover-drawer-head {
   display: flex;
   flex: none;
@@ -865,7 +941,25 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-detail-id { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; gap: 3px; }
 .qt-hover-detail-id strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .qt-hover-detail-id small { display: flex; min-width: 0; align-items: center; gap: 5px; color: var(--qt-text-faint); font-size: 11px; }
-.qt-hover-detail-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qt-hover-detail-sub-wrap { position: relative; min-width: 0; }
+.qt-hover-detail-sub {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 身份行位于抽屉顶部：气泡向下弹出，左对齐 + 限宽（抽屉宽 326） */
+.qt-hover-detail-sub-wrap::after {
+  top: calc(100% + 7px);
+  bottom: auto;
+  left: 0;
+  width: max-content;
+  max-width: 250px;
+  white-space: normal;
+  transform: translateY(3px);
+}
+.qt-hover-detail-sub-wrap:hover::after { transform: translateY(0); }
 .qt-hover-status-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--qt-text-faint); }
 .qt-hover-status-dot.is-success { background: var(--qt-success); }
 .qt-hover-status-dot.is-warning { background: var(--qt-warning); }
@@ -884,6 +978,19 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
   color: var(--qt-text-faint);
 }
 .qt-hover-target-ring:hover { background: var(--qt-surface-soft); }
+/* on/off 提示位于抽屉顶部，向上会被滚动容器裁掉：向下右对齐弹出 */
+.qt-hover-target-ring::after {
+  top: calc(100% + 7px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: max-content;
+  max-width: 210px;
+  white-space: normal;
+  transform: translateY(3px);
+}
+.qt-hover-target-ring:hover::after,
+.qt-hover-target-ring:focus-visible::after { transform: translateY(0); }
 .qt-hover-target-ring > svg { position: absolute; inset: 0; width: 32px; height: 32px; transform: rotate(-90deg); }
 .qt-hover-target-ring > span { font-size: 10px; font-weight: 700; letter-spacing: .02em; }
 .qt-hover-target-track { fill: none; stroke: color-mix(in srgb, var(--qt-text-faint) 22%, transparent); stroke-width: 3; }
@@ -908,7 +1015,9 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 .qt-hover-detail .qt-hover-usage-list { padding-top: 8px; }
 .qt-hover-detail .qt-hover-pricing { margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
-  .qt-hover-drawer { transition: none; }
+  .qt-hover-drawer,
+  .qt-hover-drawer.is-open,
+  .qt-hover-list { transition: none; }
 }
 .qt-settings-layout { display: grid; grid-template-columns: 142px minmax(0, 1fr); min-height: 350px; margin: -18px; }
 .qt-settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-right: 1px solid var(--qt-border); background: var(--qt-surface-soft); }

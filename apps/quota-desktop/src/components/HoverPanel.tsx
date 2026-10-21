@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ExternalLink, RefreshCw, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import {
   dataSummary,
@@ -12,6 +12,7 @@ import {
 } from "../display";
 import { LangProvider, useLang } from "../i18n";
 import {
+  useHoverPanelHidden,
   useHoverPanelShown,
   useNativeMetas,
   usePeakFlipTick,
@@ -25,12 +26,16 @@ import {
 import { ThemeProvider } from "../theme";
 import type { NativeMeta, ProviderEntry, Settings, UsageData } from "../types";
 import {
+  batchFailureForRow,
   hoverPanelMode,
+  hoverPrimaryLabelKind,
   hoverRingView,
   hoverRows,
   hoverTargetHintKey,
   isCompactViewport,
+  refreshSequentially,
   resolveHoverProvider,
+  type HoverBatchFailure,
   type HoverRow,
 } from "./hoverPanelView";
 import { BrandMark } from "./BrandMark";
@@ -56,6 +61,28 @@ import { formatPrice } from "./pricingDraft";
 import { Badge } from "./ui";
 
 const hoverQueryClient = new QueryClient();
+
+/** 列表行按钮的 DOM id：抽屉关闭后把焦点还给触发它的那一行。 */
+function rowDomId(id: string): string {
+  return `qt-hover-row-${id}`;
+}
+
+/** mutation 错误文案：去掉 `Error:` 前缀，横幅直接展示可读消息。 */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** 全量刷新失败：带上失败条目 id，抽屉只展示与当前账户相关的批次错误。 */
+class RefreshBatchError extends Error {
+  constructor(message: string, readonly ids: string[]) {
+    super(message);
+    this.name = "RefreshBatchError";
+  }
+}
+
+/** 抽屉滑出动画时长（与 index.css 的 .qt-hover-drawer 出场 transition 一致）。
+ *  滑出期间保持遮罩与 pointer-events 锁定，避免点击穿透到下方列表。 */
+const DRAWER_EXIT_MS = 340;
 
 function statusKey(kind: ProviderCardKind) {
   switch (kind) {
@@ -201,19 +228,22 @@ function AccountAvatar({
   const lightLogo = nativeId ? isLightLogo(nativeId) : false;
   return (
     <span className={`qt-hover-avatar${isTarget ? " is-target" : ""}`}>
-      {isTarget && ringFill != null && (
+      {/* 显示目标恒有环：无数据时只画轨道，标记身份不依赖数值 */}
+      {isTarget && (
         <svg className="qt-hover-avatar-ring" viewBox="0 0 38 38" aria-hidden="true">
           <rect className="qt-hover-avatar-track" x="2" y="2" width="34" height="34" rx="11" pathLength="100" />
-          <rect
-            className="qt-hover-avatar-value"
-            x="2"
-            y="2"
-            width="34"
-            height="34"
-            rx="11"
-            pathLength="100"
-            strokeDasharray={`${Math.max(0, Math.min(100, ringFill))} 100`}
-          />
+          {ringFill != null && (
+            <rect
+              className="qt-hover-avatar-value"
+              x="2"
+              y="2"
+              width="34"
+              height="34"
+              rx="11"
+              pathLength="100"
+              strokeDasharray={`${Math.max(0, Math.min(100, ringFill))} 100`}
+            />
+          )}
         </svg>
       )}
       <span className={`qt-hover-avatar-inner${lightLogo ? " is-light-logo" : ""}`}>
@@ -244,8 +274,10 @@ function TargetRing({
       type="button"
       className={`qt-hover-target-ring${row.isTarget ? " is-on" : ""}`}
       data-tooltip={hint}
+      // 文案随状态说明当前事实；aria-current 表达「这一项被选中」，
+      // 不用 pressed（单选语义下不可取消，避免读屏理解为开关）
       aria-label={hint}
-      aria-pressed={row.isTarget}
+      aria-current={row.isTarget ? "true" : undefined}
       disabled={busy}
       onClick={() => {
         if (row.isTarget) return;
@@ -268,6 +300,27 @@ function TargetRing({
   );
 }
 
+/** 抽屉错误区：一次动作错误优先；批次错误只在与当前账户相关时展示，
+ *  避免整批失败（其它账户）的文字占满这个账户的详情。 */
+function DrawerError({
+  row,
+  actionError,
+  batchFailure,
+}: {
+  row: HoverRow;
+  actionError: string | null;
+  batchFailure: HoverBatchFailure | null;
+}) {
+  const batchMessage = batchFailureForRow(batchFailure, row.id);
+  const message = actionError ?? batchMessage ?? row.errorMessage;
+  if (!message) return null;
+  return (
+    <p role="alert" className="qt-hover-error">
+      {message}
+    </p>
+  );
+}
+
 function HoverPanelInner() {
   useProviderStateEvents();
   useRefreshNow();
@@ -278,18 +331,48 @@ function HoverPanelInner() {
   const snapshots = useSnapshots();
   const states = useProviderStates();
   const nativeMetas = useNativeMetas();
+  // 单次操作错误（切换目标/模型、抽屉刷新）：只属于当前抽屉动作
   const [actionError, setActionError] = useState<string | null>(null);
-  // 详情抽屉当前账户；面板每次被唤起时清空（useHoverPanelShown）
+  // 全量刷新批次的失败汇总：列表横幅展示，并记录失败条目供抽屉过滤
+  const [batchFailure, setBatchFailure] = useState<HoverBatchFailure | null>(null);
+  // 详情抽屉当前账户；面板每次被唤起/隐藏时清空（规格 #151：不记忆上次账户）
   const [openId, setOpenId] = useState<string | null>(null);
+  // 抽屉滑出期间保留内容与遮罩：关闭瞬间若立刻撤掉，会看到内容先消失再滑出
+  const [exiting, setExiting] = useState(false);
+  // 退场期间继续渲染最后一次打开的账户（行被删除时也有内容可滑出）
+  const [drawerSnapshot, setDrawerSnapshot] = useState<HoverRow | null>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const drawerBackRef = useRef<HTMLButtonElement>(null);
+  const exitTimerRef = useRef<number | null>(null);
+  // 待归还焦点的行 id；undefined 表示无待处理（首次挂载不能被抢焦点）
+  const focusReturnRef = useRef<string | null | undefined>(undefined);
+  // 每帧的行快照：抽屉关闭时按 id 回查，供退场动画使用。
+  // 用 ref 而非渲染期写入 state，避免上游给不稳定引用时形成渲染循环。
+  const rowsRef = useRef<HoverRow[]>([]);
+  // 最近一次成功选中的行：条目在展开期间被删除时，行已不在 rows 里，
+  // 退场仍应滑出最后一份内容而不是瞬间消失。
+  const lastRowRef = useRef<HoverRow | null>(null);
   // 压缩布局：后端在垂直空间不足时把窗口缩到压缩高度，前端随之裁剪区块
   const [compact, setCompact] = useState(() => isCompactViewport(window.innerHeight));
   // 峰谷标签锚点：常驻面板无重渲染时以翻转事件驱动重算（#15）
   const peakTick = usePeakFlipTick();
 
+  // 唤起时补取状态整表与设置：面板窗口常驻且非激活显示，不会触发
+  // React Query 的 focus 重取，只能靠事件补新鲜度（#151 双模式/显示目标）。
   useHoverPanelShown(() => {
     setOpenId(null);
-    // 面板隐藏期间事件不推送，重新唤起时补一次整表状态
-    void qc.invalidateQueries({ queryKey: ["provider-states"] });
+    setExiting(false);
+    setDrawerSnapshot(null);
+    setActionError(null);
+    setBatchFailure(null);
+  });
+  // 隐藏即清抽屉：下次 show 的首帧就是列表，不闪旧抽屉
+  useHoverPanelHidden(() => {
+    setOpenId(null);
+    setExiting(false);
+    setDrawerSnapshot(null);
+    setActionError(null);
+    setBatchFailure(null);
   });
 
   useEffect(() => {
@@ -300,14 +383,55 @@ function HoverPanelInner() {
 
   useEffect(() => {
     document.body.classList.add("qt-hover-body");
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void api.hideHoverPanel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.classList.remove("qt-hover-body");
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => document.body.classList.remove("qt-hover-body");
+  }, []);
+
+  // 抽屉退场定时器：卸载时清掉，避免对已卸载组件 setState
+  useEffect(() => () => {
+    if (exitTimerRef.current != null) window.clearTimeout(exitTimerRef.current);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    const closingId = openId;
+    setOpenId(null);
+    setActionError(null);
+    if (!closingId) return;
+    // 先留存这一行的最后状态：随后即使条目被禁用/删除，退场动画也有内容
+    setDrawerSnapshot(
+      rowsRef.current.find((row) => row.id === closingId)
+        ?? (lastRowRef.current?.id === closingId ? lastRowRef.current : null),
+    );
+    focusReturnRef.current = closingId;
+    setExiting(true);
+    if (exitTimerRef.current != null) window.clearTimeout(exitTimerRef.current);
+    exitTimerRef.current = window.setTimeout(() => {
+      exitTimerRef.current = null;
+      setExiting(false);
+      setDrawerSnapshot(null);
+      // 退场结束再归还焦点：滑出期间行仍被遮罩盖住，提前聚焦会让
+      // 焦点环出现在模糊层下；行已被删除时回退到列表容器。
+      const returnId = focusReturnRef.current;
+      focusReturnRef.current = undefined;
+      if (returnId === undefined || returnId === null) return;
+      // preventScroll：行可能不在可视区，浏览器默认会 scrollIntoView，
+      // 而抽屉此刻仍停在面板右外侧，祖先的可编程滚动会先被拽动再钳回
+      const row = document.getElementById(rowDomId(returnId));
+      if (row) row.focus({ preventScroll: true });
+      else document.getElementById("qt-hover-list")?.focus({ preventScroll: true });
+    }, DRAWER_EXIT_MS);
+  }, [openId]);
+
+  /** 打开抽屉；从退场动画中途重新打开时先取消退场，直接切到实时行。 */
+  const openDrawer = useCallback((id: string) => {
+    if (exitTimerRef.current != null) {
+      window.clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
+    }
+    focusReturnRef.current = undefined;
+    setExiting(false);
+    setDrawerSnapshot(null);
+    setActionError(null);
+    setOpenId(id);
   }, []);
 
   const mode = hoverPanelMode(settings.data?.hover_panel_mode);
@@ -326,31 +450,76 @@ function HoverPanelInner() {
       }),
     [providers.data, states.data, snapshots.data, settings.data, lang],
   );
+  // 行集合提交后同步一份：关闭抽屉时据此留存退场内容（行已消失也有快照）。
+  // 只在 effect 里写 ref，不触发渲染，也不违反并发渲染的纯函数约束。
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
   const selectedRow = openId ? rows.find((row) => row.id === openId) ?? null : null;
+  useEffect(() => {
+    if (selectedRow) lastRowRef.current = selectedRow;
+  }, [selectedRow]);
+  // 退场用快照渲染；正常打开时用实时行（数据更新能立即反映）
+  const displayedDrawerRow = exiting ? drawerSnapshot : selectedRow;
 
   // 单账户模式沿用升级前的语义：条目 = 托盘显示目标
   const entry = resolveHoverProvider(
     providers.data ?? [],
     settings.data?.tray_icon_entry_id ?? null,
   );
+  const refreshOne = useMutation({
+    mutationFn: (id: string) => api.queryProvider(id),
+    // 新一次尝试立即清掉上次错误：成功后不能残留「刷新失败」
+    onMutate: () => setActionError(null),
+    onSuccess: (outcome, id) => {
+      // 平台业务失败以 QueryOutcome.ok=false 正常返回，不走 onError
+      if (outcome.ok) return;
+      const message = outcome.error?.message || t("card.noReason");
+      // 抽屉里的刷新失败要出现在抽屉；不属于当前抽屉的失败挂列表横幅，
+      // 否则用户关掉抽屉后这次失败就再无入口可见。
+      if (mode === "single" || openId === id) setActionError(message);
+      else setBatchFailure({ message, ids: [id] });
+    },
+    onError: (error) => {
+      const message = errorText(error);
+      if (mode === "single" || openId) setActionError(message);
+      else setBatchFailure({ message, ids: [] });
+    },
+  });
+
   const view = deriveProviderCardState({
     enabled: Boolean(entry),
     outcome: entry ? states.data?.[entry.id] : undefined,
     snapshot: entry ? snapshots.data?.[entry.id] : undefined,
+    // 与升级前一致：首次取数/单条刷新在途时显示「查询中」而非「暂无数据」
+    isFetching: states.isFetching || refreshOne.isPending,
   });
 
-  const refreshOne = useMutation({
-    mutationFn: (id: string) => api.queryProvider(id),
-    onError: (error) => setActionError(String(error)),
-  });
-  // 头部刷新（多条目模式）：串行刷新全部启用条目，避免并发打满平台限流
+  // 头部刷新（多条目模式）：串行刷新全部启用条目，避免并发打满平台限流；
+  // 单条失败不中断后续。平台查询失败以 QueryOutcome.ok=false 正常返回，
+  // 必须按业务失败计入汇总，否则最常见的失败路径不会出现在横幅里。
   const refreshAll = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        await api.queryProvider(id);
+      const { failed } = await refreshSequentially(
+        ids,
+        (id) => api.queryProvider(id),
+        (outcome) => (outcome.ok ? null : outcome.error?.message || t("card.noReason")),
+      );
+      if (failed.length > 0) {
+        // 用账户名而不是内部 id，横幅可直接定位到用户认识的账户
+        const nameOf = (id: string) =>
+          enabledProviders.find((provider) => provider.id === id)?.name ?? id;
+        throw new RefreshBatchError(
+          failed.map((item) => `${nameOf(item.id)}: ${item.error}`).join("\n"),
+          failed.map((item) => item.id),
+        );
       }
     },
-    onError: (error) => setActionError(String(error)),
+    onError: (error) =>
+      setBatchFailure({
+        message: errorText(error),
+        ids: error instanceof RefreshBatchError ? error.ids : [],
+      }),
   });
 
   const switchTarget = useMutation({
@@ -364,7 +533,7 @@ function HoverPanelInner() {
     },
     onError: (error, _id, context) => {
       if (context?.previous) qc.setQueryData(["settings"], context.previous);
-      setActionError(String(error));
+      setActionError(errorText(error));
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: ["settings"] }),
   });
@@ -398,11 +567,10 @@ function HoverPanelInner() {
     },
     onError: (error, _vars, context) => {
       if (context?.previous) qc.setQueryData(["providers"], context.previous);
-      setActionError(String(error));
+      setActionError(errorText(error));
     },
-    onSettled: (_data, _error, vars) => {
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["providers"] });
-      void qc.invalidateQueries({ queryKey: ["provider-state", vars.entry.id] });
       void qc.invalidateQueries({ queryKey: ["provider-states"] });
     },
   });
@@ -410,6 +578,7 @@ function HoverPanelInner() {
   const refreshBusy = refreshAll.isPending || refreshOne.isPending;
   const refresh = () => {
     setActionError(null);
+    setBatchFailure(null);
     if (mode === "multi") {
       refreshAll.mutate(enabledProviders.map((provider) => provider.id));
     } else if (entry) {
@@ -419,8 +588,8 @@ function HoverPanelInner() {
 
   // 抽屉的派生视图：与单账户视图同一套定价/模型/圆环逻辑
   const drawer = useMemo(() => {
-    if (!selectedRow) return null;
-    const target = selectedRow.entry;
+    if (!displayedDrawerRow) return null;
+    const target = displayedDrawerRow.entry;
     const drawerNativeId = target.kind.type === "native" ? target.kind.provider : undefined;
     const drawerMeta: NativeMeta | undefined = drawerNativeId
       ? nativeMetas.data?.find((meta) => meta.id === drawerNativeId)
@@ -430,26 +599,35 @@ function HoverPanelInner() {
       target,
       drawerMeta,
       peakTick,
-      selectedRow.data[0]?.unit,
+      displayedDrawerRow.data[0]?.unit,
     );
     const choices = pricingModelChoices(drawerMeta?.pricing ?? null, drawerMeta?.custom_models ?? []);
-    const heroData = selectedRow.data[0];
-    const heroWindow = selectedRow.data.length > 1
+    const unitsPerCircle = settings.data?.ring_units_per_circle ?? 100;
+    // 与行头像环同一取窗规则：跳过算不出度量的窗口，避免行上有环、抽屉空值
+    const heroData = displayedDrawerRow.data.find(
+      (item) => hoverRingView(item, unitsPerCircle, target.primary_metric) != null,
+    ) ?? displayedDrawerRow.data[0];
+    const heroWindow = displayedDrawerRow.data.length > 1
       ? windowShortLabel(heroData?.plan_name, 0, lang)
       : undefined;
+    const heroLabelKind = hoverPrimaryLabelKind(heroData, target.primary_metric);
+    const hero = primaryValue(
+      heroData,
+      lang,
+      // 金额分支不带窗口后缀（「可用余额」，与主窗卡片一致）
+      heroLabelKind === "percent" ? heroWindow : undefined,
+      target.primary_metric,
+    );
     return {
       entry: target,
       nativeMeta: drawerMeta,
       platformName,
       pricingView,
       choices,
-      hero: primaryValue(heroData, lang, heroWindow, target.primary_metric),
+      // 与单账户同一空值口径：算不出主数值时用 card.noData，而非「已获取」
+      hero: heroLabelKind === "empty" ? { ...hero, label: t("card.noData") } : hero,
       heroReset: resetCountdown(heroData?.reset_at),
-      ring: hoverRingView(
-        heroData,
-        settings.data?.ring_units_per_circle ?? 100,
-        target.primary_metric,
-      ),
+      ring: hoverRingView(heroData, unitsPerCircle, target.primary_metric),
       modelValue: modelSelectValue(target, choices),
       hasDefault: choices.some((choice) => choice.value === "default"),
       explicitModel: target.pricing?.model
@@ -458,7 +636,45 @@ function HoverPanelInner() {
           )
         : undefined,
     };
-  }, [selectedRow, nativeMetas.data, peakTick, lang, settings.data]);
+  }, [displayedDrawerRow, nativeMetas.data, peakTick, lang, settings.data, t]);
+
+  // 抽屉是否真实可交互：openId 可能残留（条目被禁用/删除、模式切到 single）
+  const drawerOpen = mode === "multi" && selectedRow != null && drawer != null;
+  // 退场期间抽屉仍在 DOM 里滑出：列表继续模糊、遮罩继续拦截点击，
+  // 直到 DRAWER_EXIT_MS 结束，避免关闭瞬间点到下方条目又开一个新抽屉。
+  const drawerVisible = drawerOpen || (exiting && drawerSnapshot != null && drawer != null);
+
+  useEffect(() => {
+    // 抽屉实际不可见（条目被删除/禁用、模式切到 single、空表）：走正常关闭
+    // 路径，保留快照完成滑出。这里用 drawerOpen 而非 selectedRow：模式切到
+    // single 时行仍在，残留 openId 会在切回 multi 后自动重开抽屉。
+    if (openId && !drawerOpen) closeDrawer();
+  }, [openId, drawerOpen, closeDrawer]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // 抽屉打开时 Esc 先收起抽屉；抽屉已在退场途中时，Esc 直接隐藏面板
+      // （不能再落回一个已经关闭的抽屉上变成空操作）
+      if (drawerOpen) closeDrawer();
+      else void api.hideHoverPanel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerOpen, closeDrawer]);
+
+  // 关闭态立即 inert：滑出动画期间不可聚焦/点击（visibility 延迟只是视觉）
+  useEffect(() => {
+    if (drawerRef.current) drawerRef.current.inert = !drawerOpen;
+  }, [drawerOpen]);
+
+  // 打开抽屉后把焦点交给返回键：键盘用户不必穿过被抽屉遮住的行。
+  // preventScroll 必须显式关闭：此刻抽屉还在面板右外侧滑入，浏览器默认
+  // 会把焦点元素滚进视野，新面板横向被拽动，动画中再被钳回——就是
+  // 「条目区先向左跳、随后回弹」的来源。
+  useEffect(() => {
+    if (drawerOpen) drawerBackRef.current?.focus({ preventScroll: true });
+  }, [drawerOpen]);
 
   // ---- 单账户视图派生（与升级前一致） ----
   const mainData = view.data[0];
@@ -466,7 +682,21 @@ function HoverPanelInner() {
   const heroWindow = view.data.length > 1
     ? windowShortLabel(mainData?.plan_name, 0, lang)
     : undefined;
-  const primary = primaryValue(mainData, lang, heroWindow, primaryMetric);
+  const primaryLabelKind = hoverPrimaryLabelKind(mainData, primaryMetric);
+  const primary = primaryValue(
+    mainData,
+    lang,
+    primaryLabelKind === "percent" ? heroWindow : undefined,
+    primaryMetric,
+  );
+  // 升级前措辞逐字保留：金额「可用余额」不接窗口后缀，算不出时 card.noData
+  const primaryLabel = primaryLabelKind === "amount"
+    ? t("hover.availableBalance")
+    : primaryLabelKind === "percent"
+      ? heroWindow
+        ? lang === "zh" ? `剩余 ${heroWindow}` : `Left ${heroWindow}`
+        : t("hover.remainingQuota")
+      : t("card.noData");
   const heroReset = resetCountdown(mainData?.reset_at);
   const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100, primaryMetric);
   const nativeProviderId = entry?.kind.type === "native" ? entry.kind.provider : undefined;
@@ -542,12 +772,27 @@ function HoverPanelInner() {
         </div>
       </header>
 
+      {/* 批次失败横幅：绑定本次全量刷新，不随行导航消失。
+          抽屉打开时由抽屉内的错误区承接（只放与当前账户相关的失败），
+          这里让位避免横幅插入把滑入中的抽屉顶下去；抽屉收起后横幅
+          立即回来，整批失败不会因为打开过抽屉就失去入口。 */}
+      {mode === "multi" && !drawerVisible && batchFailure && (
+        <p role="alert" className="qt-hover-error qt-hover-error-banner">{batchFailure.message}</p>
+      )}
+
       {mode === "multi" ? (
         rows.length === 0 ? (
           emptyState
         ) : (
-          <div className="qt-hover-body-view">
-            <div className="qt-hover-list" role="listbox" aria-label={t("hover.accounts")}>
+          <div className={`qt-hover-body-view${drawerVisible ? " is-drawer-open" : ""}`}>
+            <div
+              id="qt-hover-list"
+              className="qt-hover-list"
+              role="group"
+              aria-label={t("hover.accounts")}
+              aria-hidden={drawerVisible ? true : undefined}
+              tabIndex={-1}
+            >
               {rows.map((row) => {
                 const rowNativeId = row.entry.kind.type === "native" ? row.entry.kind.provider : undefined;
                 const rowMeta = rowNativeId
@@ -564,11 +809,17 @@ function HoverPanelInner() {
                 return (
                   <button
                     key={row.id}
+                    id={rowDomId(row.id)}
                     type="button"
-                    role="option"
-                    aria-selected={row.isTarget}
                     className={`qt-hover-row${row.isTarget ? " is-target" : ""}`}
-                    onClick={() => setOpenId(row.id)}
+                    aria-haspopup="dialog"
+                    aria-expanded={drawerOpen && openId === row.id}
+                    aria-controls={drawerOpen && openId === row.id ? "qt-hover-drawer" : undefined}
+                    aria-current={row.isTarget ? "true" : undefined}
+                    // 抽屉打开（含退场）时把被遮住的行移出 Tab 序列；
+                    // 程序化 focus 仍可用，退场结束再归还焦点
+                    tabIndex={drawerVisible ? -1 : undefined}
+                    onClick={() => openDrawer(row.id)}
                   >
                     <AccountAvatar
                       entry={row.entry}
@@ -581,7 +832,9 @@ function HoverPanelInner() {
                         <span className="qt-hover-row-title">{row.entry.name}</span>
                         <StatusBadge kind={row.kind} />
                       </span>
-                      <span className="qt-hover-row-sub" data-tooltip={subtitle}>{subtitle}</span>
+                      <span className="qt-hover-row-sub-wrap" data-tooltip={subtitle}>
+                        <span className="qt-hover-row-sub">{subtitle}</span>
+                      </span>
                     </span>
                     <span className="qt-hover-row-metrics">
                       {row.metrics.length === 0 ? (
@@ -604,24 +857,48 @@ function HoverPanelInner() {
               })}
             </div>
 
-            {selectedRow && drawer && (
-              <aside className="qt-hover-drawer is-open" aria-label={t("hover.detail")}>
+            {/* 独立遮罩承接「点击外部」：拖选文本到遮罩上时 click 目标是
+                两者公共祖先，不会误判为外部点击。退场期间保留，防止
+                点击穿透到被模糊的列表又把抽屉打开 */}
+            {drawerVisible && (
+              <div
+                className="qt-hover-drawer-scrim"
+                aria-hidden="true"
+                onClick={() => {
+                  if (drawerOpen) closeDrawer();
+                }}
+              />
+            )}
+
+            <aside
+              ref={drawerRef}
+              id="qt-hover-drawer"
+              role="dialog"
+              className={`qt-hover-drawer${drawerOpen ? " is-open" : ""}`}
+              aria-label={t("hover.detail")}
+              // 退场期间对读屏立即隐藏：内容仍在滑出，但不再是当前可操作区域
+              aria-hidden={!drawerOpen}
+            >
+              {drawer && displayedDrawerRow && (
+                <>
                 <div className="qt-hover-drawer-head">
                   <button
+                    ref={drawerBackRef}
                     type="button"
                     className="qt-hover-icon-btn"
                     aria-label={t("hover.back")}
-                    onClick={() => setOpenId(null)}
+                    onClick={closeDrawer}
                   >
                     <ChevronLeft size={16} />
                   </button>
                   <span className="qt-hover-drawer-title">{t("hover.detail")}</span>
                   <button
                     type="button"
-                    className={`qt-hover-icon-btn ${refreshOne.isPending ? "is-spinning" : ""}`}
+                    className={`qt-hover-icon-btn ${refreshBusy ? "is-spinning" : ""}`}
                     aria-label={t("card.refresh")}
-                    disabled={refreshOne.isPending}
-                    onClick={() => refreshOne.mutate(selectedRow.id)}
+                    // 与头部全量刷新互斥：串行设计不允许同一账户并发两次查询
+                    disabled={refreshBusy}
+                    onClick={() => refreshOne.mutate(displayedDrawerRow.id)}
                   >
                     <RefreshCw size={16} />
                   </button>
@@ -630,25 +907,30 @@ function HoverPanelInner() {
                   <div className="qt-hover-detail">
                     <div className="qt-hover-detail-head">
                       <AccountAvatar
-                        entry={selectedRow.entry}
+                        entry={displayedDrawerRow.entry}
                         platformName={drawer.platformName}
                         ringFill={null}
                         isTarget={false}
                       />
                       <div className="qt-hover-detail-id">
-                        <strong>{selectedRow.entry.name}</strong>
+                        <strong>{displayedDrawerRow.entry.name}</strong>
                         <small>
-                          <i className={`qt-hover-status-dot is-${statusTone(selectedRow.kind)}`} />
-                          <span className="qt-hover-detail-sub" data-tooltip={`${t(statusKey(selectedRow.kind))} · ${drawer.platformName}${drawer.pricingView?.modelLabel ? ` · ${drawer.pricingView.modelLabel}` : ""}`}>
-                            {t(statusKey(selectedRow.kind))} · {drawer.platformName}
-                            {drawer.pricingView?.modelLabel ? ` · ${drawer.pricingView.modelLabel}` : ""}
+                          <i className={`qt-hover-status-dot is-${statusTone(displayedDrawerRow.kind)}`} />
+                          <span
+                            className="qt-hover-detail-sub-wrap"
+                            data-tooltip={`${t(statusKey(displayedDrawerRow.kind))} · ${drawer.platformName}${drawer.pricingView?.modelLabel ? ` · ${drawer.pricingView.modelLabel}` : ""}`}
+                          >
+                            <span className="qt-hover-detail-sub">
+                              {t(statusKey(displayedDrawerRow.kind))} · {drawer.platformName}
+                              {drawer.pricingView?.modelLabel ? ` · ${drawer.pricingView.modelLabel}` : ""}
+                            </span>
                           </span>
                         </small>
                       </div>
                       <TargetRing
-                        row={selectedRow}
+                        row={displayedDrawerRow}
                         busy={switchTarget.isPending}
-                        onSet={() => switchTarget.mutate(selectedRow.id)}
+                        onSet={() => switchTarget.mutate(displayedDrawerRow.id)}
                       />
                     </div>
 
@@ -660,15 +942,15 @@ function HoverPanelInner() {
                         disabled={switchModel.isPending || drawer.choices.length === 0}
                         onChange={(event) =>
                           switchModel.mutate({
-                            entry: selectedRow.entry,
+                            entry: displayedDrawerRow.entry,
                             choiceValue: event.target.value,
                             choices: drawer.choices,
                           })
                         }
                       >
-                        {!drawer.explicitModel && selectedRow.entry.pricing?.model && (
-                          <option value={`model:${selectedRow.entry.pricing.model}`}>
-                            {selectedRow.entry.pricing.model}
+                        {!drawer.explicitModel && displayedDrawerRow.entry.pricing?.model && (
+                          <option value={`model:${displayedDrawerRow.entry.pricing.model}`}>
+                            {displayedDrawerRow.entry.pricing.model}
                           </option>
                         )}
                         {!drawer.hasDefault && <option value="default">{t("pricing.noModel")}</option>}
@@ -694,7 +976,7 @@ function HoverPanelInner() {
                           </small>
                         )}
                       </div>
-                      <div className={`qt-hover-ring ${selectedRow.metrics.some((metric) => metric.alert) ? "is-alert" : ""}`}>
+                      <div className={`qt-hover-ring ${displayedDrawerRow.metrics.some((metric) => metric.alert) ? "is-alert" : ""}`}>
                         <svg viewBox="0 0 48 48" aria-hidden="true">
                           <circle cx="24" cy="24" r="18" pathLength="100" />
                           {drawer.ring && (
@@ -712,17 +994,20 @@ function HoverPanelInner() {
                       </div>
                     </section>
 
-                    <UsageWindows data={selectedRow.data} metric={selectedRow.entry.primary_metric} />
+                    <UsageWindows data={displayedDrawerRow.data} metric={displayedDrawerRow.entry.primary_metric} />
 
                     {drawer.pricingView && <PricingBlock view={drawer.pricingView} />}
 
-                    {(selectedRow.errorMessage || actionError) && (
-                      <p className="qt-hover-error">{actionError ?? selectedRow.errorMessage}</p>
-                    )}
+                    <DrawerError
+                      row={displayedDrawerRow}
+                      actionError={actionError}
+                      batchFailure={batchFailure}
+                    />
                   </div>
                 </div>
-              </aside>
-            )}
+                </>
+              )}
+            </aside>
           </div>
         )
       ) : entry ? (
@@ -767,7 +1052,7 @@ function HoverPanelInner() {
           <main className="qt-hover-content">
             <section className="qt-hover-hero">
               <div>
-                <span>{primary.label}</span>
+                <span>{primaryLabel}</span>
                 <strong>{primary.unit && <small>{primary.unit}</small>}{primary.value}</strong>
                 {heroReset && <small className="qt-hover-reset" data-tooltip={t("card.resetIn", { time: heroReset })}>{heroReset}</small>}
               </div>
@@ -803,7 +1088,7 @@ function HoverPanelInner() {
             {!compact && pricingView && <PricingBlock view={pricingView} />}
 
             {(view.errorMessage || actionError) && (
-              <p className="qt-hover-error">{actionError ?? view.errorMessage}</p>
+              <p role="alert" className="qt-hover-error">{actionError ?? view.errorMessage}</p>
             )}
           </main>
         </>
