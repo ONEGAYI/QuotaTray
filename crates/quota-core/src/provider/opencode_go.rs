@@ -167,6 +167,14 @@ mod tests {
         }
     }"#;
 
+    /// 2026-10-22 真实 Go 订阅账户的实测响应（仅脱敏 key，其余原样）。
+    /// `percent` 实测为整数而非小数，与 `parse_num` 的 f64 口径需保持一致。
+    const REAL_BODY: &str = r#"{"usage":{
+        "rolling":{"status":"ok","percent":2,"resetsAt":"2026-10-21T22:03:17.000Z"},
+        "weekly":{"status":"ok","percent":1,"resetsAt":"2026-10-26T00:00:00.000Z"},
+        "monthly":{"status":"ok","percent":0,"resetsAt":"2026-11-21T16:55:41.000Z"}
+    }}"#;
+
     /// 线协议：GET + Bearer + JSON Accept，指向网关 Go 用量路由。
     #[tokio::test]
     async fn sends_bearer_get_to_usage_route() {
@@ -211,6 +219,24 @@ mod tests {
         assert!(rows.iter().all(|row| row.total == Some(100.0)));
         assert!(rows.iter().all(|row| row.unit.as_deref() == Some("%")));
         assert!(rows.iter().all(|row| row.is_valid.is_none()));
+    }
+
+    /// 实测响应锚定：整数 percent 正确映射为已用口径，三窗口齐全。
+    #[tokio::test]
+    async fn parses_real_captured_response() {
+        let rows = OpenCodeGo
+            .query(&creds(), &MockHttp::ok(REAL_BODY), PlanVariant::Auto)
+            .await
+            .unwrap();
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].used, Some(2.0));
+        assert_eq!(rows[0].remaining, Some(98.0));
+        assert_eq!(rows[1].used, Some(1.0));
+        assert_eq!(rows[1].remaining, Some(99.0));
+        assert_eq!(rows[2].used, Some(0.0));
+        assert_eq!(rows[2].remaining, Some(100.0));
+        assert!(rows.iter().all(|row| row.reset_at.is_some()));
     }
 
     /// `resetsAt` RFC3339 → epoch 毫秒；非法时间戳不伪造（保持 None）。
