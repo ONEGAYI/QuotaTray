@@ -300,15 +300,50 @@ describe("hoverTargetHintKey（on/off 环悬停提示）", () => {
 });
 
 describe("batchFailureForRow（批次失败归属）", () => {
-  it("失败条目命中才返回文案；未命中返回 null（别家账户的错误不进抽屉）", () => {
-    const failure = { message: "乙: key 无效", ids: ["b"] };
-    expect(batchFailureForRow(failure, "b")).toBe("乙: key 无效");
-    expect(batchFailureForRow(failure, "a")).toBeNull();
+  it("只返回本账户那条原文，不因同批其他账户失败而透传聚合文本（#159-002）", () => {
+    // 甲乙同时失败：聚合 message 里两行都在
+    const failure = {
+      message: "账户甲: A-only failure\n账户乙: B-only failure",
+      byId: { a: "A-only failure", b: "B-only failure" },
+      global: null,
+    };
+    // 乙只看到自己的问题，不包含甲的文字
+    expect(batchFailureForRow(failure, "b")).toBe("B-only failure");
+    expect(batchFailureForRow(failure, "b")).not.toContain("A-only");
+    expect(batchFailureForRow(failure, "a")).toBe("A-only failure");
   });
 
-  it("空 ids（整批/未知归属）对所有账户都算相关；null 表示无批次失败", () => {
-    expect(batchFailureForRow({ message: "IPC 失败", ids: [] }, "a")).toBe("IPC 失败");
+  it("未参与本批失败的账户返回 null；全局失败对所有账户可见", () => {
+    const partial = { message: "账户乙: boom", byId: { b: "boom" }, global: null };
+    expect(batchFailureForRow(partial, "c")).toBeNull();
+    const global = { message: "IPC 失败", byId: {}, global: "IPC 失败" };
+    expect(batchFailureForRow(global, "a")).toBe("IPC 失败");
     expect(batchFailureForRow(null, "a")).toBeNull();
     expect(batchFailureForRow(undefined, "a")).toBeNull();
+  });
+});
+
+describe("hoverRows 时间派生（#159-003：倒计时随时钟推进）", () => {
+  const settings = {
+    tray_icon_entry_id: null,
+    ring_units_per_circle: 100,
+    low_balance_remaining_percent: 20,
+  } as Settings;
+  const resetAt = Date.UTC(2026, 9, 22, 12, 2, 0);
+
+  function rowsAt(nowMs: number) {
+    return hoverRows({
+      providers: [provider("a")],
+      states: undefined,
+      snapshots: { a: { data: [{ used: 42, unit: "%", reset_at: resetAt }], at: nowMs } },
+      settings,
+      lang: "zh",
+      nowMs,
+    });
+  }
+
+  it("相同数据引用下，nowMs 前进一分钟倒计时从 2m 变 1m", () => {
+    expect(rowsAt(resetAt - 120_000)[0].metrics[0].reset).toBe("2m");
+    expect(rowsAt(resetAt - 60_000)[0].metrics[0].reset).toBe("1m");
   });
 });

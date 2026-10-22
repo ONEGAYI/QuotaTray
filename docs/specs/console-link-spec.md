@@ -98,6 +98,7 @@ pub fn resolve_console_url(entry: &ProviderEntry) -> Option<String>
 | codex | ChatGPT 订阅（Codex） | `https://chatgpt.com/#settings/Subscription` | 官方帮助菜单路径；hash 深链为 SPA 路由，未获官方文档化（改版可能失效，保守可退 `chatgpt.com/`） |
 | gemini | Gemini（Code Assist） | `https://gemini.google.com` | 所有者定案（2026-08-29）取「打开 Gemini 本体」语义；Google 无 Code Assist 个人用量网页 |
 | grok | Grok 订阅 | `https://grok.com/` | xAI 官方 FAQ「grok.com → Settings → Billing」；站内深链有反爬无法外部验证 |
+| opencode_go | OpenCode Go（Go / Go Plus 订阅） | `https://opencode.ai/console/go` | 官方 Go 文档「订阅后到 Console 查看当前用量」；`/console/go` 为 Go 产品页（未登录亦可访问） |
 
 ## 5. IPC（desktop src-tauri）
 

@@ -3,7 +3,7 @@
 // on/off 环写显示目标、批量刷新汇总、单条刷新失败可见、焦点归还。
 // 渲染契约（布局/文案）留在 HoverPanel.test.tsx 的 SSR 用例里，这里只管
 // 需要真实事件与焦点的行为。
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderEntry, QueryOutcome, SnapshotEntry } from "../types";
@@ -272,6 +272,68 @@ describe("刷新（T-31）", () => {
     expect(alert.closest("#qt-hover-drawer")).not.toBeNull();
   });
 
+  it("甲的刷新命令迟到 reject，不会串进乙的详情（#159-001）", async () => {
+    // 甲的请求挂起，稍后 reject；期间切换到乙
+    let rejectA: ((error: Error) => void) | null = null;
+    ctx.queryOutcome = (id) => {
+      if (id === "a") {
+        return new Promise<QueryOutcome>((_resolve, reject) => {
+          rejectA = reject;
+        });
+      }
+      return Promise.resolve({ ok: true, data: [], error: null, at: Date.now() });
+    };
+    render(<HoverPanel />);
+
+    fireEvent.click(rowButton("账户甲"));
+    await waitFor(() => expect(drawer().classList.contains("is-open")).toBe(true));
+    fireEvent.click(within(drawer()).getByLabelText("刷新"));
+    await waitFor(() => expect(rejectA).not.toBeNull());
+
+    // 切到乙抽屉，此时甲的 Promise 才 reject
+    fireEvent.click(screen.getByLabelText("返回"));
+    await waitFor(() => expect(drawer().classList.contains("is-open")).toBe(false));
+    fireEvent.click(rowButton("账户乙"));
+    await waitFor(() => expect(drawer().classList.contains("is-open")).toBe(true));
+
+    rejectA!(new Error("A-only transport failure"));
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+
+    // 乙的详情里不能出现甲的错误；错误应挂在列表横幅并带甲的身份
+    expect(within(drawer()).queryByRole("alert")).toBeNull();
+    const banner = document.querySelector(".qt-hover-error-banner");
+    expect(banner?.textContent).toContain("A-only transport failure");
+    expect(banner?.textContent).toContain("账户甲");
+  });
+
+  it("甲乙同时失败时，乙详情只含乙自己的错误（#159-002）", async () => {
+    ctx.queryOutcome = async (id) => ({
+      ok: false,
+      data: [],
+      error: {
+        kind: "deterministic",
+        message: id === "a" ? "A-only failure" : "B-only failure",
+      },
+      at: null,
+    });
+    render(<HoverPanel />);
+
+    fireEvent.click(screen.getByLabelText("刷新"));
+    // 列表横幅聚合两条
+    await waitFor(() => {
+      const banner = document.querySelector(".qt-hover-error-banner");
+      expect(banner?.textContent).toContain("A-only failure");
+      expect(banner?.textContent).toContain("B-only failure");
+    });
+
+    fireEvent.click(rowButton("账户乙"));
+    await waitFor(() => expect(drawer().classList.contains("is-open")).toBe(true));
+    const alert = await waitFor(() => within(drawer()).getByRole("alert"));
+    expect(alert.textContent).toContain("B-only failure");
+    // 甲的错误不能因为"同批有乙失败"就透传进来
+    expect(alert.textContent).not.toContain("A-only failure");
+  });
+
   it("抽屉关闭后单条刷新失败不会无声消失：改挂列表横幅（P3 回归）", async () => {
     ctx.queryOutcome = async () => ({ ok: false, data: [], error: { kind: "deterministic", message: "平台拒绝" }, at: null });
     render(<HoverPanel />);
@@ -357,5 +419,34 @@ describe("单账户模式不受多条目交互影响（T-31）", () => {
     await waitFor(() => expect(document.getElementById("qt-hover-list")).not.toBeNull());
     // 切回后仍是列表，不应自动弹出上次查看的账户
     expect(drawer().classList.contains("is-open")).toBe(false);
+  });
+});
+
+describe("时间派生随钟表推进（#159-003）", () => {
+  const resetAt = Date.UTC(2026, 9, 22, 12, 2, 0);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(resetAt - 120_000);
+    ctx.mode = "multi";
+    ctx.trayIconEntryId = "a";
+    ctx.providers = [provider("a", "账户甲"), provider("b", "账户乙")];
+    ctx.snapshots = {
+      a: { data: [{ used: 42, unit: "%", reset_at: resetAt }], at: resetAt - 120_000 },
+      b: { data: [{ used: 60, unit: "%", reset_at: resetAt }], at: resetAt - 120_000 },
+    };
+  });
+
+  it("数据引用不变时，时钟前进一分钟后倒计时从 2m 变 1m", async () => {
+    render(<HoverPanel />);
+    const list = document.getElementById("qt-hover-list")!;
+    await waitFor(() => expect(list.textContent).toContain("2m"));
+
+    // 只推进时钟，数据对象引用保持不变（模拟 React Query 结构共享）
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    await waitFor(() => expect(list.textContent).toContain("1m"));
   });
 });

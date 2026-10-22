@@ -28,10 +28,15 @@ interface Props { providers: ProviderEntry[]; providersLoading: boolean; provide
 const HISTORY_FETCH_SPAN_MS = Math.max(...Object.values(USAGE_RANGES).map((item) => item.spanMs));
 const SERIES_COLORS = ["var(--qt-series-1)", "var(--qt-series-2)", "var(--qt-series-3)", "var(--qt-series-4)"];
 
-function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string {
+/** 历史窗口键 → 图例显示名。窗口键是冻结的 `plan_name` 文本（见 core
+ *  `history::window_key`），本地化只发生在展示层；新平台引入新窗口标注
+ *  时须在此与 `display.windowShortLabel` 同步补映射，否则图例会中英混杂。 */
+export function scopeName(windowKey: string, index: number, lang: "zh" | "en"): string {
   const bracketed = windowKey.match(/（([^）]+)）|\(([^)]+)\)/)?.slice(1).find(Boolean);
   if (bracketed) {
-    if (bracketed.toLowerCase() === "week") return lang === "zh" ? "周限" : "Weekly";
+    const label = bracketed.toLowerCase();
+    if (label === "week") return lang === "zh" ? "周限" : "Weekly";
+    if (label === "month") return lang === "zh" ? "月限" : "Monthly";
     return bracketed;
   }
   if (/^w\d+(?:#\d+)?$/.test(windowKey)) return lang === "zh" ? `窗口 ${index + 1}` : `Window ${index + 1}`;

@@ -72,9 +72,11 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 全量刷新失败：带上失败条目 id，抽屉只展示与当前账户相关的批次错误。 */
+/** 全量刷新失败：携带逐账户错误原文，抽屉按 id 取本账户消息。
+ *  不能只带 id 列表——聚合文本里含有每个失败账户的错误，仅凭
+ *  `ids.includes(rowId)` 无法阻止别家账户的文字进入当前详情。 */
 class RefreshBatchError extends Error {
-  constructor(message: string, readonly ids: string[]) {
+  constructor(message: string, readonly byId: Record<string, string>) {
     super(message);
     this.name = "RefreshBatchError";
   }
@@ -83,6 +85,20 @@ class RefreshBatchError extends Error {
 /** 抽屉滑出动画时长（与 index.css 的 .qt-hover-drawer 出场 transition 一致）。
  *  滑出期间保持遮罩与 pointer-events 锁定，避免点击穿透到下方列表。 */
 const DRAWER_EXIT_MS = 340;
+
+/** 倒计时刷新的时钟粒度：reset_at 按分钟显示，30s 一跳保证跨分钟边界
+ *  最多迟到半分钟，同时不给常驻面板增加明显负担。 */
+const CLOCK_TICK_MS = 30_000;
+
+/** 面板存活期间的时钟锚点：倒计时与「N 分钟前」都依赖它。 */
+function useClockTick(intervalMs = CLOCK_TICK_MS): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
 
 function statusKey(kind: ProviderCardKind) {
   switch (kind) {
@@ -176,16 +192,18 @@ function PricingBlock({ view }: { view: ProviderPricingView }) {
 function UsageWindows({
   data,
   metric,
+  nowMs,
 }: {
   data: UsageData[];
   metric: ProviderEntry["primary_metric"];
+  nowMs: number;
 }) {
   const { lang, t } = useLang();
   return (
     <section className="qt-hover-usage-list">
       {data.map((item, index) => {
         const percent = remainingPercent(item);
-        const reset = resetCountdown(item.reset_at);
+        const reset = resetCountdown(item.reset_at, nowMs);
         return (
           <div className="qt-hover-usage" key={`${item.plan_name ?? "window"}-${index}`}>
             <div>
@@ -354,6 +372,9 @@ function HoverPanelInner() {
   const lastRowRef = useRef<HoverRow | null>(null);
   // 压缩布局：后端在垂直空间不足时把窗口缩到压缩高度，前端随之裁剪区块
   const [compact, setCompact] = useState(() => isCompactViewport(window.innerHeight));
+  // 面板常驻：时间派生（倒计时、「N 分钟前」）不能只靠数据引用变化驱动，
+  // 否则数据被 React Query 结构共享时数字会一直停在旧值。
+  const nowMs = useClockTick();
   // 峰谷标签锚点：常驻面板无重渲染时以翻转事件驱动重算（#15）
   const peakTick = usePeakFlipTick();
 
@@ -447,8 +468,9 @@ function HoverPanelInner() {
         snapshots: snapshots.data,
         settings: settings.data,
         lang,
+        nowMs,
       }),
-    [providers.data, states.data, snapshots.data, settings.data, lang],
+    [providers.data, states.data, snapshots.data, settings.data, lang, nowMs],
   );
   // 行集合提交后同步一份：关闭抽屉时据此留存退场内容（行已消失也有快照）。
   // 只在 effect 里写 ref，不触发渲染，也不违反并发渲染的纯函数约束。
@@ -467,6 +489,20 @@ function HoverPanelInner() {
     providers.data ?? [],
     settings.data?.tray_icon_entry_id ?? null,
   );
+  // 单次刷新失败的归属：只有失败请求就是当前抽屉账户时才进详情，
+  // 否则挂到该账户名下的列表错误。单账户模式下详情即当前账户。
+  const applyRefreshFailure = useCallback(
+    (id: string, message: string) => {
+      if (mode === "single" || openId === id) {
+        setActionError(message);
+        return;
+      }
+      const name = enabledProviders.find((provider) => provider.id === id)?.name ?? id;
+      setBatchFailure({ message: `${name}: ${message}`, byId: { [id]: message }, global: null });
+    },
+    [mode, openId, enabledProviders],
+  );
+
   const refreshOne = useMutation({
     mutationFn: (id: string) => api.queryProvider(id),
     // 新一次尝试立即清掉上次错误：成功后不能残留「刷新失败」
@@ -474,17 +510,11 @@ function HoverPanelInner() {
     onSuccess: (outcome, id) => {
       // 平台业务失败以 QueryOutcome.ok=false 正常返回，不走 onError
       if (outcome.ok) return;
-      const message = outcome.error?.message || t("card.noReason");
-      // 抽屉里的刷新失败要出现在抽屉；不属于当前抽屉的失败挂列表横幅，
-      // 否则用户关掉抽屉后这次失败就再无入口可见。
-      if (mode === "single" || openId === id) setActionError(message);
-      else setBatchFailure({ message, ids: [id] });
+      applyRefreshFailure(id, outcome.error?.message || t("card.noReason"));
     },
-    onError: (error) => {
-      const message = errorText(error);
-      if (mode === "single" || openId) setActionError(message);
-      else setBatchFailure({ message, ids: [] });
-    },
+    // 命令 reject 与业务失败是两条分支：同样必须按请求身份路由，
+    // 否则甲迟到的异常会写进此刻打开的乙的详情
+    onError: (error, id) => applyRefreshFailure(id, errorText(error)),
   });
 
   const view = deriveProviderCardState({
@@ -506,19 +536,23 @@ function HoverPanelInner() {
         (outcome) => (outcome.ok ? null : outcome.error?.message || t("card.noReason")),
       );
       if (failed.length > 0) {
-        // 用账户名而不是内部 id，横幅可直接定位到用户认识的账户
+        // 聚合文案按账户名展开（横幅可读），同时保留逐账户原文——
+        // 抽屉只取自己那一条，不解析聚合字符串
         const nameOf = (id: string) =>
           enabledProviders.find((provider) => provider.id === id)?.name ?? id;
+        const byId: Record<string, string> = {};
+        for (const item of failed) byId[item.id] = item.error;
         throw new RefreshBatchError(
           failed.map((item) => `${nameOf(item.id)}: ${item.error}`).join("\n"),
-          failed.map((item) => item.id),
+          byId,
         );
       }
     },
     onError: (error) =>
       setBatchFailure({
         message: errorText(error),
-        ids: error instanceof RefreshBatchError ? error.ids : [],
+        byId: error instanceof RefreshBatchError ? error.byId : {},
+        global: error instanceof RefreshBatchError ? null : errorText(error),
       }),
   });
 
@@ -626,7 +660,7 @@ function HoverPanelInner() {
       choices,
       // 与单账户同一空值口径：算不出主数值时用 card.noData，而非「已获取」
       hero: heroLabelKind === "empty" ? { ...hero, label: t("card.noData") } : hero,
-      heroReset: resetCountdown(heroData?.reset_at),
+      heroReset: resetCountdown(heroData?.reset_at, nowMs),
       ring: hoverRingView(heroData, unitsPerCircle, target.primary_metric),
       modelValue: modelSelectValue(target, choices),
       hasDefault: choices.some((choice) => choice.value === "default"),
@@ -636,7 +670,7 @@ function HoverPanelInner() {
           )
         : undefined,
     };
-  }, [displayedDrawerRow, nativeMetas.data, peakTick, lang, settings.data, t]);
+  }, [displayedDrawerRow, nativeMetas.data, peakTick, lang, settings.data, nowMs, t]);
 
   // 抽屉是否真实可交互：openId 可能残留（条目被禁用/删除、模式切到 single）
   const drawerOpen = mode === "multi" && selectedRow != null && drawer != null;
@@ -697,7 +731,7 @@ function HoverPanelInner() {
         ? lang === "zh" ? `剩余 ${heroWindow}` : `Left ${heroWindow}`
         : t("hover.remainingQuota")
       : t("card.noData");
-  const heroReset = resetCountdown(mainData?.reset_at);
+  const heroReset = resetCountdown(mainData?.reset_at, nowMs);
   const ring = hoverRingView(mainData, settings.data?.ring_units_per_circle ?? 100, primaryMetric);
   const nativeProviderId = entry?.kind.type === "native" ? entry.kind.provider : undefined;
   const nativeMeta = nativeProviderId
@@ -748,7 +782,7 @@ function HoverPanelInner() {
           <BrandMark className="qt-hover-mark" />
           <div>
             <strong>QuotaTray</strong>
-            <small><i />{headerAt ? relativeTime(headerAt, lang) : t("card.neverSucceeded")}</small>
+            <small><i />{headerAt ? relativeTime(headerAt, lang, nowMs) : t("card.neverSucceeded")}</small>
           </div>
         </div>
         <div className="qt-hover-actions">
@@ -773,10 +807,13 @@ function HoverPanelInner() {
       </header>
 
       {/* 批次失败横幅：绑定本次全量刷新，不随行导航消失。
-          抽屉打开时由抽屉内的错误区承接（只放与当前账户相关的失败），
-          这里让位避免横幅插入把滑入中的抽屉顶下去；抽屉收起后横幅
-          立即回来，整批失败不会因为打开过抽屉就失去入口。 */}
-      {mode === "multi" && !drawerVisible && batchFailure && (
+          抽屉打开时只让位「抽屉确实承接了这条错误」的情形——即该失败属于
+          当前账户或为无归属的全局失败。别家账户的失败抽屉不会显示，
+          横幅必须留着，否则这条错误在抽屉开合之间彻底消失。 */}
+      {mode === "multi"
+        && batchFailure
+        && !(drawerOpen && displayedDrawerRow
+          && batchFailureForRow(batchFailure, displayedDrawerRow.id) != null) && (
         <p role="alert" className="qt-hover-error qt-hover-error-banner">{batchFailure.message}</p>
       )}
 
@@ -994,7 +1031,7 @@ function HoverPanelInner() {
                       </div>
                     </section>
 
-                    <UsageWindows data={displayedDrawerRow.data} metric={displayedDrawerRow.entry.primary_metric} />
+                    <UsageWindows data={displayedDrawerRow.data} metric={displayedDrawerRow.entry.primary_metric} nowMs={nowMs} />
 
                     {drawer.pricingView && <PricingBlock view={drawer.pricingView} />}
 
@@ -1082,7 +1119,7 @@ function HoverPanelInner() {
             )}
 
             {!compact && visibleWindows.some((item) => remainingPercent(item) != null) && (
-              <UsageWindows data={visibleWindows} metric={primaryMetric} />
+              <UsageWindows data={visibleWindows} metric={primaryMetric} nowMs={nowMs} />
             )}
 
             {!compact && pricingView && <PricingBlock view={pricingView} />}

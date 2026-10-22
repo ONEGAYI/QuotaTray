@@ -164,7 +164,7 @@ export function hoverRows({
           label: value.label,
           value: value.value,
           unit: value.unit,
-          reset: resetCountdown(item.reset_at),
+          reset: resetCountdown(item.reset_at, nowMs),
           alert: (percent ?? Number.POSITIVE_INFINITY) <= threshold,
         };
       });
@@ -197,21 +197,25 @@ export function hoverTargetHintKey(isTarget: boolean): "hover.targetOn" | "hover
   return isTarget ? "hover.targetOn" : "hover.targetOff";
 }
 
-/** 全量刷新失败汇总：`ids` 为失败条目，空数组表示整批/未知归属的失败。 */
+/** 全量刷新失败汇总。
+ *  `message` 是列表横幅的聚合文案；`byId` 保存逐账户原文，抽屉按 id 取用——
+ *  不能靠解析聚合字符串恢复身份：甲乙同时失败时，聚合文本里两行都在，
+ *  单看 `ids.includes(rowId)` 会把别家账户的错误一起塞进当前详情。
+ *  `global` 是无归属的整批失败（IPC 异常），对所有账户可见。 */
 export interface HoverBatchFailure {
   message: string;
-  ids: string[];
+  byId: Record<string, string>;
+  global: string | null;
 }
 
 /** 批次失败中属于该行的文案；不属于该行时为 null——别家账户的错误不该
- *  出现在当前账户的详情里。空 ids（整批失败）对所有行都算相关。 */
+ *  出现在当前账户的详情里。全局失败（无归属）对所有行都算相关。 */
 export function batchFailureForRow(
   failure: HoverBatchFailure | null | undefined,
   rowId: string,
 ): string | null {
   if (!failure) return null;
-  if (failure.ids.length === 0) return failure.message;
-  return failure.ids.includes(rowId) ? failure.message : null;
+  return failure.global ?? failure.byId[rowId] ?? null;
 }
 
 /** 单账户 hero 标签档位（升级前语义）：percent →「剩余[ 窗口]」、

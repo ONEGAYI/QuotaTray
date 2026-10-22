@@ -107,6 +107,7 @@ QuotaTray/
         │   │   ├── usageComparisonView.ts          # 统计组合纯逻辑
         │   │   ├── usageLegendView.test.ts         # 聚焦组合浮层测试
         │   │   ├── usageLegendView.ts              # 聚焦组合浮层纯逻辑
+        │   │   ├── UsageStatsPage.test.ts          # 使用统计窗口名契约测试
         │   │   └── UsageStatsPage.tsx              # 跨端使用统计页
         │   ├── display.test.ts         # display 文案测试
         │   ├── display.ts              # 时间与百分比文案
