@@ -196,7 +196,7 @@ export function markerUnobservedText(
 }
 
 /** 多窗口短标签：取 plan_name 全角括号内的窗口标注
- *  （"GLM Coding Plan（5h）" → "5h"；week 映射双语"周限"/"weekly"）。
+ *  （"GLM Coding Plan（5h）" → "5h"；week/month 映射双语"周限"/"月限"）。
  *  无括号用全名（template 窗口名），无名回退"窗口 N"。 */
 export function windowShortLabel(
   planName: string | undefined,
@@ -208,6 +208,7 @@ export function windowShortLabel(
   const raw = paren ?? planName;
   if (!raw) return zh ? `窗口 ${index + 1}` : `window ${index + 1}`;
   if (raw === "week") return zh ? "周限" : "weekly";
+  if (raw === "month") return zh ? "月限" : "monthly";
   return raw;
 }
 

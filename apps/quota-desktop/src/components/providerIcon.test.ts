@@ -16,12 +16,13 @@ describe("Provider 官方图标映射", () => {
     expect(providerIconUrl("minimax_global")).toBe(providerIconUrl("minimax"));
   });
 
-  it("二十一个预置 Provider 都有图标，未知 native 保留回退空间", () => {
+  it("二十二个预置 Provider 都有图标，未知 native 保留回退空间", () => {
     for (const id of [
       "deepseek",
       "siliconflow",
       "siliconflow_global",
       "openrouter",
+      "opencode_go",
       "kimi_cn",
       "kimi_global",
       "kimi_code_cn",

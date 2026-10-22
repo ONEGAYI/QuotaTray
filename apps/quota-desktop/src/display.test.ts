@@ -268,13 +268,15 @@ describe("主度量偏好回退检测 metricFallbackWindows（T-23，spec #137�
 });
 
 describe("多窗口短标签", () => {
-  it("提取 plan_name 的全角括号内容，week 映射为双语", () => {
+  it("提取 plan_name 的全角括号内容，week/month 映射为双语", () => {
     expect(windowShortLabel("GLM Coding Plan（5h）", 0, "zh")).toBe("5h");
     expect(windowShortLabel("GLM Coding Plan（MCP）", 2, "en")).toBe("MCP");
     expect(windowShortLabel("GLM Coding Plan（week）", 1, "zh")).toBe("周限");
     expect(windowShortLabel("GLM Coding Plan（week）", 1, "en")).toBe("weekly");
     expect(windowShortLabel("Kimi Code（5h）", 0, "zh")).toBe("5h");
     expect(windowShortLabel("Kimi Code（week）", 1, "en")).toBe("weekly");
+    expect(windowShortLabel("OpenCode（month）", 2, "zh")).toBe("月限");
+    expect(windowShortLabel("OpenCode（month）", 2, "en")).toBe("monthly");
   });
 
   it("无括号用全名，无名回退窗口序号", () => {
