@@ -4,7 +4,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, Rect, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Rect, WebviewUrl,
+    WebviewWindowBuilder,
 };
 
 pub const LABEL: &str = "tray-hover";
@@ -344,6 +345,8 @@ pub fn tray_enter(app: &AppHandle, rect: Rect) {
         }
     }
     let _ = window.show();
+    // 每次唤起都通知前端重置为列表视图（规格 #151：不记忆上次账户）。
+    let _ = window.emit("hover-panel-shown", ());
     raise_to_topmost(&window);
     start_pointer_watch(app.clone(), pointer_watch_surface);
 }
@@ -488,6 +491,9 @@ pub fn hide(app: &AppHandle) {
         .pointer_watch_generation
         .fetch_add(1, Ordering::SeqCst);
     if let Some(window) = app.get_webview_window(LABEL) {
+        // 隐藏前先让前端清掉抽屉选中态：下一次 show 的首帧即为列表，
+        // 避免旧抽屉闪现一帧（`hover-panel-shown` 在 show 之后才到达）。
+        let _ = window.emit("hover-panel-hidden", ());
         let _ = window.hide();
     }
 }

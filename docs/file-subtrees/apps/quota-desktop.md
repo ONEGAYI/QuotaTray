@@ -22,6 +22,7 @@ QuotaTray/
         │   ├── dev.contract.mjs               # dev端口探测避让契约测试
         │   ├── dev.mjs                        # dev端口探测避让入口
         │   ├── edit-dialog-style.contract.mjs # 编辑弹窗样式契约测试
+        │   ├── hover-style.contract.mjs       # 悬停面板样式契约测试
         │   ├── mobile-style.contract.mjs      # 移动样式契约测试
         │   └── settings-style.contract.mjs    # 设置页结构契约测试
         ├── src/                # React 前端源码
@@ -31,82 +32,83 @@ QuotaTray/
         │   │   ├── brand-mark.png # 透明品牌主图
         │   │   └── providers/     # Provider SVG 图标集
         │   ├── components/             # 前端组件
-        │   │   ├── aiAssistPack.test.ts         # AI 求助包测试
-        │   │   ├── aiAssistPack.ts              # AI 求助包纯逻辑
-        │   │   ├── AiAssistPanel.tsx            # AI 调试求助面板
-        │   │   ├── BrandMark.tsx                # 品牌标志薄组件
-        │   │   ├── ClearConfigDialog.tsx        # 清空配置二级确认弹窗
-        │   │   ├── clearConfigView.test.ts      # 清空确认逻辑测试
-        │   │   ├── clearConfigView.ts           # 清空确认纯逻辑
-        │   │   ├── configTransferView.test.ts   # 迁移视图测试
-        │   │   ├── configTransferView.ts        # 迁移视图纯逻辑
-        │   │   ├── dragSortView.test.ts         # 拖拽排序逻辑测试
-        │   │   ├── dragSortView.ts              # 拖拽排序几何纯逻辑
-        │   │   ├── EditDialog.test.tsx          # 编辑页控件渲染测试
-        │   │   ├── EditDialog.tsx               # 跨端添加编辑页
-        │   │   ├── editDialogView.test.ts       # 保存键策略测试
-        │   │   ├── editDialogView.ts            # 编辑弹窗保存键策略纯函数
-        │   │   ├── guideDocs.test.ts            # 指引资产收集与语言选档测试
-        │   │   ├── guideDocs.ts                 # 指引文档与图片资产收集（双语）
-        │   │   ├── guideMd.test.ts              # 指引解析器契约测试
-        │   │   ├── guideMd.ts                   # 指引 Markdown 子集解析器
-        │   │   ├── GuideViewer.tsx              # 配置指引渲染组件
-        │   │   ├── HoverPanel.test.tsx          # 悬停浮窗渲染契约测试
-        │   │   ├── HoverPanel.tsx               # 托盘悬停浮窗
-        │   │   ├── hoverPanelView.test.ts       # 悬停面板测试
-        │   │   ├── hoverPanelView.ts            # 悬停面板纯逻辑
-        │   │   ├── inlineMd.test.ts             # 行内 Markdown 解析测试
-        │   │   ├── inlineMd.ts                  # 行内 Markdown 解析纯函数
-        │   │   ├── MainPanelTabs.tsx            # 页签与鼠标聚光
-        │   │   ├── mainPanelTabsView.test.ts    # 聚光视图测试
-        │   │   ├── mainPanelTabsView.ts         # 聚光视图纯逻辑
-        │   │   ├── MessageCenter.test.tsx       # 消息卡片文案渲染测试
-        │   │   ├── MessageCenter.tsx            # 标题栏铃铛消息中心
-        │   │   ├── messageCenterView.test.ts    # 消息中心逻辑测试
-        │   │   ├── messageCenterView.ts         # 消息中心纯逻辑
-        │   │   ├── MetricFallbackToast.test.tsx # 回退toast渲染测试
-        │   │   ├── MetricFallbackToast.tsx      # 试查回退警告toast
-        │   │   ├── MobileChrome.tsx             # 移动端应用壳组件
-        │   │   ├── nativeProviderGroups.test.ts # 平台分组测试
-        │   │   ├── nativeProviderGroups.ts      # 平台分组纯逻辑
-        │   │   ├── NativeProviderPicker.tsx     # 跨端平台聚合选择器
-        │   │   ├── PortableInitGate.tsx         # 便携首启确认页
-        │   │   ├── presetTemplates.test.ts      # 预设库测试
-        │   │   ├── presetTemplates.ts           # 模板预设库
-        │   │   ├── pricingDraft.test.ts         # 定价草稿测试
-        │   │   ├── pricingDraft.ts              # 定价草稿纯逻辑
-        │   │   ├── PricingProvenance.tsx        # 官方模型资料披露
-        │   │   ├── PricingSection.tsx           # 峰谷编辑区块
-        │   │   ├── ProviderCard.test.tsx        # 卡片定价渲染测试
-        │   │   ├── ProviderCard.tsx             # 余额卡片
-        │   │   ├── providerCardView.test.ts     # 卡片视图测试
-        │   │   ├── providerCardView.ts          # 卡片视图纯逻辑
-        │   │   ├── providerIcon.test.ts         # 图标映射测试
-        │   │   ├── providerIcon.ts              # Provider 图标映射
-        │   │   ├── providerPricing.test.ts      # 定价镜像测试
-        │   │   ├── providerPricing.ts           # 前端定价解析镜像
-        │   │   ├── SettingsDialog.test.tsx      # 目录设置区块渲染测试
-        │   │   ├── SettingsDialog.tsx           # 跨端设置页
-        │   │   ├── settingsView.test.ts         # 设置视图测试
-        │   │   ├── settingsView.ts              # 设置视图纯逻辑
-        │   │   ├── TemplateHelpCard.tsx         # 模板说明折叠卡
-        │   │   ├── TitleBar.tsx                 # 自定义标题栏
-        │   │   ├── TransferExportDialog.tsx     # 双档导出模态窗
-        │   │   ├── transferExportView.test.ts   # 导出模态测试
-        │   │   ├── transferExportView.ts        # 导出模态纯逻辑
-        │   │   ├── TransferImportDialog.tsx     # 双模导入模态窗
-        │   │   ├── transferImportView.test.ts   # 导入模态测试
-        │   │   ├── transferImportView.ts        # 导入模态纯逻辑
-        │   │   ├── ui.tsx                       # 跨端共享基础组件
-        │   │   ├── usageChartView.test.ts       # 统计图表逻辑测试
-        │   │   ├── usageChartView.ts            # 统计图表纯逻辑
-        │   │   ├── UsageComparisonDialog.tsx    # 统计组合添加弹窗
-        │   │   ├── usageComparisonView.test.ts  # 统计组合逻辑测试
-        │   │   ├── usageComparisonView.ts       # 统计组合纯逻辑
-        │   │   ├── usageLegendView.test.ts      # 聚焦组合浮层测试
-        │   │   ├── usageLegendView.ts           # 聚焦组合浮层纯逻辑
-        │   │   ├── UsageStatsPage.test.ts       # 使用统计窗口名契约测试
-        │   │   └── UsageStatsPage.tsx           # 跨端使用统计页
+        │   │   ├── aiAssistPack.test.ts            # AI 求助包测试
+        │   │   ├── aiAssistPack.ts                 # AI 求助包纯逻辑
+        │   │   ├── AiAssistPanel.tsx               # AI 调试求助面板
+        │   │   ├── BrandMark.tsx                   # 品牌标志薄组件
+        │   │   ├── ClearConfigDialog.tsx           # 清空配置二级确认弹窗
+        │   │   ├── clearConfigView.test.ts         # 清空确认逻辑测试
+        │   │   ├── clearConfigView.ts              # 清空确认纯逻辑
+        │   │   ├── configTransferView.test.ts      # 迁移视图测试
+        │   │   ├── configTransferView.ts           # 迁移视图纯逻辑
+        │   │   ├── dragSortView.test.ts            # 拖拽排序逻辑测试
+        │   │   ├── dragSortView.ts                 # 拖拽排序几何纯逻辑
+        │   │   ├── EditDialog.test.tsx             # 编辑页控件渲染测试
+        │   │   ├── EditDialog.tsx                  # 跨端添加编辑页
+        │   │   ├── editDialogView.test.ts          # 保存键策略测试
+        │   │   ├── editDialogView.ts               # 编辑弹窗保存键策略纯函数
+        │   │   ├── guideDocs.test.ts               # 指引资产收集与语言选档测试
+        │   │   ├── guideDocs.ts                    # 指引文档与图片资产收集（双语）
+        │   │   ├── guideMd.test.ts                 # 指引解析器契约测试
+        │   │   ├── guideMd.ts                      # 指引 Markdown 子集解析器
+        │   │   ├── GuideViewer.tsx                 # 配置指引渲染组件
+        │   │   ├── HoverPanel.interaction.test.tsx # 悬停面板交互回归（jsdom）
+        │   │   ├── HoverPanel.test.tsx             # 悬停浮窗渲染契约测试
+        │   │   ├── HoverPanel.tsx                  # 托盘悬停浮窗
+        │   │   ├── hoverPanelView.test.ts          # 悬停面板测试
+        │   │   ├── hoverPanelView.ts               # 悬停面板纯逻辑
+        │   │   ├── inlineMd.test.ts                # 行内 Markdown 解析测试
+        │   │   ├── inlineMd.ts                     # 行内 Markdown 解析纯函数
+        │   │   ├── MainPanelTabs.tsx               # 页签与鼠标聚光
+        │   │   ├── mainPanelTabsView.test.ts       # 聚光视图测试
+        │   │   ├── mainPanelTabsView.ts            # 聚光视图纯逻辑
+        │   │   ├── MessageCenter.test.tsx          # 消息卡片文案渲染测试
+        │   │   ├── MessageCenter.tsx               # 标题栏铃铛消息中心
+        │   │   ├── messageCenterView.test.ts       # 消息中心逻辑测试
+        │   │   ├── messageCenterView.ts            # 消息中心纯逻辑
+        │   │   ├── MetricFallbackToast.test.tsx    # 回退toast渲染测试
+        │   │   ├── MetricFallbackToast.tsx         # 试查回退警告toast
+        │   │   ├── MobileChrome.tsx                # 移动端应用壳组件
+        │   │   ├── nativeProviderGroups.test.ts    # 平台分组测试
+        │   │   ├── nativeProviderGroups.ts         # 平台分组纯逻辑
+        │   │   ├── NativeProviderPicker.tsx        # 跨端平台聚合选择器
+        │   │   ├── PortableInitGate.tsx            # 便携首启确认页
+        │   │   ├── presetTemplates.test.ts         # 预设库测试
+        │   │   ├── presetTemplates.ts              # 模板预设库
+        │   │   ├── pricingDraft.test.ts            # 定价草稿测试
+        │   │   ├── pricingDraft.ts                 # 定价草稿纯逻辑
+        │   │   ├── PricingProvenance.tsx           # 官方模型资料披露
+        │   │   ├── PricingSection.tsx              # 峰谷编辑区块
+        │   │   ├── ProviderCard.test.tsx           # 卡片定价渲染测试
+        │   │   ├── ProviderCard.tsx                # 余额卡片
+        │   │   ├── providerCardView.test.ts        # 卡片视图测试
+        │   │   ├── providerCardView.ts             # 卡片视图纯逻辑
+        │   │   ├── providerIcon.test.ts            # 图标映射测试
+        │   │   ├── providerIcon.ts                 # Provider 图标映射
+        │   │   ├── providerPricing.test.ts         # 定价镜像测试
+        │   │   ├── providerPricing.ts              # 前端定价解析镜像
+        │   │   ├── SettingsDialog.test.tsx         # 目录设置区块渲染测试
+        │   │   ├── SettingsDialog.tsx              # 跨端设置页
+        │   │   ├── settingsView.test.ts            # 设置视图测试
+        │   │   ├── settingsView.ts                 # 设置视图纯逻辑
+        │   │   ├── TemplateHelpCard.tsx            # 模板说明折叠卡
+        │   │   ├── TitleBar.tsx                    # 自定义标题栏
+        │   │   ├── TransferExportDialog.tsx        # 双档导出模态窗
+        │   │   ├── transferExportView.test.ts      # 导出模态测试
+        │   │   ├── transferExportView.ts           # 导出模态纯逻辑
+        │   │   ├── TransferImportDialog.tsx        # 双模导入模态窗
+        │   │   ├── transferImportView.test.ts      # 导入模态测试
+        │   │   ├── transferImportView.ts           # 导入模态纯逻辑
+        │   │   ├── ui.tsx                          # 跨端共享基础组件
+        │   │   ├── usageChartView.test.ts          # 统计图表逻辑测试
+        │   │   ├── usageChartView.ts               # 统计图表纯逻辑
+        │   │   ├── UsageComparisonDialog.tsx       # 统计组合添加弹窗
+        │   │   ├── usageComparisonView.test.ts     # 统计组合逻辑测试
+        │   │   ├── usageComparisonView.ts          # 统计组合纯逻辑
+        │   │   ├── usageLegendView.test.ts         # 聚焦组合浮层测试
+        │   │   ├── usageLegendView.ts              # 聚焦组合浮层纯逻辑
+        │   │   ├── UsageStatsPage.test.ts          # 使用统计窗口名契约测试
+        │   │   └── UsageStatsPage.tsx              # 跨端使用统计页
         │   ├── display.test.ts         # display 文案测试
         │   ├── display.ts              # 时间与百分比文案
         │   ├── i18n/                   # 轻量自写 i18n

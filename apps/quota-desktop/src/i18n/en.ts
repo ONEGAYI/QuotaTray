@@ -157,6 +157,11 @@ export const en: Record<TextKey, string> = {
   // ---- Tray hover panel ----
   "hover.account": "Account",
   "hover.model": "Model",
+  "hover.accounts": "Accounts",
+  "hover.detail": "Account details",
+  "hover.back": "Back to list",
+  "hover.targetOn": "Tray ring is showing this account",
+  "hover.targetOff": "Set as the tray ring target",
   "hover.availableBalance": "Available balance",
   // 摘要位剩余措辞族与 Rust i18n.rs 的 remaining_percent_text/remaining_text
   // 成对用 Left（PR #146 review：全前端统一，不混用 Remaining）
@@ -344,6 +349,10 @@ export const en: Record<TextKey, string> = {
   "settings.themeSystem": "Follow system",
   "settings.ringUnits": "Tray ring units per circle",
   "settings.ringUnitsHint": "Balance represented by each tray ring",
+  "settings.hoverPanelMode": "Hover panel content",
+  "settings.hoverPanelModeHint": "All accounts: list with a detail drawer; single: only the tray ring's current source.",
+  "settings.hoverPanelModeMulti": "All accounts",
+  "settings.hoverPanelModeSingle": "Single account",
   "settings.tabGeneral": "General",
   "settings.tabUpdate": "Update",
   "settings.tabNetwork": "Network",

@@ -60,3 +60,13 @@ export function isLightLogo(nativeId: string): boolean {
 export function templateProviderIconUrl(entryName: string): string | null {
   return entryName.trim().toLowerCase().includes("newapi") ? newapiUrl : null;
 }
+
+/** 无品牌图时的首字母回退（卡片与悬停列表共用）。 */
+export function providerInitials(name: string): string {
+  const capitals = name.match(/[A-Z]/g);
+  if (capitals && capitals.length >= 2) return capitals.slice(0, 2).join("");
+
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 2).map((word) => word[0] ?? "").join("").toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}

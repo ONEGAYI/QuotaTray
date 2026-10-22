@@ -1,5 +1,13 @@
-import { preferMetric, remainingPercent } from "../display";
-import type { PrimaryMetric, ProviderEntry, UsageData } from "../types";
+import { preferMetric, remainingPercent, resetCountdown, windowShortLabel } from "../display";
+import type {
+  PrimaryMetric,
+  ProviderEntry,
+  QueryOutcome,
+  Settings,
+  SnapshotEntry,
+  UsageData,
+} from "../types";
+import { deriveProviderCardState, primaryValue, type ProviderCardKind } from "./providerCardView";
 
 export interface HoverRingView {
   fillPercent: number;
@@ -73,4 +81,183 @@ function compactAmount(value: number): string {
   }
   const billions = value / 1_000_000_000;
   return billions >= 10 ? `${Math.round(billions)}B` : `${Math.floor(billions * 10) / 10}B`;
+}
+
+/** 悬停面板内容模式（规格 #151）：`multi` 全部账户列表 + 详情抽屉，
+ *  `single` 单账户视图（升级前的行为）。未知值回退 multi，与后端
+ *  settings.sanitize 同向。 */
+export type HoverPanelMode = "multi" | "single";
+
+export function hoverPanelMode(mode: string | null | undefined): HoverPanelMode {
+  return mode === "single" ? "single" : "multi";
+}
+
+/** 列表行的单个额度窗口指标（label 已含「剩余」族措辞）。 */
+export interface HoverRowMetric {
+  key: string;
+  label: string;
+  value: string;
+  unit: string;
+  reset: string | null;
+  /** 剩余百分比 ≤ 低余额阈值时为真（警示色）。 */
+  alert: boolean;
+}
+
+/** 多条目列表的一行：账户身份 + 全部窗口指标 + 显示目标标记。 */
+export interface HoverRow {
+  id: string;
+  entry: ProviderEntry;
+  kind: ProviderCardKind;
+  data: UsageData[];
+  at: number | null;
+  errorMessage: string | null;
+  metrics: HoverRowMetric[];
+  /** 该行是否为托盘圆环的显示目标（tray_icon_entry_id 或回退项）。 */
+  isTarget: boolean;
+  /** 目标环弧长：与托盘圆环同一派生规则；无数据为 null。 */
+  ringFill: number | null;
+}
+
+export interface HoverRowsInput {
+  providers: ProviderEntry[];
+  states: Record<string, QueryOutcome> | undefined;
+  snapshots: Record<string, SnapshotEntry> | undefined;
+  settings: Settings | undefined;
+  lang: "zh" | "en";
+  nowMs?: number;
+}
+
+/** 多条目列表行派生（纯函数）：仅启用条目、保持存储顺序；每个窗口一行
+ *  指标；显示目标按 resolveHoverProvider 的同一语义判定。
+ *  状态派生与主页卡片同源（deriveProviderCardState），未查询过的条目
+ *  回退到启动快照。 */
+export function hoverRows({
+  providers,
+  states,
+  snapshots,
+  settings,
+  lang,
+  nowMs,
+}: HoverRowsInput): HoverRow[] {
+  const target = resolveHoverProvider(providers, settings?.tray_icon_entry_id ?? null);
+  const unitsPerCircle = settings?.ring_units_per_circle ?? 100;
+  const threshold = settings?.low_balance_remaining_percent ?? 20;
+
+  return providers
+    .filter((provider) => provider.enabled)
+    .map((entry) => {
+      const view = deriveProviderCardState({
+        enabled: true,
+        outcome: states?.[entry.id],
+        snapshot: snapshots?.[entry.id],
+        nowMs,
+      });
+      const data = view.data.filter((item) => item.is_valid !== false);
+      const metrics: HoverRowMetric[] = data.map((item, index) => {
+        const windowLabel =
+          data.length > 1 ? windowShortLabel(item.plan_name, index, lang) : undefined;
+        const value = primaryValue(item, lang, windowLabel, entry.primary_metric);
+        const percent = remainingPercent(item);
+        return {
+          // windowsFrom 模板会让同一行多个窗口复用 plan_name，索引必须入 key
+          key: `${entry.id}:${index}:${item.plan_name ?? ""}`,
+          label: value.label,
+          value: value.value,
+          unit: value.unit,
+          reset: resetCountdown(item.reset_at, nowMs),
+          alert: (percent ?? Number.POSITIVE_INFINITY) <= threshold,
+        };
+      });
+      // 与托盘 ring.rs 的 data_ring_input 同规则：跳过算不出弧长的窗口，
+      // 取首个可用窗口（只看 data[0] 会在首窗口缺字段时误报无环）。
+      let ringFill: number | null = null;
+      for (const item of data) {
+        const ring = hoverRingView(item, unitsPerCircle, entry.primary_metric);
+        if (ring) {
+          ringFill = ring.fillPercent;
+          break;
+        }
+      }
+      return {
+        id: entry.id,
+        entry,
+        kind: view.kind,
+        data,
+        at: view.at,
+        errorMessage: view.errorMessage,
+        metrics,
+        isTarget: target?.id === entry.id,
+        ringFill,
+      };
+    });
+}
+
+/** on/off 环的悬停提示文案键（按目标状态区分）。 */
+export function hoverTargetHintKey(isTarget: boolean): "hover.targetOn" | "hover.targetOff" {
+  return isTarget ? "hover.targetOn" : "hover.targetOff";
+}
+
+/** 全量刷新失败汇总。
+ *  `message` 是列表横幅的聚合文案；`byId` 保存逐账户原文，抽屉按 id 取用——
+ *  不能靠解析聚合字符串恢复身份：甲乙同时失败时，聚合文本里两行都在，
+ *  单看 `ids.includes(rowId)` 会把别家账户的错误一起塞进当前详情。
+ *  `global` 是无归属的整批失败（IPC 异常），对所有账户可见。 */
+export interface HoverBatchFailure {
+  message: string;
+  byId: Record<string, string>;
+  global: string | null;
+}
+
+/** 批次失败中属于该行的文案；不属于该行时为 null——别家账户的错误不该
+ *  出现在当前账户的详情里。全局失败（无归属）对所有行都算相关。 */
+export function batchFailureForRow(
+  failure: HoverBatchFailure | null | undefined,
+  rowId: string,
+): string | null {
+  if (!failure) return null;
+  return failure.global ?? failure.byId[rowId] ?? null;
+}
+
+/** 单账户 hero 标签档位（升级前语义）：percent →「剩余[ 窗口]」、
+ *  amount →「可用余额」、算不出 →「暂无数据」。与 primaryValue 的取值
+ *  分档同一 preferMetric 规则，仅用于保持 single 模式文案逐字一致。 */
+export function hoverPrimaryLabelKind(
+  data: UsageData | undefined,
+  metric: PrimaryMetric = "auto",
+): "percent" | "amount" | "empty" {
+  if (!data) return "empty";
+  const kind = preferMetric<"percent" | "amount">(
+    metric,
+    () => (remainingPercent(data) == null ? null : "percent"),
+    () => (data.remaining == null ? null : "amount"),
+  );
+  return kind ?? "empty";
+}
+
+/** 串行刷新一批条目：单条失败不中断后续（平台限流下仍尽量刷新全部），
+ *  返回成功与失败清单供调用方汇总报错。
+ *  `run` 可能以 QueryOutcome 的 `ok=false` 表达平台失败（命令本身成功），
+ *  由调用方通过 `failure` 判定为失败并给出消息。 */
+export async function refreshSequentially<T>(
+  ids: string[],
+  run: (id: string) => Promise<T>,
+  failure?: (result: T) => string | null,
+): Promise<{ ok: string[]; failed: { id: string; error: string }[] }> {
+  const ok: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      const result = await run(id);
+      const failureMessage = failure?.(result) ?? null;
+      // 非 null 即失败：空消息也代表失败，不能被当成成功
+      if (failureMessage != null) failed.push({ id, error: failureMessage });
+      else ok.push(id);
+    } catch (error) {
+      failed.push({
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { ok, failed };
 }

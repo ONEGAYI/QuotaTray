@@ -288,6 +288,8 @@ export interface Settings {
   ring_units_per_circle: number;
   /** 托盘图标显示的条目 id（null = 第一个启用条目） */
   tray_icon_entry_id: string | null;
+  /** 悬停面板内容模式：multi = 全部账户列表（默认），single = 单账户视图 */
+  hover_panel_mode: "multi" | "single";
   /** 自动检查更新（应用运行期间轮询；CLI 启动钩子共用） */
   update_check_enabled: boolean;
   /** 上次自动检测时间（epoch 毫秒，null = 从未） */
@@ -326,6 +328,7 @@ export interface SettingsPatch {
   theme?: string;
   ring_units_per_circle?: number;
   tray_icon_entry_id?: string | null;
+  hover_panel_mode?: "multi" | "single";
   update_check_enabled?: boolean;
   update_proxy_port?: number | null;
   update_proxy_host?: string | null;

@@ -794,6 +794,26 @@ export function SettingsDialog({ open, onClose, mobile = false, initialTab = "ge
                   }
                 />
               </SettingRow>}
+              {!mobile && <SettingRow
+                title={t("settings.hoverPanelMode")}
+                description={t("settings.hoverPanelModeHint")}
+              >
+                <select
+                  className="qt-select"
+                  // SettingRow 的标题不是 <label>：补可访问名称，读屏能报出设置项
+                  aria-label={t("settings.hoverPanelMode")}
+                  value={draft.hover_panel_mode}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      hover_panel_mode: event.target.value as Settings["hover_panel_mode"],
+                    })
+                  }
+                >
+                  <option value="multi">{t("settings.hoverPanelModeMulti")}</option>
+                  <option value="single">{t("settings.hoverPanelModeSingle")}</option>
+                </select>
+              </SettingRow>}
             </>
           ) : tab === "update" ? (
             <>
