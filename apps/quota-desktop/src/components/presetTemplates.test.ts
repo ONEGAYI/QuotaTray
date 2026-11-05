@@ -84,4 +84,32 @@ describe("模板编辑器预设", () => {
     const parsed = JSON.parse(windows!.json) as { windowsFrom?: unknown };
     expect(typeof parsed.windowsFrom).toBe("string");
   });
+
+  it("micu 预置：站点 URL 恰好一个斜杠、浏览器 UA、双凭据与 ÷500000 换算", () => {
+    const parsed = JSON.parse(presetJsonOf("micu")) as {
+      request: {
+        url: string;
+        headers: Record<string, string>;
+      };
+      extract: Record<string, unknown>;
+      transforms: Array<{ op: string; field: string; by?: number }>;
+    };
+    // 站点专属预置写死完整 URL（同 balance/credits 先例）：米醋实测
+    // baseUrl 尾斜杠与否直接影响拼接（双斜杠会拿到 SPA HTML 而非 JSON），
+    // 写死单斜杠拼接从根上消除该坑
+    expect(parsed.request.url).toBe("https://www.micuapi.ai/api/user/self");
+    // WAF 要求浏览器型 UA（docs.micuapi.ai/external-ua）
+    expect(parsed.request.headers["User-Agent"]).toMatch(/^Mozilla\/5\.0/);
+    // 双凭据：apiKey=系统访问令牌（非 sk- 渠道密钥）、apiKey2=数字用户 ID
+    expect(parsed.request.headers.Authorization).toBe("Bearer {{apiKey}}");
+    expect(parsed.request.headers["New-Api-User"]).toBe("{{apiKey2}}");
+    // new-api 默认 quota ÷ 500000 换算，米醋人民币计价
+    expect(parsed.extract.unit).toEqual({ const: "CNY" });
+    expect(parsed.transforms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ op: "divide", field: "remaining", by: 500000 }),
+        expect.objectContaining({ op: "divide", field: "used", by: 500000 }),
+      ]),
+    );
+  });
 });

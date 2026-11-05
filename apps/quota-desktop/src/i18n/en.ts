@@ -259,6 +259,7 @@ export const en: Record<TextKey, string> = {
   "edit.preset.credits": "Total / used",
   "edit.preset.windows": "Multi-window",
   "edit.preset.newapi": "NewAPI gateway",
+  "edit.preset.micu": "MicuAPI",
   "edit.helpTitle": "Template guide",
   "edit.helpLead":
     "A template is declarative JSON describing one balance request and its value paths — no code needed.",
