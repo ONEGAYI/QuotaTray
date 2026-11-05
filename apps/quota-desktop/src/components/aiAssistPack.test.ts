@@ -44,7 +44,43 @@ describe("AI 调试求助包", () => {
     expect(prompt).toContain("路径不存在");
     expect(prompt).toContain("联网搜索");
     expect(prompt).toContain("quota assist validate");
-    expect(prompt).toContain("quotatray-ai-result");
+  });
+
+  it("求助提示词要求交付可整体粘贴的配置本体，不再要求包装对象", () => {
+    for (const lang of ["zh", "en"] as const) {
+      const templatePrompt = buildAiAssistPrompt(input, lang);
+      const scriptPrompt = buildAiAssistPrompt({ ...input, mode: "script" }, lang);
+      // 旧 quotatray-ai-result 包装格式彻底退场：用户需手动拆包 config
+      // 字段才能粘回编辑器，是本次改造移除的痛点
+      expect(templatePrompt).not.toContain("quotatray-ai-result");
+      expect(scriptPrompt).not.toContain("quotatray-ai-result");
+    }
+    // 模板模式：json 代码块 = 模板 JSON 本体；解释与问题外置
+    const zh = buildAiAssistPrompt(input, "zh");
+    expect(zh).toContain("整体粘贴");
+    expect(zh).toContain("代码块之外");
+    const en = buildAiAssistPrompt(input, "en");
+    expect(en).toContain("paste straight into");
+    expect(en).toContain("outside the code block");
+    // 脚本模式：交付脚本源码本体
+    const scriptZh = buildAiAssistPrompt({ ...input, mode: "script" }, "zh");
+    expect(scriptZh).toContain("整体粘贴");
+    expect(scriptZh).toContain("代码块之外");
+  });
+
+  it("本机 Agent 提示词同样要求交付本体格式", () => {
+    for (const lang of ["zh", "en"] as const) {
+      const agent = buildLocalAgentPrompt(
+        "D:\\Temp\\relay.qtray-assist.json",
+        "template",
+        "D:\\Apps\\QuotaTray\\quota.exe",
+        lang,
+        true,
+      );
+      expect(agent).not.toContain("quotatray-ai-result");
+      expect(agent).toContain(lang === "zh" ? "整体粘贴" : "paste straight into");
+      expect(agent).toContain(lang === "zh" ? "代码块之外" : "outside the code block");
+    }
   });
 
   it("本机 Agent 提示词包含真实 CLI 路径、任务步骤与安全边界", () => {

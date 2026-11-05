@@ -100,6 +100,22 @@ extract 支持 planName / total / used / remaining / unit / isValid / invalidMes
 const SCRIPT_CAPABILITIES = `脚本必须定义全局 request() 与 extract(resp)。沙箱无 fetch、网络 API、文件系统、
 环境变量和 timer；request() 只能描述一次 GET/POST，extract 返回一个用量对象或对象数组。`;
 
+/** 最终交付要求（求助提示词与本机 Agent 提示词共享）：AI 直接交付可
+ *  整体粘贴回 QuotaTray 编辑器的配置本体（模板 JSON / 脚本源码），
+ *  解释与待补充信息放在代码块之外。取代旧 quotatray-ai-result 包装
+ *  对象——QuotaTray 不解析 AI 回复，包装层只增加用户手动拆包
+ *  config/code 字段的成本。 */
+function deliverableSpec(mode: AiAssistMode, lang: AssistLang): string {
+  if (lang === "en") {
+    return mode === "template"
+      ? `Deliver exactly one \`\`\`json code block whose content is the complete template JSON itself (starting with { and ending with }) — ready to paste straight into the QuotaTray template editor with no envelope object or extra fields. Keep explanations, reasoning, and any non-secret information you need outside the code block; if evidence is insufficient, list what is missing instead of guessing.`
+      : `Deliver exactly one \`\`\`javascript code block containing the complete script source — ready to paste straight into the QuotaTray script editor. Keep explanations, reasoning, and any non-secret information you need outside the code block; if evidence is insufficient, list what is missing instead of guessing.`;
+  }
+  return mode === "template"
+    ? `最终只交付一个 \`\`\`json 代码块，块内是完整模板 JSON 本体（以 { 开头、以 } 结尾），可直接整体粘贴进 QuotaTray 模板编辑器；不得在 JSON 外再包裹任何对象或字段。解释、依据与需要补充的非敏感信息一律放在代码块之外；资料不足时如实列出，不要猜测。`
+    : `最终只交付一个 \`\`\`javascript 代码块，块内是完整脚本源码，可直接整体粘贴进 QuotaTray 脚本编辑器。解释、依据与需要补充的非敏感信息一律放在代码块之外；资料不足时如实列出，不要猜测。`;
+}
+
 export function buildAiAssistPrompt(input: AiAssistInput, lang: AssistLang): string {
   const pkg = buildAiAssistPackage(input);
   const payload = JSON.stringify(pkg, null, 2);
@@ -117,7 +133,7 @@ You are helping configure a QuotaTray ${input.mode} provider. Prefer a declarati
 ${TEMPLATE_CAPABILITIES}
 ${SCRIPT_CAPABILITIES}
 
-Return exactly one JSON object with format \`quotatray-ai-result\`, version 1, mode, config/code, explanation, and questions. If evidence is insufficient, put the missing non-secret information in questions instead of guessing.
+${deliverableSpec(input.mode, "en")}
 
 \`\`\`json
 ${payload}
@@ -137,7 +153,7 @@ ${payload}
 ${TEMPLATE_CAPABILITIES}
 ${SCRIPT_CAPABILITIES}
 
-最终只输出一个 JSON 对象：format 为 \`quotatray-ai-result\`，version 为 1，并包含 mode、config 或 code、explanation、questions。资料不足时把需要补充的非敏感信息写入 questions，不要猜测。
+${deliverableSpec(input.mode, "zh")}
 
 \`\`\`json
 ${payload}
@@ -179,7 +195,7 @@ Use PowerShell and the exact executable path below. First inspect the schema and
 ${commands}
 \`\`\`
 ${testGuideEn}
-Return exactly one quotatray-ai-result version 1 JSON object with mode, config or code, explanation, and questions. Do not modify QuotaTray's saved providers and never craft credentialed requests yourself${
+${deliverableSpec(mode, "en")} Do not modify QuotaTray's saved providers and never craft credentialed requests yourself${
     hasEntry
       ? " — the only permitted live test is the assist test command above."
       : "."
@@ -196,7 +212,7 @@ Return exactly one quotatray-ai-result version 1 JSON object with mode, config o
 ${commands}
 \`\`\`
 ${testGuideZh}
-最终只输出一个 quotatray-ai-result v1 JSON 对象，包含 mode、config 或 code、explanation、questions。不要修改 QuotaTray 已保存的 Provider，也不要自行构造携带真实凭据的请求${
+${deliverableSpec(mode, "zh")}不要修改 QuotaTray 已保存的 Provider，也不要自行构造携带真实凭据的请求${
     hasEntry ? "——唯一允许的真实试查是上面的 assist test 命令。" : "。"
   }`;
 }

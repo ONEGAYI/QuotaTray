@@ -657,6 +657,7 @@ function TemplateForm(props: {
     credits: "edit.preset.credits",
     windows: "edit.preset.windows",
     newapi: "edit.preset.newapi",
+    micu: "edit.preset.micu",
   };
 
   const validate = useMutation({

@@ -1,9 +1,10 @@
-/** 模板编辑器的预设模板库（GUI 内嵌副本，与 examples/templates 五种
- * 形态对齐——custom 为通用骨架无对应示例文件；示例目录更新时同步
- * 维护）。选中预设即整体填入编辑器，用户可在此基础上继续手改。 */
+/** 模板编辑器的预设模板库（GUI 内嵌副本，与 examples/templates 的
+ * 形态对齐——custom 通用骨架与 micu 站点专属条目无对应示例文件；
+ * 示例目录更新时同步维护）。选中预设即整体填入编辑器，用户可在
+ * 此基础上继续手改。 */
 
 export interface PresetTemplate {
-  id: "custom" | "balance" | "site" | "credits" | "windows" | "newapi";
+  id: "custom" | "balance" | "site" | "credits" | "windows" | "newapi" | "micu";
   /** 完整模板 JSON 文本。 */
   json: string;
 }
@@ -120,6 +121,40 @@ export const PRESET_TEMPLATES: readonly PresetTemplate[] = [
     "isValid": "$.success",
     "invalidMessage": "$.message",
     "unit": { "const": "USD" }
+  },
+  "transforms": [
+    { "op": "divide", "field": "remaining", "by": 500000 },
+    { "op": "round", "field": "remaining", "digits": 2 },
+    { "op": "divide", "field": "used", "by": 500000 },
+    { "op": "round", "field": "used", "digits": 2 }
+  ]
+}`,
+  },
+  {
+    // 米醋 API（MicuAPI，new-api 系单站）：URL 写死完整站点地址——
+    // 实测 baseUrl 尾斜杠歧义会拼出双斜杠拿到 SPA HTML 而非 JSON，
+    // 写死后用户只填双凭据即可。apiKey=「个人设置→生成系统访问令牌」
+    // （非 sk- 渠道密钥），apiKey2=数字用户 ID；WAF 要求浏览器型 UA
+    // （docs.micuapi.ai/external-ua）。
+    id: "micu",
+    json: `{
+  "request": {
+    "url": "https://www.micuapi.ai/api/user/self",
+    "method": "GET",
+    "headers": {
+      "Authorization": "Bearer {{apiKey}}",
+      "New-Api-User": "{{apiKey2}}",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+      "Accept": "application/json"
+    }
+  },
+  "extract": {
+    "planName": "$.data.group",
+    "remaining": "$.data.quota",
+    "used": "$.data.used_quota",
+    "isValid": "$.success",
+    "invalidMessage": "$.message",
+    "unit": { "const": "CNY" }
   },
   "transforms": [
     { "op": "divide", "field": "remaining", "by": 500000 },
