@@ -66,6 +66,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         let j = serde_json::to_value(&[entry]).unwrap();
         assert_eq!(j[0]["kind"]["type"], "native");

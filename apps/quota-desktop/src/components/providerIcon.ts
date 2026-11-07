@@ -44,6 +44,38 @@ const PROVIDER_ICON_URLS: Readonly<Record<string, string>> = {
 /// （index.css 的 is-light-logo）才能在固定浅底方案下可见。
 const LIGHT_LOGO_IDS: ReadonlySet<string> = new Set(["stepfun"]);
 
+/** 品牌 slug → 资产 URL：自定义头像挑选面板的可选项来源。
+ *
+ * 与 `PROVIDER_ICON_URLS` 同源（一个文件一个 slug，多 id 共用同图），
+ * 因此这里去重后列出**文件级**品牌，而不是 22 个 native id——用户挑图时
+ * 看到 4 个 Kimi 变体是噪音。新增品牌图只需加 import + 此处一行。 */
+const BRAND_ICON_URLS: Readonly<Record<string, string>> = {
+  aliyun: aliyunUrl,
+  claude: claudeUrl,
+  deepseek: deepseekUrl,
+  gemini: geminiUrl,
+  grok: grokUrl,
+  kimi: kimiUrl,
+  minimax: minimaxUrl,
+  newapi: newapiUrl,
+  novita: novitaUrl,
+  opencode: opencodeUrl,
+  openai: openaiUrl,
+  openrouter: openrouterUrl,
+  siliconflow: siliconflowUrl,
+  stepfun: stepfunUrl,
+  zai: zaiUrl,
+  zhipu: zhipuUrl,
+};
+
+/** 可选内置品牌的 slug 列表（按资产表键序，即字母序）。 */
+export const BRAND_SLUGS: readonly string[] = Object.keys(BRAND_ICON_URLS);
+
+/** 按品牌 slug 取资产 URL；未知 slug 返回 null（调用方回退平台默认）。 */
+export function brandIconUrl(slug: string): string | null {
+  return BRAND_ICON_URLS[slug] ?? null;
+}
+
 /** 返回预置 Provider 的官方品牌图；未知 native 由调用方回退为首字母。 */
 export function providerIconUrl(nativeId: string): string | null {
   return PROVIDER_ICON_URLS[nativeId] ?? null;

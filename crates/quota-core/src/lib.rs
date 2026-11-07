@@ -12,6 +12,7 @@
 //! - `runtime`：安装态/便携态运行模式解析（Portable 方案 A，纯函数）
 //! - `logging`：结构化事件打点约定（log facade 薄层，两端装配 flexi_logger）
 
+pub mod avatar;
 pub mod config;
 pub mod history;
 pub mod http;
@@ -27,6 +28,7 @@ pub mod template;
 pub mod update;
 pub mod vault;
 
+pub use avatar::{AvatarError, AvatarMime};
 pub use config::{
     AppConfig, CONFIG_EXPORT_EXTENSION, ConfigTransferError, Credentials, ExportOptions,
     ImportCounts, ImportOptions, ImportStrategy, MAX_EXPORT_SIZE, MAX_USAGE_COMPARISON_SERIES,

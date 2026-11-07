@@ -17,6 +17,7 @@ QuotaTray/
         │   ├── android-post-init.mjs          # Android工程安全初始化
         │   ├── android-tauri.contract.mjs     # Android构建入口测试
         │   ├── android-tauri.mjs              # Android构建环境入口
+        │   ├── avatar-style.contract.mjs      # 头像样式契约测试
         │   ├── build-hook.contract.mjs        # 构建钩子契约测试
         │   ├── build-hook.mjs                 # 跨目标Tauri构建钩子
         │   ├── dev.contract.mjs               # dev端口探测避让契约测试
@@ -35,6 +36,10 @@ QuotaTray/
         │   │   ├── aiAssistPack.test.ts            # AI 求助包测试
         │   │   ├── aiAssistPack.ts                 # AI 求助包纯逻辑
         │   │   ├── AiAssistPanel.tsx               # AI 调试求助面板
+        │   │   ├── AvatarDialog.test.tsx           # 头像弹窗关闭态守卫契约
+        │   │   ├── AvatarDialog.tsx                # 头像设置模态窗
+        │   │   ├── avatarView.test.ts              # 头像解析契约测试
+        │   │   ├── avatarView.ts                   # 头像取值解析与展示决策
         │   │   ├── BrandMark.tsx                   # 品牌标志薄组件
         │   │   ├── ClearConfigDialog.tsx           # 清空配置二级确认弹窗
         │   │   ├── clearConfigView.test.ts         # 清空确认逻辑测试
@@ -79,6 +84,7 @@ QuotaTray/
         │   │   ├── pricingDraft.ts                 # 定价草稿纯逻辑
         │   │   ├── PricingProvenance.tsx           # 官方模型资料披露
         │   │   ├── PricingSection.tsx              # 峰谷编辑区块
+        │   │   ├── ProviderAvatar.tsx              # 供应商头像组件（含悬浮齿轮）
         │   │   ├── ProviderCard.test.tsx           # 卡片定价渲染测试
         │   │   ├── ProviderCard.tsx                # 余额卡片
         │   │   ├── providerCardView.test.ts        # 卡片视图测试
@@ -148,6 +154,7 @@ QuotaTray/
         │   ├── src/                    # 后端源码
         │   │   ├── alert_state.rs          # 提醒状态跨重启持久化
         │   │   ├── apk_install.rs          # APK安装JNI桥
+        │   │   ├── avatar_import.rs        # 头像上传规整（解码缩放编码）
         │   │   ├── background.rs           # Android 后台刷新编排核
         │   │   ├── catalog_sched.rs        # 跨端目录前台调度
         │   │   ├── commands.rs             # 跨端IPC命令集

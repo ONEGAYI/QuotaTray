@@ -198,6 +198,22 @@ impl Lang {
         }
     }
 
+    /// 头像文件读取失败（选中的路径读不出字节）。
+    pub fn err_avatar_read(&self, reason: &str) -> String {
+        match self {
+            Self::Zh => format!("无法读取头像文件：{reason}"),
+            Self::En => format!("Failed to read the avatar file: {reason}"),
+        }
+    }
+
+    /// 头像规整/校验失败（解码、缩放、白名单、体积上限等）。
+    pub fn err_avatar_invalid(&self, reason: &str) -> String {
+        match self {
+            Self::Zh => format!("头像不可用：{reason}"),
+            Self::En => format!("Avatar rejected: {reason}"),
+        }
+    }
+
     pub fn err_mobile_cli_credentials(&self) -> String {
         match self {
             Self::Zh => "该平台依赖桌面官方 CLI 的本机登录文件，Android 端无法读取".into(),

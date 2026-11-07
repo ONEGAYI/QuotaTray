@@ -52,6 +52,14 @@ export const api = {
       newApiKey2: newApiKey2 ?? undefined,
     }),
   removeProvider: (id: string): Promise<void> => invoke("remove_provider", { id }),
+  /** 设置条目头像（`brand:<slug>` 或 data URL；空串 = 恢复平台默认）。
+   *  独立于 upsertProvider：编辑弹窗不组装头像字段，头像改动不触发整条覆盖。 */
+  setProviderAvatar: (id: string, avatar: string): Promise<void> =>
+    invoke("set_provider_avatar", { id, avatar }),
+  /** 读取用户选中的图片并规整成可落盘的 data URL（桌面路径 / Android SAF URI）。
+   *  只读取与规整，不落盘——调用方确认预览后再走 setProviderAvatar。 */
+  prepareProviderAvatar: (path: string): Promise<string> =>
+    invoke("prepare_provider_avatar", { path }),
   /** 清空全部用户数据（条目/凭据密文/定价/查询历史；应用偏好与主密钥
    *  保留）。调用方须已通过二级确认弹窗取得显式确认。 */
   clearAllData: (): Promise<void> => invoke("clear_all_data"),

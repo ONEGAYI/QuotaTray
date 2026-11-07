@@ -1130,6 +1130,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         native.set_api_key(vault, SECRET_A).unwrap();
 
@@ -1157,6 +1159,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         custom.set_api_key(vault, SECRET_B).unwrap();
 
@@ -1538,6 +1542,38 @@ mod tests {
             bundle.config.providers[0].primary_metric,
             PrimaryMetric::Auto
         );
+    }
+
+    /// 契约：头像随迁移容器一起导出/导入，不需扩容器版本——它挂在
+    /// `ProviderEntry` 上，走既有 `config` 载荷；未设置头像的条目往返后
+    /// 仍为 None（不凭空造字段）。
+    #[test]
+    fn avatar_roundtrips_inside_transfer_bundle() {
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let mut config = sample_config(&source_vault);
+        let png = crate::avatar::to_data_url(crate::avatar::AvatarMime::Png, b"\x89PNG fake body");
+        config.providers[0].avatar = Some("brand:openrouter".into());
+        config.providers[1].avatar = Some(png.clone());
+
+        let bytes = export_config(&config, &source_vault, None).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+
+        assert_eq!(
+            bundle.config.providers[0].avatar.as_deref(),
+            Some("brand:openrouter")
+        );
+        assert_eq!(
+            bundle.config.providers[1].avatar.as_deref(),
+            Some(png.as_str())
+        );
+
+        // 未设置头像的条目往返后仍为 None（不凭空造字段）
+        config.providers[0].avatar = None;
+        config.providers[1].avatar = None;
+        let bytes = export_config(&config, &source_vault, None).unwrap();
+        let bundle = import_config(&bytes, &target_vault).unwrap();
+        assert!(bundle.config.providers.iter().all(|p| p.avatar.is_none()));
     }
 
     #[test]
@@ -2315,6 +2351,63 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    /// 契约：合并导入**不**覆盖同 id 条目的任何字段，头像也不例外。
+    ///
+    /// 这不是头像的缺陷而是 merge 的既有语义（「同 id 本机为准」保护本机
+    /// 凭据不被备份覆盖）。锁在这里是为了让「导入备份后头像没变」成为
+    /// 已知且被测试记录的行为，而不是日后被当成 bug 排查：
+    /// 要同步头像请用覆盖导入。
+    #[test]
+    fn merge_import_does_not_replace_avatar_of_same_id() {
+        let dir =
+            std::env::temp_dir().join(format!("quotatray-avatar-merge-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let source_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let png = crate::avatar::to_data_url(crate::avatar::AvatarMime::Png, b"\x89PNG fake");
+
+        // 备份侧：同 id 条目带自定义头像
+        let mut backup = single_native_config(&source_vault, "same-id", "备份名称", "sk-backup");
+        backup.providers[0].avatar = Some(png.clone());
+        let package = dir.join("pkg.qtray-export");
+        export_config_to_path_with_options(
+            &backup,
+            &source_vault,
+            None,
+            None,
+            &ExportOptions::Convenient,
+            &package,
+        )
+        .unwrap();
+
+        // 本机侧：同 id，无自定义头像
+        let local_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let local = single_native_config(&local_vault, "same-id", "本机名称", "sk-local");
+        assert_eq!(local.providers[0].avatar, None);
+        let config_path = dir.join("config.json");
+        local.save(&config_path).unwrap();
+
+        let bytes = fs::read(&package).unwrap();
+        let bundle = import_config_bytes_to_path_with_options(
+            &bytes,
+            &local_vault,
+            &ImportOptions {
+                password: None,
+                strategy: ImportStrategy::Merge,
+            },
+            &config_path,
+        )
+        .unwrap();
+        assert_eq!(bundle.counts.providers_skipped, 1);
+
+        let restored = AppConfig::load(&config_path).unwrap();
+        assert_eq!(
+            restored.providers[0].avatar, None,
+            "合并导入同 id 以本机为准，备份头像不落地"
+        );
+        assert_eq!(restored.providers[0].name, "本机名称");
+        let _ = fs::remove_dir_all(dir);
+    }
+
     // ---- 导入双模：合并并集与覆盖全量替换（工单 #121）----
 
     /// 构造单条 native 条目配置，供双模测试拼装两台机器的不同条目集。
@@ -2334,6 +2427,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         entry.set_api_key(vault, secret).unwrap();
         AppConfig {

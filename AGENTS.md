@@ -151,6 +151,7 @@ QuotaTray/
 │   └── quota-core/ # 业务核心库（无 UI）
 │       ├── Cargo.toml # core crate 清单
 │       ├── src/       # core 源码
+│       │   ├── avatar.rs        # 条目头像取值契约与校验
 │       │   ├── config/          # 配置层
 │       │   │   ├── mod.rs      # AppConfig 原子读写
 │       │   │   ├── provider.rs # 凭据与条目类型

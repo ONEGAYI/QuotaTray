@@ -583,6 +583,23 @@ export const zh = {
   "pricing.resetTier": "恢复继承",
   "pricing.inheritValue": "继承 {value}",
   "pricing.noValue": "未设置",
+
+  // ---- 条目头像 ----
+  "avatar.open": "更换头像",
+  "avatar.title": "更换头像",
+  "avatar.description": "为「{name}」挑一个内置品牌图，或上传自己的 SVG / PNG。",
+  "avatar.preview": "当前头像",
+  "avatar.sourceDefault": "跟随平台品牌图",
+  "avatar.sourceBrand": "内置品牌图：{slug}",
+  "avatar.sourceUpload": "已上传的自定义图片",
+  "avatar.upload": "上传图片",
+  "avatar.preparing": "处理中…",
+  "avatar.reset": "恢复默认",
+  "avatar.builtinHeading": "内置品牌图",
+  "avatar.builtinHint": "点选即可替换，保存后生效。",
+  "avatar.formatHint": "支持 SVG 与 PNG；PNG 长边超过 256px 会自动缩小，SVG 保持矢量清晰度。",
+  "avatar.pickTitle": "选择头像图片",
+  "avatar.filterName": "图片（SVG / PNG）",
 } as const;
 
 export type TextKey = keyof typeof zh;
