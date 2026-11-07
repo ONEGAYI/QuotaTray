@@ -592,4 +592,21 @@ export const en: Record<TextKey, string> = {
   "pricing.resetTier": "Use preset",
   "pricing.inheritValue": "Preset {value}",
   "pricing.noValue": "Not set",
+
+  // ---- Entry avatar ----
+  "avatar.open": "Change avatar",
+  "avatar.title": "Change avatar",
+  "avatar.description": "Pick a built-in brand mark for \"{name}\" or upload your own SVG / PNG.",
+  "avatar.preview": "Current avatar",
+  "avatar.sourceDefault": "Using the platform brand mark",
+  "avatar.sourceBrand": "Built-in brand mark: {slug}",
+  "avatar.sourceUpload": "Uploaded image",
+  "avatar.upload": "Upload image",
+  "avatar.preparing": "Processing…",
+  "avatar.reset": "Use default",
+  "avatar.builtinHeading": "Built-in brand marks",
+  "avatar.builtinHint": "Pick one to preview; it takes effect after saving.",
+  "avatar.formatHint": "SVG and PNG supported. PNGs wider than 256px are downscaled; SVGs stay crisp.",
+  "avatar.pickTitle": "Choose an avatar image",
+  "avatar.filterName": "Images (SVG / PNG)",
 };

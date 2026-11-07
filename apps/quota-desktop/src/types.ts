@@ -173,6 +173,9 @@ export interface ProviderEntry {
   use_proxy?: boolean;
   /** 控制台直达 URL 覆盖（明文，非敏感；缺省 = native 条目回退预置默认） */
   console_url?: string;
+  /** 条目头像覆盖：`brand:<slug>` 选内置品牌图，或 `data:image/...` 上传图；
+   *  缺省 = 跟随平台品牌图。取值契约见 core `avatar` 模块与 CONTEXT.md 词条。 */
+  avatar?: string;
 }
 
 /** 订阅套餐变体（core PlanVariant 镜像，serde snake_case）。 */

@@ -31,7 +31,7 @@ import { usePeakFlipTick, useProviderQuery } from "../queries";
 import type { DragHandleProps } from "../useCardDragSort";
 import type { NativeMeta, ProviderEntry, SnapshotEntry } from "../types";
 import { canCopyError, deriveProviderCardState, errorCopyText, primaryValue, resolveConsoleUrl } from "./providerCardView";
-import { isLightLogo, providerIconUrl, providerInitials, templateProviderIconUrl } from "./providerIcon";
+import { ProviderAvatar } from "./ProviderAvatar";
 import {
   pricingModelChoices,
   resolveProviderPricingView,
@@ -54,6 +54,8 @@ interface Props {
    *  定案），桌面保持名称行内迷你图标钮。 */
   mobile?: boolean;
   onEdit: (entry: ProviderEntry, usageCurrency?: string) => void;
+  /** 打开头像设置弹窗（头像悬浮齿轮 / Android 长按触发）。 */
+  onEditAvatar?: (entry: ProviderEntry) => void;
   /** 拖拽把手事件（列表级排序状态机下发；缺省则不渲染把手）。 */
   dragHandleProps?: DragHandleProps;
   /** 让位偏移（px）：拖拽会话期间由父级下发，undefined = 常态无位移。 */
@@ -89,6 +91,7 @@ export const ProviderCard = memo(function ProviderCard({
   consoleLink,
   mobile,
   onEdit,
+  onEditAvatar,
   dragHandleProps,
   dragShift,
   isDragSource,
@@ -138,13 +141,9 @@ export const ProviderCard = memo(function ProviderCard({
     entry.pricing?.model,
   );
   const platformName = kindLabel(entry.kind, nativeMeta?.name, lang);
-  const platformIconUrl =
-    entry.kind.type === "native"
-      ? providerIconUrl(entry.kind.provider)
-      : templateProviderIconUrl(entry.name);
-  // 浅色品牌图（StepFun 纯白）需深底变体；无图标走首字母回退时不涉及
-  const platformLightLogo =
-    entry.kind.type === "native" && isLightLogo(entry.kind.provider);
+  // 头像解析收敛在 ProviderAvatar 组件内（条目覆盖 → 平台品牌图 → 首字母），
+  // 这里只提供 native 维度
+  const avatarNativeId = entry.kind.type === "native" ? entry.kind.provider : null;
   const explicitModelChoice = entry.pricing?.model
     ? modelChoices.find(
         (choice) => choice.modelId?.toLowerCase() === entry.pricing?.model?.toLowerCase(),
@@ -291,13 +290,15 @@ export const ProviderCard = memo(function ProviderCard({
       )}
       <div className="qt-provider-primary">
         <div className="qt-provider-identity">
-          <span className={`qt-provider-avatar${platformLightLogo ? " is-light-logo" : ""}`}>
-            {platformIconUrl ? (
-              <img src={platformIconUrl} alt="" aria-hidden="true" draggable={false} />
-            ) : (
-              providerInitials(platformName)
-            )}
-          </span>
+          <ProviderAvatar
+            avatar={entry.avatar}
+            nativeId={avatarNativeId}
+            entryName={entry.name}
+            platformName={platformName}
+            className="qt-provider-avatar"
+            mobile={mobile}
+            onEdit={onEditAvatar ? () => onEditAvatar(entry) : undefined}
+          />
           <div className="qt-provider-heading">
             <div className="qt-provider-name-row">
               <h2>{entry.name}</h2>

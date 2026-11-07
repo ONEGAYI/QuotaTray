@@ -492,8 +492,6 @@ body.qt-mobile-runtime .qt-usage-marker-readout { min-height: 112px; }
 .qt-provider-card.is-disabled { opacity: .62; }
 .qt-provider-primary { display: grid; grid-template-columns: minmax(240px, 1fr) max-content max-content; min-height: 98px; align-items: center; gap: 20px; padding: 16px 18px 16px 27px; }
 .qt-provider-identity { display: flex; min-width: 0; align-items: center; gap: 12px; }
-.qt-provider-avatar { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--qt-logo-chip-border) 22%, transparent); border-radius: var(--qt-radius-lg); background: var(--qt-logo-chip-bg); color: var(--qt-logo-chip-fg); font-size: 13px; font-weight: 650; box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 28%, transparent); }
-.qt-provider-avatar img { display: block; width: 30px; height: 30px; object-fit: contain; }
 .qt-provider-heading { min-width: 0; }
 .qt-provider-name-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .qt-provider-name-row h2 { overflow: hidden; margin: 0; font-size: 17px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -837,6 +835,11 @@ body.qt-hover-body { overflow: hidden; background: transparent; }
 }
 .qt-hover-avatar-inner.is-light-logo { background: var(--qt-logo-chip-bg-invert); color: var(--qt-logo-chip-fg-invert); }
 .qt-hover-avatar-inner img { display: block; width: 20px; height: 20px; object-fit: contain; }
+/* 自定义图在悬停面板同样铺满（与卡片、弹窗预览同一套形态分流）：
+   浅底是为单色深 logo 的可见性服务的，照片铺底时反而污染颜色 */
+/* 浅色变体优先：is-custom 只在非浅色时改底，避免同特异性规则互相覆盖 */
+.qt-hover-avatar-inner.is-upload:not(.is-light-logo) { border-color: color-mix(in srgb, var(--qt-logo-chip-border) 30%, transparent); background: var(--qt-surface-soft); }
+.qt-hover-avatar-inner.is-upload img { width: 100%; height: 100%; object-fit: cover; }
 .qt-hover-row-id { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .qt-hover-row-name { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .qt-hover-row-title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -1151,7 +1154,7 @@ ol.qt-guide-list { list-style: decimal; }
 .qt-native-picker-value-icon, .qt-native-picker-group-icon { display: grid; flex: none; place-items: center; border: 1px solid color-mix(in srgb, var(--qt-logo-chip-border) 20%, transparent); background: var(--qt-logo-chip-bg); color: var(--qt-logo-chip-fg); }
 /* 图标容器统一固定浅底（不随主题），保证单色深色 logo 在明暗主题下均可见；
  * 浅色品牌图（StepFun 纯白）换深底变体（is-light-logo 由 providerIcon 判定加类） */
-.qt-provider-avatar.is-light-logo, .qt-native-picker-value-icon.is-light-logo, .qt-native-picker-group-icon.is-light-logo { background: var(--qt-logo-chip-bg-invert); color: var(--qt-logo-chip-fg-invert); }
+.qt-native-picker-value-icon.is-light-logo, .qt-native-picker-group-icon.is-light-logo { background: var(--qt-logo-chip-bg-invert); color: var(--qt-logo-chip-fg-invert); }
 .qt-native-picker-value-icon { width: 25px; height: 25px; border-radius: var(--qt-radius-xs); }
 .qt-native-picker-group-icon { width: 29px; height: 29px; border-radius: var(--qt-radius-sm); }
 .qt-native-picker-value-icon img { width: 18px; height: 18px; object-fit: contain; }
@@ -1548,3 +1551,141 @@ body.qt-mobile-runtime .qt-usage-chart-head { flex-flow: row wrap; align-items: 
 
 /* 官方模型资料：卡片正文与编辑页均提供完整触摸命中区。 */
 body.qt-mobile-runtime .qt-pricing-provenance .qt-btn { min-height: 44px; min-width: 44px; }
+
+/* ---- 条目头像（自定义更换） ----------------------------------------
+ * 卡片用 ProviderAvatar（外层可交互壳 + 内层 chip + 遮罩与齿轮浮层）；
+ * 悬停面板是独立结构（AccountAvatar 要在图标外套进度环），弹窗预览是
+ * 第三种。三者共用的是**形态类**（avatarView 产出 is-upload / is-brand /
+ * is-light-logo），所以每个容器的这三档都要有对应规则。
+ *
+ * 形态分流：跟随平台品牌图保持 contain 留边（品牌图规范，viewBox 差异大）；
+ * 用户上传图走 cover 铺满（像相册头像），且不套固定浅底——那是为单色深
+ * logo 的可见性服务的，照片铺底时反而污染颜色。 */
+
+/* 可交互壳：撑满调用方尺寸，内层 chip 继承原尺寸类 */
+.qt-avatar-edit {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+/* 纯展示分支（无 onEdit）不套可交互壳，尺寸类直接落在内层 chip 上：
+   这里给出卡片头像的 42px 基准，否则 .qt-avatar-inner 的 width:100%
+   会撑满父容器。 */
+.qt-provider-avatar:not(.qt-avatar-edit) { display: grid; width: 42px; height: 42px; flex: none; place-items: center; }
+.qt-avatar-edit:focus-visible { outline: 2px solid var(--qt-accent); outline-offset: 2px; border-radius: var(--qt-radius-lg); }
+
+/* 内层 chip：默认继承平台品牌图外观（浅底 + 边框 + 圆角） */
+.qt-avatar-inner {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--qt-logo-chip-border) 22%, transparent);
+  border-radius: var(--qt-radius-lg);
+  background: var(--qt-logo-chip-bg);
+  color: var(--qt-logo-chip-fg);
+  font-size: 13px;
+  font-weight: 650;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 28%, transparent);
+  transition: filter var(--qt-dur-2) ease;
+}
+.qt-avatar-inner.is-light-logo { background: var(--qt-logo-chip-bg-invert); color: var(--qt-logo-chip-fg-invert); }
+/* 自定义图铺满：去掉固定浅底与内边距，图片吃满整个圆角容器 */
+/* 自定义图铺满时不套固定浅底——浅底是为单色深 logo 的可见性服务的。
+   用 :not(.is-light-logo) 排除浅色变体，否则两条同特异性规则按文件顺序
+   相互覆盖，选浅色品牌图（stepfun）会得到白底白图。 */
+.qt-avatar-inner.is-upload:not(.is-light-logo) { border-color: color-mix(in srgb, var(--qt-logo-chip-border) 30%, transparent); background: var(--qt-surface-soft); }
+.qt-avatar-inner img { display: block; width: 30px; height: 30px; object-fit: contain; }
+.qt-avatar-inner.is-upload img { width: 100%; height: 100%; object-fit: cover; }
+
+/* 遮罩：hover/focus 时底层变灰（所有者 2026-11 定案的原话「底层变灰」）。
+ * 用半透明深色叠加而非 filter: grayscale——后者会把彩色合照整张去色，
+ * 视觉上像「图坏了」；叠加只压暗，仍能认出是同一张图。 */
+.qt-avatar-scrim {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--qt-radius-lg);
+  background: color-mix(in srgb, var(--qt-text) 46%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--qt-dur-2) ease;
+}
+/* 齿轮：右下角小圆钮，hover/focus 时浮出 */
+.qt-avatar-gear {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--qt-accent) 42%, var(--qt-border));
+  border-radius: 50%;
+  background: var(--qt-surface);
+  color: var(--qt-accent-strong);
+  box-shadow: 0 2px 6px var(--qt-shadow);
+  opacity: 0;
+  transform: scale(.82);
+  transition: opacity var(--qt-dur-2) ease, transform var(--qt-dur-2) ease;
+}
+.qt-avatar-edit:hover .qt-avatar-scrim,
+.qt-avatar-edit:focus-visible .qt-avatar-scrim { opacity: 1; }
+.qt-avatar-edit:hover .qt-avatar-gear,
+.qt-avatar-edit:focus-visible .qt-avatar-gear { opacity: 1; transform: scale(1); }
+/* 触屏：无 hover，齿轮常显但降透明度（提示可点），按下时实心 */
+.qt-avatar-edit.is-touch .qt-avatar-gear { opacity: .72; transform: scale(1); }
+.qt-avatar-edit.is-touch:active .qt-avatar-scrim { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qt-avatar-inner, .qt-avatar-scrim, .qt-avatar-gear { transition: none; }
+}
+
+/* ---- 头像设置弹窗 ---- */
+.qt-avatar-body { display: flex; flex-direction: column; gap: 18px; }
+.qt-avatar-preview { display: flex; align-items: center; gap: 14px; border: 1px solid var(--qt-border); border-radius: var(--qt-radius-md); padding: 14px; background: var(--qt-surface-soft); }
+.qt-avatar-preview-chip { display: grid; width: 56px; height: 56px; flex: none; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--qt-logo-chip-border) 22%, transparent); border-radius: var(--qt-radius-lg); background: var(--qt-logo-chip-bg); color: var(--qt-logo-chip-fg); font-size: 16px; font-weight: 650; box-shadow: 0 1px 2px color-mix(in srgb, var(--qt-shadow) 28%, transparent); }
+.qt-avatar-preview-chip.is-light-logo { background: var(--qt-logo-chip-bg-invert); color: var(--qt-logo-chip-fg-invert); }
+.qt-avatar-preview-chip.is-upload:not(.is-light-logo) { background: var(--qt-surface); }
+.qt-avatar-preview-chip img { display: block; width: 38px; height: 38px; object-fit: contain; }
+.qt-avatar-preview-chip.is-upload img { width: 100%; height: 100%; object-fit: cover; }
+.qt-avatar-preview-meta { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.qt-avatar-preview-meta strong { font-size: 13px; font-weight: 600; }
+.qt-avatar-preview-meta small { overflow: hidden; color: var(--qt-text-soft); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.qt-avatar-preview-actions { display: flex; flex: none; gap: 8px; }
+
+.qt-avatar-builtin h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.qt-avatar-hint { margin: 4px 0 0; color: var(--qt-text-soft); font-size: 12px; line-height: 1.5; }
+/* 网格：每格 44px 命中区，图标 30px；不固定列数以适配窄窗 */
+.qt-avatar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 8px; margin-top: 10px; }
+.qt-avatar-choice {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--qt-logo-chip-border) 20%, transparent);
+  border-radius: var(--qt-radius-md);
+  padding: 0;
+  background: var(--qt-logo-chip-bg);
+  cursor: pointer;
+  transition: border-color var(--qt-dur-2) ease, box-shadow var(--qt-dur-2) ease;
+}
+.qt-avatar-choice:hover { border-color: color-mix(in srgb, var(--qt-accent) 55%, var(--qt-border)); }
+.qt-avatar-choice.is-active { border-color: var(--qt-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--qt-accent) 22%, transparent); }
+/* 挑图格同样是品牌图容器：浅色图形（stepfun 纯白）要换深底才看得见 */
+.qt-avatar-choice.is-light-logo { background: var(--qt-logo-chip-bg-invert); }
+.qt-avatar-choice:focus-visible { outline: 2px solid var(--qt-accent); outline-offset: 1px; }
+.qt-avatar-choice img { display: block; width: 30px; height: 30px; object-fit: contain; }
+.qt-avatar-error { margin: 0; border-radius: var(--qt-radius-sm); padding: 9px 12px; background: color-mix(in srgb, var(--qt-danger) 12%, transparent); color: var(--qt-danger); font-size: 12px; line-height: 1.5; }
+
+body.qt-mobile-runtime .qt-avatar-choice { min-width: 52px; min-height: 52px; }
+body.qt-mobile-runtime .qt-avatar-preview { flex-wrap: wrap; }
+body.qt-mobile-runtime .qt-avatar-preview-actions { width: 100%; justify-content: flex-end; }
+body.qt-mobile-runtime .qt-avatar-preview-actions .qt-btn { min-height: 44px; }

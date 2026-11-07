@@ -252,6 +252,8 @@ pub fn assemble_entry(
         primary_metric: Default::default(),
         use_proxy,
         console_url: None,
+        // 头像覆盖（None = 跟随平台品牌图）
+        avatar: None,
     };
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         let vault = ctx.open_vault()?;
@@ -494,6 +496,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         });
 
         for lang in [Lang::Zh, Lang::En] {
@@ -526,6 +530,8 @@ mod tests {
                 primary_metric: Default::default(),
                 use_proxy: false,
                 console_url: None,
+                // 头像覆盖（None = 跟随平台品牌图）
+                avatar: None,
             };
             assert_eq!(
                 check_entry(&e2, &cfg, lang).unwrap_err(),

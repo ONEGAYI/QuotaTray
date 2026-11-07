@@ -391,6 +391,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         }
     }
 
@@ -420,6 +422,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         }
     }
 
@@ -667,6 +671,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         let resolved = pricing::resolve(&entry).unwrap();
         let j = serde_json::to_value(show_json(&entry.id, &entry.name, &resolved, PEAK_NOW_MS))
@@ -699,6 +705,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         AppConfig {
             custom_models: Default::default(),

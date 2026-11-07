@@ -67,6 +67,12 @@ pub struct ProviderEntry {
     /// 模板/脚本条目仅此字段生效。旧配置无此字段天然兼容。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console_url: Option<String>,
+    /// 条目头像覆盖（`brand:<slug>` 或 data URL，取值契约见 `avatar` 模块）。
+    /// None = 跟随平台品牌图（native 官方 logo / 模板脚本按名称启发）。
+    /// 内嵌进配置而非外置文件：导出包自动携带，清理与删除无需额外
+    /// 文件生命周期。旧配置无此字段天然兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -192,6 +198,75 @@ mod tests {
         p
     }
 
+    /// 契约：旧配置无 avatar 字段天然兼容；None 不落盘；设值可往返。
+    #[test]
+    fn avatar_field_compat() {
+        let json = r#"{"id":"e1","name":"n","kind":{"type":"native","provider":"deepseek"}}"#;
+        let e: ProviderEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(e.avatar, None);
+        assert!(
+            !serde_json::to_string(&e).unwrap().contains("avatar"),
+            "None 应省略字段"
+        );
+
+        for value in [
+            "brand:openai".to_string(),
+            crate::avatar::to_data_url(crate::avatar::AvatarMime::Png, b"\x89PNG fake"),
+        ] {
+            assert!(
+                crate::avatar::validate(&value).is_ok(),
+                "测试前置：取值应合法 {value}"
+            );
+            let with_avatar = ProviderEntry {
+                avatar: Some(value.clone()),
+                ..e.clone()
+            };
+            let s = serde_json::to_string(&with_avatar).unwrap();
+            let back: ProviderEntry = serde_json::from_str(&s).unwrap();
+            assert_eq!(back.avatar.as_deref(), Some(value.as_str()));
+        }
+    }
+
+    /// 契约：头像随配置整条落盘往返，清空后回到「跟随平台」。
+    #[test]
+    fn avatar_roundtrip_through_disk() {
+        let dir = std::env::temp_dir().join(format!("qt-avatar-cfg-{}", std::process::id()));
+        let path = dir.join("config.json");
+        let mut cfg = AppConfig::default();
+        cfg.providers.push(ProviderEntry {
+            id: "e1".into(),
+            name: "n".into(),
+            kind: ProviderKind::Native {
+                provider: "deepseek".into(),
+            },
+            enabled: true,
+            api_key_enc: None,
+            api_key2_enc: None,
+            base_url: None,
+            pricing: None,
+            plan_variant: PlanVariant::Auto,
+            primary_metric: Default::default(),
+            use_proxy: false,
+            console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: Some("brand:kimi".into()),
+        });
+        cfg.save(&path).unwrap();
+        assert_eq!(
+            AppConfig::load(&path).unwrap().providers[0]
+                .avatar
+                .as_deref(),
+            Some("brand:kimi")
+        );
+
+        cfg.providers[0].avatar = None;
+        cfg.save(&path).unwrap();
+        let loaded = AppConfig::load(&path).unwrap();
+        assert_eq!(loaded.providers[0].avatar, None);
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("avatar"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// 契约：console_url 为可选明文字段——旧配置（无该字段）可解析，
     /// None 序列化时省略，有值时 roundtrip 保真。
     #[test]
@@ -284,6 +359,8 @@ mod tests {
                 primary_metric: Default::default(),
                 use_proxy: false,
                 console_url: None,
+                // 头像覆盖（None = 跟随平台品牌图）
+                avatar: None,
             }],
             custom_models: std::collections::BTreeMap::from([(
                 "deepseek".to_string(),
@@ -377,6 +454,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         entry.set_api_key(&vault, "sk-plaintext-secret").unwrap();
 
@@ -413,6 +492,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         entry.set_api_key(&vault, "sk-abc").unwrap();
         assert_eq!(
@@ -441,6 +522,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         entry.set_api_key(&vault, "sys-access-token").unwrap();
         assert!(entry.credentials(&vault).unwrap().api_key2.is_none());
@@ -486,6 +569,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         let err = entry.credentials(&vault).unwrap_err();
         assert!(!err.is_transient());
@@ -510,6 +595,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         a.set_api_key(&vault, "sk-abc").unwrap();
         let mut b = a.clone();

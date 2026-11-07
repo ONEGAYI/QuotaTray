@@ -32,6 +32,10 @@ dirs = { workspace = true }
 log = { workspace = true }        # 迁移降级告警经 log facade 进 JSONL 滚动日志；装配经 core 的 flexi-logging feature
 # 桌面端私有依赖（不动 workspace 根共享段）：
 sys-locale = "0.3"   # language=system 时解析系统 locale
+# 自定义头像上传规整（avatar_import.rs）：解码 → 等比缩放 → 重编码 PNG。
+# 版本与锁文件中 tauri 的 image-png 特性带入的一致（0.25.9），不新增下载。
+image = { version = "0.25", default-features = false, features = ["png"] }
+thiserror = { workspace = true } # 头像规整错误的确定性分类（文案随 i18n 呈现）
 async-trait = "0.1"  # update_ctl 测试注入 mock HttpClient/AssetDownloader
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -59,6 +63,7 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 rusqlite = { workspace = true } # 迁移降级契约测试：并发独占连接注入历史库写失败（#130）
+base64 = { workspace = true }   # 头像规整测试：回解 data URL 校验缩放结果
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dev-dependencies]
 tauri = { version = "2", features = ["test"] } # 单实例插件初始化早于 AppState 的状态契约

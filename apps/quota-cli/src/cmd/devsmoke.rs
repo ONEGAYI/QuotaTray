@@ -108,6 +108,8 @@ pub async fn run(key_file: Option<PathBuf>, proxy: bool, lang: Lang) -> i32 {
             primary_metric: Default::default(),
             use_proxy: proxy,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         };
         // CLI 凭据型平台（订阅四家）：key 文件条目只是「要测这个」的
         // 开关（占位值即可），凭据实际来自本机官方 CLI 登录文件

@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { Plus, Settings as SettingsIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { api } from "./api";
+import { AvatarDialog } from "./components/AvatarDialog";
+import { kindLabel } from "./display";
 import { EditDialog } from "./components/EditDialog";
 import { PortableInitGate } from "./components/PortableInitGate";
 import { MainPanelTabs } from "./components/MainPanelTabs";
@@ -41,7 +43,7 @@ const queryClient = new QueryClient();
 
 function AppInner({ platform }: { platform: RuntimePlatform }) {
   useRefreshNow();
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const runtime = runtimeUiPolicy(platform);
   useEffect(() => {
     document.body.classList.toggle("qt-mobile-runtime", runtime.mobile);
@@ -239,6 +241,20 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<ProviderEntry | null>(null);
   const [editingCurrency, setEditingCurrency] = useState<string | undefined>();
+  // 头像设置弹窗目标：非 null 即打开（与编辑弹窗互相独立，可各自开关）
+  const [avatarTarget, setAvatarTarget] = useState<ProviderEntry | null>(null);
+  // 头像弹窗的平台文案与品牌 id：一处算好再下发，避免在 JSX 里嵌套窄化
+  const avatarNativeId =
+    avatarTarget?.kind.type === "native" ? avatarTarget.kind.provider : null;
+  const avatarPlatformName = avatarTarget
+    ? kindLabel(
+        avatarTarget.kind,
+        avatarNativeId
+          ? nativeMetas.data?.find((meta) => meta.id === avatarNativeId)?.name
+          : undefined,
+        lang,
+      )
+    : undefined;
   // 每次打开/关闭都递增：新增与编辑共用，取消后重开不残留上次中间态
   // （含 key 输入框——残留会导致"只想改名"的保存把放弃的 key 一并写入）
   const [dialogSeq, setDialogSeq] = useState(0);
@@ -311,6 +327,11 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
     setEditingCurrency(usageCurrency);
     setDialogSeq((sequence) => sequence + 1);
     setEditOpen(true);
+  }, []);
+
+  // 头像入口（卡片悬浮齿轮 / Android 长按）：独立于编辑弹窗
+  const handleEditAvatar = useCallback((provider: ProviderEntry) => {
+    setAvatarTarget(provider);
   }, []);
 
   const openAdd = () => {
@@ -431,6 +452,7 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
                     consoleLink={runtime.consoleLink}
                     mobile={runtime.mobile}
                     onEdit={handleEdit}
+                    onEditAvatar={handleEditAvatar}
                     dragHandleProps={dragSort.handleProps(entry.id)}
                     dragShift={
                       dragSort.active && entry.id !== dragSort.dragId
@@ -474,6 +496,17 @@ function AppInner({ platform }: { platform: RuntimePlatform }) {
           setDialogSeq((s) => s + 1); // 关闭即作废当前表单态，重开从 initial 重建
         }}
         key={`${editing?.id ?? "new"}-${dialogSeq}`}
+      />
+      <AvatarDialog
+        open={avatarTarget !== null}
+        entryId={avatarTarget?.id ?? ""}
+        entryName={avatarTarget?.name ?? ""}
+        platformName={avatarPlatformName}
+        nativeId={avatarNativeId}
+        currentAvatar={avatarTarget?.avatar}
+        mobile={runtime.mobile}
+        onClose={() => setAvatarTarget(null)}
+        key={avatarTarget?.id ?? "none"}
       />
       <SettingsDialog
         open={settingsOpen}

@@ -663,7 +663,10 @@ pub fn upsert_provider(
     validate_entry(&entry, lang)?;
     let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
     let existing = cfg.providers.iter().find(|p| p.id == entry.id).cloned();
-    let mut entry = entry;
+    // 头像只经 set_provider_avatar 写入：upsert 是「整条覆盖」语义，若照单
+    // 全收前端传值，任何一次编辑（EditDialog 不组装头像字段）都会把它抹掉
+    // ——use_proxy 曾踩过同类问题。这里显式沿用已存值。
+    let mut entry = preserve_avatar_on_upsert(entry, existing.as_ref());
     apply_key_policy(
         &mut entry,
         existing.as_ref(),
@@ -696,6 +699,135 @@ pub fn upsert_provider(
     // 查询与后端补查会并发双查同一平台 API。
     emit_providers_changed(&app, &entry_id);
     Ok(())
+}
+
+/// 设置条目头像（`brand:<slug>` 或已规整的 data URL；空串 = 恢复平台默认）。
+///
+/// 独立命令而非走 `upsert_provider`：头像与条目其余字段的写入时机不同
+/// （悬浮齿轮入口随时可改，不经过编辑弹窗），拆开后既避免「整条覆盖」
+/// 抹掉头像，也避免「改头像」触发一次与查询无关的整条 upsert。
+///
+/// 前端传入的取值由 [`crate::avatar_import::normalize`] 产出；这里再跑一次
+/// core 校验，挡住绕过前端的调用（命令层是唯一落盘入口）。
+#[tauri::command]
+pub fn set_provider_avatar(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    avatar: String,
+) -> Result<(), String> {
+    let lang = lang_of(&state);
+    let mut cfg = AppConfig::load(&state.paths.config()).map_err(|e| e.to_string())?;
+    let entry = cfg
+        .providers
+        .iter_mut()
+        .find(|p| p.id == id)
+        .ok_or_else(|| lang.err_entry_not_found(&id))?;
+
+    let next =
+        resolve_avatar_request(&avatar).map_err(|e| lang.err_avatar_invalid(&e.to_string()))?;
+    if entry.avatar == next {
+        return Ok(());
+    }
+    entry.avatar = next;
+    cfg.save(&state.paths.config()).map_err(|e| e.to_string())?;
+
+    // 头像不影响查询结果：不失效 results、不触发重查，只重建托盘图标
+    // （显示目标条目的头像不参与托盘绘制）与广播列表变更让卡片重渲染。
+    after_state_change(&app, &state);
+    emit_providers_changed(&app, &id);
+    Ok(())
+}
+
+/// 把 IPC 传入的头像取值折成落盘形态（纯函数，供命令与测试共用）。
+///
+/// 空串/纯空白 = 请求清除自定义头像（回到平台品牌图），返回 `None`；
+/// 其余取值跑一次 core 校验后规范化（去掉首尾空白）。
+fn resolve_avatar_request(value: &str) -> Result<Option<String>, quota_core::avatar::AvatarError> {
+    if crate::avatar_import::is_clear_request(value) {
+        return Ok(None);
+    }
+    let trimmed = value.trim();
+    quota_core::avatar::validate(trimmed)?;
+    Ok(Some(trimmed.to_string()))
+}
+
+/// upsert 落地前的头像取舍（纯函数）。
+///
+/// 头像只经 `set_provider_avatar` 写入，因此这里无条件采用**已存值**：
+/// 前端传入的 `avatar` 一律丢弃。新条目（无既有记录）没有已存值，
+/// 结果是 `None`（跟随平台品牌图）——新建时本来也不该带自定义头像。
+fn preserve_avatar_on_upsert(
+    mut incoming: ProviderEntry,
+    existing: Option<&ProviderEntry>,
+) -> ProviderEntry {
+    incoming.avatar = existing.and_then(|e| e.avatar.clone());
+    incoming
+}
+
+/// 读取用户选中的头像文件并规整成可落盘的取值。
+///
+/// 文件选择由前端 dialog 插件完成（桌面返回普通路径，Android 返回
+/// `content://` URI），本命令只负责读字节 + 规整：桌面直读文件系统；
+/// Android 走 SAF 流式读取（复用迁移导入的既有通路）。
+///
+/// 返回规整后的头像字符串，调用方确认后再交给 `set_provider_avatar`
+/// 落盘——两侧分开是为了让用户在模态窗里先看到预览再决定。
+#[tauri::command]
+pub async fn prepare_provider_avatar(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    let lang = lang_of(&state);
+    let bytes = read_avatar_source(&app, &path).map_err(|e| lang.err_avatar_read(&e))?;
+    crate::avatar_import::normalize(&bytes).map_err(|e| lang.err_avatar_invalid(&e.to_string()))
+}
+
+/// 读取头像源文件字节：桌面临时路径直读，Android `content://` 走 SAF。
+#[cfg(not(target_os = "android"))]
+fn read_avatar_source(_app: &AppHandle, path: &str) -> Result<Vec<u8>, String> {
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if meta.len() > crate::avatar_import::AVATAR_MAX_SOURCE_BYTES as u64 {
+        return Err(format!(
+            "文件过大：{} 字节，上限 {} 字节",
+            meta.len(),
+            crate::avatar_import::AVATAR_MAX_SOURCE_BYTES
+        ));
+    }
+    std::fs::read(path).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+fn read_avatar_source(app: &AppHandle, path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use tauri_plugin_fs::FsExt;
+
+    if !is_android_document_uri(path) {
+        // Android 上 dialog 返回的是 SAF URI；普通路径不在授权范围内，
+        // 直接给出可读错误而不是让底层权限报错穿到界面
+        return Err(format!("不支持的路径形态：{path}"));
+    }
+    let file_path = match path.parse::<tauri_plugin_fs::FilePath>() {
+        Ok(p) => p,
+        Err(never) => match never {},
+    };
+    let mut options = tauri_plugin_fs::OpenOptions::new();
+    options.read(true);
+    let source = app
+        .fs()
+        .open(file_path, options)
+        .map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    // 与迁移导入同口径：读侧限流是 content:// 唯一的体积防线
+    source
+        .take(crate::avatar_import::AVATAR_MAX_SOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > crate::avatar_import::AVATAR_MAX_SOURCE_BYTES {
+        return Err("文件超过头像源体积上限".into());
+    }
+    Ok(bytes)
 }
 
 #[tauri::command]
@@ -1106,6 +1238,8 @@ pub async fn test_template(
         primary_metric: Default::default(),
         use_proxy: false,
         console_url: None,
+        // 头像覆盖（None = 跟随平台品牌图）
+        avatar: None,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -1212,6 +1346,8 @@ pub async fn test_script(
         primary_metric: Default::default(),
         use_proxy: false,
         console_url: None,
+        // 头像覆盖（None = 跟随平台品牌图）
+        avatar: None,
     };
     entry
         .set_api_key(&state.vault, &key)
@@ -2795,6 +2931,8 @@ mod tests {
             primary_metric: Default::default(),
             use_proxy: false,
             console_url: None,
+            // 头像覆盖（None = 跟随平台品牌图）
+            avatar: None,
         }
     }
 
@@ -3620,6 +3758,136 @@ mod tests {
             e.credentials(&vault).is_err(),
             "未配主 key 时解密仍应失败（主 key 必填语义不变）"
         );
+    }
+
+    /// 契约：头像从上传规整到落盘、再到导出包往返的完整链路——覆盖
+    /// 「用户传图 → data URL → config.json → .qtray-export → 另一台机器」，
+    /// 中间不经过任何前端组装逻辑。
+    #[test]
+    fn avatar_flows_from_upload_through_export() {
+        let vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let dir = std::env::temp_dir().join(format!("qt-avatar-e2e-{}", std::process::id()));
+        let source_cfg = dir.join("source").join("config.json");
+        let bundle = dir.join("backup.qtray-export");
+        std::fs::create_dir_all(source_cfg.parent().unwrap()).unwrap();
+
+        // 1. 用户上传一张 PNG：规整成可落盘的 data URL
+        let png = make_test_png(600, 300);
+        let normalized = crate::avatar_import::normalize(&png).unwrap();
+        assert!(normalized.starts_with("data:image/png;base64,"));
+
+        // 2. 走命令层的取值解析后落进配置
+        let next = resolve_avatar_request(&normalized).unwrap();
+        assert_eq!(
+            next.as_deref(),
+            Some(normalized.as_str()),
+            "合法取值应原样保留"
+        );
+        let mut config = AppConfig {
+            providers: vec![ProviderEntry {
+                avatar: next,
+                ..entry("p1")
+            }],
+            custom_models: Default::default(),
+        };
+        config.save(&source_cfg).unwrap();
+
+        // 3. 重读配置：头像落盘保真
+        let reloaded = AppConfig::load(&source_cfg).unwrap();
+        assert_eq!(
+            reloaded.providers[0].avatar.as_deref(),
+            Some(normalized.as_str())
+        );
+
+        // 4. 导出 → 换一把主密钥导入：头像随迁移包完整往返
+        export_configuration_at(
+            &source_cfg,
+            &bundle,
+            &vault,
+            None,
+            None,
+            &quota_core::ExportOptions::Convenient,
+        )
+        .unwrap();
+        let target_vault = Vault::open(&InMemoryStore::new()).unwrap();
+        let target_cfg = dir.join("target").join("config.json");
+        std::fs::create_dir_all(target_cfg.parent().unwrap()).unwrap();
+        quota_core::import_config_to_path_with_options(
+            &bundle,
+            &target_vault,
+            &legacy_overwrite_options(),
+            &target_cfg,
+        )
+        .unwrap();
+        let migrated = AppConfig::load(&target_cfg).unwrap();
+        assert_eq!(
+            migrated.providers[0].avatar.as_deref(),
+            Some(normalized.as_str()),
+            "头像应随迁移包到达新机器"
+        );
+
+        // 5. 清除后回到「跟随平台」
+        assert_eq!(resolve_avatar_request("").unwrap(), None);
+        config.providers[0].avatar = None;
+        config.save(&source_cfg).unwrap();
+        assert!(
+            AppConfig::load(&source_cfg).unwrap().providers[0]
+                .avatar
+                .is_none()
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 测试助手：生成纯色 PNG 字节。
+    fn make_test_png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([90, 40, 200, 255]));
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    /// 契约：头像写入的取值解析——空白是「恢复默认」语义而非错误，
+    /// 合法取值去首尾空白后落盘，非法取值带 core 的错误文案拒绝。
+    #[test]
+    fn avatar_request_resolves_clear_and_values() {
+        assert_eq!(resolve_avatar_request("").unwrap(), None);
+        assert_eq!(resolve_avatar_request("   ").unwrap(), None);
+        assert_eq!(
+            resolve_avatar_request("  brand:openai  ").unwrap(),
+            Some("brand:openai".into())
+        );
+        // lib: 是预留形态，当前版本按非法拒绝（不让半实现状态落盘）
+        assert!(resolve_avatar_request("lib:mine").is_err());
+        assert!(resolve_avatar_request("https://example.com/a.png").is_err());
+        assert!(resolve_avatar_request("brand:BadCase").is_err());
+    }
+
+    /// 契约：upsert_provider 整条覆盖时必须沿用已存头像——EditDialog
+    /// 不组装该字段，若照单全收前端传值，编辑一次就会把用户头像抹掉
+    /// （与 use_proxy 同源的坑）。
+    #[test]
+    fn upsert_preserves_existing_avatar() {
+        let stored = ProviderEntry {
+            avatar: Some("brand:kimi".into()),
+            ..entry("p1")
+        };
+        // 编辑链路送来的条目没有头像字段
+        let incoming = entry("p1");
+        assert_eq!(incoming.avatar, None);
+
+        let merged = preserve_avatar_on_upsert(incoming, Some(&stored));
+        assert_eq!(
+            merged.avatar.as_deref(),
+            Some("brand:kimi"),
+            "已存头像必须沿用，不能被整条覆盖抹掉"
+        );
+
+        // 新增条目（无既有记录）无已存值可取，结果为 None
+        let fresh = preserve_avatar_on_upsert(entry("p2"), None);
+        assert_eq!(fresh.avatar, None);
     }
 
     /// 契约：validate_entry——合法条目通过；未知 native、非法峰谷逐一拦截（双语前缀）。

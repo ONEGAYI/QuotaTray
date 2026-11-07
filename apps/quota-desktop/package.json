@@ -15,6 +15,7 @@
     "test:edit-style": "node --test scripts/edit-dialog-style.contract.mjs",
     "test:settings-style": "node --test scripts/settings-style.contract.mjs",
     "test:hover-style": "node --test scripts/hover-style.contract.mjs",
+    "test:avatar-style": "node --test scripts/avatar-style.contract.mjs",
     "test:dev": "node --test scripts/dev.contract.mjs",
     "android:init": "tauri android init --ci --skip-targets-install && tauri icon src/assets/brand-mark.png --output src-tauri/icons && node scripts/android-post-init.mjs",
     "android:build": "node scripts/android-tauri.mjs build",

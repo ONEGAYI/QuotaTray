@@ -3579,7 +3579,9 @@ name = "quota-desktop"
 version = "0.17.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "dirs 6.0.0",
+ "image",
  "jni",
  "log",
  "ndk-context",
@@ -3596,6 +3598,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "thiserror 2.0.20",
  "tiny-skia",
  "tokio",
  "ttf-parser",

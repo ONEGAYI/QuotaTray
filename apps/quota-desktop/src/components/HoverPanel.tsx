@@ -44,12 +44,8 @@ import {
   primaryValue,
   type ProviderCardKind,
 } from "./providerCardView";
-import {
-  isLightLogo,
-  providerIconUrl,
-  providerInitials,
-  templateProviderIconUrl,
-} from "./providerIcon";
+import { resolveAvatar } from "./avatarView";
+import { providerInitials } from "./providerIcon";
 import {
   pricingModelChoices,
   resolveProviderPricingView,
@@ -229,7 +225,8 @@ function UsageWindows({
   );
 }
 
-/** 账户身份图标：预置平台用官方品牌图，模板/脚本按名称匹配或首字母。 */
+/** 账户身份图标：预置平台用官方品牌图，模板/脚本按名称匹配或首字母；
+ *  条目自定义头像优先（与卡片同一套解析，见 avatarView.resolveAvatar）。 */
 function AccountAvatar({
   entry,
   platformName,
@@ -242,9 +239,7 @@ function AccountAvatar({
   isTarget: boolean;
 }) {
   const nativeId = entry.kind.type === "native" ? entry.kind.provider : null;
-  const iconUrl = nativeId ? providerIconUrl(nativeId) : templateProviderIconUrl(entry.name);
-  const lightLogo = nativeId ? isLightLogo(nativeId) : false;
-  return (
+  const source = resolveAvatar({ avatar: entry.avatar, nativeId, entryName: entry.name });  return (
     <span className={`qt-hover-avatar${isTarget ? " is-target" : ""}`}>
       {/* 显示目标恒有环：无数据时只画轨道，标记身份不依赖数值 */}
       {isTarget && (
@@ -264,11 +259,11 @@ function AccountAvatar({
           )}
         </svg>
       )}
-      <span className={`qt-hover-avatar-inner${lightLogo ? " is-light-logo" : ""}`}>
-        {iconUrl ? (
-          <img src={iconUrl} alt="" aria-hidden="true" draggable={false} />
-        ) : (
+      <span className={`qt-hover-avatar-inner${source.className}`}>
+        {source.kind === "initials" ? (
           providerInitials(platformName)
+        ) : (
+          <img src={source.url} alt="" aria-hidden="true" draggable={false} />
         )}
       </span>
     </span>

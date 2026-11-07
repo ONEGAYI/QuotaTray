@@ -18,6 +18,8 @@ pub(crate) mod catalog_sched;
 /// 恢复消息队列）。无条件编译：纯磁盘操作全平台参与 host 单测，
 /// 前台命令路径与 Android Worker 均消费。
 mod alert_state;
+/// 自定义头像的上传规整（解码/缩放/重编码）；纯函数全平台参与单测。
+pub(crate) mod avatar_import;
 mod commands;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod hover_panel;
@@ -370,6 +372,8 @@ pub fn run() {
             commands::import_configuration,
             commands::inspect_transfer_package,
             commands::upsert_provider,
+            commands::set_provider_avatar,
+            commands::prepare_provider_avatar,
             commands::remove_provider,
             commands::reorder_providers,
             commands::clear_all_data,
